@@ -23,7 +23,7 @@ The monolithic container includes all services (PocketBase, Next.js webapp, Work
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/dastron/video-ware:latest
+docker pull ghcr.io/make-ware/video-ware:latest
 
 # Run the container
 docker run -d \
@@ -33,7 +33,7 @@ docker run -d \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
   -v video-ware-pb-data:/app/pb/pb_data \
   -v video-ware-worker-data:/app/data \
-  ghcr.io/dastron/video-ware:latest
+  ghcr.io/make-ware/video-ware:latest
 ```
 
 The application will be available at:
@@ -45,7 +45,7 @@ The application will be available at:
 
 ```bash
 # Pull a specific version
-docker pull ghcr.io/dastron/video-ware:1.0.0
+docker pull ghcr.io/make-ware/video-ware:1.0.0
 
 # Run with version tag
 docker run -d \
@@ -55,7 +55,7 @@ docker run -d \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
   -v video-ware-pb-data:/app/pb/pb_data \
   -v video-ware-worker-data:/app/data \
-  ghcr.io/dastron/video-ware:1.0.0
+  ghcr.io/make-ware/video-ware:1.0.0
 ```
 
 ### Option 2: Docker Compose (Microservices)
@@ -138,10 +138,10 @@ Video Ware images are published to GitHub Container Registry (ghcr.io) when rele
 
 The following images are available:
 
-- `ghcr.io/dastron/video-ware:latest` - Monolithic container (all services)
-- `ghcr.io/dastron/video-ware-pocketbase:latest` - PocketBase service only
-- `ghcr.io/dastron/video-ware-webapp:latest` - Next.js webapp only
-- `ghcr.io/dastron/video-ware-worker:latest` - Worker service only
+- `ghcr.io/make-ware/video-ware:latest` - Monolithic container (all services)
+- `ghcr.io/make-ware/video-ware-pocketbase:latest` - PocketBase service only
+- `ghcr.io/make-ware/video-ware-webapp:latest` - Next.js webapp only
+- `ghcr.io/make-ware/video-ware-worker:latest` - Worker service only
 
 ### Image Tags
 
@@ -231,7 +231,7 @@ docker run -d \
   -e GRACEFUL_SHUTDOWN_TIMEOUT=60 \
   -v video-ware-pb-data:/app/pb/pb_data \
   -v video-ware-worker-data:/app/data \
-  ghcr.io/dastron/video-ware:latest
+  ghcr.io/make-ware/video-ware:latest
 ```
 
 ## Persistent Data
@@ -265,7 +265,7 @@ docker compose down -v
 
 ```bash
 # Pull latest image
-docker pull ghcr.io/dastron/video-ware:latest
+docker pull ghcr.io/make-ware/video-ware:latest
 
 # Stop and remove old container
 docker stop video-ware
@@ -279,7 +279,7 @@ docker run -d \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
   -v video-ware-pb-data:/app/pb/pb_data \
   -v video-ware-worker-data:/app/data \
-  ghcr.io/dastron/video-ware:latest
+  ghcr.io/make-ware/video-ware:latest
 ```
 
 ### Docker Compose

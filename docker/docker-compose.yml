@@ -18,7 +18,7 @@ services:
       retries: 5
 
   pocketbase:
-    image: ghcr.io/dastron/video-ware-pocketbase:latest
+    image: ghcr.io/make-ware/video-ware-pocketbase:latest
     restart: unless-stopped
     ports:
       - "8090:8090"
@@ -33,7 +33,7 @@ services:
       retries: 5
 
   worker:
-    image: ghcr.io/dastron/video-ware-worker:latest
+    image: ghcr.io/make-ware/video-ware-worker:latest
     restart: unless-stopped
     ports:
       - "${BULL_BOARD_PORT:-3002}:3002"
@@ -63,7 +63,7 @@ services:
         condition: service_healthy
 
   webapp:
-    image: ghcr.io/dastron/video-ware-webapp:latest
+    image: ghcr.io/make-ware/video-ware-webapp:latest
     restart: unless-stopped
     ports:
       - "3000:3000"

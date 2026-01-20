@@ -1,0 +1,136 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection_LabelSegments = new Collection({
+    id: "pb_xupvefy1iknd24b",
+    name: "LabelSegments",
+    type: "base",
+    listRule: "@request.auth.id != \"\"",
+    viewRule: "@request.auth.id != \"\"",
+    createRule: "@request.auth.id != \"\"",
+    updateRule: "@request.auth.id != \"\"",
+    deleteRule: "@request.auth.id != \"\"",
+    manageRule: null,
+    fields: [
+    {
+      name: "id",
+      type: "text",
+      required: true,
+      autogeneratePattern: "[a-z0-9]{15}",
+      hidden: false,
+      id: "text3208210256",
+      max: 15,
+      min: 15,
+      pattern: "^[a-z0-9]+$",
+      presentable: false,
+      primaryKey: true,
+      system: true,
+    },
+    {
+      name: "created",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate2990389176",
+      onCreate: true,
+      onUpdate: false,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "updated",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate3332085495",
+      onCreate: true,
+      onUpdate: true,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "WorkspaceRef",
+      type: "relation",
+      required: true,
+      collectionId: "pb_6znl9bq7apv0rcg",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "MediaRef",
+      type: "relation",
+      required: true,
+      collectionId: "pb_1q5cu7dybj36pxm",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "LabelEntityRef",
+      type: "relation",
+      required: false,
+      collectionId: "pb_mo92djgubjkikt4",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "entity",
+      type: "text",
+      required: true,
+    },
+    {
+      name: "segmentHash",
+      type: "text",
+      required: true,
+      min: 1,
+    },
+    {
+      name: "start",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "end",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "duration",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "confidence",
+      type: "number",
+      required: false,
+      min: 0,
+      max: 1,
+    },
+    {
+      name: "version",
+      type: "number",
+      required: false,
+    },
+    {
+      name: "metadata",
+      type: "json",
+      required: true,
+    },
+  ],
+    indexes: [
+    "CREATE UNIQUE INDEX idx_label_segment_hash ON LabelSegment (segmentHash)",
+    "CREATE INDEX idx_label_segment_workspace ON LabelSegment (WorkspaceRef)",
+    "CREATE INDEX idx_label_segment_media ON LabelSegment (MediaRef)",
+    "CREATE INDEX idx_label_segment_entity ON LabelSegment (LabelEntityRef)",
+  ],
+  });
+
+  return app.save(collection_LabelSegments);
+}, (app) => {
+  const collection_LabelSegments = app.findCollectionByNameOrId("LabelSegments");
+  return app.delete(collection_LabelSegments);
+});

@@ -1,0 +1,153 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection_MediaRecommendations = new Collection({
+    id: "pb_85qd7k3nik12v7r",
+    name: "MediaRecommendations",
+    type: "base",
+    listRule: "@request.auth.id != \"\"",
+    viewRule: "@request.auth.id != \"\"",
+    createRule: "@request.auth.id != \"\"",
+    updateRule: "@request.auth.id != \"\"",
+    deleteRule: "@request.auth.id != \"\"",
+    manageRule: null,
+    fields: [
+    {
+      name: "id",
+      type: "text",
+      required: true,
+      autogeneratePattern: "[a-z0-9]{15}",
+      hidden: false,
+      id: "text3208210256",
+      max: 15,
+      min: 15,
+      pattern: "^[a-z0-9]+$",
+      presentable: false,
+      primaryKey: true,
+      system: true,
+    },
+    {
+      name: "created",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate2990389176",
+      onCreate: true,
+      onUpdate: false,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "updated",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate3332085495",
+      onCreate: true,
+      onUpdate: true,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "WorkspaceRef",
+      type: "relation",
+      required: true,
+      collectionId: "pb_6znl9bq7apv0rcg",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "MediaRef",
+      type: "relation",
+      required: true,
+      collectionId: "pb_1q5cu7dybj36pxm",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "MediaClipRef",
+      type: "relation",
+      required: false,
+      collectionId: "pb_v0io398cfx6qzc3",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "start",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "end",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "score",
+      type: "number",
+      required: false,
+      min: 0,
+      max: 1,
+    },
+    {
+      name: "rank",
+      type: "number",
+      required: false,
+      min: 0,
+    },
+    {
+      name: "reason",
+      type: "text",
+      required: true,
+      min: 1,
+      max: 500,
+    },
+    {
+      name: "reasonData",
+      type: "json",
+      required: true,
+    },
+    {
+      name: "strategy",
+      type: "text",
+      required: true,
+    },
+    {
+      name: "labelType",
+      type: "text",
+      required: true,
+    },
+    {
+      name: "queryHash",
+      type: "text",
+      required: true,
+      min: 1,
+    },
+    {
+      name: "version",
+      type: "number",
+      required: false,
+    },
+    {
+      name: "processor",
+      type: "text",
+      required: false,
+    },
+  ],
+    indexes: [
+    "CREATE UNIQUE INDEX idx_media_rec_hash_segment ON MediaRecommendations (queryHash, start, end)",
+    "CREATE INDEX idx_media_rec_context ON MediaRecommendations (WorkspaceRef, MediaRef, queryHash)",
+    "CREATE INDEX idx_media_rec_rank ON MediaRecommendations (queryHash, rank)",
+    "CREATE INDEX idx_media_rec_label_type ON MediaRecommendations (MediaRef, labelType)",
+  ],
+  });
+
+  return app.save(collection_MediaRecommendations);
+}, (app) => {
+  const collection_MediaRecommendations = app.findCollectionByNameOrId("MediaRecommendations");
+  return app.delete(collection_MediaRecommendations);
+});

@@ -1,0 +1,6499 @@
+{
+  "annotationResults": [
+    {
+      "inputUri": "/videoware-dev/temp/uy9fbzyvrjwydis/25xxsjnc7j47yiq",
+      "segmentLabelAnnotations": [
+        {
+          "entity": {
+            "entityId": "/m/03cjrt",
+            "description": "highland",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5854029059410095
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0355cw",
+            "description": "ridge",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.3774372637271881
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/023bbt",
+            "description": "wilderness",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5890776515007019
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0280nh",
+            "description": "fell",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/025s3q0",
+              "description": "landscape",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.3210308849811554
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04_5sg",
+            "description": "hill",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5308157205581665
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04wxr",
+            "description": "mountain range",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9220808744430542
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0388sn",
+            "description": "summit",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.4252082407474518
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05h0n",
+            "description": "nature",
+            "languageCode": "en-US"
+          },
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9556970000267029
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/09d_r",
+            "description": "mountain",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9142910838127136
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05b0n7k",
+            "description": "outdoor recreation",
+            "languageCode": "en-US"
+          },
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5075898170471191
+            }
+          ]
+        }
+      ],
+      "shotLabelAnnotations": [
+        {
+          "entity": {
+            "entityId": "/m/05b0n7k",
+            "description": "outdoor recreation",
+            "languageCode": "en-US"
+          },
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5075898170471191
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03cjrt",
+            "description": "highland",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5854029059410095
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0355cw",
+            "description": "ridge",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.3774372637271881
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/023bbt",
+            "description": "wilderness",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5890776515007019
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0280nh",
+            "description": "fell",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/025s3q0",
+              "description": "landscape",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.3210308849811554
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04_5sg",
+            "description": "hill",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.5308157205581665
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04wxr",
+            "description": "mountain range",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9220808744430542
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0388sn",
+            "description": "summit",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.4252082407474518
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/09d_r",
+            "description": "mountain",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9142910838127136
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05h0n",
+            "description": "nature",
+            "languageCode": "en-US"
+          },
+          "segments": [
+            {
+              "segment": {
+                "startTimeOffset": {},
+                "endTimeOffset": {
+                  "seconds": "27",
+                  "nanos": 494133000
+                }
+              },
+              "confidence": 0.9556970000267029
+            }
+          ]
+        }
+      ],
+      "frameLabelAnnotations": [
+        {
+          "entity": {
+            "entityId": "/m/06z0n",
+            "description": "sunlight",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/04k84",
+              "description": "light",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6545389294624329
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/027v7wj",
+            "description": "mountain guide",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01g317",
+              "description": "person",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.4408038854598999
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.42344343662261963
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07c97b",
+            "description": "fur clothing",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09j2d",
+              "description": "clothing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.7992019653320312
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02jwqh",
+            "description": "vacation",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/081pkj",
+              "description": "event",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.8245259523391724
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.8098917603492737
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.7221865057945251
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.7776374816894531
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.8397047519683838
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.45532891154289246
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0hr8",
+            "description": "asphalt",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.47451305389404297
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.6163150072097778
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.7258612513542175
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5670649409294128
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.47344622015953064
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5448219776153564
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.5407655835151672
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.5458562970161438
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.427670955657959
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.4095098078250885
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.5072053074836731
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/055s40",
+            "description": "glacial landform",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7164881229400635
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.5554144382476807
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.48624029755592346
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5996842980384827
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7158382534980774
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.6585913300514221
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6676348447799683
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6464182138442993
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6303540468215942
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.6286752223968506
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6482152938842773
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6363138556480408
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6414920687675476
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6592092514038086
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6562158465385437
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.6214781999588013
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6135423183441162
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.6399455070495605
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.6101423501968384
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.5915446281433105
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.6532168388366699
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.5992120504379272
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.6266511082649231
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.6447018980979919
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.5751876831054688
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5779722332954407
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.521146297454834
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04wxr",
+            "description": "mountain range",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7555050849914551
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.6616056561470032
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.5224890112876892
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5504145622253418
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7748722434043884
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.8202020525932312
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.7784107327461243
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.7935783267021179
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8104022741317749
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.7668418884277344
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7924138307571411
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.77297043800354
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.7731149792671204
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7280420660972595
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.7904622554779053
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.729925274848938
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6497603058815002
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.6815195679664612
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.649332582950592
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7103681564331055
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.740124523639679
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.7108275294303894
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.6937388777732849
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.8229088187217712
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8163954615592957
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8777689337730408
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.7220624089241028
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01ctry",
+            "description": "atmosphere of earth",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7812676429748535
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/g/11jwzh3_l",
+            "description": "volcanic landform",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.40095528960227966
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.4920816719532013
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.4600481688976288
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.4340587854385376
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.4886001646518707
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.4593636393547058
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.4687214195728302
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.5584776401519775
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.44825828075408936
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.42954322695732117
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0h_m",
+            "description": "adventure",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7636857032775879
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.7804906368255615
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.7923994064331055
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.6813465356826782
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7295233607292175
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6150453686714172
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5418103337287903
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5974897146224976
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6283583641052246
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5945082902908325
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.5522598624229431
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5568418502807617
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.4573820233345032
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.403126984834671
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.438139408826828
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.47378483414649963
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.49940726161003113
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.5019752383232117
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.4734494090080261
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4009026288986206
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.4875165820121765
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/053f5",
+            "description": "mountaineering",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01rwk",
+              "description": "climbing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6198090314865112
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.5750532150268555
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01f4td",
+            "description": "rural area",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.732965350151062
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.7308502793312073
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02_ktj",
+            "description": "morning",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.7353242635726929
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.7701400518417358
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0brn2d",
+            "description": "field",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.43524226546287537
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.48049649596214294
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03hfn0",
+            "description": "backpacking",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/012v4j",
+              "description": "hiking",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6588232517242432
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.5405354499816895
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.43045923113822937
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5858278870582581
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0csh5",
+            "description": "cumulus",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/0csby",
+              "description": "cloud",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.45380258560180664
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/086mh",
+            "description": "winter",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/0754v",
+              "description": "season",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.8290148377418518
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.8182317018508911
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.7717434763908386
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.8617514967918396
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7564544081687927
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6262675523757935
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.6574642062187195
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6026434302330017
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.46490350365638733
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.4941945970058441
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.5281692743301392
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.4283651113510132
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.43727415800094604
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.4115118980407715
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.5274866819381714
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6221423745155334
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5961965322494507
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.5061011910438538
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05b0n7k",
+            "description": "outdoor recreation",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.8487884402275085
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.8055555820465088
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7666794657707214
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04_2qtd",
+            "description": "mountaineer",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01g317",
+              "description": "person",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.44095975160598755
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/099fz",
+            "description": "sand",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01l0y0",
+              "description": "material",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.4036101996898651
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.419567346572876
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.682344913482666
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5237917900085449
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.42274045944213867
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0cnmr",
+            "description": "fur",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01l0y0",
+              "description": "material",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.5818911790847778
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.8746314644813538
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0k4j",
+            "description": "car",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/07yv9",
+              "description": "vehicle",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5684292912483215
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.7903087735176086
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.46181175112724304
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/09dv7",
+            "description": "soil",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6590074896812439
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.6431984305381775
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6065628528594971
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6099607944488525
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.6105151772499084
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6871122121810913
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.5952103137969971
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.5989438891410828
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/g/11k2xz7mr",
+            "description": "meteorological phenomenon",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.4782402813434601
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.5016887784004211
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.46587830781936646
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.7133224606513977
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.7468526363372803
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.6123570203781128
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/012v4j",
+            "description": "hiking",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01rwk",
+              "description": "climbing",
+              "languageCode": "en-US"
+            },
+            {
+              "entityId": "/m/083mg",
+              "description": "walking",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.8121601343154907
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.6659372448921204
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.604873538017273
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/020wcz",
+            "description": "mountain pass",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5123772621154785
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.736690104007721
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.7081356644630432
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.7913945913314819
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8110119104385376
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.699284017086029
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5861385464668274
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6509273052215576
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6830917000770569
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.5489783883094788
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6480312347412109
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.6228524446487427
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.44898349046707153
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.49983394145965576
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.42522814869880676
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.5264055132865906
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.44767898321151733
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4405897557735443
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.5827130079269409
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6452336311340332
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.655523955821991
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.6632819771766663
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/014dsx",
+            "description": "travel",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6813734769821167
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.562595546245575
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.6156938076019287
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7053918838500977
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5888124704360962
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5981658101081848
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5857568383216858
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.5850988626480103
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5709887146949768
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5651131272315979
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/025tn5c",
+            "description": "terrain",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6411371827125549
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6463586688041687
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6432194709777832
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.676837146282196
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.6643762588500977
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.6857918500900269
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.6555193662643433
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.6742954254150391
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/015kp7",
+            "description": "stratovolcano",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/07_9_",
+              "description": "volcano",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.44259318709373474
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.5669968128204346
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.45120811462402344
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07j7r",
+            "description": "tree",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/05s2s",
+              "description": "plant",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.5922749042510986
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.5918426513671875
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.44872787594795227
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.57575923204422
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.670171856880188
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.552747368812561
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0kw6d",
+            "description": "driving",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.4044875204563141
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0355cw",
+            "description": "ridge",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7883086204528809
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.6850301623344421
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.531923770904541
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6731707453727722
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.7294396758079529
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.8075369000434875
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.802659809589386
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.7743290662765503
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.7604681253433228
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6989573836326599
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6620784401893616
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6758837103843689
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7022849917411804
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.739696741104126
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.7878314852714539
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.5597819685935974
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.7376450300216675
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.7280123233795166
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7644949555397034
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.8364118933677673
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.8192533850669861
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.7528799772262573
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7394885420799255
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6172101497650146
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5936927795410156
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.6442045569419861
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/g/11jxkqbpp",
+            "description": "mountainous landforms",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.9509357810020447
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.9409006237983704
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.9449547529220581
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.94283127784729
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.92564857006073
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.9479739665985107
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.9405922293663025
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.9272569417953491
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.9319289922714233
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.9248713254928589
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.9236257076263428
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.9100772142410278
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.9127631187438965
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.9142687320709229
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.9265180230140686
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.9086954593658447
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.8911033868789673
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.8930404186248779
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.9072263836860657
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.9194856882095337
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.919637143611908
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.9273947477340698
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.920051634311676
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.9382146000862122
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.9436360001564026
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.9434576034545898
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.9101083874702454
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03cjrt",
+            "description": "highland",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7431166172027588
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.9535819888114929
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.9470347166061401
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.9469231367111206
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.9517356157302856
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.9599602222442627
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.9506028294563293
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.936620831489563
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.9502711296081543
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.94992995262146
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.9523518085479736
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.943203866481781
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.9413248300552368
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.920547366142273
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.9002216458320618
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.9143882393836975
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.9343616366386414
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.9380711913108826
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.9399584531784058
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.9168729782104492
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.9741002321243286
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.97386234998703
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.9423527121543884
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07bxq",
+            "description": "tourism",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6582226157188416
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.5449174046516418
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.41491445899009705
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.584324836730957
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.4048297703266144
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.4004063010215759
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.4080229103565216
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.4068392813205719
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.40092095732688904
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0125ny",
+            "description": "lake district",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/04h4w",
+              "description": "lake",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.44270291924476624
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04mx32",
+            "description": "evening",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.47543206810951233
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5959810614585876
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/047vlmn",
+            "description": "outerwear",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09j2d",
+              "description": "clothing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7705641388893127
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.7453829646110535
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.70879065990448
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/09738",
+            "description": "arctic",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.428318589925766
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5371265411376953
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.402660995721817
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.48725026845932007
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.4310125708580017
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.4628845155239105
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.5063643455505371
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.41277459263801575
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01b3kg",
+            "description": "dawn",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.49469703435897827
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/019nj4",
+            "description": "smile",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01g317",
+              "description": "person",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.533568263053894
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/029lh1",
+            "description": "adventurer",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/01g317",
+              "description": "person",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.5077113509178162
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.59385085105896
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.7046297788619995
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.6547639966011047
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/036hv",
+            "description": "geology",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6312297582626343
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.6076368093490601
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6103561520576477
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5685004591941833
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5925018191337585
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.5849009156227112
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5905429720878601
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.6054320931434631
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6382161378860474
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6043955683708191
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.5762609839439392
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6007652282714844
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.5924073457717896
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.589202880859375
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.5701549053192139
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.5924155116081238
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.6283468008041382
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.6127001047134399
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.6037087440490723
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.6353427767753601
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.617917001247406
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0d1n2",
+            "description": "horizon",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.5123525261878967
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6695441007614136
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/06_dn",
+            "description": "snow",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/0866r",
+              "description": "weather",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6262762546539307
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.6342481374740601
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.6112747192382812
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.4270018935203552
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.6441766023635864
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.7111352682113647
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5571720004081726
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.45130473375320435
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.4537791609764099
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.5450459718704224
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.5007251501083374
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.5177156925201416
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.4212721884250641
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.44013649225234985
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.5527493357658386
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7416975498199463
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8127796053886414
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6651594638824463
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.58946692943573
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03vtj",
+            "description": "ice",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.4524024426937103
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5874348282814026
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/06bm2",
+            "description": "recreation",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7072135806083679
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.6834321618080139
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.6095107793807983
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.6407744288444519
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01bqvp",
+            "description": "sky",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.7004919648170471
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.8580895662307739
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.727963924407959
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.8743677139282227
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.9021766781806946
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.8703843355178833
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8975285887718201
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.8993059992790222
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.8762437105178833
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.8315199613571167
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.8561642169952393
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.8718987107276917
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.8896934390068054
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.8057507872581482
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.8503219485282898
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.7768405079841614
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.7954218983650208
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.8627892136573792
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.8581245541572571
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.8791437149047852
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.8783595561981201
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.9052355885505676
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.9598387479782104
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.9668987393379211
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.9123018383979797
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0cnfpz",
+            "description": "road trip",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.41027021408081055
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.428154855966568
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0f45l",
+            "description": "steppe",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.4150688350200653
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.46783608198165894
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5090290307998657
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.43043869733810425
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5163142681121826
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.40824589133262634
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.5026067495346069
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.5080435276031494
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4339901804924011
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.4457106590270996
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.4883151948451996
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07yxk",
+            "description": "valley",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5544425845146179
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5656083226203918
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.5417772531509399
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5451215505599976
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.5348623394966125
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.4188660681247711
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.4222734570503235
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.43197914958000183
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.4147038757801056
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.44510945677757263
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4001789689064026
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.4297564923763275
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6662237048149109
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.7102925777435303
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.5267993807792664
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0cblv",
+            "description": "ecoregion",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5802510380744934
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5687570571899414
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6300236582756042
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6608015894889832
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6766531467437744
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.6230424046516418
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6422163844108582
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.5828229188919067
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.595974326133728
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.5472919344902039
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.5838848948478699
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.5858620405197144
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6065827012062073
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.637369692325592
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.6262837052345276
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.574122965335846
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.5533486604690552
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.598945140838623
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6168949007987976
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5690591931343079
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.6421583294868469
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03s7w_",
+            "description": "cirque",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.4225500524044037
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0c28q",
+            "description": "moraine",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.432891309261322
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.5012442469596863
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.40509137511253357
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.41176557540893555
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.5448923707008362
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.40283602476119995
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4902975559234619
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02d46y",
+            "description": "cap",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09j2d",
+              "description": "clothing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.4329397678375244
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04b966",
+            "description": "ice cap",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.46246057748794556
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.4491007626056671
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01ctsf",
+            "description": "atmosphere",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.7409301996231079
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8255434036254883
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04p25",
+            "description": "loch",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/04h4w",
+              "description": "lake",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.4083890914916992
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.5116975903511047
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.40727803111076355
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.708885669708252
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6398059129714966
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/06gfj",
+            "description": "road",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.542770266532898
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.8825609087944031
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.7761985659599304
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.9431624412536621
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.9100668430328369
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.8238748908042908
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7423850297927856
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.7677000761032104
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.8413620591163635
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7086106538772583
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.7313001751899719
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.5569838285446167
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.5688692331314087
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.4721563756465912
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8608582019805908
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8978414535522461
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.9127292037010193
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/09d_r",
+            "description": "mountain",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.8970681428909302
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.8625115156173706
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.5926133990287781
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.8585756421089172
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.8762478828430176
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.8844419121742249
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.9294372200965881
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.9281496405601501
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.9048886299133301
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.9245994687080383
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.9259055852890015
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.9155862927436829
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.9068758487701416
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.8987699151039124
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.911592960357666
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.921506404876709
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.9061517715454102
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.8889561891555786
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.8913660049438477
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.9044724702835083
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.9186973571777344
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.9271368980407715
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.9301665425300598
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.9296619296073914
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.9319987893104553
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.9299270510673523
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.9294794201850891
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.8785547018051147
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0ds99lh",
+            "description": "fun",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7689977288246155
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.7814168334007263
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.729820728302002
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.7586421966552734
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7416308522224426
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04g3r",
+            "description": "leisure",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.4645993411540985
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0268lbt",
+            "description": "hiking equipment",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.6158869862556458
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.5163642764091492
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07k3c",
+            "description": "tundra",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5392729043960571
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.5129414200782776
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5610896348953247
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6797651052474976
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6789970397949219
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.7159661054611206
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.7038918137550354
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6605625152587891
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6618552207946777
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6664769053459167
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6643962860107422
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6950910091400146
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.7279061079025269
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.7171182632446289
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.7553802728652954
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.6529666185379028
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7438283562660217
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.718853235244751
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.7156478762626648
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.772631824016571
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.6164801716804504
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.7494924068450928
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6881626844406128
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.7095637321472168
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0by0z",
+            "description": "fjord",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.4009416401386261
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.44320395588874817
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0388sn",
+            "description": "summit",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.5048918724060059
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.4962834417819977
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.45297762751579285
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.45983368158340454
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.45475926995277405
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.49743974208831787
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.4540698826313019
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.5111933350563049
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.4852844774723053
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.5160497426986694
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.47402703762054443
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.45735225081443787
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.4623584449291229
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.5154165625572205
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.5072405934333801
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.47106561064720154
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.46813520789146423
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.47186312079429626
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.49396347999572754
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.5319416522979736
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.5056385397911072
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.4905397295951843
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.49838969111442566
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.4059373736381531
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.432026743888855
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0b3yr",
+            "description": "beach",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.5224021673202515
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/017ftj",
+            "description": "sunglasses",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.40666043758392334
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02dl1y",
+            "description": "hat",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09j2d",
+              "description": "clothing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.4744282066822052
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02mwzg",
+            "description": "plateau",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.4187328517436981
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.5848813652992249
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6587712168693542
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6396157145500183
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6783852577209473
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.6444332599639893
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6661495566368103
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.5797244906425476
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6306774616241455
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6384126543998718
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6809617280960083
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.6529197692871094
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6548433303833008
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.6899718642234802
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.6369257569313049
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.702674150466919
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.6963958144187927
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.7048755884170532
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.709522008895874
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.5927470922470093
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.7161588072776794
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.7111954689025879
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.40065303444862366
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05s2s",
+            "description": "plant",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.4324477016925812
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/032b3c",
+            "description": "jacket",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/0h8krv8",
+              "description": "top",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.48652756214141846
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.5014396905899048
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01l0y0",
+            "description": "material",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.6185687780380249
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0drv1h",
+            "description": "mount scenery",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09d_r",
+              "description": "mountain",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.4590602219104767
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.465093731880188
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.4466675817966461
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.4513832926750183
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.4902168810367584
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5732433199882507
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0280nh",
+            "description": "fell",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/025s3q0",
+              "description": "landscape",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7356796860694885
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.6767343282699585
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7803986668586731
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.8543868660926819
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.8727516531944275
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.8478577136993408
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8677543997764587
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.8774964809417725
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.8432825207710266
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.8149733543395996
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.8281513452529907
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.8256859183311462
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.8529281616210938
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.8555269837379456
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.8113669157028198
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.8542924523353577
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.8230108618736267
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7922181487083435
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.8620162606239319
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.8362370729446411
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.8318224549293518
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7849256992340088
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8912987112998962
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8775268793106079
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.7884894013404846
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/02zh30",
+            "description": "path",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.7884737849235535
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/025s3q0",
+            "description": "landscape",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.5124197602272034
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.45758694410324097
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.4490269422531128
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.46939319372177124
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.6249032020568848
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.596671462059021
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.6699219346046448
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.6558746695518494
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6750940084457397
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6553097367286682
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.655328094959259
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6455708742141724
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6346381306648254
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6461969017982483
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.637103796005249
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6374569535255432
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.5960761904716492
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6005334854125977
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.5992490649223328
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.5777860879898071
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.5794355869293213
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.598635733127594
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.6293469071388245
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.6029581427574158
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.6208139061927795
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.6736446022987366
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.6931421756744385
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.7160370349884033
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01443y",
+            "description": "headgear",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/09j2d",
+              "description": "clothing",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.7362465262413025
+            },
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.850651204586029
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.8657739162445068
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/083mg",
+            "description": "walking",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/06ntj",
+              "description": "sports",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.658604085445404
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.4955582618713379
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.631278932094574
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0ffjr",
+            "description": "personal protective equipment",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "2"
+              },
+              "confidence": 0.5137627124786377
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/023bbt",
+            "description": "wilderness",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.8633127808570862
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.8968120813369751
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.8701438903808594
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8886733651161194
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.8865467309951782
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.8533178567886353
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.8554199934005737
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.8616920113563538
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.8848775625228882
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.8787152171134949
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.8742697834968567
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8600343465805054
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8676329255104065
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0csby",
+            "description": "cloud",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.6176106929779053
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.43656009435653687
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.7445640563964844
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.7108242511749268
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.6596365571022034
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.7033607959747314
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.7713344097137451
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7735999226570129
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6368367075920105
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6845835447311401
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7337350249290466
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.8003283143043518
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.5880325436592102
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6943092942237854
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.489787220954895
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.5783982276916504
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.697241485118866
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.6622196435928345
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.705431342124939
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.6552531123161316
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7636967301368713
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.9274391531944275
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.9472766518592834
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.8123558163642883
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/0lcd",
+            "description": "alps",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.413910448551178
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.4270862638950348
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5975502133369446
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/038jz",
+            "description": "glacier",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.47667786478996277
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.4074423909187317
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/04_5sg",
+            "description": "hill",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.7209827303886414
+            },
+            {
+              "timeOffset": {
+                "seconds": "1"
+              },
+              "confidence": 0.49425703287124634
+            },
+            {
+              "timeOffset": {
+                "seconds": "3"
+              },
+              "confidence": 0.4854130744934082
+            },
+            {
+              "timeOffset": {
+                "seconds": "4"
+              },
+              "confidence": 0.7991607189178467
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7045918107032776
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.8293763995170593
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.8303212523460388
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.8194115161895752
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.8077727556228638
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.8050580024719238
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7633126378059387
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.7095608711242676
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.7406609058380127
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7556843161582947
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.7807163596153259
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.7220791578292847
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.7098817825317383
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.7012479305267334
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.7401648163795471
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7542576193809509
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.7641013264656067
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.7736204266548157
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.7734901309013367
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7624130249023438
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.8437997698783875
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.8340984582901001
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.814395546913147
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05sm1",
+            "description": "plain",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.46083077788352966
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.41850587725639343
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.4169578552246094
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.42997175455093384
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.4231645166873932
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.4191860258579254
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.401123970746994
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.4097272753715515
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.4072915315628052
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.5330527424812317
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.5563986897468567
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.4977817237377167
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/01v8rm",
+            "description": "shield volcano",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/07_9_",
+              "description": "volcano",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.4206758141517639
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.4076058566570282
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.45757389068603516
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.4042300581932068
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.525519073009491
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03whr_d",
+            "description": "continental divide",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.43471524119377136
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.4137546122074127
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/03k5cs",
+            "description": "formation",
+            "languageCode": "en-US"
+          },
+          "categoryEntities": [
+            {
+              "entityId": "/m/043rvww",
+              "description": "geographical feature",
+              "languageCode": "en-US"
+            }
+          ],
+          "frames": [
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.4046558737754822
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/07sn5gn",
+            "description": "geological phenomenon",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.718009352684021
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.7342292070388794
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.7250577211380005
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.7447298169136047
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.7666788101196289
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.7815274000167847
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.7473241090774536
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.7474842071533203
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.7404526472091675
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.7619595527648926
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.7415882349014282
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.7359429597854614
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.7299324870109558
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.7323764562606812
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.7643203139305115
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.7787018418312073
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.7561900019645691
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.7682217955589294
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.749025285243988
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.7509838938713074
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.7733449935913086
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.728842556476593
+            }
+          ]
+        },
+        {
+          "entity": {
+            "entityId": "/m/05v3nz",
+            "description": "elevation",
+            "languageCode": "en-US"
+          },
+          "frames": [
+            {
+              "timeOffset": {},
+              "confidence": 0.4604741632938385
+            },
+            {
+              "timeOffset": {
+                "seconds": "5"
+              },
+              "confidence": 0.525879979133606
+            },
+            {
+              "timeOffset": {
+                "seconds": "6"
+              },
+              "confidence": 0.583368182182312
+            },
+            {
+              "timeOffset": {
+                "seconds": "7"
+              },
+              "confidence": 0.5917788147926331
+            },
+            {
+              "timeOffset": {
+                "seconds": "8"
+              },
+              "confidence": 0.5760493874549866
+            },
+            {
+              "timeOffset": {
+                "seconds": "9"
+              },
+              "confidence": 0.6042256355285645
+            },
+            {
+              "timeOffset": {
+                "seconds": "10"
+              },
+              "confidence": 0.5976672768592834
+            },
+            {
+              "timeOffset": {
+                "seconds": "11"
+              },
+              "confidence": 0.6286075711250305
+            },
+            {
+              "timeOffset": {
+                "seconds": "12"
+              },
+              "confidence": 0.6093636751174927
+            },
+            {
+              "timeOffset": {
+                "seconds": "13"
+              },
+              "confidence": 0.6039783954620361
+            },
+            {
+              "timeOffset": {
+                "seconds": "14"
+              },
+              "confidence": 0.6105627417564392
+            },
+            {
+              "timeOffset": {
+                "seconds": "15"
+              },
+              "confidence": 0.6158022284507751
+            },
+            {
+              "timeOffset": {
+                "seconds": "16"
+              },
+              "confidence": 0.6110114455223083
+            },
+            {
+              "timeOffset": {
+                "seconds": "17"
+              },
+              "confidence": 0.6061003804206848
+            },
+            {
+              "timeOffset": {
+                "seconds": "18"
+              },
+              "confidence": 0.5853083729743958
+            },
+            {
+              "timeOffset": {
+                "seconds": "19"
+              },
+              "confidence": 0.5910751223564148
+            },
+            {
+              "timeOffset": {
+                "seconds": "20"
+              },
+              "confidence": 0.6406181454658508
+            },
+            {
+              "timeOffset": {
+                "seconds": "21"
+              },
+              "confidence": 0.6135162115097046
+            },
+            {
+              "timeOffset": {
+                "seconds": "22"
+              },
+              "confidence": 0.6009820699691772
+            },
+            {
+              "timeOffset": {
+                "seconds": "23"
+              },
+              "confidence": 0.622817873954773
+            },
+            {
+              "timeOffset": {
+                "seconds": "24"
+              },
+              "confidence": 0.586601734161377
+            },
+            {
+              "timeOffset": {
+                "seconds": "25"
+              },
+              "confidence": 0.576985239982605
+            },
+            {
+              "timeOffset": {
+                "seconds": "26"
+              },
+              "confidence": 0.568656325340271
+            },
+            {
+              "timeOffset": {
+                "seconds": "27"
+              },
+              "confidence": 0.47363969683647156
+            }
+          ]
+        }
+      ],
+      "shotAnnotations": [
+        {
+          "startTimeOffset": {},
+          "endTimeOffset": {
+            "seconds": "27",
+            "nanos": 494133000
+          }
+        }
+      ],
+      "segment": {
+        "startTimeOffset": {},
+        "endTimeOffset": {
+          "seconds": "27",
+          "nanos": 494133000
+        }
+      }
+    }
+  ]
+}

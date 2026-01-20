@@ -1,0 +1,53 @@
+{
+  "name": "video-ware",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "yarn@4.12.0",
+  "workspaces": [
+    "worker",
+    "webapp",
+    "shared",
+    "pb"
+  ],
+  "scripts": {
+    "setup": "yarn workspace @project/pb setup",
+    "dev": "concurrently --names \"shared,webapp,pocket,worker\" \"yarn workspace @project/shared dev\" \"sleep 9 && yarn workspace @project/webapp dev\" \"yarn workspace @project/pb dev\" \"sleep 9 && yarn workspace @project/worker dev\"",
+    "build": "yarn workspaces foreach -A run build",
+    "build:shared": "yarn workspace @project/shared build",
+    "test": "yarn workspaces foreach -A run test",
+    "test:watch": "concurrently \"yarn workspace @project/shared test:watch\" \"yarn workspace @project/webapp test:watch\"",
+    "lint:check": "yarn workspaces foreach -A run lint",
+    "lint": "yarn workspaces foreach -A run lint:fix",
+    "typecheck": "yarn workspaces foreach -A run typecheck",
+    "format": "yarn workspaces foreach -A run format",
+    "format:check": "yarn workspaces foreach -A run format:check",
+    "clean": "yarn workspaces foreach -R run clean && rm -rf pb/pocketbase",
+    "typegen": "yarn workspace @project/shared typegen",
+    "precommit": "yarn run build:shared && yarn run lint && yarn run typecheck && yarn run format && yarn run test",
+    "db:download": "yarn workspace @project/pb download",
+    "db:start": "yarn workspace @project/pb dev:debug",
+    "db:migrate": "yarn workspace @project/shared migrate:generate",
+    "db:status": "yarn workspace @project/shared migrate:status",
+    "db:typegen": "yarn workspace @project/shared migrate:typegen",
+    "staging": "yarn run staging:build && yarn run staging:run",
+    "staging:build": "docker build -f docker/Dockerfile --build-arg NEXT_PUBLIC_POCKETBASE_URL=\"/\" -t video-ware:staging .",
+    "staging:run": "docker run --rm -p 8888:80 -p 8889:8090 -v $(pwd)/staging_data/pb_data:/app/pb/pb_data -v $(pwd)/staging_data/worker_data:/app/data video-ware:staging -e REDIS_HOST='my-redis'",
+    "staging:up": "yarn run staging:build && yarn run staging:run",
+    "staging:stop": "docker stop $(docker ps -q --filter ancestor=video-ware:staging) 2>/dev/null || true && docker rm $(docker ps -aq --filter ancestor=video-ware:staging) 2>/dev/null || true",
+    "staging:logs": "docker logs -f $(docker ps -q --filter ancestor=video-ware:staging)",
+    "staging:clean": "yarn run staging:stop && docker rmi video-ware:staging 2>/dev/null || true && rm -rf staging_data"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "prettier": "^3.8.0",
+    "typescript": "^5.9.3"
+  }
+}

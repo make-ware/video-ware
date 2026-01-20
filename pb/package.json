@@ -1,0 +1,26 @@
+{
+  "name": "@project/pb",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "./pocketbase serve",
+    "dev:debug": "./pocketbase serve --dev",
+    "build": "echo 'PocketBase workspace - no build needed'",
+    "test": "echo 'PocketBase workspace - no tests needed'",
+    "test:watch": "echo 'PocketBase workspace - no tests needed'",
+    "lint": "echo 'PocketBase workspace - no lint needed'",
+    "lint:fix": "echo 'PocketBase workspace - no lint needed'",
+    "typecheck": "echo 'PocketBase workspace - no typecheck needed'",
+    "format": "echo 'PocketBase workspace - no format needed'",
+    "format:check": "echo 'PocketBase workspace - no format check needed'",
+    "serve": "./pocketbase serve",
+    "admin": "./pocketbase admin",
+    "clean": "rm -rf pb_data",
+    "download": "node --env-file-if-exists=../.env scripts/download-pocketbase.js",
+    "start": "node --env-file-if-exists=../.env scripts/start-pocketbase.js",
+    "stop": "node --env-file-if-exists=../.env scripts/stop-pocketbase.js",
+    "upsert": "node --env-file-if-exists=../.env scripts/upsert-pocketbase.js",
+    "setup": "yarn run download && yarn run upsert"
+  },
+  "packageManager": "yarn@4.12.0"
+}

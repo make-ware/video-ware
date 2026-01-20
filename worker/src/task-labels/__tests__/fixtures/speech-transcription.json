@@ -1,0 +1,106 @@
+{
+  "annotationResults": [
+    {
+      "inputUri": "/videoware-dev/temp/uy9fbzyvrjwydis/25xxsjnc7j47yiq",
+      "segment": {
+        "startTimeOffset": {},
+        "endTimeOffset": {
+          "seconds": "27",
+          "nanos": 520000000
+        }
+      },
+      "speechTranscriptions": [
+        {
+          "alternatives": [
+            {
+              "transcript": "How's it going? All right.",
+              "confidence": 0.9128385782241821,
+              "words": [
+                {
+                  "startTime": {
+                    "seconds": "2",
+                    "nanos": 200000000
+                  },
+                  "endTime": {
+                    "seconds": "2",
+                    "nanos": 400000000
+                  },
+                  "word": "How's"
+                },
+                {
+                  "startTime": {
+                    "seconds": "2",
+                    "nanos": 400000000
+                  },
+                  "endTime": {
+                    "seconds": "2",
+                    "nanos": 500000000
+                  },
+                  "word": "it"
+                },
+                {
+                  "startTime": {
+                    "seconds": "2",
+                    "nanos": 500000000
+                  },
+                  "endTime": {
+                    "seconds": "2",
+                    "nanos": 800000000
+                  },
+                  "word": "going?"
+                },
+                {
+                  "startTime": {
+                    "seconds": "3",
+                    "nanos": 200000000
+                  },
+                  "endTime": {
+                    "seconds": "3",
+                    "nanos": 300000000
+                  },
+                  "word": "All"
+                },
+                {
+                  "startTime": {
+                    "seconds": "3",
+                    "nanos": 300000000
+                  },
+                  "endTime": {
+                    "seconds": "3",
+                    "nanos": 800000000
+                  },
+                  "word": "right."
+                }
+              ]
+            }
+          ],
+          "languageCode": "en-us"
+        },
+        {
+          "alternatives": [
+            {}
+          ],
+          "languageCode": "en-us"
+        },
+        {
+          "alternatives": [
+            {}
+          ],
+          "languageCode": "en-us"
+        },
+        {
+          "alternatives": [
+            {}
+          ],
+          "languageCode": "en-us"
+        },
+        {
+          "alternatives": [
+            {}
+          ],
+          "languageCode": "en-us"
+        }
+      ]
+    }
+  ]
+}

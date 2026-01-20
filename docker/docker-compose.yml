@@ -1,0 +1,81 @@
+# Docker Compose configuration for Video Ware
+# 
+# This file uses pre-built images from GitHub Container Registry.
+# Images are automatically built and published when releases are created.
+# You can pull the latest images using:
+#   docker compose pull
+
+services:
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pocketbase:
+    image: ghcr.io/dastron/video-ware-pocketbase:latest
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - pb_data:/app/pb/pb_data
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: ghcr.io/dastron/video-ware-worker:latest
+    restart: unless-stopped
+    ports:
+      - "${BULL_BOARD_PORT:-3002}:3002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POCKETBASE_URL=http://pocketbase:8090
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD}
+      - BULL_BOARD_PORT=3002
+      - STORAGE_TYPE=${STORAGE_TYPE:-local}
+      # Point to the shared volume where PocketBase stores files
+      - STORAGE_LOCAL_PATH=/app/pb/pb_data
+      - WORKER_DATA_DIR=/app/data
+      # Google Cloud Config
+      - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}
+      - GOOGLE_CLOUD_CREDENTIALS=${GOOGLE_CLOUD_CREDENTIALS}
+      - GCS_BUCKET=${GCS_BUCKET}
+      # Processor Config
+      - ENABLE_FFMPEG=${ENABLE_FFMPEG:-true}
+    volumes:
+      # Mount the same volume as PocketBase to access local files
+      - pb_data:/app/pb/pb_data
+    depends_on:
+      redis:
+        condition: service_healthy
+      pocketbase:
+        condition: service_healthy
+
+  webapp:
+    image: ghcr.io/dastron/video-ware-webapp:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Public URL for the browser to access PocketBase
+      - NEXT_PUBLIC_POCKETBASE_URL=${NEXT_PUBLIC_POCKETBASE_URL:-http://localhost:8090}
+      # Internal URL for SSR to access PocketBase
+      - POCKETBASE_URL=http://pocketbase:8090
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  pb_data:

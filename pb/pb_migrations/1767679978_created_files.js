@@ -1,0 +1,132 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection_Files = new Collection({
+    id: "pb_48ql3az7t9ok2mu",
+    name: "Files",
+    type: "base",
+    listRule: "@request.auth.id != \"\"",
+    viewRule: "@request.auth.id != \"\"",
+    createRule: "@request.auth.id != \"\"",
+    updateRule: "@request.auth.id != \"\"",
+    deleteRule: "@request.auth.id != \"\"",
+    manageRule: null,
+    fields: [
+    {
+      name: "id",
+      type: "text",
+      required: true,
+      autogeneratePattern: "[a-z0-9]{15}",
+      hidden: false,
+      id: "text3208210256",
+      max: 15,
+      min: 15,
+      pattern: "^[a-z0-9]+$",
+      presentable: false,
+      primaryKey: true,
+      system: true,
+    },
+    {
+      name: "created",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate2990389176",
+      onCreate: true,
+      onUpdate: false,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "updated",
+      type: "autodate",
+      required: true,
+      hidden: false,
+      id: "autodate3332085495",
+      onCreate: true,
+      onUpdate: true,
+      presentable: false,
+      system: false,
+    },
+    {
+      name: "name",
+      type: "text",
+      required: true,
+    },
+    {
+      name: "size",
+      type: "number",
+      required: true,
+    },
+    {
+      name: "fileStatus",
+      type: "select",
+      required: true,
+      maxSelect: 1,
+      values: ["pending", "available", "failed", "deleted"],
+    },
+    {
+      name: "fileType",
+      type: "select",
+      required: true,
+      maxSelect: 1,
+      values: ["original", "proxy", "thumbnail", "sprite", "labels_json", "render"],
+    },
+    {
+      name: "fileSource",
+      type: "select",
+      required: true,
+      maxSelect: 1,
+      values: ["s3", "pocketbase", "gcs"],
+    },
+    {
+      name: "file",
+      type: "file",
+      required: false,
+      maxSize: 7000000000,
+    },
+    {
+      name: "s3Key",
+      type: "text",
+      required: false,
+    },
+    {
+      name: "meta",
+      type: "json",
+      required: false,
+    },
+    {
+      name: "WorkspaceRef",
+      type: "relation",
+      required: true,
+      collectionId: "pb_6znl9bq7apv0rcg",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "UploadRef",
+      type: "relation",
+      required: false,
+      collectionId: "pb_9exg70d9rw3imzq",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+    {
+      name: "MediaRef",
+      type: "relation",
+      required: false,
+      collectionId: "pb_1q5cu7dybj36pxm",
+      maxSelect: 1,
+      minSelect: 0,
+      cascadeDelete: false,
+    },
+  ],
+    indexes: [],
+  });
+
+  return app.save(collection_Files);
+}, (app) => {
+  const collection_Files = app.findCollectionByNameOrId("Files");
+  return app.delete(collection_Files);
+});

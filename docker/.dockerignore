@@ -1,0 +1,81 @@
+# Dependencies
+node_modules
+**/node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+**/coverage
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Next.js
+.next
+**/.next
+out
+**/out
+
+# Production builds
+dist
+**/dist
+build
+**/build
+
+# Misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Debug
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+**/README.md
+docs
+**/docs
+
+# PocketBase data (will be created at runtime)
+pb/pb_data
+**/pb_data
+
+# PocketBase binary (downloaded during build)
+pb/pocketbase
+
+# Yarn
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+
+# TypeScript
+*.tsbuildinfo
+
+# Test files
+**/src/test
+**/src/__tests__
+
+
+

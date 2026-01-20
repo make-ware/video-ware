@@ -1,0 +1,100 @@
+import { useState, useEffect, useMemo } from 'react';
+import type {
+  Media,
+  MediaRelations,
+  Expanded,
+  MediaClip,
+  File,
+} from '@project/shared';
+import pb from '@/lib/pocketbase-client';
+
+export interface VideoSource {
+  src: string;
+  poster: string;
+  startTime: number;
+  endTime?: number;
+  isLoading: boolean;
+}
+
+export function useVideoSource<
+  E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
+>(
+  media: Media | Expanded<Media, MediaRelations, E>,
+  clip?: MediaClip
+): VideoSource {
+  const proxyFileFromExpand =
+    'expand' in media && media.expand && 'proxyFileRef' in media.expand
+      ? (media.expand.proxyFileRef as File | undefined)
+      : undefined;
+  const thumbnailFileFromExpand =
+    'expand' in media && media.expand && 'thumbnailFileRef' in media.expand
+      ? (media.expand.thumbnailFileRef as File | undefined)
+      : undefined;
+
+  const [proxyFile, setProxyFile] = useState<File | null>(
+    proxyFileFromExpand ?? null
+  );
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(
+    thumbnailFileFromExpand ?? null
+  );
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchFiles() {
+      const needsProxy = !proxyFile && !!media.proxyFileRef;
+      const needsThumbnail = !thumbnailFile && !!media.thumbnailFileRef;
+
+      if (!needsProxy && !needsThumbnail) return;
+
+      setIsLoading(true);
+      try {
+        if (needsProxy) {
+          const file = await pb
+            .collection('Files')
+            .getOne<File>(media.proxyFileRef!);
+          setProxyFile(file);
+        }
+        if (needsThumbnail) {
+          const file = await pb
+            .collection('Files')
+            .getOne<File>(media.thumbnailFileRef!);
+          setThumbnailFile(file);
+        }
+      } catch (error) {
+        console.error('Failed to fetch video files:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchFiles();
+  }, [media.proxyFileRef, media.thumbnailFileRef, proxyFile, thumbnailFile]);
+
+  const src = useMemo(() => {
+    if (!proxyFile?.file) return '';
+    try {
+      return pb.files.getURL(proxyFile, proxyFile.file);
+    } catch (error) {
+      console.error('Failed to get proxy URL:', error);
+      return '';
+    }
+  }, [proxyFile]);
+
+  const poster = useMemo(() => {
+    if (!thumbnailFile?.file) return '';
+    try {
+      return pb.files.getURL(thumbnailFile, thumbnailFile.file);
+    } catch (error) {
+      console.error('Failed to get thumbnail URL:', error);
+      return '';
+    }
+  }, [thumbnailFile]);
+
+  return {
+    src,
+    poster,
+    startTime: clip?.start ?? 0,
+    endTime: clip?.end,
+    isLoading,
+  };
+}

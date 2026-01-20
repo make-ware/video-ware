@@ -1,0 +1,19 @@
+# Dependencies
+node_modules
+
+# Build outputs
+.next
+out
+dist
+
+# Yarn
+.yarn
+.pnp.*
+
+# Next.js auto-generated files
+next-env.d.ts
+
+# Other
+*.log
+
+

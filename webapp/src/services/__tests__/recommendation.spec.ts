@@ -82,7 +82,7 @@ describe('RecommendationService', () => {
       );
 
       expect(recommendations).toHaveLength(2);
-      expect(recommendations[0].reason).toContain('John Doe');
+      expect(recommendations[0].reason).toContain('Same entity found');
       expect(recommendations[0].start).toBe(0);
       expect(recommendations[1].start).toBe(10);
       expect(recommendations[0].score).toBeCloseTo(0.89, 1);
@@ -154,7 +154,7 @@ describe('RecommendationService', () => {
 
       expect(recommendations).toHaveLength(1);
       expect(recommendations[0].MediaClipRef).toBe('mc1');
-      expect(recommendations[0].reason).toContain('Car');
+      expect(recommendations[0].reason).toContain('Shares 1 common entity');
       expect(
         (service as any).timelineRecommendationMutator.upsert
       ).toHaveBeenCalledTimes(1);

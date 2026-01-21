@@ -244,8 +244,11 @@ export class ActivityStrategy extends BaseRecommendationStrategy {
     const averageConfidence =
       activeLabels.reduce((sum, label) => sum + label.confidence, 0) /
       activeLabels.length;
-    const countScore = Math.min(1, (activeCount - 1) / 4);
-    const score = Math.min(1, 0.5 * averageConfidence + 0.5 * countScore);
+
+    // Increased weight for overlapping count to reward complexity
+    const countScore = Math.min(1, (activeCount - 1) / 3);
+    const score = Math.min(1, 0.4 * averageConfidence + 0.6 * countScore);
+
     const primaryLabelType = activeLabels.reduce((best, label) =>
       label.confidence > best.confidence ? label : best
     ).labelType;
@@ -265,10 +268,8 @@ export class ActivityStrategy extends BaseRecommendationStrategy {
       )
     );
 
-    const reason =
-      activeLabelTypes.length > 0
-        ? `Activity overlap (${activeCount}): ${activeLabelTypes.join(', ')}`
-        : `Activity overlap (${activeCount})`;
+    // Simplified reason string
+    const reason = `High activity (${activeCount} overlapping elements)`;
 
     return {
       score,
@@ -277,7 +278,7 @@ export class ActivityStrategy extends BaseRecommendationStrategy {
       reason,
       reasonData: {
         activeCount,
-        activeLabelTypes,
+        activeLabelTypes, // Kept in data for debugging
         activeEntities,
         averageConfidence,
       },

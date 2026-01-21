@@ -76,10 +76,12 @@ export class SameEntityStrategy extends BaseRecommendationStrategy {
           end: det.end,
           clipId: matchingClip?.id,
           score: det.confidence,
-          reason: `Contains ${entity.canonicalName}`,
+          // Generic reason to avoid flakey label names
+          reason: `Same entity found`,
           reasonData: {
             entityId: entity.id,
-            entityName: entity.canonicalName,
+            // entityName: entity.canonicalName, // Omit or keep for debugging but not show to user?
+            // The frontend might use reasonData, but usually displays 'reason' field.
             type: det.labelType,
           },
           labelType: det.labelType,
@@ -135,22 +137,19 @@ export class SameEntityStrategy extends BaseRecommendationStrategy {
           d.end <= clip.end
       );
 
-      const sharedEntities = candidateDetections
+      // Find shared entities
+      const sharedCount = candidateDetections
         .filter((d) => d.LabelEntityRef && seedEntityIds.has(d.LabelEntityRef))
-        .map(
-          (d) =>
-            context.labelEntities.find((e) => e.id === d.LabelEntityRef)
-              ?.canonicalName
-        )
-        .filter((name): name is string => !!name);
+        .map((d) => d.LabelEntityRef)
+        .filter((id, index, self) => self.indexOf(id) === index).length; // Unique count
 
-      if (sharedEntities.length > 0) {
-        const uniqueShared = Array.from(new Set(sharedEntities));
+      if (sharedCount > 0) {
         candidates.push({
           clipId: clip.id,
-          score: 0.5 + Math.min(0.5, uniqueShared.length * 0.1),
-          reason: `Shares entities: ${uniqueShared.join(', ')}`,
-          reasonData: { sharedEntities: uniqueShared },
+          score: 0.5 + Math.min(0.5, sharedCount * 0.1),
+          // Generic reason
+          reason: `Shares ${sharedCount} common entit${sharedCount === 1 ? 'y' : 'ies'}`,
+          reasonData: { sharedCount },
         });
       }
     }

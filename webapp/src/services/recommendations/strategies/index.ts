@@ -5,7 +5,7 @@ import type {
   ScoredTimelineCandidate,
 } from '../types';
 import { SameEntityStrategy } from './same-entity.strategy';
-import { AdjacentShotStrategy } from './adjacent-shot.strategy';
+import { TemporalContinuityStrategy } from './temporal-continuity.strategy';
 import { TemporalNearbyStrategy } from './temporal-nearby.strategy';
 import { ConfidenceDurationStrategy } from './confidence-duration.strategy';
 import { DialogClusterStrategy } from './dialog-cluster.strategy';
@@ -21,7 +21,7 @@ export class StrategyRegistry {
 
   constructor() {
     this.register(new SameEntityStrategy());
-    this.register(new AdjacentShotStrategy());
+    this.register(new TemporalContinuityStrategy());
     this.register(new TemporalNearbyStrategy());
     this.register(new ConfidenceDurationStrategy());
     this.register(new DialogClusterStrategy());
@@ -165,7 +165,7 @@ export class ScoreCombiner {
 
 export * from './base-strategy';
 export * from './same-entity.strategy';
-export * from './adjacent-shot.strategy';
+export * from './temporal-continuity.strategy';
 export * from './temporal-nearby.strategy';
 export * from './confidence-duration.strategy';
 export * from './dialog-cluster.strategy';

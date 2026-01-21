@@ -65,7 +65,7 @@ export const MediaRecommendationInputSchema = z.object({
   reasonData: JSONField(),
   strategy: z.enum([
     RecommendationStrategy.SAME_ENTITY,
-    RecommendationStrategy.ADJACENT_SHOT,
+    RecommendationStrategy.TEMPORAL_CONTINUITY,
     RecommendationStrategy.TEMPORAL_NEARBY,
     RecommendationStrategy.CONFIDENCE_DURATION,
     RecommendationStrategy.DIALOG_CLUSTER,

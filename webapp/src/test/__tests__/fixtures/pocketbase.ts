@@ -8,6 +8,7 @@ import type { RecordModel, ListResult, RecordListOptions } from 'pocketbase';
 export class MockAuthStore {
   isValid = false;
   model: User | null = null;
+  record: User | null = null;
   private listeners: Array<(token: string | null, model: User | null) => void> =
     [];
 
@@ -24,12 +25,14 @@ export class MockAuthStore {
   clear() {
     this.isValid = false;
     this.model = null;
+    this.record = null;
     this.notifyListeners(null, null);
   }
 
   setAuth(token: string, model: User) {
     this.isValid = true;
     this.model = model;
+    this.record = model;
     this.notifyListeners(token, model);
   }
 

@@ -452,8 +452,7 @@ export class TimelineService {
     const tracks = await this.generateTracks(timelineId);
 
     // Get current user ID - use provided userId or fall back to authStore
-    const currentUserId =
-      userId || this.pb.authStore.record?.id || this.pb.authStore.model?.id;
+    const currentUserId = userId || this.pb.authStore.record?.id;
     if (!currentUserId) {
       throw new Error('User must be authenticated to create render tasks');
     }

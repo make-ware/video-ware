@@ -103,7 +103,7 @@ export enum LabelType {
 
 export enum RecommendationStrategy {
   SAME_ENTITY = 'same_entity',
-  TEMPORAL_CONTINUITY = 'temporal_continuity',
+  ADJACENT_SHOT = 'temporal_continuity',
   TEMPORAL_NEARBY = 'temporal_nearby',
   CONFIDENCE_DURATION = 'confidence_duration',
   DIALOG_CLUSTER = 'dialog_cluster',

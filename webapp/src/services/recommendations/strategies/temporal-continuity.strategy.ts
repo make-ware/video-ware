@@ -16,7 +16,7 @@ import type {
  * 2. Continuity across different media files using mediaDate (absolute time).
  */
 export class TemporalContinuityStrategy extends BaseRecommendationStrategy {
-  readonly name = RecommendationStrategy.TEMPORAL_CONTINUITY;
+  readonly name = RecommendationStrategy.ADJACENT_SHOT;
 
   async executeForMedia(
     context: MediaStrategyContext

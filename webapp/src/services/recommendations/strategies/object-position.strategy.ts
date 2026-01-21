@@ -135,7 +135,9 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
       if (clip.id === seedClip.id) continue;
 
       // Find tracks in this clip
-      const clipTracks = labelTracks.filter((t) => t.MediaRef === clip.MediaRef);
+      const clipTracks = labelTracks.filter(
+        (t) => t.MediaRef === clip.MediaRef
+      );
 
       let bestMatchScore = 0;
       let bestMatchTime = 0;

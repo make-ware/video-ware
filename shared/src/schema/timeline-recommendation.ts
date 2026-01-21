@@ -75,7 +75,7 @@ export const TimelineRecommendationInputSchema = z.object({
   reasonData: JSONField(),
   strategy: z.enum([
     RecommendationStrategy.SAME_ENTITY,
-    RecommendationStrategy.TEMPORAL_CONTINUITY,
+    RecommendationStrategy.ADJACENT_SHOT,
     RecommendationStrategy.TEMPORAL_NEARBY,
     RecommendationStrategy.CONFIDENCE_DURATION,
     RecommendationStrategy.DIALOG_CLUSTER,

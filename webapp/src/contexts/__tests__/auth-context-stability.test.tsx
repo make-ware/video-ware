@@ -27,7 +27,11 @@ vi.mock('@/lib/pocketbase-client', () => {
         clear: vi.fn(),
       },
       collection: vi.fn(() => ({
-        authRefresh: vi.fn().mockResolvedValue({ record: { id: 'user1', updated: '2023-01-01' } }),
+        authRefresh: vi
+          .fn()
+          .mockResolvedValue({
+            record: { id: 'user1', updated: '2023-01-01' },
+          }),
         authWithPassword: vi.fn(),
       })),
     },

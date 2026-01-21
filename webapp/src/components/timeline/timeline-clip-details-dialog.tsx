@@ -14,6 +14,7 @@ import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { calculateMediaDate, formatMediaDateTime } from '@/utils/date-utils';
 
 interface DetailedTimelineClip extends Omit<TimelineClip, 'expand'> {
   expand?: {
@@ -51,17 +52,6 @@ export function TimelineClipDetailsDialog({
     }, 1000);
     return () => clearInterval(interval);
   }, [open, clip.start, clip.end]);
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   const formatTime = (seconds: number) => {
     const min = Math.floor(seconds / 60);
@@ -152,12 +142,28 @@ export function TimelineClipDetailsDialog({
                 </h4>
                 <div className="space-y-2 text-sm">
                   <div className="grid grid-cols-[auto,1fr] gap-2">
+                    <span className="text-muted-foreground">Date:</span>
+                    <span className="font-medium text-foreground">
+                      {formatMediaDateTime(
+                        calculateMediaDate(media?.mediaDate, clip.start)
+                      )}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[auto,1fr] gap-2">
                     <span className="text-muted-foreground">Created:</span>
-                    <span>{formatDate(media?.created)}</span>
+                    <span>
+                      {formatMediaDateTime(
+                        media?.created ? new Date(media.created) : null
+                      )}
+                    </span>
                   </div>
                   <div className="grid grid-cols-[auto,1fr] gap-2">
                     <span className="text-muted-foreground">Updated:</span>
-                    <span>{formatDate(media?.updated)}</span>
+                    <span>
+                      {formatMediaDateTime(
+                        media?.updated ? new Date(media.updated) : null
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>

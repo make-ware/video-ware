@@ -32,6 +32,7 @@ import { TrimHandles } from '@/components/video/trim-handles';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TimelineClipDetailsDialog } from './timeline-clip-details-dialog';
+import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
 
 const MIN_CLIP_DURATION = 0.5; // seconds
 
@@ -176,16 +177,6 @@ export function TimelineClipItem({
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 100);
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '--/--/--';
-    const date = new Date(dateString);
-    // Format as yy/mm/dd
-    const year = date.getFullYear().toString().slice(-2);
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    return `${year}/${month}/${day}`;
   };
 
   const handleRemove = async (e: React.MouseEvent) => {
@@ -372,7 +363,9 @@ export function TimelineClipItem({
                 Date:
               </span>
               <span className="font-mono text-[11px]">
-                {formatDate(media?.created)}
+                {formatMediaDate(
+                  calculateMediaDate(media?.mediaDate, clip.start)
+                )}
               </span>
             </div>
           </div>

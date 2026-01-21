@@ -13,6 +13,7 @@ import { LabelType } from '@project/shared';
  * Temporal Nearby Strategy
  *
  * Recommends segments/clips within a configurable time window of the seed clip.
+ * Supports cross-media comparison using mediaDate.
  */
 export class TemporalNearbyStrategy extends BaseRecommendationStrategy {
   readonly name = RecommendationStrategy.TEMPORAL_NEARBY;
@@ -110,28 +111,65 @@ export class TemporalNearbyStrategy extends BaseRecommendationStrategy {
     context: TimelineStrategyContext
   ): Promise<ScoredTimelineCandidate[]> {
     const candidates: ScoredTimelineCandidate[] = [];
-    if (!context.seedClip) return [];
+    const seed = context.seedClip;
+    if (!seed) return [];
 
     const timeWindow =
       context.searchParams.timeWindow || this.DEFAULT_TIME_WINDOW;
 
+    // Helper for absolute time
+    const getAbsTime = (media: any, offset: number): number | null => {
+      if (!media?.mediaDate) return null;
+      const t = new Date(media.mediaDate).getTime();
+      return isNaN(t) ? null : t + offset * 1000;
+    };
+
+    const seedMedia = (seed as any).expand?.MediaRef || (seed as any).MediaRef;
+    const seedAbsStart = getAbsTime(seedMedia, seed.start);
+
     for (const clip of context.availableClips) {
-      if (clip.id === context.seedClip.id) continue;
-      if (clip.MediaRef !== context.seedClip.MediaRef) continue;
+      if (clip.id === seed.id) continue;
 
-      const timeDelta = Math.min(
-        Math.abs(clip.start - context.seedClip.start),
-        Math.abs(clip.end - context.seedClip.end)
-      );
+      let timeDelta = Infinity;
 
-      if (timeDelta > timeWindow) continue;
+      // Case 1: Same Media
+      if (clip.MediaRef === seed.MediaRef) {
+        // Distance between ranges
+        // dist(A, B) = max(0, startB - endA, startA - endB) usually, but here just center or min edge
+        // Using min edge distance
+        timeDelta = Math.min(
+          Math.abs(clip.start - seed.start),
+          Math.abs(clip.end - seed.end),
+          Math.abs(clip.start - seed.end),
+          Math.abs(clip.end - seed.start)
+        );
+      }
+      // Case 2: Different Media (using dates)
+      else if (seedAbsStart !== null) {
+        const clipMedia =
+          (clip as any).expand?.MediaRef || (clip as any).MediaRef;
+        const clipAbsStart = getAbsTime(clipMedia, clip.start);
 
-      candidates.push({
-        clipId: clip.id,
-        score: 1 - timeDelta / timeWindow,
-        reason: `Within ${Math.round(timeDelta)}s of seed clip`,
-        reasonData: { timeDelta },
-      });
+        if (clipAbsStart !== null) {
+          const clipAbsEnd = clipAbsStart + clip.duration * 1000;
+          const seedAbsEnd = seedAbsStart + seed.duration * 1000;
+
+          // Calculate distance between time ranges in ms
+          const startDist = Math.abs(clipAbsStart - seedAbsStart);
+          const endDist = Math.abs(clipAbsEnd - seedAbsEnd);
+          // Convert to seconds
+          timeDelta = Math.min(startDist, endDist) / 1000;
+        }
+      }
+
+      if (timeDelta <= timeWindow) {
+        candidates.push({
+          clipId: clip.id,
+          score: 1 - timeDelta / timeWindow,
+          reason: `Shot around the same time (${Math.round(timeDelta)}s)`,
+          reasonData: { timeDelta },
+        });
+      }
     }
 
     return candidates;

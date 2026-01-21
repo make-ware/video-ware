@@ -7,6 +7,19 @@ import type {
   TimelineStrategyContext,
 } from '../types';
 
+interface BoundingBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface Keyframe {
+  timeOffset: number;
+  boundingBox?: BoundingBox;
+  confidence?: number;
+}
+
 export class ObjectPositionStrategy extends BaseRecommendationStrategy {
   readonly name = RecommendationStrategy.OBJECT_POSITION_MATCHER;
 
@@ -16,19 +29,20 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
     const { labelTracks, filterParams } = context;
     const candidates: ScoredMediaCandidate[] = [];
 
+    // Generic "Object" recommendations without specific label names
     for (const track of labelTracks) {
-      if (track.confidence < (filterParams.minConfidence || 0.5)) continue;
+      if (track.confidence < (filterParams.minConfidence || 0.4)) continue;
 
-      // Score based on duration and confidence
-      // Prefer tracks that are reasonably long (> 2s)
       let score = track.confidence;
       if (track.duration > 2) {
         score *= 1.1;
       }
 
-      const reason = `Prominent object track (ID: ${track.trackId})`;
+      // Generic reason to avoid flakey label names
+      const reason = `Prominent object track`;
 
-      // Apply filters
+      // Apply filters (we still use labelType internally for filtering if user asked for objects,
+      // but we don't expose the specific class name in the reason)
       if (
         !this.passesFilters(
           {
@@ -50,7 +64,7 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
         reason,
         reasonData: {
           trackId: track.trackId,
-          labelEntityRef: track.LabelEntityRef,
+          // labelEntityRef: track.LabelEntityRef, // Optional: exclude if we want to be fully opaque
           duration: track.duration,
         },
         labelType: LabelType.OBJECT,
@@ -67,8 +81,8 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
 
     if (!seedClip) return [];
 
-    // Find tracks in seed clip active near the end (for continuity)
-    // Looking at the last 1 second of the seed clip
+    // 1. Identify the target object/region from the seed clip
+    // Look at the very end of the seed clip for continuity
     const seedEndWindowStart = Math.max(0, seedClip.end - 1);
     const seedTracks = labelTracks.filter(
       (t) =>
@@ -84,63 +98,109 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
       (a, b) => b.confidence - a.confidence
     )[0];
 
-    // Attempt to get the bounding box.
-    // Uses the track summary boundingBox if available, or first keyframe as fallback logic
-    // (Actual logic relies on data availability)
-    const targetBox = targetTrack.boundingBox as
-      | Record<string, number>
-      | undefined;
+    // Get the bounding box at the END of the seed clip
+    const targetKeyframes =
+      (targetTrack.keyframes as unknown as Keyframe[]) || [];
+    let targetBox: BoundingBox | undefined =
+      targetTrack.boundingBox as unknown as BoundingBox;
+
+    if (targetKeyframes.length > 0) {
+      const seedEndTime = seedClip.end;
+      // Find the keyframe closest to the cut point (track start + timeOffset ~= seed end)
+      const targetOffset = seedEndTime - targetTrack.start;
+
+      // Find closest keyframe
+      let bestFrame: Keyframe | null = null;
+      let minDiff = Infinity;
+
+      for (const kf of targetKeyframes) {
+        const diff = Math.abs(kf.timeOffset - targetOffset);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestFrame = kf;
+        }
+      }
+
+      if (bestFrame && bestFrame.boundingBox) {
+        targetBox = bestFrame.boundingBox;
+      }
+    }
 
     if (!targetBox) return [];
 
     const candidates: ScoredTimelineCandidate[] = [];
 
+    // 2. Scan all available clips (deep seek) for matching spatial position
     for (const clip of availableClips) {
       if (clip.id === seedClip.id) continue;
 
-      // Find tracks in candidate clip active near the start
-      // Looking at the first 1 second
-      const clipStartWindowEnd = clip.start + 1;
-      const candidateTracks = labelTracks.filter(
-        (t) =>
-          t.MediaRef === clip.MediaRef &&
-          t.start <= clipStartWindowEnd &&
-          t.end >= clip.start
+      // Find tracks in this clip
+      const clipTracks = labelTracks.filter(
+        (t) => t.MediaRef === clip.MediaRef
       );
 
-      for (const track of candidateTracks) {
-        const trackBox = track.boundingBox as
-          | Record<string, number>
-          | undefined;
-        if (!trackBox) continue;
+      let bestMatchScore = 0;
+      let bestMatchTime = 0;
 
-        // Calculate spatial similarity (center distance)
-        const score = this.calculateSpatialSimilarity(targetBox, trackBox);
+      for (const track of clipTracks) {
+        // Optimization: Skip tracks that don't overlap with the clip
+        if (track.end < clip.start || track.start > clip.end) continue;
 
-        if (score > 0.6) {
-          candidates.push({
-            clipId: clip.id,
-            score,
-            reason: `Spatial match with seed object (${(score * 100).toFixed(0)}%)`,
-            reasonData: {
-              score,
-              targetTrackId: targetTrack.trackId,
-              matchTrackId: track.trackId,
-            },
-          });
+        const keyframes = (track.keyframes as unknown as Keyframe[]) || [];
+
+        // Fallback if no keyframes: use summary box
+        if (keyframes.length === 0) {
+          const summaryBox = track.boundingBox as unknown as BoundingBox;
+          if (summaryBox) {
+            const score = this.calculateIoU(targetBox, summaryBox);
+            if (score > bestMatchScore) {
+              bestMatchScore = score;
+              // Best guess for time is the start of the overlap between track and clip
+              bestMatchTime = Math.max(clip.start, track.start);
+            }
+          }
+          continue;
         }
+
+        // Deep seek through keyframes
+        for (const kf of keyframes) {
+          if (!kf.boundingBox) continue;
+
+          const absTime = track.start + kf.timeOffset;
+
+          // Ensure we are within the clip's bounds
+          if (absTime < clip.start || absTime > clip.end) continue;
+
+          const score = this.calculateIoU(targetBox, kf.boundingBox);
+
+          if (score > bestMatchScore) {
+            bestMatchScore = score;
+            bestMatchTime = absTime;
+          }
+        }
+      }
+
+      // Threshold for recommendation
+      if (bestMatchScore > 0.3) {
+        // Lowered threshold for IoU as precise matches are rare
+        candidates.push({
+          clipId: clip.id,
+          score: bestMatchScore,
+          reason: `Spatial match (${(bestMatchScore * 100).toFixed(0)}% overlap)`,
+          reasonData: {
+            matchTime: bestMatchTime,
+            score: bestMatchScore,
+            targetTrackId: targetTrack.trackId,
+          },
+        });
       }
     }
 
     return candidates;
   }
 
-  private calculateSpatialSimilarity(
-    box1: Record<string, number>,
-    box2: Record<string, number>
-  ): number {
-    // Expects { top, left, bottom, right } normalized 0-1
-    // If undefined properties, return 0
+  private calculateIoU(box1: BoundingBox, box2: BoundingBox): number {
+    // Validate boxes
     if (
       box1.left === undefined ||
       box1.right === undefined ||
@@ -154,15 +214,23 @@ export class ObjectPositionStrategy extends BaseRecommendationStrategy {
       return 0;
     }
 
-    const c1x = (box1.left + box1.right) / 2;
-    const c1y = (box1.top + box1.bottom) / 2;
-    const c2x = (box2.left + box2.right) / 2;
-    const c2y = (box2.top + box2.bottom) / 2;
+    const xA = Math.max(box1.left, box2.left);
+    const yA = Math.max(box1.top, box2.top);
+    const xB = Math.min(box1.right, box2.right);
+    const yB = Math.min(box1.bottom, box2.bottom);
 
-    const dist = Math.sqrt(Math.pow(c1x - c2x, 2) + Math.pow(c1y - c2y, 2));
-    // Max possible distance in unit square is sqrt(2) approx 1.414
-    // We want 1 for dist=0, 0 for dist=large
+    const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+    if (interArea === 0) return 0;
 
-    return Math.max(0, 1 - dist);
+    const box1Area = (box1.right - box1.left) * (box1.bottom - box1.top);
+    const box2Area = (box2.right - box2.left) * (box2.bottom - box2.top);
+
+    const unionArea = box1Area + box2Area - interArea;
+    if (unionArea === 0) return 0;
+
+    return interArea / unionArea;
   }
+
+  // Fallback to spatial similarity (center distance) if needed,
+  // but IoU is requested ("exact overlap").
 }

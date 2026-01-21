@@ -138,22 +138,22 @@ The worker is a NestJS application that processes background tasks using BullMQ:
 
 ### Media Processing Pipeline
 
-1. **Upload** → User uploads file, creates Upload + File records, stores to S3
-2. **Process** → Background worker validates media, generates proxy, thumbnails, sprites
-3. **Transcode** → Optional transcoding to different formats/resolutions using FFmpeg or Google Cloud Transcoder
-4. **Detect Labels** → Google Cloud Video Intelligence API analyzes videos with five independent processors:
+1. **Upload** - User uploads file, creates Upload + File records, stores to S3
+2. **Process** - Background worker validates media, generates proxy, thumbnails, sprites
+3. **Transcode** - Optional transcoding to different formats/resolutions using FFmpeg or Google Cloud Transcoder
+4. **Detect Labels** - Google Cloud Video Intelligence API analyzes videos with five independent processors:
    - **Label Detection**: Detects objects, activities, locations, and shot changes
    - **Object Tracking**: Tracks objects across frames with bounding boxes and keyframes
    - **Face Detection**: Detects and tracks faces with attributes (headwear, glasses, looking at camera)
    - **Person Detection**: Detects and tracks persons with pose landmarks
    - **Speech Transcription**: Transcribes speech to text with timestamps
-5. **Normalize & Store** → Detection results are normalized into structured database entities:
+5. **Normalize & Store** - Detection results are normalized into structured database entities:
    - `LabelEntity`: Canonical entities (e.g., "Face", "Person", "Car")
    - `LabelTrack`: Tracked detections with keyframes and metadata
    - `LabelClip`: Significant appearances meeting quality thresholds
    - `LabelMedia`: Aggregated statistics and processing metadata
-6. **Timeline Editing** → Create and edit timelines with clip composition
-7. **Render** → Export timelines to final video outputs
+6. **Timeline Editing** - Create and edit timelines with clip composition
+7. **Render** - Export timelines to final video outputs
 
 ### Workspace-Scoped Tenancy
 
@@ -251,71 +251,6 @@ yarn precommit                      # Run lint, typecheck, format, and test
 - **Package Manager**: Yarn 4.12.0 with workspaces
 - **Testing**: Vitest
 - **Deployment**: Docker with multi-stage builds, nginx, supervisor
-
-## Data Model
-
-Key collections:
-- **Workspace**: Top-level scope for all resources
-- **WorkspaceMember**: User membership and roles (owner, admin, member, viewer)
-- **Upload**: Upload metadata and status tracking
-- **File**: File records (original/proxy/thumbnail/sprite/labels_json/render)
-- **Media**: Processed media with metadata (duration, dimensions, codec, fps)
-- **MediaClip**: Clips derived from media (user-created, label-detected, or full-range)
-- **LabelEntity**: Canonical label entities (e.g., "Face", "Person", "Car")
-- **LabelTrack**: Tracked detections with keyframes, bounding boxes, and attributes
-- **LabelClip**: Significant label appearances meeting quality thresholds
-- **LabelMedia**: Aggregated label statistics and processing metadata
-- **Task**: Background job tracking with progress, retries, and error logs
-- **Timeline**: Composition of clips for editing with edit lists
-- **TimelineClip**: Timeline clip items with ordering and trim information
-- **TimelineRender**: Render task results and output file references
-
-See [Planning Overview](planning/overview.md) for detailed schema.
-
-## Development Status
-
-### Completed Features
-
-- Monorepo setup and workspace configuration
-- PocketBase integration with shared schemas and migrations
-- Upload system with progress tracking and S3 storage
-- Media processing pipeline (FFmpeg integration)
-  - Media probing (duration, dimensions, codec detection)
-  - Thumbnail generation
-  - Sprite sheet generation for hover previews
-  - Proxy video generation
-- Google Cloud Video Intelligence API integration
-  - Label Detection (objects, activities, locations, shot changes)
-  - Object Tracking (tracked objects with keyframes)
-  - Face Detection (faces with attributes)
-  - Person Detection (persons with pose landmarks)
-  - Speech Transcription (speech-to-text with timestamps)
-- Label normalization and storage
-  - Structured database entities (LabelEntity, LabelTrack, LabelClip, LabelMedia)
-  - Keyframe extraction and bounding box storage
-  - Attribute aggregation and metadata
-- Timeline editing and composition
-  - Clip creation and management
-  - Timeline editor with drag-and-drop
-  - Edit list generation
-  - Version control
-- Video rendering pipeline
-  - Render task creation and queuing
-  - Output format configuration
-- Workspace-based multi-tenancy
-- Task queue with BullMQ (Redis-backed)
-- Real-time updates via PocketBase subscriptions
-- Docker deployment configuration
-
-### In Progress / Planned
-
-- Clip recommendations based on labels
-- Advanced timeline features (transitions, effects)
-- Multi-track editing
-- Audio mixing and effects
-- Export optimization and CDN integration
-
-See [Planning Overview](planning/overview.md) for milestone details.
 
 ## Contributing
 

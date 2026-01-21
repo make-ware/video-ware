@@ -15,5 +15,5 @@ next-env.d.ts
 
 # Other
 *.log
-
+*.md
 

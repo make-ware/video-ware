@@ -27,6 +27,16 @@ video-ware/
   - Job definitions and types
 - **`@project/pb`**: PocketBase instance with hooks and migrations
 
+## Prerequisites
+
+The following software is required for development:
+
+- Node.js >= 22.0.0
+- Yarn 4.12.0
+- FFmpeg (for media processing)
+- Redis (required for BullMQ task queue)
+- Google Cloud Project with Video Intelligence API enabled (optional for analysis features)
+
 ## Getting Started
 
 1. **Initial Setup:**
@@ -34,39 +44,39 @@ video-ware/
    yarn install
    yarn setup
    ```
-   This downloads PocketBase and sets up the database.
+   This command installs dependencies, downloads the PocketBase binary, and initializes the database.
 
 2. **Create Admin Account:**
    
-   **Option A - Auto-create (recommended):**
+   **Option A - Environment Variable Configuration (Recommended):**
    ```bash
    export POCKETBASE_ADMIN_EMAIL=admin@example.com
    export POCKETBASE_ADMIN_PASSWORD=your-secure-password
    yarn setup
    ```
-   The superuser will be created automatically during setup.
+   Providing these environment variables during setup will automatically create a superuser.
    
-   **Option B - Manual creation:**
+   **Option B - CLI Interaction:**
    ```bash
    yarn workspace @project/pb admin
    ```
-   Follow the prompts to create your admin account.
+   Follow the interactive prompts to create an administrative account.
 
 3. **Build Shared Package:**
    ```bash
    yarn workspace @project/shared build
    ```
-   The shared package must be built before the webapp and worker can use it.
+   The shared package provides common types and schemas and must be built before starting application services.
 
-4. **Start Development:**
+4. **Start Development Environment:**
    ```bash
    yarn dev
    ```
-   This starts all services:
-   - Shared package: Watch mode for automatic rebuilds
-   - Next.js: http://localhost:3000
-   - PocketBase: http://localhost:8090
-   - Worker: Background task processor
+   This command initializes all required services:
+   - Shared Workspace: Starts in watch mode for incremental builds.
+   - Web Application: Accessible at http://localhost:3000.
+   - PocketBase: Accessible at http://localhost:8090.
+   - Worker: Background task processing engine.
 
 ## Google Cloud Video Intelligence Configuration
 

@@ -27,6 +27,6 @@ pb/pb_data
 # Other
 .DS_Store
 *.log
-
+*.md
 
 

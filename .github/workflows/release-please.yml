@@ -50,7 +50,7 @@ jobs:
             
             ---
             
-            ## 🐳 Docker Deployment
+            ## Docker Deployment
             
             Docker images for this release are automatically built and published to GitHub Container Registry.
             
@@ -58,7 +58,7 @@ jobs:
             
             \`\`\`bash
             # Pull the image
-            docker pull ghcr.io/${owner}/${repo}:${version}
+            docker pull ghcr.io/\${owner}/\${repo}:\${version}
             
             # Run with persistent data
             docker run -d \\
@@ -68,17 +68,17 @@ jobs:
               -v worker_data:/app/data \\
               -e POCKETBASE_ADMIN_EMAIL=admin@example.com \\
               -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \\
-              ghcr.io/${owner}/${repo}:${version}
+              ghcr.io/\${owner}/\${repo}:\${version}
             \`\`\`
             
             ### Available Image Tags
             
             | Tag | Description |
             |-----|-------------|
-            | \`ghcr.io/${owner}/${repo}:${version}\` | This specific version |
-            | \`ghcr.io/${owner}/${repo}:${major}.${minor}\` | Latest patch for v${major}.${minor} |
-            | \`ghcr.io/${owner}/${repo}:${major}\` | Latest minor for v${major} |
-            | \`ghcr.io/${owner}/${repo}:latest\` | Latest stable release |
+            | \`ghcr.io/\${owner}/\${repo}:\${version}\` | This specific version |
+            | \`ghcr.io/\${owner}/\${repo}:\${major}.\${minor}\` | Latest patch for v\${major}.\${minor} |
+            | \`ghcr.io/\${owner}/\${repo}:\${major}\` | Latest minor for v\${major} |
+            | \`ghcr.io/\${owner}/\${repo}:latest\` | Latest stable release |
             
             ### Supported Architectures
             
@@ -114,9 +114,9 @@ jobs:
             
             ### Documentation
             
-            - 📖 [Docker README](docker/README.md) - Full deployment documentation
-            - 🔧 [Environment Variables](docker/README.md#environment-variables) - Complete configuration reference
-            - 🔒 [Security Scanning](docker/README.md#security-scanning) - Vulnerability scanning details
+            - [Docker README](docker/README.md) - Full deployment documentation
+            - [Environment Variables](docker/README.md#environment-variables) - Complete configuration reference
+            - [Security Scanning](docker/README.md#security-scanning) - Vulnerability scanning details
             `;
             
             await github.rest.repos.updateRelease({

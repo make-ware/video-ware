@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Info, X, Clock, Tag, FileVideo } from 'lucide-react';
-import type { TimelineClip, Media, MediaClip } from '@project/shared';
+import type { TimelineClip, Media, MediaClip, File } from '@project/shared';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { Separator } from '@/components/ui/separator';
@@ -19,7 +19,7 @@ interface DetailedTimelineClip extends Omit<TimelineClip, 'expand'> {
   expand?: {
     MediaRef?: Media & {
       expand?: {
-        spriteFileRef?: any;
+        spriteFileRef?: File;
       };
     };
     MediaClipRef?: MediaClip;

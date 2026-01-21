@@ -41,13 +41,16 @@ export function TimelineEditorLayout() {
       {/* 
           Desktop Sidebar: Assets (Left)
       */}
-      <div className="hidden lg:block border-r w-80 shrink-0 overflow-hidden">
-        <CollapsiblePanel side="left" title="Media Assets" width="w-80">
-          <div className="h-full flex flex-col overflow-hidden">
-            <ClipBrowser />
-          </div>
-        </CollapsiblePanel>
-      </div>
+      <CollapsiblePanel
+        side="left"
+        title="Media Assets"
+        width="w-[420px]"
+        className="hidden lg:flex"
+      >
+        <div className="h-full flex flex-col overflow-hidden">
+          <ClipBrowser />
+        </div>
+      </CollapsiblePanel>
 
       {/* Main Content Area: Player & Timeline */}
       <div className="flex-1 flex flex-col min-w-0 bg-muted/20 overflow-hidden">
@@ -130,14 +133,14 @@ export function TimelineEditorLayout() {
 
         {/* Player Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto p-2 lg:p-8 flex items-center justify-center min-h-0 bg-black/5">
+          <div className="flex-1 overflow-auto p-1 lg:p-8 flex items-center justify-center min-h-0 bg-black/5">
             <div className="w-full max-w-4xl max-h-full aspect-video">
               <TimelinePlayer />
             </div>
           </div>
 
           {/* Timeline Area (Increased height for dual full-height views) */}
-          <div className="h-80 lg:h-[420px] border-t bg-background p-3 lg:p-4 shrink-0 z-10 overflow-hidden">
+          <div className="h-[400px] lg:h-[420px] border-t bg-background p-3 lg:p-4 shrink-0 z-10 overflow-hidden">
             <TimelineView />
           </div>
         </div>
@@ -176,15 +179,18 @@ export function TimelineEditorLayout() {
       </div>
 
       {/* Desktop Sidebar: Recommendations (Right) */}
-      <div className="hidden lg:block border-l w-80 shrink-0 overflow-hidden">
-        <CollapsiblePanel side="right" title="Recommendations" width="w-80">
-          <div className="h-full overflow-hidden flex flex-col">
-            <div className="p-4 flex-1 overflow-y-auto">
-              <TimelineRecommendationsPanelWrapper />
-            </div>
+      <CollapsiblePanel
+        side="right"
+        title="Recommendations"
+        width="w-[420px]"
+        className="hidden lg:flex"
+      >
+        <div className="h-full overflow-hidden flex flex-col">
+          <div className="p-4 flex-1 overflow-y-auto">
+            <TimelineRecommendationsPanelWrapper />
           </div>
-        </CollapsiblePanel>
-      </div>
+        </div>
+      </CollapsiblePanel>
 
       {/* Mobile Overlay Panels */}
       {activeMobilePanel && (

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { TimelineClip, Media } from '@project/shared';
+import type { TimelineClip, Media, File } from '@project/shared';
 import { useTimeline } from '@/hooks/use-timeline';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
@@ -42,7 +42,7 @@ interface TimelineClipWithExpand extends Omit<TimelineClip, 'expand'> {
   expand?: {
     MediaRef?: Media & {
       expand?: {
-        spriteFileRef?: any;
+        spriteFileRef?: File;
       };
     };
   };
@@ -322,7 +322,7 @@ export function TimelineClipItem({
             ) : (
               <SpriteAnimator
                 media={media}
-                spriteFile={(media as any).expand?.spriteFileRef}
+                spriteFile={media.expand?.spriteFileRef}
                 start={clip.start}
                 end={clip.end}
                 isHovering={isHovering}

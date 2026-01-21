@@ -1,10 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { MediaClip, Media } from '@project/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Plus } from 'lucide-react';
+import { Plus, Eye, Calendar } from 'lucide-react';
+import { MediaBaseCard } from '@/components/media/media-base-card';
+import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
 /**
  * Extended MediaClip type with expanded relations
@@ -38,88 +40,142 @@ interface ClipBrowserItemProps {
   onAddToTimeline: (clip: MediaClipWithExpand) => void;
 }
 
-import { MediaBaseCard } from '@/components/media/media-base-card';
-
 export function ClipBrowserItem({
   clip,
   onAddToTimeline,
 }: ClipBrowserItemProps) {
-  const duration = clip.end - clip.start;
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const media = clip.expand?.MediaRef;
   const upload = media?.expand?.UploadRef;
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '--/--/--';
+    const date = new Date(dateString);
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}/${month}/${day}`;
   };
 
   const mediaName = upload?.filename || upload?.name || 'Unknown Media';
 
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDetailsOpen(true);
+  };
+
+  // Construct a pseudo-clip for the dialog
+  const detailsClip: any = {
+    id: clip.id,
+    start: clip.start,
+    end: clip.end,
+    order: 0,
+    meta: {},
+    expand: {
+      MediaRef: media,
+      MediaClipRef: clip,
+    },
+  };
+
   return (
-    <MediaBaseCard
-      media={media}
-      spriteFile={media?.expand?.spriteFileRef}
-      startTime={clip.start}
-      endTime={clip.end}
-      title={
-        <div className="flex items-center justify-between gap-1.5 min-w-0">
-          <span className="truncate flex-1 min-w-0" title={mediaName}>
-            {mediaName}
-          </span>
-          <Badge
-            variant="outline"
-            className="text-[10px] px-1.5 py-0.5 h-auto flex-shrink-0 whitespace-nowrap leading-none"
+    <>
+      <MediaBaseCard
+        media={media}
+        spriteFile={media?.expand?.spriteFileRef}
+        startTime={clip.start}
+        endTime={clip.end}
+        title={
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
+            <Badge
+              variant="outline"
+              className="uppercase text-[10px] font-semibold h-5 px-2"
+            >
+              {clip.type}
+            </Badge>
+          </div>
+        }
+        subtitle={
+          <div className="mt-1 flex flex-col gap-1">
+            <div className="text-[10px] font-medium truncate opacity-60">
+              {mediaName}
+            </div>
+            {/* Time & Date Info */}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground font-mono">
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">In:</span>
+                {formatTime(clip.start)}
+              </span>
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">Out:</span>
+                {formatTime(clip.end)}
+              </span>
+              <span className="col-span-2 flex items-center gap-1 border-t border-border/50 pt-0.5 mt-0.5">
+                <Calendar className="h-2.5 w-2.5 opacity-70" />
+                {formatDate(media?.created)}
+              </span>
+            </div>
+          </div>
+        }
+        badges={[
+          <div
+            key="duration"
+            className="bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold"
           >
-            {clip.type}
-          </Badge>
-        </div>
-      }
-      subtitle={
-        <div className="flex items-center gap-1 min-w-0">
-          <Clock className="h-3 w-3 flex-shrink-0" />
-          <span className="truncate">
-            {formatTime(clip.start)} - {formatTime(clip.end)}
-          </span>
-        </div>
-      }
-      badges={[
-        <div
-          key="duration"
-          className="bg-black/75 text-white text-[10px] px-1.5 py-0.5 rounded font-mono"
-        >
-          {formatTime(duration)}
-        </div>,
-      ]}
-      overlayActions={[
-        <Button
-          key="add"
-          size="icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddToTimeline(clip);
-          }}
-          className="h-7 w-7 shadow-md"
-          title="Add to Timeline"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>,
-      ]}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(
-          'application/json',
-          JSON.stringify({
-            type: 'media-clip',
-            clipId: clip.id,
-            mediaId: clip.MediaRef,
-            start: clip.start,
-            end: clip.end,
-            clipType: clip.type,
-          })
-        );
-        e.dataTransfer.effectAllowed = 'copy';
-      }}
-    />
+            {formatTime(clip.end - clip.start)}
+          </div>,
+        ]}
+        overlayActions={[
+          <Button
+            key="details"
+            size="icon"
+            variant="secondary"
+            onClick={handleViewDetails}
+            className="h-7 w-7 shadow-md"
+            title="View Details"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>,
+          <Button
+            key="add"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddToTimeline(clip);
+            }}
+            className="h-7 w-7 shadow-md"
+            title="Add to Timeline"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>,
+        ]}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(
+            'application/json',
+            JSON.stringify({
+              type: 'media-clip',
+              clipId: clip.id,
+              mediaId: clip.MediaRef,
+              start: clip.start,
+              end: clip.end,
+              clipType: clip.type,
+            })
+          );
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
+      />
+      <TimelineClipDetailsDialog
+        open={isDetailsOpen}
+        onOpenChange={setIsDetailsOpen}
+        clip={detailsClip}
+      />
+    </>
   );
 }

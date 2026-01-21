@@ -9,8 +9,10 @@ import {
 } from '@project/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Replace, X, Check } from 'lucide-react';
+import { Plus, Replace, X, Check, Eye, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MediaBaseCard } from '@/components/media/media-base-card';
+import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
 interface TimelineRecommendationCardProps {
   recommendation: TimelineRecommendation;
@@ -26,14 +28,10 @@ interface TimelineRecommendationCardProps {
  * Displays a single timeline recommendation with:
  * - Thumbnail/preview area
  * - Clip label/name
- * - Reason text explaining the recommendation
- * - Strategy badge for explainability
- * - Action buttons for "Add", "Replace", and "Dismiss"
- *
- * Requirements: 11.2, 11.3, 11.4, 11.5
+ * - Time and Date info
+ * - Strategy badge
+ * - Action buttons for "Add", "Replace", "Dismiss", and "View Details"
  */
-import { MediaBaseCard } from '@/components/media/media-base-card';
-
 export function TimelineRecommendationCard({
   recommendation,
   onAdd,
@@ -42,6 +40,8 @@ export function TimelineRecommendationCard({
   className,
 }: TimelineRecommendationCardProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [detailsClip, setDetailsClip] = useState<any>(null);
 
   // Get strategy display name
   const getStrategyDisplay = (strategy: RecommendationStrategy): string => {
@@ -94,6 +94,23 @@ export function TimelineRecommendationCard({
     }
   };
 
+  const formatTime = (seconds?: number) => {
+    if (seconds === undefined) return '--:--';
+    const min = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${min}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '--/--/--';
+    const date = new Date(dateString);
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  };
+
   // Normalize strategy to single value
   const strategy = Array.isArray(recommendation.strategy)
     ? recommendation.strategy[0]
@@ -132,110 +149,163 @@ export function TimelineRecommendationCard({
   const associatedClips = recommendation.expand?.TimelineClipsRef;
   const isUsed = Array.isArray(associatedClips) && associatedClips.length > 0;
 
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Construct a pseudo-clip for the dialog
+    const pseudoClip: any = {
+      id: recommendation.id,
+      start: clipStart || 0,
+      end: clipEnd || 0,
+      order: 0,
+      meta: {
+        reason: recommendation.reason,
+        score: recommendation.score,
+        strategy: recommendation.strategy,
+      },
+      expand: {
+        MediaRef: media,
+        MediaClipRef: mediaClip,
+      },
+    };
+    setDetailsClip(pseudoClip);
+    setIsDetailsOpen(true);
+  };
+
   return (
-    <MediaBaseCard
-      media={media}
-      startTime={clipStart}
-      endTime={clipEnd}
-      className={cn(
-        isProcessing && 'opacity-60 pointer-events-none',
-        className
-      )}
-      title={
-        <div className="flex items-center justify-between gap-1.5 min-w-0">
-          <Badge
-            variant={getStrategyVariant(strategy)}
-            className="uppercase text-[10px] font-semibold h-5 px-2"
-          >
-            {getStrategyDisplay(strategy)}
-          </Badge>
-          <span className="text-[10px] font-medium text-muted-foreground">
-            #{recommendation.rank + 1}
-          </span>
-        </div>
-      }
-      subtitle={
-        <div className="mt-1 flex flex-col gap-1">
-          <div className="text-[10px] font-medium truncate opacity-60">
-            {displayName}
+    <>
+      <MediaBaseCard
+        media={media}
+        startTime={clipStart}
+        endTime={clipEnd}
+        className={cn(
+          isProcessing && 'opacity-60 pointer-events-none',
+          className
+        )}
+        title={
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
+            <Badge
+              variant={getStrategyVariant(strategy)}
+              className="uppercase text-[10px] font-semibold h-5 px-2"
+            >
+              {getStrategyDisplay(strategy)}
+            </Badge>
+            <span className="text-[10px] font-medium text-muted-foreground">
+              #{recommendation.rank + 1}
+            </span>
           </div>
-          <p className="text-[11px] leading-tight text-foreground/90 font-medium line-clamp-2">
-            {recommendation.reason}
-          </p>
-        </div>
-      }
-      leftBadges={
-        [
-          isUsed && (
-            <div
-              key="used"
-              className="bg-green-500 text-white rounded-full p-1 shadow-lg animate-in zoom-in-50 duration-300"
-              title="Timeline clip created"
-            >
-              <Check className="h-3 w-3" />
+        }
+        subtitle={
+          <div className="mt-1 flex flex-col gap-1">
+            <div className="text-[10px] font-medium truncate opacity-60">
+              {displayName}
             </div>
-          ),
-        ].filter(Boolean) as React.ReactNode[]
-      }
-      badges={[
-        <Badge
-          key="score"
-          variant="secondary"
-          className="text-[10px] font-semibold h-5 px-2 bg-black/60 text-white border-0"
-        >
-          {scorePercentage}%
-        </Badge>,
-      ]}
-      overlayActions={
-        [
-          recommendation.targetMode === 'append' && onAdd && (
+            {/* Time & Date Info */}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground font-mono">
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">In:</span>
+                {formatTime(clipStart)}
+              </span>
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">Out:</span>
+                {formatTime(clipEnd)}
+              </span>
+              <span className="col-span-2 flex items-center gap-1 border-t border-border/50 pt-0.5 mt-0.5">
+                <Calendar className="h-2.5 w-2.5 opacity-70" />
+                {formatDate(media?.created)}
+              </span>
+            </div>
+          </div>
+        }
+        leftBadges={
+          [
+            isUsed && (
+              <div
+                key="used"
+                className="bg-green-500 text-white rounded-full p-1 shadow-lg animate-in zoom-in-50 duration-300"
+                title="Timeline clip created"
+              >
+                <Check className="h-3 w-3" />
+              </div>
+            ),
+          ].filter(Boolean) as React.ReactNode[]
+        }
+        badges={[
+          <Badge
+            key="score"
+            variant="secondary"
+            className="text-[10px] font-semibold h-5 px-2 bg-black/60 text-white border-0"
+          >
+            {scorePercentage}%
+          </Badge>,
+        ]}
+        overlayActions={
+          [
             <Button
-              key="add"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAction(onAdd, recommendation);
-              }}
-              disabled={isProcessing}
-              className="h-7 w-7 shadow-md"
-              title="Add to Timeline"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          ),
-          recommendation.targetMode === 'replace' && onReplace && (
-            <Button
-              key="replace"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAction(onReplace, recommendation);
-              }}
-              disabled={isProcessing}
-              className="h-7 w-7 shadow-md"
-              title="Replace Clip"
-            >
-              <Replace className="h-4 w-4" />
-            </Button>
-          ),
-          onDismiss && (
-            <Button
-              key="dismiss"
+              key="details"
               size="icon"
               variant="secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAction(onDismiss, recommendation);
-              }}
-              disabled={isProcessing}
+              onClick={handleViewDetails}
               className="h-7 w-7 shadow-md"
-              title="Dismiss"
+              title="View Details"
             >
-              <X className="h-4 w-4" />
-            </Button>
-          ),
-        ].filter(Boolean) as React.ReactNode[]
-      }
-    />
+              <Eye className="h-4 w-4" />
+            </Button>,
+            recommendation.targetMode === 'append' && onAdd && (
+              <Button
+                key="add"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction(onAdd, recommendation);
+                }}
+                disabled={isProcessing}
+                className="h-7 w-7 shadow-md"
+                title="Add to Timeline"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            ),
+            recommendation.targetMode === 'replace' && onReplace && (
+              <Button
+                key="replace"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction(onReplace, recommendation);
+                }}
+                disabled={isProcessing}
+                className="h-7 w-7 shadow-md"
+                title="Replace Clip"
+              >
+                <Replace className="h-4 w-4" />
+              </Button>
+            ),
+            onDismiss && (
+              <Button
+                key="dismiss"
+                size="icon"
+                variant="secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction(onDismiss, recommendation);
+                }}
+                disabled={isProcessing}
+                className="h-7 w-7 shadow-md"
+                title="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            ),
+          ].filter(Boolean) as React.ReactNode[]
+        }
+      />
+      {detailsClip && (
+        <TimelineClipDetailsDialog
+          open={isDetailsOpen}
+          onOpenChange={setIsDetailsOpen}
+          clip={detailsClip}
+        />
+      )}
+    </>
   );
 }

@@ -18,9 +18,9 @@ export function TimelineView() {
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full h-full overflow-hidden">
+    <div className="flex flex-col gap-2 lg:gap-4 w-full h-full overflow-hidden">
       {/* Layer View Section */}
-      <div className="flex flex-col gap-1.5 shrink-0">
+      <div className="flex flex-col gap-1 shrink-0">
         <div className="flex items-center justify-between px-1">
           <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2">
             Scrubber & Layers

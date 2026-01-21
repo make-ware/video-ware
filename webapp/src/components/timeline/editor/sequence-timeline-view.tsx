@@ -54,9 +54,12 @@ function SequenceClipCard({
         isSelected
           ? 'border-primary shadow-lg ring-2 ring-primary/20 scale-105 z-10'
           : 'border-border bg-card hover:border-muted-foreground/50',
-        isDragged && 'opacity-50'
+        isDragged && 'opacity-50',
+        'h-[120px] lg:h-[100px]'
       )}
-      style={{ width: BLOCK_WIDTH, height: 100 }}
+      style={{
+        width: BLOCK_WIDTH,
+      }}
     >
       {/* Background Sprite Animator */}
       <div className="absolute inset-0 z-0">
@@ -156,7 +159,7 @@ export function SequenceTimelineView() {
   };
 
   return (
-    <div className="flex flex-col w-full bg-background/30 rounded-lg overflow-hidden h-40">
+    <div className="flex flex-col w-full bg-background/30 rounded-lg overflow-hidden h-48 lg:h-40">
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 flex items-center gap-3 no-scrollbar">
         {timeline.clips.map((clip) => (
           <SequenceClipCard

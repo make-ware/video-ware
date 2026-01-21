@@ -7,7 +7,10 @@ import { format } from 'date-fns';
  * @param offsetSeconds The offset in seconds from the start of the media.
  * @returns The calculated Date, or null if mediaDate is invalid or missing.
  */
-export function calculateMediaDate(mediaDate: string | Date | undefined, offsetSeconds: number = 0): Date | null {
+export function calculateMediaDate(
+  mediaDate: string | Date | undefined,
+  offsetSeconds: number = 0
+): Date | null {
   if (!mediaDate) return null;
 
   const date = new Date(mediaDate);
@@ -24,7 +27,10 @@ export function calculateMediaDate(mediaDate: string | Date | undefined, offsetS
  * @param formatStr Optional format string (defaults to 'yyyy/MM/dd').
  * @returns The formatted date string, or '--/--/--' if the date is null/undefined.
  */
-export function formatMediaDate(date: Date | null | undefined, formatStr: string = 'yyyy/MM/dd'): string {
+export function formatMediaDate(
+  date: Date | null | undefined,
+  formatStr: string = 'yyyy/MM/dd'
+): string {
   if (!date || isNaN(date.getTime())) return '--/--/--';
   return format(date, formatStr);
 }
@@ -33,7 +39,10 @@ export function formatMediaDate(date: Date | null | undefined, formatStr: string
  * Formats a date for display with time.
  * Default format: yyyy/MM/dd HH:mm:ss
  */
-export function formatMediaDateTime(date: Date | null | undefined, formatStr: string = 'yyyy/MM/dd HH:mm:ss'): string {
+export function formatMediaDateTime(
+  date: Date | null | undefined,
+  formatStr: string = 'yyyy/MM/dd HH:mm:ss'
+): string {
   if (!date || isNaN(date.getTime())) return '--/--/-- --:--:--';
   return format(date, formatStr);
 }

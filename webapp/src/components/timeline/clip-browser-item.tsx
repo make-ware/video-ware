@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import type { MediaClip, Media } from '@project/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Eye, Calendar } from 'lucide-react';
+import { Plus, Eye } from 'lucide-react';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
@@ -53,15 +53,6 @@ export function ClipBrowserItem({
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 100);
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '--/--/--';
-    const date = new Date(dateString);
-    const year = date.getFullYear().toString().slice(-2);
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    return `${year}/${month}/${day}`;
   };
 
   const mediaName = upload?.filename || upload?.name || 'Unknown Media';
@@ -115,10 +106,6 @@ export function ClipBrowserItem({
               <span className="flex items-center justify-between gap-1">
                 <span className="opacity-70">Out:</span>
                 {formatTime(clip.end)}
-              </span>
-              <span className="col-span-2 flex items-center gap-1 border-t border-border/50 pt-0.5 mt-0.5">
-                <Calendar className="h-2.5 w-2.5 opacity-70" />
-                {formatDate(media?.created)}
               </span>
             </div>
           </div>

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { calculateMediaDate, formatMediaDate, formatMediaDateTime } from '../date-utils';
+import {
+  calculateMediaDate,
+  formatMediaDate,
+  formatMediaDateTime,
+} from '../date-utils';
 
 describe('date-utils', () => {
   describe('calculateMediaDate', () => {

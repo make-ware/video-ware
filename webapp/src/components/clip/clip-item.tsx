@@ -11,7 +11,6 @@ import {
 import pb from '@/lib/pocketbase-client';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { TimelineService } from '@/services/timeline';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,7 +43,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Clock,
   Edit,
   Trash2,
   Save,
@@ -52,12 +50,12 @@ import {
   Plus,
   ListVideo,
   Scissors,
-  Calendar,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { SpriteAnimator } from '../sprite/sprite-animator';
-import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
+import { MediaBaseCard } from '@/components/media/media-base-card';
+import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
 interface ClipItemProps {
   clip: MediaClip;
@@ -89,9 +87,9 @@ export function ClipItem({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [selectedTimelineId, setSelectedTimelineId] = useState<string>('');
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   // Edit form state
   const [editStart, setEditStart] = useState(clip.start.toString());
@@ -252,38 +250,42 @@ export function ClipItem({
     }
   };
 
-  const handleCardClick = () => {
-    onSelect?.(clip);
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDetailsOpen(true);
+  };
+
+  const label =
+    typeof (clip.clipData as any)?.label === 'string'
+      ? (clip.clipData as any).label
+      : 'Clip';
+
+  // Construct a pseudo-clip for the dialog
+  const detailsClip: any = {
+    id: clip.id,
+    start: clip.start,
+    end: clip.end,
+    order: 0,
+    meta: clip.clipData,
+    expand: {
+      MediaRef: media,
+      MediaClipRef: clip,
+    },
   };
 
   return (
-    <Card
-      className={cn(
-        'cursor-pointer transition-all overflow-hidden p-0',
-        isActive
-          ? 'border-primary shadow-md bg-primary/5'
-          : 'hover:shadow-md hover:border-primary/50 border-border',
-        className
-      )}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-      onClick={handleCardClick}
-    >
-      <CardContent className="p-0 flex items-stretch">
-        {/* Sprite Preview */}
-        <div className="w-32 shrink-0 self-stretch min-h-[80px] bg-muted/50 relative overflow-hidden rounded-l-xl border-r border-border/50">
-          <SpriteAnimator
-            media={media}
-            start={clip.start}
-            end={clip.end}
-            isHovering={isHovering}
-            className="absolute inset-0"
-          />
-        </div>
-
-        {/* Content */}
-        <div className="p-4 flex-1 flex flex-col justify-center min-w-0 gap-1.5">
-          <div className="flex items-center gap-2">
+    <>
+      <MediaBaseCard
+        media={media}
+        startTime={clip.start}
+        endTime={clip.end}
+        onSelect={() => onSelect?.(clip)}
+        className={cn(
+          isActive && 'border-primary shadow-md bg-primary/5',
+          className
+        )}
+        title={
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
             <Badge
               variant="outline"
               className={cn(
@@ -293,291 +295,329 @@ export function ClipItem({
             >
               {clip.type}
             </Badge>
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {formatTime(clip.start)} - {formatTime(clip.end)}
-            </span>
           </div>
-
-          <div
-            className={cn(
-              'text-sm font-medium truncate',
-              isActive && 'text-primary'
-            )}
-          >
-            {typeof (clip.clipData as Record<string, unknown>)?.label ===
-            'string'
-              ? String((clip.clipData as Record<string, unknown>).label)
-              : 'Clip'}
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5" />
-              <span className="tabular-nums">{clip.duration.toFixed(1)}s</span>
+        }
+        subtitle={
+          <div className="mt-1 flex flex-col gap-1">
+            <div
+              className={cn(
+                'text-[10px] font-medium truncate opacity-80',
+                isActive && 'text-primary'
+              )}
+            >
+              {label}
             </div>
-            <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
-              <span className="tabular-nums">
-                {formatMediaDate(
-                  calculateMediaDate(media.mediaDate, clip.start)
-                )}
+
+            {/* Time Info */}
+            <div className="flex gap-2 text-[10px] text-muted-foreground font-mono">
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">In:</span>
+                {formatTime(clip.start)}
+              </span>
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">Out:</span>
+                {formatTime(clip.end)}
               </span>
             </div>
+            {/* Note: Date is handled by MediaBaseCard automatically via new logic */}
           </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex flex-col border-l border-border/50 bg-muted/20 lg:bg-transparent">
-          {/* Add to Timeline Button */}
-          <Dialog
-            open={isAddToTimelineDialogOpen}
-            onOpenChange={setIsAddToTimelineDialogOpen}
-          >
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-full rounded-none border-b border-border/50 hover:bg-primary/10"
-                onClick={(e) => handleOpenAddToTimelineDialog(e)}
-                title="Add to Timeline"
-              >
-                <ListVideo className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Clip to Timeline</DialogTitle>
-                <DialogDescription>
-                  Select a timeline to add this clip to.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="timeline-select">Timeline</Label>
-                  <Select
-                    value={selectedTimelineId}
-                    onValueChange={setSelectedTimelineId}
-                  >
-                    <SelectTrigger id="timeline-select">
-                      <SelectValue placeholder="Select a timeline" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timelines.length === 0 ? (
-                        <div className="p-2 text-sm text-muted-foreground text-center">
-                          No timelines found. Create one first.
-                        </div>
-                      ) : (
-                        timelines.map((timeline) => (
-                          <SelectItem key={timeline.id} value={timeline.id}>
-                            {timeline.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="p-3 bg-muted rounded-lg space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Clip Duration:
-                    </span>
-                    <span className="font-mono">
-                      {clip.duration.toFixed(2)}s
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Time Range:</span>
-                    <span className="font-mono">
-                      {formatTime(clip.start)} - {formatTime(clip.end)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsAddToTimelineDialogOpen(false)}
-                  disabled={isAddingToTimeline}
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAddToTimeline}
-                  disabled={!selectedTimelineId || isAddingToTimeline}
-                >
-                  {isAddingToTimeline ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                      Adding...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add to Timeline
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Inline Edit Button (for USER clips) */}
-          {clip.type === ClipType.USER && onInlineEdit && (
+        }
+        overlayActions={
+          [
+            // Details
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-full rounded-none border-b border-border/50 hover:bg-primary/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                onInlineEdit(clip.id);
-              }}
-              title="Edit with Trim Handles"
+              key="details"
+              size="icon"
+              variant="secondary"
+              onClick={handleViewDetails}
+              className="h-7 w-7 shadow-md"
+              title="View Details"
             >
-              <Scissors className="h-4 w-4" />
-            </Button>
-          )}
-
-          {/* Edit Button */}
-          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-full rounded-none border-b border-border/50 hover:bg-primary/10"
-                onClick={(e) => handleOpenEditDialog(e)}
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Clip Time Range</DialogTitle>
-                <DialogDescription>
-                  Adjust the start and end times for this clip.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-start">Start Time (seconds)</Label>
-                  <Input
-                    id="edit-start"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max={media.duration}
-                    value={editStart}
-                    onChange={(e) => setEditStart(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {formatDetailedTime(parseFloat(editStart) || 0)}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-end">End Time (seconds)</Label>
-                  <Input
-                    id="edit-end"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max={media.duration}
-                    value={editEnd}
-                    onChange={(e) => setEditEnd(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {formatDetailedTime(parseFloat(editEnd) || 0)}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <span className="text-sm font-medium">New Duration:</span>
-                  <span className="text-sm font-mono">
-                    {formatDetailedTime(
-                      calculateDuration(
-                        parseFloat(editStart) || 0,
-                        parseFloat(editEnd) || 0
-                      )
-                    )}
-                  </span>
-                </div>
-
-                {validationError && (
-                  <p className="text-sm text-destructive">{validationError}</p>
-                )}
-              </div>
-
-              <DialogFooter>
+              <Eye className="h-4 w-4" />
+            </Button>,
+            // Add to Timeline
+            <Dialog
+              key="add-timeline"
+              open={isAddToTimelineDialogOpen}
+              onOpenChange={setIsAddToTimelineDialogOpen}
+            >
+              <DialogTrigger asChild>
                 <Button
-                  variant="outline"
-                  onClick={() => setIsEditDialogOpen(false)}
-                  disabled={isSaving}
+                  variant="secondary"
+                  size="icon"
+                  className="h-7 w-7 shadow-md"
+                  onClick={(e) => handleOpenAddToTimelineDialog(e)}
+                  title="Add to Timeline"
                 >
-                  <X className="mr-2 h-4 w-4" />
-                  Cancel
+                  <ListVideo className="h-4 w-4" />
                 </Button>
+              </DialogTrigger>
+              <DialogContent onClick={(e) => e.stopPropagation()}>
+                <DialogHeader>
+                  <DialogTitle>Add Clip to Timeline</DialogTitle>
+                  <DialogDescription>
+                    Select a timeline to add this clip to.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="timeline-select">Timeline</Label>
+                    <Select
+                      value={selectedTimelineId}
+                      onValueChange={setSelectedTimelineId}
+                    >
+                      <SelectTrigger id="timeline-select">
+                        <SelectValue placeholder="Select a timeline" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {timelines.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground text-center">
+                            No timelines found. Create one first.
+                          </div>
+                        ) : (
+                          timelines.map((timeline) => (
+                            <SelectItem key={timeline.id} value={timeline.id}>
+                              {timeline.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="p-3 bg-muted rounded-lg space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        Clip Duration:
+                      </span>
+                      <span className="font-mono">
+                        {clip.duration.toFixed(2)}s
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Time Range:</span>
+                      <span className="font-mono">
+                        {formatTime(clip.start)} - {formatTime(clip.end)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsAddToTimelineDialogOpen(false);
+                    }}
+                    disabled={isAddingToTimeline}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddToTimeline();
+                    }}
+                    disabled={!selectedTimelineId || isAddingToTimeline}
+                  >
+                    {isAddingToTimeline ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add to Timeline
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>,
+            // Inline Edit
+            clip.type === ClipType.USER && onInlineEdit && (
+              <Button
+                key="inline-edit"
+                variant="secondary"
+                size="icon"
+                className="h-7 w-7 shadow-md"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInlineEdit(clip.id);
+                }}
+                title="Edit with Trim Handles"
+              >
+                <Scissors className="h-4 w-4" />
+              </Button>
+            ),
+            // Edit Dialog
+            <Dialog
+              key="edit-dialog"
+              open={isEditDialogOpen}
+              onOpenChange={setIsEditDialogOpen}
+            >
+              <DialogTrigger asChild>
                 <Button
-                  onClick={handleEdit}
-                  disabled={!!validationError || isSaving}
+                  variant="secondary"
+                  size="icon"
+                  className="h-7 w-7 shadow-md"
+                  onClick={(e) => handleOpenEditDialog(e)}
+                  title="Edit Time Range"
                 >
-                  {isSaving ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                      Saving...
-                    </>
+                  <Edit className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent onClick={(e) => e.stopPropagation()}>
+                <DialogHeader>
+                  <DialogTitle>Edit Clip Time Range</DialogTitle>
+                  <DialogDescription>
+                    Adjust the start and end times for this clip.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-start">Start Time (seconds)</Label>
+                    <Input
+                      id="edit-start"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={media.duration}
+                      value={editStart}
+                      onChange={(e) => setEditStart(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {formatDetailedTime(parseFloat(editStart) || 0)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-end">End Time (seconds)</Label>
+                    <Input
+                      id="edit-end"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={media.duration}
+                      value={editEnd}
+                      onChange={(e) => setEditEnd(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {formatDetailedTime(parseFloat(editEnd) || 0)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <span className="text-sm font-medium">New Duration:</span>
+                    <span className="text-sm font-mono">
+                      {formatDetailedTime(
+                        calculateDuration(
+                          parseFloat(editStart) || 0,
+                          parseFloat(editEnd) || 0
+                        )
+                      )}
+                    </span>
+                  </div>
+
+                  {validationError && (
+                    <p className="text-sm text-destructive">
+                      {validationError}
+                    </p>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsEditDialogOpen(false);
+                    }}
+                    disabled={isSaving}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit();
+                    }}
+                    disabled={!!validationError || isSaving}
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>,
+            // Delete
+            <AlertDialog key="delete">
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-7 w-7 shadow-md hover:bg-destructive/90 hover:text-white"
+                  disabled={isDeleting}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Delete Clip"
+                >
+                  {isDeleting ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
                   ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save
-                    </>
+                    <Trash2 className="h-4 w-4" />
                   )}
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </AlertDialogTrigger>
+              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Clip</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete this clip? This action
+                    cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={(e) => e.stopPropagation()}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete();
+                    }}
+                    className="bg-destructive hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>,
+          ].filter(Boolean) as React.ReactNode[]
+        }
+      />
 
-          {/* Delete Button */}
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-full rounded-none hover:bg-destructive/10 hover:text-destructive"
-                disabled={isDeleting}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {isDeleting ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Clip</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to delete this clip? This action cannot
-                  be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleDelete}
-                  className="bg-destructive hover:bg-destructive/90"
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      </CardContent>
-    </Card>
+      {isDetailsOpen && (
+        <TimelineClipDetailsDialog
+          open={isDetailsOpen}
+          onOpenChange={setIsDetailsOpen}
+          clip={detailsClip}
+        />
+      )}
+    </>
   );
 }

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { Media, MediaClip } from '@project/shared';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Calendar } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SpriteAnimator } from '../sprite/sprite-animator';
-import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
+import { MediaBaseCard } from '@/components/media/media-base-card';
+import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
 interface MediaClipItemProps {
   clip: MediaClip;
@@ -20,41 +20,48 @@ export function MediaClipItem({
   isActive,
   onClick,
 }: MediaClipItemProps) {
-  const [isHovering, setIsHovering] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDetailsOpen(true);
+  };
 
   const formatTime = (seconds: number) => {
     const min = Math.floor(seconds / 60);
     const sec = Math.floor(seconds % 60);
-    return `${min}:${sec.toString().padStart(2, '0')}`;
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${min}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
+
+  const label =
+    typeof (clip.clipData as any)?.label === 'string'
+      ? (clip.clipData as any).label
+      : 'Clip';
+
+  // Construct a pseudo-clip for the dialog
+  const detailsClip: any = {
+    id: clip.id,
+    start: clip.start,
+    end: clip.end,
+    order: 0,
+    meta: clip.clipData,
+    expand: {
+      MediaRef: media,
+      MediaClipRef: clip,
+    },
   };
 
   return (
-    <Card
-      className={cn(
-        'cursor-pointer transition-all overflow-hidden p-0',
-        isActive
-          ? 'border-primary shadow-md bg-primary/5'
-          : 'hover:shadow-md hover:border-primary/50 border-border'
-      )}
-      onClick={onClick}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-    >
-      <CardContent className="p-0 flex items-stretch">
-        {/* Sprite Preview */}
-        <div className="w-32 shrink-0 self-stretch min-h-[80px] bg-muted/50 relative overflow-hidden rounded-l-xl border-r border-border/50">
-          <SpriteAnimator
-            media={media}
-            start={clip.start}
-            end={clip.end}
-            isHovering={isHovering}
-            className="absolute inset-0"
-          />
-        </div>
-
-        {/* Content */}
-        <div className="p-4 flex-1 flex flex-col justify-center min-w-0 gap-1.5">
-          <div className="flex items-center gap-2">
+    <>
+      <MediaBaseCard
+        media={media}
+        startTime={clip.start}
+        endTime={clip.end}
+        onSelect={onClick}
+        className={cn(isActive && 'border-primary shadow-md bg-primary/5')}
+        title={
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
             <Badge
               variant="outline"
               className={cn(
@@ -64,39 +71,53 @@ export function MediaClipItem({
             >
               {clip.type}
             </Badge>
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {formatTime(clip.start)} - {formatTime(clip.end)}
-            </span>
           </div>
-
-          <div
-            className={cn(
-              'text-sm font-medium truncate',
-              isActive && 'text-primary'
-            )}
-          >
-            {typeof (clip.clipData as Record<string, unknown>)?.label ===
-            'string'
-              ? String((clip.clipData as Record<string, unknown>).label)
-              : 'Clip'}
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5" />
-              <span className="tabular-nums">{clip.duration.toFixed(1)}s</span>
+        }
+        subtitle={
+          <div className="mt-1 flex flex-col gap-1">
+            <div
+              className={cn(
+                'text-[10px] font-medium truncate opacity-80',
+                isActive && 'text-primary'
+              )}
+            >
+              {label}
             </div>
-            <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
-              <span className="tabular-nums">
-                {formatMediaDate(
-                  calculateMediaDate(media.mediaDate, clip.start)
-                )}
+
+            {/* Time & Date Info */}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground font-mono">
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">In:</span>
+                {formatTime(clip.start)}
+              </span>
+              <span className="flex items-center justify-between gap-1">
+                <span className="opacity-70">Out:</span>
+                {formatTime(clip.end)}
               </span>
             </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        }
+        overlayActions={[
+          <Button
+            key="details"
+            size="icon"
+            variant="secondary"
+            onClick={handleViewDetails}
+            className="h-7 w-7 shadow-md"
+            title="View Details"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>,
+        ]}
+      />
+
+      {isDetailsOpen && (
+        <TimelineClipDetailsDialog
+          open={isDetailsOpen}
+          onOpenChange={setIsDetailsOpen}
+          clip={detailsClip}
+        />
+      )}
+    </>
   );
 }

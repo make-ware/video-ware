@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { Media, File } from '@project/shared';
-import { Film } from 'lucide-react';
+import { Calendar, Film } from 'lucide-react';
 
 export interface MediaBaseCardProps {
   media?: Media;
@@ -37,12 +37,27 @@ export function MediaBaseCard({
   footerActions,
   onSelect,
   className,
-  thumbnailHeight = 'h-24',
+  thumbnailHeight = 'h-42',
   draggable,
   onDragStart,
   spriteFile,
 }: MediaBaseCardProps) {
   const [isHovering, setIsHovering] = useState(false);
+
+  const formatDate = (dateString?: string, offsetSeconds?: number) => {
+    if (!dateString) return '--/--/--';
+    const date = new Date(dateString);
+    if (offsetSeconds) {
+      date.setSeconds(date.getSeconds() + offsetSeconds);
+    }
+    const year = date.getFullYear().toString();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+  };
 
   return (
     <Card
@@ -52,7 +67,7 @@ export function MediaBaseCard({
       onMouseLeave={() => setIsHovering(false)}
       onClick={onSelect}
       className={cn(
-        'group relative overflow-hidden flex flex-col transition-all hover:shadow-md',
+        'group relative overflow-hidden flex flex-col transition-all hover:shadow-md p-0',
         onSelect && 'cursor-pointer active:scale-[0.98]',
         className
       )}
@@ -106,7 +121,7 @@ export function MediaBaseCard({
         )}
       </div>
 
-      <CardContent className="p-2 flex flex-col flex-1 gap-1.5 min-h-0">
+      <CardContent className="p-3 flex flex-col flex-1 gap-1.5 min-h-0">
         {/* Title and Subtitle */}
         <div className="flex flex-col gap-0.5 min-w-0">
           {title && (
@@ -114,9 +129,16 @@ export function MediaBaseCard({
               {title}
             </div>
           )}
+
           {subtitle && (
             <div className="text-[10px] text-muted-foreground truncate font-medium">
               {subtitle}
+              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground font-mono">
+                <span className="col-span-2 flex items-center gap-1 border-t border-border/50 pt-0.5 mt-0.5">
+                  <Calendar className="h-2.5 w-2.5 opacity-70" />
+                  {formatDate(media?.mediaDate, startTime)}
+                </span>
+              </div>
             </div>
           )}
         </div>

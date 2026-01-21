@@ -21,7 +21,7 @@ jobs:
       minor: ${{ steps.release.outputs.minor }}
       patch: ${{ steps.release.outputs.patch }}
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         id: release
         with:
           config-file: .github/release-please-config.json
@@ -130,48 +130,5 @@ jobs:
   trigger-docker-build:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Docker Build Workflow
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // The docker-build.yml workflow is automatically triggered by the release event
-            // This step just logs the trigger for visibility
-            console.log('Release created, Docker build will be triggered automatically');
-            console.log('Version:', '${{ needs.release-please.outputs.version }}');
-            console.log('Tag:', '${{ needs.release-please.outputs.tag_name }}');
-
-      - name: Add build status comment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const version = '${{ needs.release-please.outputs.version }}';
-            const repo = context.repo.repo;
-            const owner = context.repo.owner;
-            
-            // Get the release
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner,
-              repo,
-              tag: 'v' + version
-            });
-            
-            // Add a comment about the Docker build status
-            const buildStatusNote = `
-            
-            ---
-            
-            > 🔄 **Docker Build Status**: A multi-architecture Docker image build has been triggered for this release.
-            > Check the [Actions tab](https://github.com/${owner}/${repo}/actions/workflows/docker-build.yml) for build progress.
-            `;
-            
-            // Only add if not already present
-            if (!release.body.includes('Docker Build Status')) {
-              await github.rest.repos.updateRelease({
-                owner,
-                repo,
-                release_id: release.id,
-                body: release.body + buildStatusNote
-              });
-            }
+    uses: ./.github/workflows/docker-build.yml
+    secrets: inherit

@@ -2,8 +2,6 @@ import { render, act } from '@testing-library/react';
 import { AuthProvider } from '../auth-context';
 import { useAuth } from '@/hooks/use-auth';
 import { vi, describe, it, expect } from 'vitest';
-import React, { useRef } from 'react';
-import pb from '@/lib/pocketbase-client';
 
 // Mock PocketBase client
 // We need to access the listeners outside the mock to trigger them
@@ -27,11 +25,9 @@ vi.mock('@/lib/pocketbase-client', () => {
         clear: vi.fn(),
       },
       collection: vi.fn(() => ({
-        authRefresh: vi
-          .fn()
-          .mockResolvedValue({
-            record: { id: 'user1', updated: '2023-01-01' },
-          }),
+        authRefresh: vi.fn().mockResolvedValue({
+          record: { id: 'user1', updated: '2023-01-01' },
+        }),
         authWithPassword: vi.fn(),
       })),
     },

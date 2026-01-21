@@ -36,7 +36,10 @@ export class SameEntityStrategy extends BaseRecommendationStrategy {
       })),
     ];
 
-    const detectionsByEntity = new Map<string, any[]>();
+    const detectionsByEntity = new Map<
+      string,
+      (typeof allDetections)[number][]
+    >();
 
     for (const det of allDetections) {
       if (!det.LabelEntityRef) continue;

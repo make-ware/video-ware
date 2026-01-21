@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { TimelineClip, Media } from '@project/shared';
+import type { TimelineClip, Media, File } from '@project/shared';
 import { useTimeline } from '@/hooks/use-timeline';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -21,12 +23,15 @@ import {
   AlertCircle,
   Check,
   X,
+  Eye,
+  Calendar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { TrimHandles } from '@/components/video/trim-handles';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { TimelineClipDetailsDialog } from './timeline-clip-details-dialog';
 
 const MIN_CLIP_DURATION = 0.5; // seconds
 
@@ -37,7 +42,7 @@ interface TimelineClipWithExpand extends Omit<TimelineClip, 'expand'> {
   expand?: {
     MediaRef?: Media & {
       expand?: {
-        spriteFileRef?: any;
+        spriteFileRef?: File;
       };
     };
   };
@@ -50,6 +55,7 @@ interface TimelineClipItemProps {
   isDragging: boolean;
   isSelected?: boolean;
   onSelect?: () => void;
+  onViewDetails?: () => void;
   className?: string;
 }
 
@@ -60,10 +66,12 @@ export function TimelineClipItem({
   isDragging,
   isSelected = false,
   onSelect,
+  onViewDetails,
   className,
 }: TimelineClipItemProps) {
   const { removeClip, updateClipTimes } = useTimeline();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [editStart, setEditStart] = useState(clip.start);
   const [editEnd, setEditEnd] = useState(clip.end);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -170,6 +178,16 @@ export function TimelineClipItem({
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '--/--/--';
+    const date = new Date(dateString);
+    // Format as yy/mm/dd
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  };
+
   const handleRemove = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -187,6 +205,12 @@ export function TimelineClipItem({
     setIsEditDialogOpen(true);
   };
 
+  const handleDetailsClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDetailsDialogOpen(true);
+    onViewDetails?.();
+  };
+
   const handleTrimChange = useCallback((start: number, end: number) => {
     setEditStart(start);
     setEditEnd(end);
@@ -199,6 +223,18 @@ export function TimelineClipItem({
       video.currentTime = time;
     } catch {
       // no-op (seeking can fail if metadata isn't loaded yet)
+    }
+  }, []);
+
+  const handleSetCurrentAsStart = useCallback(() => {
+    if (videoRef.current) {
+      setEditStart(videoRef.current.currentTime);
+    }
+  }, []);
+
+  const handleSetCurrentAsEnd = useCallback(() => {
+    if (videoRef.current) {
+      setEditEnd(videoRef.current.currentTime);
     }
   }, []);
 
@@ -249,6 +285,15 @@ export function TimelineClipItem({
             variant="secondary"
             size="icon"
             className="h-7 w-7 shadow-md"
+            onClick={handleDetailsClick}
+            title="View Details"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-7 w-7 shadow-md"
             onClick={handleEditClick}
             title="Edit Clip"
           >
@@ -277,7 +322,7 @@ export function TimelineClipItem({
             ) : (
               <SpriteAnimator
                 media={media}
-                spriteFile={(media as any).expand?.spriteFileRef}
+                spriteFile={media.expand?.spriteFileRef}
                 start={clip.start}
                 end={clip.end}
                 isHovering={isHovering}
@@ -299,7 +344,7 @@ export function TimelineClipItem({
             </div>
           )}
 
-          {/* Duration Badge - Similar to media clip cards */}
+          {/* Duration Badge */}
           <div className="absolute bottom-2 left-2 bg-primary/90 text-primary-foreground text-xs px-2 py-0.5 rounded font-medium shadow-md">
             {formatTime(duration)}
           </div>
@@ -320,9 +365,25 @@ export function TimelineClipItem({
                 {formatTime(clip.end)}
               </span>
             </div>
+            {/* Media Date */}
+            <div className="flex items-center justify-between border-t pt-1 mt-1">
+              <span className="text-muted-foreground font-medium flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                Date:
+              </span>
+              <span className="font-mono text-[11px]">
+                {formatDate(media?.created)}
+              </span>
+            </div>
           </div>
         </div>
       </Card>
+
+      <TimelineClipDetailsDialog
+        open={isDetailsDialogOpen}
+        onOpenChange={setIsDetailsDialogOpen}
+        clip={clip}
+      />
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -331,7 +392,7 @@ export function TimelineClipItem({
             <div className="flex items-center justify-between">
               <DialogTitle className="flex items-center gap-2">
                 <Edit className="h-5 w-5 text-primary" />
-                Edit
+                Edit Clip
               </DialogTitle>
               <div className="flex items-center gap-2">
                 <Button
@@ -406,6 +467,71 @@ export function TimelineClipItem({
                   Drag the handles to adjust clip boundaries. Use arrow keys for
                   fine-tuning (hold Shift for larger steps).
                 </p>
+              </div>
+            )}
+
+            {/* Precise Inputs */}
+            {media && (
+              <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-lg">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-start">Start Time</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="edit-start"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={media.duration}
+                      value={editStart.toFixed(2)}
+                      onChange={(e) =>
+                        setEditStart(parseFloat(e.target.value) || 0)
+                      }
+                      className="font-mono"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSetCurrentAsStart}
+                      title="Set current video time as start"
+                    >
+                      Use Current
+                    </Button>
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    {formatTime(editStart)}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-end">End Time</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="edit-end"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={media.duration}
+                      value={editEnd.toFixed(2)}
+                      onChange={(e) =>
+                        setEditEnd(parseFloat(e.target.value) || 0)
+                      }
+                      className="font-mono"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSetCurrentAsEnd}
+                      title="Set current video time as end"
+                    >
+                      Use Current
+                    </Button>
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    {formatTime(editEnd)}
+                  </div>
+                </div>
               </div>
             )}
 

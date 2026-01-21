@@ -1,0 +1,13 @@
+▲ Next.js 16.1.3 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+
+✓ Starting...
+✓ Ready in 1612ms
+○ Compiling /verification ...
+ GET /verification 200 in 6.4s (compile: 5.6s, render: 811ms)
+ GET /verification 200 in 142ms (compile: 6ms, render: 136ms)
+ GET /verification 200 in 207ms (compile: 8ms, render: 199ms)
+ GET /verification 200 in 95ms (compile: 4ms, render: 91ms)
+ GET /verification 200 in 98ms (compile: 4ms, render: 94ms)
+✓ Compiled in 178ms

@@ -379,7 +379,7 @@ export function TimelineProvider({
         ).TimelineClipMutator(pb);
         const updatedClip = await mutator.update(
           clipId,
-          data as Record<string, any>
+          data as Record<string, unknown>
         );
 
         // Update local state

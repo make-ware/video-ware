@@ -52,10 +52,12 @@ import {
   Plus,
   ListVideo,
   Scissors,
+  Calendar,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SpriteAnimator } from '../sprite/sprite-animator';
+import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
 
 interface ClipItemProps {
   clip: MediaClip;
@@ -308,9 +310,19 @@ export function ClipItem({
               : 'Clip'}
           </div>
 
-          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" />
-            <span className="tabular-nums">{clip.duration.toFixed(1)}s</span>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              <span className="tabular-nums">{clip.duration.toFixed(1)}s</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span className="tabular-nums">
+                {formatMediaDate(
+                  calculateMediaDate(media.mediaDate, clip.start)
+                )}
+              </span>
+            </div>
           </div>
         </div>
 

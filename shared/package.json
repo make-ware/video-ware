@@ -1,6 +1,6 @@
 {
   "name": "@project/shared",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Shared zod schemas for the project",
   "private": true,
   "type": "module",

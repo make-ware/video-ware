@@ -201,6 +201,7 @@ function TodoListWrapper() {
     isLoading,
     error,
     toggleComplete,
+    updateTodo,
     deleteTodo,
     filter,
     setFilter,
@@ -214,8 +215,7 @@ function TodoListWrapper() {
   };
 
   const handleEdit = async (id: string, data: TodoUpdate) => {
-    // TODO: Implement edit functionality
-    console.log('Editing todo:', id, data);
+    await updateTodo(id, data);
   };
 
   const handleDelete = async (id: string) => {

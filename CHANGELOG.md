@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.2...video-ware-v0.1.3) (2026-01-23)
+
+
+### Bug Fixes
+
+* Create Worker Lifecycle ([4db0857](https://github.com/make-ware/video-ware/commit/4db0857f496d3204407b98509fe62689e455ce25))
+
 ## [0.1.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.1...video-ware-v0.1.2) (2026-01-23)
 
 

@@ -2,7 +2,7 @@ import { OnWorkerEvent } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { TaskStatus } from '@project/shared';
 import { BaseProcessor } from './base.processor';
-import { TaskResult } from './base-flow.processor';
+import { TaskResult } from '../types/job.types';
 
 /**
  * Job data structure for simple (non-flow) jobs

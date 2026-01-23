@@ -26,7 +26,7 @@ function parseRedisUrl(url?: string): {
       port: parsed.port ? parseInt(parsed.port, 10) : 6379,
       password: parsed.password || undefined,
     };
-  } catch (error) {
+  } catch {
     // If URL parsing fails, fall back to individual env vars
     return {
       host: process.env.REDIS_HOST || 'localhost',
@@ -67,9 +67,9 @@ export default () => {
 
       // GCVI Processor enablement
       enableLabelDetection: process.env.ENABLE_LABEL_DETECTION !== 'false',
-      enableObjectTracking: process.env.ENABLE_OBJECT_TRACKING === 'true',
-      enableFaceDetection: process.env.ENABLE_FACE_DETECTION === 'true',
-      enablePersonDetection: process.env.ENABLE_PERSON_DETECTION === 'true',
+      enableObjectTracking: process.env.ENABLE_OBJECT_TRACKING !== 'false',
+      enableFaceDetection: process.env.ENABLE_FACE_DETECTION !== 'false',
+      enablePersonDetection: process.env.ENABLE_PERSON_DETECTION !== 'false',
       enableSpeechTranscription:
         process.env.ENABLE_SPEECH_TRANSCRIPTION !== 'false',
     },

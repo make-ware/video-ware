@@ -104,6 +104,19 @@ export class LabelEntityService {
     processor: string,
     metadata?: Record<string, unknown>
   ): Promise<string> {
+    // Initialization guard: Ensure mutator is ready
+    if (!this.labelEntityMutator) {
+      this.logger.debug(
+        `LabelEntityService not yet fully initialized, waiting for mutator...`
+      );
+      // If we're here, it means getOrCreateLabelEntity was called before onModuleInit finished.
+      // We can try to wait a bit or just throw a better error.
+      // Since we added WorkerControlService, this shouldn't happen, but let's be safe.
+      throw new Error(
+        'LabelEntityService is not initialized. labelEntityMutator is undefined.'
+      );
+    }
+
     // Generate entity hash
     const entityHash = this.generateEntityHash(
       workspaceRef,

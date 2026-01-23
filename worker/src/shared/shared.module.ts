@@ -4,6 +4,7 @@ import { StorageService } from './services/storage.service';
 import { FFmpegService } from './services/ffmpeg.service';
 import { GoogleCloudService } from './services/google-cloud.service';
 import { PocketBaseClientService } from './services/pocketbase-client.service';
+import { WorkerControlService } from './services/worker-control.service';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { PocketBaseClientService } from './services/pocketbase-client.service';
     StorageService,
     FFmpegService,
     GoogleCloudService,
+    WorkerControlService,
   ],
   exports: [
     PocketBaseService,
@@ -19,6 +21,7 @@ import { PocketBaseClientService } from './services/pocketbase-client.service';
     StorageService,
     FFmpegService,
     GoogleCloudService,
+    WorkerControlService,
   ],
 })
 export class SharedModule {}

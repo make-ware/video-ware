@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Storage } from '@google-cloud/storage';
-import * as path from 'path';
 
 // Google Cloud Video Intelligence
 import { VideoIntelligenceServiceClient } from '@google-cloud/video-intelligence';

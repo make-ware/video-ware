@@ -1,8 +1,9 @@
 import { WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject } from '@nestjs/common';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { WorkerControlService } from '../../shared/services/worker-control.service';
 import { TaskStatus } from '@project/shared';
-import { TaskResult } from './base-flow.processor';
+import { TaskResult } from '../types/job.types';
 
 /**
  * Abstract base class for all BullMQ processors
@@ -22,6 +23,9 @@ import { TaskResult } from './base-flow.processor';
 export abstract class BaseProcessor extends WorkerHost {
   protected abstract readonly logger: Logger;
   protected abstract readonly pocketbaseService: PocketBaseService;
+
+  @Inject(WorkerControlService)
+  protected readonly workerControlService!: WorkerControlService;
 
   /**
    * Update task status in PocketBase

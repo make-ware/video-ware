@@ -12,6 +12,8 @@ export type {
   StepJobData,
   StepResult,
   StepInput,
+  TaskResult,
+  TaskErrorLogEntry,
 } from './job.types';
 
 // Result types

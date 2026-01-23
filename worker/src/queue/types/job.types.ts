@@ -46,3 +46,26 @@ export interface StepResult {
 }
 
 export type StepInput = object;
+
+/**
+ * Task result structure stored in the task record
+ */
+export interface TaskResult {
+  steps: Record<string, StepResult>;
+  completedSteps: string[];
+  failedSteps: string[];
+  currentStep?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+/**
+ * Task error log entry
+ */
+export interface TaskErrorLogEntry {
+  timestamp: string;
+  step: string;
+  error: string;
+  stack?: string;
+  context?: Record<string, unknown>;
+}

@@ -6,30 +6,17 @@ import type {
   ParentJobData,
   StepJobData,
   StepResult,
+  TaskResult,
+  TaskErrorLogEntry,
 } from '../types/job.types';
 
-/**
- * Task result structure stored in the task record
- */
-export interface TaskResult {
-  steps: Record<string, StepResult>;
-  completedSteps: string[];
-  failedSteps: string[];
-  currentStep?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-/**
- * Task error log entry
- */
-export interface TaskErrorLogEntry {
-  timestamp: string;
-  step: string;
-  error: string;
-  stack?: string;
-  context?: Record<string, unknown>;
-}
+export type {
+  ParentJobData,
+  StepJobData,
+  StepResult,
+  TaskResult,
+  TaskErrorLogEntry,
+};
 
 /**
  * Abstract base class for BullMQ flow processors (parent-child job relationships)
@@ -58,6 +45,8 @@ export abstract class BaseFlowProcessor extends BaseProcessor {
   async process(
     job: Job<ParentJobData | StepJobData>
   ): Promise<void | StepResult | { skipped: boolean; reason: string }> {
+    await this.workerControlService.waitForReady();
+
     if (job.name === 'parent') {
       return this.processParentJob(job as Job<ParentJobData>);
     }

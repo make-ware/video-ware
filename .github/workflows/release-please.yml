@@ -46,77 +46,52 @@ jobs:
               tag: tagName
             });
             
-            // Comprehensive deployment instructions
+            // Deployment instructions
             const deploymentInstructions = `
             
             ---
             
             ## Docker Deployment
             
-            Docker images for this release are automatically built and published to GitHub Container Registry.
+            Images for this release are available in the GitHub Container Registry.
             
             ### Quick Start
             
             \`\`\`bash
             # Pull the image
-            docker pull ghcr.io/\${owner}/\${repo}:\${version}
+            docker pull ghcr.io/${owner}/${repo}:${version}
             
-            # Run with persistent data
+            # Start the container
             docker run -d \\
               --name video-ware \\
-              -p 80:80 \\
-              -v pb_data:/app/pb/pb_data \\
-              -v worker_data:/app/data \\
+              -p 8888:80 \\
+              -v ./data:/data \\
               -e POCKETBASE_ADMIN_EMAIL=admin@example.com \\
               -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \\
-              ghcr.io/\${owner}/\${repo}:\${version}
+              ghcr.io/${owner}/${repo}:${version}
             \`\`\`
-            
-            ### Available Image Tags
-            
-            | Tag | Description |
-            |-----|-------------|
-            | \`ghcr.io/\${owner}/\${repo}:\${version}\` | This specific version |
-            | \`ghcr.io/\${owner}/\${repo}:\${major}.\${minor}\` | Latest patch for v\${major}.\${minor} |
-            | \`ghcr.io/\${owner}/\${repo}:\${major}\` | Latest minor for v\${major} |
-            | \`ghcr.io/\${owner}/\${repo}:latest\` | Latest stable release |
             
             ### Supported Architectures
             
-            - \`linux/amd64\` - Standard x86_64 servers, Intel/AMD CPUs
-            - \`linux/arm64\` - Apple Silicon Macs, AWS Graviton, ARM servers
+            - \`linux/amd64\` - Standard x86_64 servers
+            - \`linux/arm64\` - Apple Silicon, AWS Graviton
             
             ### Environment Variables
             
             <details>
-            <summary>Click to expand environment variable reference</summary>
+            <summary>Environment variable reference</summary>
             
-            #### PocketBase Configuration
             | Variable | Default | Description |
             |----------|---------|-------------|
-            | \`POCKETBASE_URL\` | \`http://localhost:8090\` | PocketBase server URL |
             | \`POCKETBASE_ADMIN_EMAIL\` | \`admin@example.com\` | Admin email |
             | \`POCKETBASE_ADMIN_PASSWORD\` | \`your-secure-password\` | Admin password |
-            | \`PB_DATA_DIR\` | \`/app/pb/pb_data\` | Data storage directory |
-            
-            #### Worker Configuration
-            | Variable | Default | Description |
-            |----------|---------|-------------|
-            | \`WORKER_MAX_RETRIES\` | \`3\` | Max retry attempts |
-            | \`WORKER_PROVIDER\` | \`ffmpeg\` | Media provider (\`ffmpeg\` or \`google\`) |
-            
-            #### Monitoring
-            | Variable | Default | Description |
-            |----------|---------|-------------|
-            | \`LOG_LEVEL\` | \`info\` | Log level (\`debug\`, \`info\`, \`warn\`, \`error\`) |
-            | \`METRICS_ENABLED\` | \`false\` | Enable Prometheus metrics |
             
             </details>
             
             ### Documentation
             
             - [Docker README](docker/README.md) - Full deployment documentation
-            - [Environment Variables](docker/README.md#environment-variables) - Complete configuration reference
+            - [Environment Variables](docker/README.md#environment-variables) - Configuration reference
             - [Security Scanning](docker/README.md#security-scanning) - Vulnerability scanning details
             `;
             

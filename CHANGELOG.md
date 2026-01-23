@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.3...video-ware-v0.1.4) (2026-01-23)
+
+
+### Bug Fixes
+
+* **ci:** fix docker image tagging in reusable workflow ([c192a25](https://github.com/make-ware/video-ware/commit/c192a258268e47cf379bbbaef564b3cfebb3daa5))
+
 ## [0.1.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.2...video-ware-v0.1.3) (2026-01-23)
 
 

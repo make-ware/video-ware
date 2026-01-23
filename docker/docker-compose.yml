@@ -47,7 +47,8 @@ services:
       - STORAGE_TYPE=${STORAGE_TYPE:-local}
       # Point to the shared volume where PocketBase stores files
       - STORAGE_LOCAL_PATH=/data/pb_storage
-      - WORKER_DATA_DIR=/data/worker_data
+      - WORKER_DATA_DIR=/data/storage
+
 
       # Google Cloud Config
       - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}

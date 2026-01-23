@@ -152,7 +152,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migratio
 # Create pb_data and data directories
 RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
 RUN mkdir -p /data/pb_storage && chown -R nextjs:nodejs /data/pb_storage
-RUN mkdir -p /data/worker_data && chown -R nextjs:nodejs /data/worker_data
+RUN mkdir -p /data/storage && chown -R nextjs:nodejs /data/storage
+
 
 
 # Copy workspace package.json files
@@ -200,7 +201,8 @@ RUN apk add --no-cache ffmpeg curl && \
     rm -rf /var/cache/apk/*
 
 # Create data directory
-RUN mkdir -p /data/worker_data && chown -R nextjs:nodejs /data/worker_data
+RUN mkdir -p /data/storage && chown -R nextjs:nodejs /data/storage
+
 
 
 # Copy necessary package.json

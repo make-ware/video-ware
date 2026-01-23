@@ -31,7 +31,7 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   ghcr.io/make-ware/video-ware:latest
 
 ```
@@ -53,7 +53,7 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   ghcr.io/make-ware/video-ware:1.0.0
 
 ```
@@ -237,29 +237,67 @@ docker run -d \
 
 ## Persistent Data
 
-Both deployment options use Docker volumes to persist data across container restarts.
+You can persist data using one of two methods depending on your needs.
 
-### Monolithic Container
+### Option 1: Simple (Single Volume)
 
-- `./data/storage` (Host) -> `/data` (Container) - Shared directory for:
-  - `pb_data` - PocketBase database and files
-  - `pb_storage` - Binary file storage
-  - `worker_data` - Worker temporary files
-- `redis_data` - Redis queue data
+Map a single host directory (e.g., `./data/storage`) to `/data` in the container. This requires the least configuration and keeps all data in one place.
 
+**Internal Structure:**
+- `/data/pb_data` - PocketBase database
+- `/data/pb_storage` - Binary files
+- `/data/storage` - Worker temporary storage
 
-Volumes are automatically created when you start the containers. To remove all data:
-
+**Docker Run:**
 ```bash
-# Monolithic
-docker rm -v video-ware
-docker rm -v video-ware
-docker volume rm redis_data
-
-
-# Docker Compose
-docker compose down -v
+docker run -d \
+  -v ./data/storage:/data \
+  # ... other options
 ```
+
+**Docker Compose:**
+```yaml
+services:
+  pocketbase:
+    volumes:
+      - ./data/storage:/data
+  worker:
+    volumes:
+      - ./data/storage:/data
+```
+
+### Option 2: Granular (Separate Volumes)
+
+Map individual subdirectories for better control (e.g., keeping the database on fast SSD storage while keeping large video files on cheaper HDD storage).
+
+**Docker Run:**
+```bash
+docker run -d \
+  -v ./data/db:/data/pb_data \
+  -v ./data/files:/data/pb_storage \
+  -v ./data/temp:/data/storage \
+  # ... other options
+```
+
+**Docker Compose:**
+```yaml
+services:
+  pocketbase:
+    volumes:
+      - pb_data:/data/pb_data
+      - pb_storage:/data/pb_storage
+
+  worker:
+    volumes:
+      - pb_storage:/data/pb_storage
+      - storage:/data/storage
+
+volumes:
+  pb_data:
+  pb_storage:
+  storage:
+```
+
 
 ## Updating
 

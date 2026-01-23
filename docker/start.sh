@@ -18,7 +18,8 @@ export POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
 export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
 
 # Worker Configuration (Requirements 4.2)
-export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/worker_data}"
+export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/storage}"
+
 # Set STORAGE_LOCAL_PATH to shared storage directory
 export STORAGE_LOCAL_PATH="${STORAGE_LOCAL_PATH:-/data/pb_storage}"
 

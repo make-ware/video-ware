@@ -185,7 +185,7 @@ Each release produces multiple tags for version pinning:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REDIS_URL` | `redis://redis:6379` | Redis connection URL (Docker Compose only) |
-| `WORKER_DATA_DIR` | `/data/storage` | Directory for temporary processing files |
+| `WORKER_DATA_DIR` | `/data/storage` | Directory for local processing files |
 | `BULL_BOARD_PORT` | `3002` | Bull Board dashboard port |
 | `STORAGE_TYPE` | `local` | Storage backend (`local` or `s3`) |
 
@@ -224,10 +224,9 @@ docker run -d \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=secure-password-123 \
   -e LOG_LEVEL=warn \
-  -e WORKER_PROVIDER=ffmpeg \
   -e WORKER_MAX_RETRIES=5 \
   -e GRACEFUL_SHUTDOWN_TIMEOUT=60 \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   ghcr.io/make-ware/video-ware:latest
 
 ```
@@ -270,7 +269,7 @@ Map individual subdirectories for better control (e.g., keeping the database on 
 ```bash
 docker run -d \
   -v ./data/db:/data/pb_data \
-  -v ./data/temp:/data/storage \
+  -v ./data/storage:/data/storage \
   # ... other options
 ```
 

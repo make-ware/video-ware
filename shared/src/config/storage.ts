@@ -118,7 +118,6 @@ export function validateStorageConfig(): void {
  */
 export function getStorageBackendType(): StorageBackendType {
   return (
-    (process.env.STORAGE_TYPE as StorageBackendType) ||
-    StorageBackendType.LOCAL
+    (process.env.STORAGE_TYPE as StorageBackendType) || StorageBackendType.LOCAL
   );
 }

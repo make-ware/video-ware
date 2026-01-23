@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.4](https://github.com/make-ware/video-ware/compare/v0.0.3...v0.0.4) (2026-01-23)
+
+
+### ✨ Features
+
+* update docker volumes ([a3e7f10](https://github.com/make-ware/video-ware/commit/a3e7f107d47840cfde326dd8e3cfa99f62de121a))
+
+
+### 🐛 Bug Fixes
+
+* release please ([e539a9c](https://github.com/make-ware/video-ware/commit/e539a9c0d2fc0e129edcd8133c37ee9de84881e7))
+
 ## [0.0.3](https://github.com/make-ware/video-ware/compare/v0.0.2...v0.0.3) (2026-01-21)
 
 

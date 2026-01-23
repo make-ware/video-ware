@@ -113,24 +113,28 @@ jobs:
             PATCH=$(echo $VERSION | cut -d. -f3)
             
             # Build tags string with explicit version
-            TAGS="type=raw,value=${VERSION}
-type=raw,value=${MAJOR}.${MINOR}
-type=raw,value=${MAJOR}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=raw,value=${VERSION}"
+              echo "type=raw,value=${MAJOR}.${MINOR}"
+              echo "type=raw,value=${MAJOR}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags.txt
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual builds - only sha tag for testing
-            TAGS="type=sha,prefix=sha-"
+            echo "type=sha,prefix=sha-" > /tmp/tags.txt
           else
             # Use semver pattern for tag push or release events
-            TAGS="type=semver,pattern={{version}}
-type=semver,pattern={{major}}.{{minor}}
-type=semver,pattern={{major}}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=semver,pattern={{version}}"
+              echo "type=semver,pattern={{major}}.{{minor}}"
+              echo "type=semver,pattern={{major}}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags.txt
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
+          cat /tmp/tags.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
@@ -222,24 +226,28 @@ type=sha,prefix=sha-"
             PATCH=$(echo $VERSION | cut -d. -f3)
             
             # Build tags string with explicit version
-            TAGS="type=raw,value=${VERSION}
-type=raw,value=${MAJOR}.${MINOR}
-type=raw,value=${MAJOR}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=raw,value=${VERSION}"
+              echo "type=raw,value=${MAJOR}.${MINOR}"
+              echo "type=raw,value=${MAJOR}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-worker.txt
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual builds - only sha tag for testing
-            TAGS="type=sha,prefix=sha-"
+            echo "type=sha,prefix=sha-" > /tmp/tags-worker.txt
           else
             # Use semver pattern for tag push or release events
-            TAGS="type=semver,pattern={{version}}
-type=semver,pattern={{major}}.{{minor}}
-type=semver,pattern={{major}}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=semver,pattern={{version}}"
+              echo "type=semver,pattern={{major}}.{{minor}}"
+              echo "type=semver,pattern={{major}}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-worker.txt
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
+          cat /tmp/tags-worker.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
@@ -331,24 +339,28 @@ type=sha,prefix=sha-"
             PATCH=$(echo $VERSION | cut -d. -f3)
             
             # Build tags string with explicit version
-            TAGS="type=raw,value=${VERSION}
-type=raw,value=${MAJOR}.${MINOR}
-type=raw,value=${MAJOR}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=raw,value=${VERSION}"
+              echo "type=raw,value=${MAJOR}.${MINOR}"
+              echo "type=raw,value=${MAJOR}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-webapp.txt
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual builds - only sha tag for testing
-            TAGS="type=sha,prefix=sha-"
+            echo "type=sha,prefix=sha-" > /tmp/tags-webapp.txt
           else
             # Use semver pattern for tag push or release events
-            TAGS="type=semver,pattern={{version}}
-type=semver,pattern={{major}}.{{minor}}
-type=semver,pattern={{major}}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=semver,pattern={{version}}"
+              echo "type=semver,pattern={{major}}.{{minor}}"
+              echo "type=semver,pattern={{major}}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-webapp.txt
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
+          cat /tmp/tags-webapp.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
@@ -440,24 +452,28 @@ type=sha,prefix=sha-"
             PATCH=$(echo $VERSION | cut -d. -f3)
             
             # Build tags string with explicit version
-            TAGS="type=raw,value=${VERSION}
-type=raw,value=${MAJOR}.${MINOR}
-type=raw,value=${MAJOR}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=raw,value=${VERSION}"
+              echo "type=raw,value=${MAJOR}.${MINOR}"
+              echo "type=raw,value=${MAJOR}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-pocketbase.txt
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual builds - only sha tag for testing
-            TAGS="type=sha,prefix=sha-"
+            echo "type=sha,prefix=sha-" > /tmp/tags-pocketbase.txt
           else
             # Use semver pattern for tag push or release events
-            TAGS="type=semver,pattern={{version}}
-type=semver,pattern={{major}}.{{minor}}
-type=semver,pattern={{major}}
-type=raw,value=latest
-type=sha,prefix=sha-"
+            {
+              echo "type=semver,pattern={{version}}"
+              echo "type=semver,pattern={{major}}.{{minor}}"
+              echo "type=semver,pattern={{major}}"
+              echo "type=raw,value=latest"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tags-pocketbase.txt
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
+          cat /tmp/tags-pocketbase.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)

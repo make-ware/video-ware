@@ -3,6 +3,15 @@ name: Docker Build and Publish
 on:
   # Allow this workflow to be called from other workflows
   workflow_call:
+    inputs:
+      version:
+        description: 'Version tag (e.g., 1.2.3)'
+        required: false
+        type: string
+      tag_name:
+        description: 'Git tag name (e.g., v1.2.3)'
+        required: false
+        type: string
   # Trigger on release creation (integrates with release-please)
   release:
     types: [published]
@@ -18,6 +27,14 @@ on:
         required: false
         default: 'false'
         type: boolean
+      version:
+        description: 'Version tag (e.g., 1.2.3)'
+        required: false
+        type: string
+      tag_name:
+        description: 'Git tag name (e.g., v1.2.3)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -32,6 +49,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -60,6 +80,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -79,20 +102,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare tags for metadata
+        id: tags
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+            # Extract version components for release-please triggered builds
+            VERSION="${{ inputs.version }}"
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
+            
+            # Build tags string with explicit version
+            TAGS="type=raw,value=${VERSION}
+type=raw,value=${MAJOR}.${MINOR}
+type=raw,value=${MAJOR}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual builds - only sha tag for testing
+            TAGS="type=sha,prefix=sha-"
+          else
+            # Use semver pattern for tag push or release events
+            TAGS="type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          fi
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            # Tag with version on release/tag push
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            # Tag as latest on release
-            type=raw,value=latest,enable=true
-            # Tag with sha for traceability
-            type=sha,prefix=sha-
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.title=Videoware Monolithic Container
             org.opencontainers.image.description=Monolithic Docker container with PocketBase, Next.js, and Background Worker
@@ -143,6 +189,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -162,20 +211,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare tags for metadata
+        id: tags-worker
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+            # Extract version components for release-please triggered builds
+            VERSION="${{ inputs.version }}"
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
+            
+            # Build tags string with explicit version
+            TAGS="type=raw,value=${VERSION}
+type=raw,value=${MAJOR}.${MINOR}
+type=raw,value=${MAJOR}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual builds - only sha tag for testing
+            TAGS="type=sha,prefix=sha-"
+          else
+            # Use semver pattern for tag push or release events
+            TAGS="type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          fi
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
-          tags: |
-            # Tag with version on release/tag push
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            # Tag as latest on release
-            type=raw,value=latest,enable=true
-            # Tag with sha for traceability
-            type=sha,prefix=sha-
+          tags: ${{ steps.tags-worker.outputs.tags }}
           labels: |
             org.opencontainers.image.title=Videoware Worker Container
             org.opencontainers.image.description=Worker service container (NestJS + FFmpeg)
@@ -226,6 +298,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -245,20 +320,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare tags for metadata
+        id: tags-webapp
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+            # Extract version components for release-please triggered builds
+            VERSION="${{ inputs.version }}"
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
+            
+            # Build tags string with explicit version
+            TAGS="type=raw,value=${VERSION}
+type=raw,value=${MAJOR}.${MINOR}
+type=raw,value=${MAJOR}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual builds - only sha tag for testing
+            TAGS="type=sha,prefix=sha-"
+          else
+            # Use semver pattern for tag push or release events
+            TAGS="type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          fi
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
-          tags: |
-            # Tag with version on release/tag push
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            # Tag as latest on release
-            type=raw,value=latest,enable=true
-            # Tag with sha for traceability
-            type=sha,prefix=sha-
+          tags: ${{ steps.tags-webapp.outputs.tags }}
           labels: |
             org.opencontainers.image.title=Videoware Webapp Container
             org.opencontainers.image.description=Webapp container (Next.js)
@@ -309,6 +407,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -328,20 +429,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare tags for metadata
+        id: tags-pocketbase
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+            # Extract version components for release-please triggered builds
+            VERSION="${{ inputs.version }}"
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
+            
+            # Build tags string with explicit version
+            TAGS="type=raw,value=${VERSION}
+type=raw,value=${MAJOR}.${MINOR}
+type=raw,value=${MAJOR}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual builds - only sha tag for testing
+            TAGS="type=sha,prefix=sha-"
+          else
+            # Use semver pattern for tag push or release events
+            TAGS="type=semver,pattern={{version}}
+type=semver,pattern={{major}}.{{minor}}
+type=semver,pattern={{major}}
+type=raw,value=latest
+type=sha,prefix=sha-"
+          fi
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
-          tags: |
-            # Tag with version on release/tag push
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            # Tag as latest on release
-            type=raw,value=latest,enable=true
-            # Tag with sha for traceability
-            type=sha,prefix=sha-
+          tags: ${{ steps.tags-pocketbase.outputs.tags }}
           labels: |
             org.opencontainers.image.title=Videoware PocketBase Container
             org.opencontainers.image.description=PocketBase container with custom hooks and migrations

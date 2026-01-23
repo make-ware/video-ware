@@ -9,17 +9,19 @@ if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
 fi
 
 # PocketBase Configuration (Requirements 4.1)
-export PB_DATA_DIR="${PB_DATA_DIR:-/app/pb/pb_data}"
+export PB_DATA_DIR="${PB_DATA_DIR:-/data/pb_data}"
 export PB_PUBLIC_DIR="${PB_PUBLIC_DIR:-/app/webapp/.next}"
+
 # POCKETBASE_URL is for server-side code and worker (bypasses nginx, connects directly)
 export POCKETBASE_URL="${POCKETBASE_URL:-http://localhost:8090}"
 export POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
 export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
 
 # Worker Configuration (Requirements 4.2)
-export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/app/data}"
-# Set STORAGE_LOCAL_PATH to match WORKER_DATA_DIR to ensure all services use the same directory
-export STORAGE_LOCAL_PATH="${STORAGE_LOCAL_PATH:-${WORKER_DATA_DIR}}"
+export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/worker_data}"
+# Set STORAGE_LOCAL_PATH to shared storage directory
+export STORAGE_LOCAL_PATH="${STORAGE_LOCAL_PATH:-/data/pb_storage}"
+
 export WORKER_MAX_RETRIES="${WORKER_MAX_RETRIES:-3}"
 export WORKER_PROVIDER="${WORKER_PROVIDER:-ffmpeg}"
 export WORKER_POLL_INTERVAL="${WORKER_POLL_INTERVAL:-5000}"
@@ -64,6 +66,13 @@ if [ ! -d "$WORKER_DATA_DIR" ]; then
     mkdir -p "$WORKER_DATA_DIR"
 fi
 
+# Create storage directory
+if [ ! -d "$STORAGE_LOCAL_PATH" ]; then
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating STORAGE_LOCAL_PATH: $STORAGE_LOCAL_PATH"
+    mkdir -p "$STORAGE_LOCAL_PATH"
+fi
+
+
 # Create log directories
 mkdir -p /var/log/supervisor
 mkdir -p /var/log/nginx
@@ -83,10 +92,18 @@ chown -R nextjs:nodejs "$WORKER_DATA_DIR" 2>/dev/null || {
     echo "    Warning: Could not change ownership of $WORKER_DATA_DIR"
   fi
 }
+chown -R nextjs:nodejs "$STORAGE_LOCAL_PATH" 2>/dev/null || {
+  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
+    echo "    Warning: Could not change ownership of $STORAGE_LOCAL_PATH"
+  fi
+}
+
 
 # Set appropriate permissions (rwx for owner, rx for group)
 chmod -R 755 "$PB_DATA_DIR" 2>/dev/null || true
 chmod -R 755 "$WORKER_DATA_DIR" 2>/dev/null || true
+chmod -R 755 "$STORAGE_LOCAL_PATH" 2>/dev/null || true
+
 
 if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
   echo ""

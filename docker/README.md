@@ -31,9 +31,9 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v video-ware-pb-data:/app/pb/pb_data \
-  -v video-ware-worker-data:/app/data \
+  -v ./data/storage:/data \
   ghcr.io/make-ware/video-ware:latest
+
 ```
 
 The application will be available at:
@@ -53,9 +53,9 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v video-ware-pb-data:/app/pb/pb_data \
-  -v video-ware-worker-data:/app/data \
+  -v ./data/storage:/data \
   ghcr.io/make-ware/video-ware:1.0.0
+
 ```
 
 ### Option 2: Docker Compose (Microservices)
@@ -190,7 +190,8 @@ Each release produces multiple tags for version pinning:
 | `WORKER_PROVIDER` | `ffmpeg` | Media processing provider (`ffmpeg` or `google`) |
 | `BULL_BOARD_PORT` | `3002` | Bull Board dashboard port |
 | `STORAGE_TYPE` | `local` | Storage backend (`local` or `s3`) |
-| `STORAGE_LOCAL_PATH` | `/app/pb/pb_data` | Local storage path |
+| `STORAGE_LOCAL_PATH` | `/data/pb_storage` | Local storage path |
+
 | `ENABLE_FFMPEG` | `true` | Enable FFmpeg processing |
 
 #### Google Cloud Configuration (Optional)
@@ -229,9 +230,9 @@ docker run -d \
   -e WORKER_PROVIDER=ffmpeg \
   -e WORKER_MAX_RETRIES=5 \
   -e GRACEFUL_SHUTDOWN_TIMEOUT=60 \
-  -v video-ware-pb-data:/app/pb/pb_data \
-  -v video-ware-worker-data:/app/data \
+  -v ./data/storage:/data \
   ghcr.io/make-ware/video-ware:latest
+
 ```
 
 ## Persistent Data
@@ -240,20 +241,21 @@ Both deployment options use Docker volumes to persist data across container rest
 
 ### Monolithic Container
 
-- `video-ware-pb-data` - PocketBase database and files
-- `video-ware-worker-data` - Worker temporary processing files
-
-### Docker Compose
-
-- `pb_data` - PocketBase database and files
+- `./data/storage` (Host) -> `/data` (Container) - Shared directory for:
+  - `pb_data` - PocketBase database and files
+  - `pb_storage` - Binary file storage
+  - `worker_data` - Worker temporary files
 - `redis_data` - Redis queue data
+
 
 Volumes are automatically created when you start the containers. To remove all data:
 
 ```bash
 # Monolithic
 docker rm -v video-ware
-docker volume rm video-ware-pb-data video-ware-worker-data
+docker rm -v video-ware
+docker volume rm redis_data
+
 
 # Docker Compose
 docker compose down -v
@@ -277,9 +279,9 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v video-ware-pb-data:/app/pb/pb_data \
-  -v video-ware-worker-data:/app/data \
+  -v ./data/storage:/data \
   ghcr.io/make-ware/video-ware:latest
+
 ```
 
 ### Docker Compose
@@ -420,15 +422,16 @@ Backup the PocketBase data volume:
 ```bash
 # Monolithic
 docker run --rm \
-  -v video-ware-pb-data:/data \
+  -v ./data/storage:/data \
   -v $(pwd)/backups:/backup \
-  alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data .
+  alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data pb_data
 
 # Docker Compose
 docker run --rm \
-  -v video-ware_pb_data:/data \
+  -v ./data/storage:/data \
   -v $(pwd)/backups:/backup \
-  alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data .
+  alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data pb_data
+
 ```
 
 ## Architecture Details

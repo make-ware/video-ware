@@ -150,8 +150,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
 
 # Create pb_data and data directories
-RUN mkdir -p ./pb/pb_data && chown -R nextjs:nodejs ./pb/pb_data
-RUN mkdir -p ./data && chown -R nextjs:nodejs ./data
+RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
+RUN mkdir -p /data/pb_storage && chown -R nextjs:nodejs /data/pb_storage
+RUN mkdir -p /data/worker_data && chown -R nextjs:nodejs /data/worker_data
+
 
 # Copy workspace package.json files
 COPY --from=builder --chown=nextjs:nodejs /app/webapp/package.json ./webapp/
@@ -198,7 +200,8 @@ RUN apk add --no-cache ffmpeg curl && \
     rm -rf /var/cache/apk/*
 
 # Create data directory
-RUN mkdir -p ./data && chown -R nextjs:nodejs ./data
+RUN mkdir -p /data/worker_data && chown -R nextjs:nodejs /data/worker_data
+
 
 # Copy necessary package.json
 COPY --from=builder --chown=nextjs:nodejs /app/worker/package.json ./worker/
@@ -254,9 +257,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
 
 # Create pb_data directory
-RUN mkdir -p ./pb/pb_data && chown -R nextjs:nodejs ./pb/pb_data
+RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
+
 
 USER nextjs
 EXPOSE 8090
 
-CMD ["./pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/app/pb/pb_data"]
+CMD ["./pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/data/pb_data"]
+

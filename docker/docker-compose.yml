@@ -23,7 +23,8 @@ services:
     ports:
       - "8090:8090"
     volumes:
-      - pb_data:/app/pb/pb_data
+      - ./data/storage:/data
+
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     healthcheck:
@@ -45,8 +46,9 @@ services:
       - BULL_BOARD_PORT=3002
       - STORAGE_TYPE=${STORAGE_TYPE:-local}
       # Point to the shared volume where PocketBase stores files
-      - STORAGE_LOCAL_PATH=/app/pb/pb_data
-      - WORKER_DATA_DIR=/app/data
+      - STORAGE_LOCAL_PATH=/data/pb_storage
+      - WORKER_DATA_DIR=/data/worker_data
+
       # Google Cloud Config
       - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}
       - GOOGLE_CLOUD_CREDENTIALS=${GOOGLE_CLOUD_CREDENTIALS}
@@ -55,7 +57,8 @@ services:
       - ENABLE_FFMPEG=${ENABLE_FFMPEG:-true}
     volumes:
       # Mount the same volume as PocketBase to access local files
-      - pb_data:/app/pb/pb_data
+      - ./data/storage:/data
+
     depends_on:
       redis:
         condition: service_healthy
@@ -78,4 +81,4 @@ services:
 
 volumes:
   redis_data:
-  pb_data:
+

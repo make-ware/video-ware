@@ -35,6 +35,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import { ModeToggle } from '@/components/mode-toggle';
 import { cn } from '@/lib/utils';
 
 interface NavigationBarProps {
@@ -131,6 +132,7 @@ export function NavigationBar({ className }: NavigationBarProps) {
           {/* Desktop Auth Navigation */}
           {!isMobile && (
             <nav className="flex items-center gap-2">
+              <ModeToggle />
               {isLoading ? (
                 <div className="h-8 w-20 animate-pulse bg-muted rounded" />
               ) : isAuthenticated ? (
@@ -251,6 +253,10 @@ export function NavigationBar({ className }: NavigationBarProps) {
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
                 <div className="flex flex-col space-y-4 p-4">
+                  <div className="flex items-center justify-between pb-4 border-b">
+                    <span className="font-medium">Theme</span>
+                    <ModeToggle />
+                  </div>
                   {isAuthenticated ? (
                     <>
                       <div className="flex items-center space-x-4 pb-4 border-b">

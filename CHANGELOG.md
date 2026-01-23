@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.1...video-ware-v0.1.2) (2026-01-23)
+
+
+### Bug Fixes
+
+* update deployment ([5922b62](https://github.com/make-ware/video-ware/commit/5922b62812af6a1c766f12b6d89188a5f52cdeb8))
+* update docs ([1f877a7](https://github.com/make-ware/video-ware/commit/1f877a70b1813f960925fe6f0c0ebe2f3bfaa559))
+
 ## [0.1.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.0...video-ware-v0.1.1) (2026-01-23)
 
 

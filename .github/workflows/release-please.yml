@@ -33,6 +33,7 @@ jobs:
         with:
           script: |
             const version = '${{ steps.release.outputs.version }}';
+            const tagName = '${{ steps.release.outputs.tag_name }}';
             const major = '${{ steps.release.outputs.major }}';
             const minor = '${{ steps.release.outputs.minor }}';
             const repo = context.repo.repo;
@@ -42,7 +43,7 @@ jobs:
             const { data: release } = await github.rest.repos.getReleaseByTag({
               owner,
               repo,
-              tag: 'v' + version
+              tag: tagName
             });
             
             // Comprehensive deployment instructions

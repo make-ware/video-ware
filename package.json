@@ -1,6 +1,6 @@
 {
   "name": "video-ware",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "workspaces": [

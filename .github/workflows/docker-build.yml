@@ -105,7 +105,7 @@ jobs:
       - name: Prepare tags for metadata
         id: tags
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
             # Extract version components for release-please triggered builds
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)
@@ -218,7 +218,7 @@ jobs:
       - name: Prepare tags for metadata
         id: tags-worker
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
             # Extract version components for release-please triggered builds
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)
@@ -331,7 +331,7 @@ jobs:
       - name: Prepare tags for metadata
         id: tags-webapp
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
             # Extract version components for release-please triggered builds
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)
@@ -444,7 +444,7 @@ jobs:
       - name: Prepare tags for metadata
         id: tags-pocketbase
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ -n "${{ inputs.version }}" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
             # Extract version components for release-please triggered builds
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)

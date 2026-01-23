@@ -149,9 +149,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pocketbase ./pb/pocketbase
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
 
-# Create pb_data and data directories
+# Create pb_data and storage directories
 RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
-RUN mkdir -p /data/pb_storage && chown -R nextjs:nodejs /data/pb_storage
 RUN mkdir -p /data/storage && chown -R nextjs:nodejs /data/storage
 
 
@@ -200,8 +199,10 @@ ENV REDIS_URL=""
 RUN apk add --no-cache ffmpeg curl && \
     rm -rf /var/cache/apk/*
 
-# Create data directory
-RUN mkdir -p /data/storage && chown -R nextjs:nodejs /data/storage
+# Create data directories with proper permissions
+RUN mkdir -p /data/pb_data /data/storage && \
+    chown -R nextjs:nodejs /data && \
+    chmod -R 775 /data
 
 
 
@@ -258,8 +259,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pocketbase ./pb/pocketbase
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
 
-# Create pb_data directory
-RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
+# Create data directories with proper permissions
+RUN mkdir -p /data/pb_data /data/storage && \
+    chown -R nextjs:nodejs /data && \
+    chmod -R 775 /data
 
 
 USER nextjs

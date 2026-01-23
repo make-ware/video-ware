@@ -5,10 +5,7 @@ import { StorageConfig, WatcherConfig } from '../storage/types';
  * Environment variables for storage configuration
  */
 export interface StorageEnvironment {
-  STORAGE_BACKEND?: string;
-
-  // Local storage config
-  LOCAL_STORAGE_PATH?: string;
+  STORAGE_TYPE?: string;
 
   // S3 storage config
   S3_ENDPOINT?: string;
@@ -33,13 +30,13 @@ export interface StorageEnvironment {
  */
 export function loadStorageConfig(): StorageConfig {
   const backend =
-    (process.env.STORAGE_BACKEND as StorageBackendType) ||
+    (process.env.STORAGE_TYPE as StorageBackendType) ||
     StorageBackendType.LOCAL;
 
   if (backend === StorageBackendType.LOCAL) {
     // Keep this module client-safe: do not resolve paths here (no fs/path).
     // Server-side backends will resolve relative paths against a sensible project root.
-    const basePath = process.env.LOCAL_STORAGE_PATH || 'data';
+    const basePath = 'data';
     return {
       type: StorageBackendType.LOCAL,
       local: { basePath },
@@ -55,7 +52,7 @@ export function loadStorageConfig(): StorageConfig {
 
     if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
       throw new Error(
-        'S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, and S3_SECRET_KEY are required when STORAGE_BACKEND=s3'
+        'S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, and S3_SECRET_KEY are required when STORAGE_TYPE=s3'
       );
     }
 
@@ -121,7 +118,7 @@ export function validateStorageConfig(): void {
  */
 export function getStorageBackendType(): StorageBackendType {
   return (
-    (process.env.STORAGE_BACKEND as StorageBackendType) ||
+    (process.env.STORAGE_TYPE as StorageBackendType) ||
     StorageBackendType.LOCAL
   );
 }

@@ -17,15 +17,12 @@ export POCKETBASE_URL="${POCKETBASE_URL:-http://localhost:8090}"
 export POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
 export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
 
-# Worker Configuration (Requirements 4.2)
+# Container Data Configuration
+# WORKER_DATA_DIR is the base directory for worker processing and local file access
+# Defaults to /data/storage (aligned with KISS structure)
 export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/storage}"
 
-# Set STORAGE_LOCAL_PATH to shared storage directory
-export STORAGE_LOCAL_PATH="${STORAGE_LOCAL_PATH:-/data/pb_storage}"
 
-export WORKER_MAX_RETRIES="${WORKER_MAX_RETRIES:-3}"
-export WORKER_PROVIDER="${WORKER_PROVIDER:-ffmpeg}"
-export WORKER_POLL_INTERVAL="${WORKER_POLL_INTERVAL:-5000}"
 
 # Redis Configuration for NestJS worker
 # REDIS_URL can be set to a full Redis URL (e.g., redis://:password@host:port)
@@ -61,16 +58,10 @@ if [ ! -d "$PB_DATA_DIR" ]; then
     mkdir -p "$PB_DATA_DIR"
 fi
 
-# Create worker data directory
+# Create shared storage directory
 if [ ! -d "$WORKER_DATA_DIR" ]; then
     [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating WORKER_DATA_DIR: $WORKER_DATA_DIR"
     mkdir -p "$WORKER_DATA_DIR"
-fi
-
-# Create storage directory
-if [ ! -d "$STORAGE_LOCAL_PATH" ]; then
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating STORAGE_LOCAL_PATH: $STORAGE_LOCAL_PATH"
-    mkdir -p "$STORAGE_LOCAL_PATH"
 fi
 
 
@@ -93,17 +84,11 @@ chown -R nextjs:nodejs "$WORKER_DATA_DIR" 2>/dev/null || {
     echo "    Warning: Could not change ownership of $WORKER_DATA_DIR"
   fi
 }
-chown -R nextjs:nodejs "$STORAGE_LOCAL_PATH" 2>/dev/null || {
-  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-    echo "    Warning: Could not change ownership of $STORAGE_LOCAL_PATH"
-  fi
-}
 
 
 # Set appropriate permissions (rwx for owner, rx for group)
 chmod -R 755 "$PB_DATA_DIR" 2>/dev/null || true
 chmod -R 755 "$WORKER_DATA_DIR" 2>/dev/null || true
-chmod -R 755 "$STORAGE_LOCAL_PATH" 2>/dev/null || true
 
 
 if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
@@ -112,7 +97,6 @@ if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
   echo "  - PB_DATA_DIR: $PB_DATA_DIR"
   echo "  - PB_PUBLIC_DIR: $PB_PUBLIC_DIR"
   echo "  - WORKER_DATA_DIR: $WORKER_DATA_DIR"
-  echo "  - STORAGE_LOCAL_PATH: $STORAGE_LOCAL_PATH"
 fi
 
 # =============================================================================

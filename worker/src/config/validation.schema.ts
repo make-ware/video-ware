@@ -44,7 +44,7 @@ export const validationSchema = Joi.object({
 
   // Storage configuration
   STORAGE_TYPE: Joi.string().valid('local', 's3').optional(),
-  STORAGE_LOCAL_PATH: Joi.string().optional(),
+  WORKER_DATA_DIR: Joi.string().optional(),
   STORAGE_S3_BUCKET: Joi.string().optional(),
   STORAGE_S3_REGION: Joi.string().optional(),
 

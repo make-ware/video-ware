@@ -23,7 +23,7 @@ services:
     ports:
       - "8090:8090"
     volumes:
-      - ./data/storage:/data
+      - ./data:/data
 
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -46,7 +46,6 @@ services:
       - BULL_BOARD_PORT=3002
       - STORAGE_TYPE=${STORAGE_TYPE:-local}
       # Point to the shared volume where PocketBase stores files
-      - STORAGE_LOCAL_PATH=/data/pb_storage
       - WORKER_DATA_DIR=/data/storage
 
 
@@ -58,7 +57,7 @@ services:
       - ENABLE_FFMPEG=${ENABLE_FFMPEG:-true}
     volumes:
       # Mount the same volume as PocketBase to access local files
-      - ./data/storage:/data
+      - ./data:/data
 
     depends_on:
       redis:

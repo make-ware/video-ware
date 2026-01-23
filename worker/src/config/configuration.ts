@@ -53,7 +53,7 @@ export default () => {
 
     storage: {
       type: process.env.STORAGE_TYPE || 'local',
-      localPath: process.env.STORAGE_LOCAL_PATH,
+      localPath: process.env.WORKER_DATA_DIR,
       s3Bucket: process.env.STORAGE_S3_BUCKET,
       s3Region: process.env.STORAGE_S3_REGION,
     },

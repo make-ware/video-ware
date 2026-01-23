@@ -185,12 +185,9 @@ Each release produces multiple tags for version pinning:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REDIS_URL` | `redis://redis:6379` | Redis connection URL (Docker Compose only) |
-| `WORKER_DATA_DIR` | `/app/data` | Directory for temporary processing files |
-| `WORKER_MAX_RETRIES` | `3` | Maximum retry attempts for failed tasks |
-| `WORKER_PROVIDER` | `ffmpeg` | Media processing provider (`ffmpeg` or `google`) |
+| `WORKER_DATA_DIR` | `/data/storage` | Directory for temporary processing files |
 | `BULL_BOARD_PORT` | `3002` | Bull Board dashboard port |
 | `STORAGE_TYPE` | `local` | Storage backend (`local` or `s3`) |
-| `STORAGE_LOCAL_PATH` | `/data/pb_storage` | Local storage path |
 
 | `ENABLE_FFMPEG` | `true` | Enable FFmpeg processing |
 
@@ -241,17 +238,16 @@ You can persist data using one of two methods depending on your needs.
 
 ### Option 1: Simple (Single Volume)
 
-Map a single host directory (e.g., `./data/storage`) to `/data` in the container. This requires the least configuration and keeps all data in one place.
+Map a single host directory (e.g., `./data`) to `/data` in the container. This requires the least configuration and keeps all data in one place.
 
 **Internal Structure:**
-- `/data/pb_data` - PocketBase database
-- `/data/pb_storage` - Binary files
+- `/data/pb_data` - PocketBase database and files
 - `/data/storage` - Worker temporary storage
 
 **Docker Run:**
 ```bash
 docker run -d \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   # ... other options
 ```
 
@@ -260,10 +256,10 @@ docker run -d \
 services:
   pocketbase:
     volumes:
-      - ./data/storage:/data
+      - ./data:/data
   worker:
     volumes:
-      - ./data/storage:/data
+      - ./data:/data
 ```
 
 ### Option 2: Granular (Separate Volumes)
@@ -274,7 +270,6 @@ Map individual subdirectories for better control (e.g., keeping the database on 
 ```bash
 docker run -d \
   -v ./data/db:/data/pb_data \
-  -v ./data/files:/data/pb_storage \
   -v ./data/temp:/data/storage \
   # ... other options
 ```
@@ -285,16 +280,13 @@ services:
   pocketbase:
     volumes:
       - pb_data:/data/pb_data
-      - pb_storage:/data/pb_storage
 
   worker:
     volumes:
-      - pb_storage:/data/pb_storage
       - storage:/data/storage
 
 volumes:
   pb_data:
-  pb_storage:
   storage:
 ```
 
@@ -317,9 +309,8 @@ docker run -d \
   -p 8888:80 \
   -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
   -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   ghcr.io/make-ware/video-ware:latest
-
 ```
 
 ### Docker Compose
@@ -460,13 +451,13 @@ Backup the PocketBase data volume:
 ```bash
 # Monolithic
 docker run --rm \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   -v $(pwd)/backups:/backup \
   alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data pb_data
 
 # Docker Compose
 docker run --rm \
-  -v ./data/storage:/data \
+  -v ./data:/data \
   -v $(pwd)/backups:/backup \
   alpine tar czf /backup/pb-data-$(date +%Y%m%d).tar.gz -C /data pb_data
 

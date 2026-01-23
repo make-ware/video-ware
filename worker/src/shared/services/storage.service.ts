@@ -607,17 +607,10 @@ export class StorageService implements OnModuleInit {
    * This allows "./data" to resolve to project root's data/ whether running from
    * project root or worker/ subdirectory.
    * Prioritizes environment variables for Docker deployments:
-   * 1. STORAGE_LOCAL_PATH (explicit configuration)
-   * 2. WORKER_DATA_DIR (Docker fallback)
+   * 1. WORKER_DATA_DIR (explicit configuration)
    */
   private resolveBasePath(basePath: string): string {
-    // Check for STORAGE_LOCAL_PATH environment variable first (most explicit)
-    if (process.env.STORAGE_LOCAL_PATH) {
-      return path.resolve(process.env.STORAGE_LOCAL_PATH);
-    }
-
-    // Check for WORKER_DATA_DIR environment variable (used in Docker)
-    // This ensures we always use the correct directory in containerized environments
+    // Check for WORKER_DATA_DIR environment variable first (most explicit)
     if (process.env.WORKER_DATA_DIR) {
       return path.resolve(process.env.WORKER_DATA_DIR);
     }

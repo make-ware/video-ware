@@ -268,5 +268,5 @@ RUN mkdir -p /data/pb_data /data/storage && \
 USER nextjs
 EXPOSE 8090
 
-CMD ["./pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/data/pb_data"]
+CMD ["./pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/data/pb_data", "--migrationsDir=/app/pb/pb_migrations", "--hooksDir=/app/pb/pb_hooks"]
 

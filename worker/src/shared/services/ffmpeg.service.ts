@@ -74,7 +74,7 @@ export class FFmpegService {
     command: string,
     args: string[],
     totalDuration: number = 0,
-    onProgress?: (progress: number) => void,
+    onProgress?: (progress: number) => void
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       this.logger.debug(`FFmpeg spawn: ${command} ${args.join(' ')}`);
@@ -99,17 +99,14 @@ export class FFmpegService {
         // Parse progress from FFmpeg stderr
         if (onProgress && totalDuration > 0) {
           const timeMatch = dataStr.match(
-            /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/,
+            /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/
           );
           if (timeMatch) {
             const hours = parseInt(timeMatch[1]);
             const minutes = parseInt(timeMatch[2]);
             const seconds = parseFloat(timeMatch[3]);
             const currentTime = hours * 3600 + minutes * 60 + seconds;
-            const progress = Math.min(
-              100,
-              (currentTime / totalDuration) * 100,
-            );
+            const progress = Math.min(100, (currentTime / totalDuration) * 100);
             onProgress(progress);
           }
         }
@@ -120,7 +117,9 @@ export class FFmpegService {
         if (code === 0) {
           resolve({ stdout, stderr });
         } else {
-          reject(new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`));
+          reject(
+            new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`)
+          );
         }
       });
 
@@ -153,7 +152,7 @@ export class FFmpegService {
 
       const { stdout, stderr } = await this.executeWithCappedStderr(
         'ffprobe',
-        args,
+        args
       );
 
       if (stderr) {
@@ -322,11 +321,7 @@ export class FFmpegService {
       }
 
       // Build FFmpeg command
-      const args = this.buildTranscodeCommand(
-        inputPath,
-        outputPath,
-        options,
-      );
+      const args = this.buildTranscodeCommand(inputPath, outputPath, options);
 
       this.logger.debug(`Transcoding: ffmpeg ${args.join(' ')}`);
       this.logger.log(`Starting transcode: ${inputPath} -> ${outputPath}`);
@@ -336,7 +331,7 @@ export class FFmpegService {
         'ffmpeg',
         args,
         totalDuration,
-        onProgress,
+        onProgress
       );
 
       // Verify output file was created
@@ -359,7 +354,7 @@ export class FFmpegService {
   private buildTranscodeCommand(
     inputPath: string,
     outputPath: string,
-    options: TranscodeOptions,
+    options: TranscodeOptions
   ): string[] {
     const args: string[] = ['-y']; // Start with overwrite flag
 
@@ -455,7 +450,6 @@ export class FFmpegService {
     return args;
   }
 
-
   /**
    * Extract audio from video file
    */
@@ -502,6 +496,48 @@ export class FFmpegService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to extract audio: ${errorMessage}`);
       throw new Error(`Audio extraction failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Execute FFmpeg command with progress tracking
+   * This is a public wrapper around executeWithCappedStderr for direct command execution
+   */
+  async executeWithProgress(
+    args: string[],
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    try {
+      // Try to extract input file path from args for duration calculation
+      let totalDuration = 0;
+      if (onProgress) {
+        const inputIndex = args.indexOf('-i');
+        if (inputIndex >= 0 && inputIndex < args.length - 1) {
+          const inputPath = args[inputIndex + 1];
+          try {
+            const probeResult = await this.probe(inputPath);
+            totalDuration = probeResult.format.duration;
+          } catch (error) {
+            this.logger.warn(
+              `Could not probe input for progress tracking: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        }
+      }
+
+      this.logger.debug(`Executing FFmpeg: ffmpeg ${args.join(' ')}`);
+
+      await this.executeWithCappedStderr(
+        'ffmpeg',
+        args,
+        totalDuration,
+        onProgress
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to execute FFmpeg: ${errorMessage}`);
+      throw new Error(`FFmpeg execution failed: ${errorMessage}`);
     }
   }
 

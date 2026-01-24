@@ -4,6 +4,16 @@ import { StorageBackendType } from '@project/shared';
 import * as fs from 'fs';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
+// Mock NestJS Logger to suppress console output during tests
+vi.mock('@nestjs/common', async () => {
+  const actual = await vi.importActual('@nestjs/common');
+  const { MockLogger } = await import('@/__mocks__/logger');
+  return {
+    ...actual,
+    Logger: MockLogger,
+  };
+});
+
 // Mock shared storage imports
 vi.mock('@project/shared/storage', () => {
   return {

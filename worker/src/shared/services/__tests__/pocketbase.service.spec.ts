@@ -86,7 +86,9 @@ describe('PocketBaseService', () => {
         perPage: 500,
         totalItems: 600,
         totalPages: 2,
-        items: Array.from({ length: 100 }, (_, i) => ({ id: `clip-${i+500}` })),
+        items: Array.from({ length: 100 }, (_, i) => ({
+          id: `clip-${i + 500}`,
+        })),
       });
 
       const timelineId = 'timeline-123';
@@ -114,9 +116,13 @@ describe('PocketBaseService', () => {
       const timelineId = 'timeline-123';
       const result = await service.getPaginatedTimelineClips(timelineId);
 
-      expect(mockGetList).toHaveBeenCalledWith(1, 100, expect.objectContaining({
-        filter: `TimelineRef = "${timelineId}"`
-      }));
+      expect(mockGetList).toHaveBeenCalledWith(
+        1,
+        100,
+        expect.objectContaining({
+          filter: `TimelineRef = "${timelineId}"`,
+        })
+      );
 
       // Expect full result object
       expect(result).toEqual({
@@ -140,9 +146,13 @@ describe('PocketBaseService', () => {
       const timelineId = 'timeline-123';
       const result = await service.getPaginatedTimelineClips(timelineId, 2, 50);
 
-      expect(mockGetList).toHaveBeenCalledWith(2, 50, expect.objectContaining({
-        filter: `TimelineRef = "${timelineId}"`
-      }));
+      expect(mockGetList).toHaveBeenCalledWith(
+        2,
+        50,
+        expect.objectContaining({
+          filter: `TimelineRef = "${timelineId}"`,
+        })
+      );
 
       expect(result.page).toBe(2);
       expect(result.perPage).toBe(50);
@@ -157,7 +167,10 @@ describe('PocketBaseService', () => {
         perPage: 500,
         totalItems: 600,
         totalPages: 2,
-        items: Array.from({ length: 500 }, (_, i) => ({ id: `clip-${i}`, order: i })),
+        items: Array.from({ length: 500 }, (_, i) => ({
+          id: `clip-${i}`,
+          order: i,
+        })),
       });
 
       // Page 2
@@ -166,7 +179,10 @@ describe('PocketBaseService', () => {
         perPage: 500,
         totalItems: 600,
         totalPages: 2,
-        items: Array.from({ length: 100 }, (_, i) => ({ id: `clip-${i+500}`, order: i+500 })),
+        items: Array.from({ length: 100 }, (_, i) => ({
+          id: `clip-${i + 500}`,
+          order: i + 500,
+        })),
       });
 
       const timelineId = 'timeline-abc';
@@ -174,8 +190,18 @@ describe('PocketBaseService', () => {
 
       // Should have called twice
       expect(mockGetList).toHaveBeenCalledTimes(2);
-      expect(mockGetList).toHaveBeenNthCalledWith(1, 1, 500, expect.any(Object));
-      expect(mockGetList).toHaveBeenNthCalledWith(2, 2, 500, expect.any(Object));
+      expect(mockGetList).toHaveBeenNthCalledWith(
+        1,
+        1,
+        500,
+        expect.any(Object)
+      );
+      expect(mockGetList).toHaveBeenNthCalledWith(
+        2,
+        2,
+        500,
+        expect.any(Object)
+      );
 
       // Result should be flat array of 600 items
       expect(result).toHaveLength(600);

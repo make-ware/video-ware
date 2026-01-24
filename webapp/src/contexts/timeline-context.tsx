@@ -160,7 +160,7 @@ export function TimelineProvider({
         }
 
         setTimeline(loadedTimeline);
-        setOriginalTimeline(JSON.parse(JSON.stringify(loadedTimeline))); // Deep clone
+        setOriginalTimeline(structuredClone(loadedTimeline)); // Deep clone
       } catch (error) {
         handleError(error, 'load');
         throw error;
@@ -205,7 +205,7 @@ export function TimelineProvider({
     if (!originalTimeline) return;
 
     // Restore from original
-    setTimeline(JSON.parse(JSON.stringify(originalTimeline)));
+    setTimeline(structuredClone(originalTimeline));
   }, [originalTimeline]);
 
   // Update timeline name (local only until saved)

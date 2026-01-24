@@ -6,7 +6,6 @@ import {
   Menu,
   LogOut,
   Settings,
-  CheckSquare,
   Upload,
   Film,
   Activity,
@@ -83,7 +82,6 @@ export function NavigationBar({ className }: NavigationBarProps) {
             label: 'Timelines',
             icon: Clapperboard,
           },
-          { href: `${wsPrefix}/todos`, label: 'Todos', icon: CheckSquare },
         ]
       : []),
     { href: '/workspaces', label: 'Workspaces', icon: Building2 },

@@ -43,7 +43,6 @@ webapp/src/
 ├── app/                    # Next.js App Router (pages & layouts)
 ├── components/
 │   ├── auth/               # Authentication feature components
-│   ├── todos/              # Todo feature components
 │   ├── layout/             # Layout components (navigation, etc.)
 │   └── ui/                 # shadcn/ui primitives
 ├── contexts/               # React contexts (consume services)
@@ -54,7 +53,6 @@ webapp/src/
 │   └── utils.ts            # General utilities
 ├── mutators/               # Data mutation layer (CRUD operations)
 │   ├── base.ts             # BaseMutator abstract class
-│   ├── todo.ts             # TodoMutator
 │   ├── user.ts             # UserMutator
 │   └── index.ts            # Barrel export
 ├── services/               # Business logic layer
@@ -87,7 +85,7 @@ app/ (Pages)
 
 The `@project/shared` package exports:
 
-- **Types & Schemas**: `User`, `Todo`, `TodoInput`, validation schemas, etc.
+- **Types & Schemas**: `User`, `UserInput`, validation schemas, etc.
 - **Utility Functions**: Error handling, data transformations
 - **Enums**: Shared constants
 
@@ -97,8 +95,8 @@ The `@project/shared` package exports:
 
 ```typescript
 // Import types and schemas from shared
-import type { Todo, TodoInput, User } from '@project/shared';
-import { TodoInputSchema } from '@project/shared';
+import type { User, UserInput } from '@project/shared';
+import { UserInputSchema } from '@project/shared';
 ```
 
 ## Data Layer: Mutators
@@ -110,27 +108,18 @@ import { TodoInputSchema } from '@project/shared';
 ```typescript
 'use client';
 
-import { TodoMutator } from '@/mutators';
+import { UserMutator } from '@project/shared';
 import pb from '@/lib/pocketbase';
-import type { TodoInput } from '@project/shared';
+import type { UserInput } from '@project/shared';
 
 export function MyComponent() {
   // Create mutator instance
-  const todoMutator = new TodoMutator(pb);
+  const userMutator = new UserMutator(pb);
 
-  const fetchTodos = async () => {
+  const fetchUsers = async () => {
     // Type-safe CRUD operations
-    const result = await todoMutator.getList(1, 10);
+    const result = await userMutator.getList(1, 10);
     return result.items;
-  };
-
-  const createTodo = async (data: TodoInput) => {
-    const newTodo = await todoMutator.create({
-      title: data.title,
-      description: data.description,
-      completed: false,
-    });
-    return newTodo;
   };
 
   // ...
@@ -140,7 +129,6 @@ export function MyComponent() {
 ### Available Mutators
 
 - **`BaseMutator`**: Abstract base class with CRUD operations
-- **`TodoMutator`**: Todo-specific operations (create, update, delete, toggle, etc.)
 - **`UserMutator`**: User-specific operations
 
 All mutators are in `webapp/src/mutators/` and imported via `@/mutators`.
@@ -188,21 +176,20 @@ Use React contexts for state management. Contexts consume services and provide d
 ```typescript
 'use client';
 
-import { useTodo } from '@/hooks/use-todo';
+import { useAuth } from '@/hooks/use-auth';
 
-export function TodoList() {
-  const { todos, isLoading, createTodo, updateTodo, deleteTodo } = useTodo();
+export function UserProfile() {
+  const { user, isAuthenticated } = useAuth();
 
-  // Use todos and actions in your component
+  // Use user data in your component
 }
 ```
 
 ### Available Contexts
 
 - **`AuthContext`**: Authentication state and actions
-- **`TodoContext`**: Todo list state and CRUD operations
 
-Access contexts via hooks: `useAuth()`, `useTodo()`
+Access contexts via hooks: `useAuth()`
 
 ## Tech Stack
 
@@ -247,26 +234,26 @@ Always use this singleton instance - never create new PocketBase instances.
 
 ```typescript
 // ✅ CORRECT: Follow the architecture layers
-import type { Todo } from '@project/shared'; // Types from shared
+import type { User } from '@project/shared'; // Types from shared
 import pb from '@/lib/pocketbase'; // Client from lib
-import { TodoMutator } from '@/mutators'; // Mutator from mutators
+import { UserMutator } from '@project/shared'; // Mutator from shared
 import { createAuthService } from '@/services'; // Service from services
-import { useTodo } from '@/hooks/use-todo'; // Hook from hooks
+import { useAuth } from '@/hooks/use-auth'; // Hook from hooks
 
 // ❌ WRONG: Skip layers or use direct SDK calls
 import { pb } from '@project/shared'; // Don't import from shared
-const todo = await pb.collection('todos').create(); // Don't use SDK directly
+const user = await pb.collection('users').getOne('123'); // Don't use SDK directly
 ```
 
 ### 2. Use Mutators for All Data Operations
 
 ```typescript
 // ✅ CORRECT: Use mutators
-const todoMutator = new TodoMutator(pb);
-const todo = await todoMutator.create({ title: 'New Todo' });
+const userMutator = new UserMutator(pb);
+const user = await userMutator.getOne('123');
 
 // ❌ WRONG: Direct SDK calls
-const todo = await pb.collection('todos').create({ title: 'New Todo' });
+const user = await pb.collection('users').getOne('123');
 ```
 
 ### 3. Client-Side Only
@@ -275,17 +262,17 @@ const todo = await pb.collection('todos').create({ title: 'New Todo' });
 // ✅ CORRECT: Client components for PocketBase
 'use client';
 
-import { useTodo } from '@/hooks/use-todo';
+import { useAuth } from '@/hooks/use-auth';
 
-export function TodoList() {
-  const { todos } = useTodo();
+export function UserProfile() {
+  const { user } = useAuth();
   return <div>{/* ... */}</div>;
 }
 
 // ❌ WRONG: Server components with PocketBase
 // Don't use PocketBase in Server Components
-export default async function TodoPage() {
-  const todos = await pb.collection('todos').getList(); // NO!
+export default async function ProfilePage() {
+  const user = await pb.collection('users').getOne('123'); // NO!
 }
 ```
 
@@ -293,13 +280,8 @@ export default async function TodoPage() {
 
 ```typescript
 // ✅ CORRECT: Import and use types
-import type { TodoInput, Todo } from '@project/shared';
-import { TodoInputSchema } from '@project/shared';
-
-const validateInput = (data: TodoInput): Todo => {
-  const validated = TodoInputSchema.parse(data);
-  // ...
-};
+import type { UserInput, User } from '@project/shared';
+// ... schema validation
 
 // ❌ WRONG: Untyped data
 const createTodo = (data: any) => {

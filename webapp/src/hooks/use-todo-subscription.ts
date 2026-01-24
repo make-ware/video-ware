@@ -111,6 +111,23 @@ export function useTodoSubscription(
   const onUpdateRef = useRef(onUpdate);
   const subscribeRef = useRef<(() => Promise<void>) | null>(null);
 
+  // State refs to avoid dependency cycles/unnecessary re-subscriptions
+  const retryCountRef = useRef(retryCount);
+  const isConnectedRef = useRef(isConnected);
+  const isConnectingRef = useRef(isConnecting);
+
+  useEffect(() => {
+    retryCountRef.current = retryCount;
+  }, [retryCount]);
+
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+  }, [isConnected]);
+
+  useEffect(() => {
+    isConnectingRef.current = isConnecting;
+  }, [isConnecting]);
+
   // Auth context
   const { user, isAuthenticated } = useAuth();
   const targetUserId = userId || user?.id;
@@ -169,7 +186,12 @@ export function useTodoSubscription(
   // Subscribe function
   const subscribe = useCallback(async () => {
     // Don't subscribe if not authenticated or already connected
-    if (!isAuthenticated || !targetUserId || isConnected || isConnecting) {
+    if (
+      !isAuthenticated ||
+      !targetUserId ||
+      isConnectedRef.current ||
+      isConnectingRef.current
+    ) {
       return;
     }
 
@@ -212,14 +234,11 @@ export function useTodoSubscription(
       handleError(error);
 
       // Retry logic
-      if (retryCount < maxRetries) {
-        const nextRetryCount = retryCount + 1;
+      if (retryCountRef.current < maxRetries) {
+        const nextRetryCount = retryCountRef.current + 1;
         setRetryCount(nextRetryCount);
 
         retryTimeoutRef.current = setTimeout(() => {
-          console.log(
-            `Retrying todo subscription (attempt ${nextRetryCount}/${maxRetries})`
-          );
           subscribeRef.current?.();
         }, retryDelay * nextRetryCount); // Exponential backoff
       }
@@ -227,10 +246,8 @@ export function useTodoSubscription(
   }, [
     isAuthenticated,
     targetUserId,
-    isConnected,
-    isConnecting,
+    // dependencies related to state (isConnected, isConnecting, retryCount) removed
     userId,
-    retryCount,
     maxRetries,
     retryDelay,
     cleanup,

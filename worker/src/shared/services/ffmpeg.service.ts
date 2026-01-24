@@ -62,6 +62,74 @@ export class FFmpegService {
   private readonly logger = new Logger(FFmpegService.name);
 
   /**
+   * Execute a command using spawn and capture the output.
+   * This function also manages a capped stderr buffer to prevent memory leaks.
+   */
+
+  /**
+   * Execute a command using spawn and capture the output.
+   * This function also manages a capped stderr buffer to prevent memory leaks.
+   */
+  private async executeWithCappedStderr(
+    command: string,
+    args: string[],
+    totalDuration: number = 0,
+    onProgress?: (progress: number) => void
+  ): Promise<{ stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
+      this.logger.debug(`FFmpeg spawn: ${command} ${args.join(' ')}`);
+      const process = spawn(command, args);
+
+      let stdout = '';
+      const stderrLines: string[] = [];
+      const maxStderrLines = 20;
+
+      process.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      process.stderr?.on('data', (data: Buffer) => {
+        const dataStr = data.toString();
+        const lines = dataStr.split('\n').filter((line) => line.length > 0);
+        stderrLines.push(...lines);
+        if (stderrLines.length > maxStderrLines) {
+          stderrLines.splice(0, stderrLines.length - maxStderrLines);
+        }
+
+        // Parse progress from FFmpeg stderr
+        if (onProgress && totalDuration > 0) {
+          const timeMatch = dataStr.match(
+            /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/
+          );
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const minutes = parseInt(timeMatch[2]);
+            const seconds = parseFloat(timeMatch[3]);
+            const currentTime = hours * 3600 + minutes * 60 + seconds;
+            const progress = Math.min(100, (currentTime / totalDuration) * 100);
+            onProgress(progress);
+          }
+        }
+      });
+
+      process.on('close', (code) => {
+        const stderr = stderrLines.join('\n');
+        if (code === 0) {
+          resolve({ stdout, stderr });
+        } else {
+          reject(
+            new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`)
+          );
+        }
+      });
+
+      process.on('error', (error) => {
+        reject(error);
+      });
+    });
+  }
+
+  /**
    * Probe media file to get metadata
    */
   async probe(filePath: string): Promise<ProbeResult> {
@@ -71,10 +139,21 @@ export class FFmpegService {
         throw new Error(`File not found: ${filePath}`);
       }
 
-      const command = `ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`;
-      this.logger.debug(`Probing file: ${command}`);
+      const args = [
+        '-v',
+        'quiet',
+        '-print_format',
+        'json',
+        '-show_format',
+        '-show_streams',
+        filePath,
+      ];
+      this.logger.debug(`Probing file: ffprobe ${args.join(' ')}`);
 
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await this.executeWithCappedStderr(
+        'ffprobe',
+        args
+      );
 
       if (stderr) {
         this.logger.warn(`FFprobe stderr: ${stderr}`);
@@ -114,21 +193,26 @@ export class FFmpegService {
       const outputDir = path.dirname(outputPath);
       await fs.promises.mkdir(outputDir, { recursive: true });
 
-      const command = [
-        'ffmpeg',
+      const args = [
         '-y', // Overwrite output file
-        `-ss ${timestamp}`, // Seek to timestamp
-        `-i "${inputPath}"`, // Input file
-        '-vframes 1', // Extract single frame
-        `-vf scale=${width}:${height}`, // Scale to desired size
-        '-q:v 2', // High quality
-        '-update 1', // Update the same file (required for single image output)
-        `"${outputPath}"`, // Output file
-      ].join(' ');
+        '-ss',
+        timestamp.toString(), // Seek to timestamp
+        '-i',
+        inputPath, // Input file
+        '-vframes',
+        '1', // Extract single frame
+        '-vf',
+        `scale=${width}:${height}`, // Scale to desired size
+        '-q:v',
+        '2', // High quality
+        '-update',
+        '1', // Update the same file (required for single image output)
+        outputPath, // Output file
+      ];
 
-      this.logger.debug(`Generating thumbnail: ${command}`);
+      this.logger.debug(`Generating thumbnail: ffmpeg ${args.join(' ')}`);
 
-      const { stderr } = await execAsync(command);
+      const { stderr } = await this.executeWithCappedStderr('ffmpeg', args);
 
       if (stderr) {
         this.logger.debug(`FFmpeg stderr: ${stderr}`);
@@ -193,7 +277,7 @@ export class FFmpegService {
       this.logger.debug(`Generating sprite: ffmpeg ${args.join(' ')}`);
 
       // Use spawn instead of exec to avoid shell interpretation issues
-      await this.executeWithSpawn(args, 0);
+      await this.executeWithCappedStderr('ffmpeg', args);
 
       // Verify output file was created
       if (!fs.existsSync(outputPath)) {
@@ -237,17 +321,18 @@ export class FFmpegService {
       }
 
       // Build FFmpeg command
-      const command = this.buildTranscodeCommand(
-        inputPath,
-        outputPath,
-        options
-      );
+      const args = this.buildTranscodeCommand(inputPath, outputPath, options);
 
-      this.logger.debug(`Transcoding: ${command}`);
+      this.logger.debug(`Transcoding: ffmpeg ${args.join(' ')}`);
       this.logger.log(`Starting transcode: ${inputPath} -> ${outputPath}`);
 
       // Execute with progress tracking
-      await this.executeWithProgressInner(command, totalDuration, onProgress);
+      await this.executeWithCappedStderr(
+        'ffmpeg',
+        args,
+        totalDuration,
+        onProgress
+      );
 
       // Verify output file was created
       if (!fs.existsSync(outputPath)) {
@@ -270,220 +355,99 @@ export class FFmpegService {
     inputPath: string,
     outputPath: string,
     options: TranscodeOptions
-  ): string {
-    const args = ['ffmpeg', '-y']; // Start with ffmpeg and overwrite flag
+  ): string[] {
+    const args: string[] = ['-y']; // Start with overwrite flag
 
     // Input file
-    args.push(`-i "${inputPath}"`);
+    args.push('-i', inputPath);
 
     // Video codec
     if (options.videoCodec) {
-      args.push(`-c:v ${options.videoCodec}`);
+      args.push('-c:v', options.videoCodec);
     } else {
-      args.push('-c:v libx264'); // Default to H.264
+      args.push('-c:v', 'libx264'); // Default to H.264
     }
 
     // Audio codec
     if (options.audioCodec) {
-      args.push(`-c:a ${options.audioCodec}`);
+      args.push('-c:a', options.audioCodec);
     } else {
-      args.push('-c:a aac'); // Default to AAC
+      args.push('-c:a', 'aac'); // Default to AAC
     }
 
     // Video resolution
     if (options.width && options.height) {
-      args.push(`-vf scale=${options.width}:${options.height}`);
+      args.push('-vf', `scale=${options.width}:${options.height}`);
     }
 
     // Video bitrate
     if (options.videoBitrate) {
-      args.push(`-b:v ${options.videoBitrate}`);
+      args.push('-b:v', options.videoBitrate);
     }
 
     // Audio bitrate
     if (options.audioBitrate) {
-      args.push(`-b:a ${options.audioBitrate}`);
+      args.push('-b:a', options.audioBitrate);
     }
 
     // CRF (Constant Rate Factor) for quality-based encoding
     if (options.crf !== undefined) {
-      args.push(`-crf ${options.crf}`);
+      args.push('-crf', options.crf.toString());
     }
 
     // Preset for encoding speed/quality tradeoff
     if (options.preset) {
-      args.push(`-preset ${options.preset}`);
+      args.push('-preset', options.preset);
     }
 
     // Profile and level
     if (options.profile) {
-      args.push(`-profile:v ${options.profile}`);
+      args.push('-profile:v', options.profile);
     }
     if (options.level) {
-      args.push(`-level ${options.level}`);
+      args.push('-level', options.level);
     }
 
     // Pixel format
     if (options.pixelFormat) {
-      args.push(`-pix_fmt ${options.pixelFormat}`);
+      args.push('-pix_fmt', options.pixelFormat);
     }
 
     // Frame rate
     if (options.frameRate) {
-      args.push(`-r ${options.frameRate}`);
+      args.push('-r', options.frameRate.toString());
     }
 
     // Keyframe interval
     if (options.keyframeInterval) {
-      args.push(`-g ${options.keyframeInterval}`);
+      args.push('-g', options.keyframeInterval.toString());
     }
 
     // Rate control
     if (options.maxrate) {
-      args.push(`-maxrate ${options.maxrate}`);
+      args.push('-maxrate', options.maxrate);
     }
     if (options.bufsize) {
-      args.push(`-bufsize ${options.bufsize}`);
+      args.push('-bufsize', options.bufsize);
     }
 
     // Audio settings
     if (options.audioSampleRate) {
-      args.push(`-ar ${options.audioSampleRate}`);
+      args.push('-ar', options.audioSampleRate.toString());
     }
     if (options.audioChannels) {
-      args.push(`-ac ${options.audioChannels}`);
+      args.push('-ac', options.audioChannels.toString());
     }
 
     // Output format
     if (options.format) {
-      args.push(`-f ${options.format}`);
+      args.push('-f', options.format);
     }
 
     // Output file
-    args.push(`"${outputPath}"`);
+    args.push(outputPath);
 
-    return args.join(' ');
-  }
-
-  /**
-   * Execute FFmpeg command with progress tracking
-   */
-  private async executeWithProgressInner(
-    command: string,
-    totalDuration: number,
-    onProgress?: (progress: number) => void
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const process = exec(command);
-      let stderr = '';
-
-      process.stderr?.on('data', (data: string) => {
-        stderr += data;
-
-        // Parse progress from FFmpeg stderr
-        if (onProgress && totalDuration > 0) {
-          const timeMatch = data.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1]);
-            const minutes = parseInt(timeMatch[2]);
-            const seconds = parseFloat(timeMatch[3]);
-            const currentTime = hours * 3600 + minutes * 60 + seconds;
-            const progress = Math.min(100, (currentTime / totalDuration) * 100);
-            onProgress(progress);
-          }
-        }
-      });
-
-      process.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(
-            new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`)
-          );
-        }
-      });
-
-      process.on('error', (error) => {
-        reject(error);
-      });
-    });
-  }
-
-  /**
-   * Execute FFmpeg command with arguments array and progress tracking
-   * Uses spawn with args array to avoid shell interpretation issues
-   */
-  async executeWithProgress(
-    args: string[],
-    onProgress?: (progress: number) => void
-  ): Promise<void> {
-    // Try to estimate total duration from input files for progress tracking
-    let totalDuration = 0;
-    const inputIndex = args.findIndex((arg) => arg === '-i');
-    if (inputIndex !== -1 && inputIndex + 1 < args.length) {
-      const inputFile = args[inputIndex + 1].replace(/"/g, '');
-      try {
-        const probeResult = await this.probe(inputFile);
-        totalDuration = probeResult.format.duration;
-      } catch (error) {
-        this.logger.warn(
-          `Could not probe input for progress tracking: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-
-    return this.executeWithSpawn(args, totalDuration, onProgress);
-  }
-
-  /**
-   * Execute FFmpeg using spawn with args array (avoids shell interpretation issues)
-   */
-  private async executeWithSpawn(
-    args: string[],
-    totalDuration: number,
-    onProgress?: (progress: number) => void
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.logger.debug(`FFmpeg spawn: ffmpeg ${args.join(' ')}`);
-
-      const process = spawn('ffmpeg', args);
-      let stderr = '';
-
-      process.stderr?.on('data', (data: Buffer) => {
-        const dataStr = data.toString();
-        stderr += dataStr;
-
-        // Parse progress from FFmpeg stderr
-        if (onProgress && totalDuration > 0) {
-          const timeMatch = dataStr.match(
-            /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/
-          );
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1]);
-            const minutes = parseInt(timeMatch[2]);
-            const seconds = parseFloat(timeMatch[3]);
-            const currentTime = hours * 3600 + minutes * 60 + seconds;
-            const progress = Math.min(100, (currentTime / totalDuration) * 100);
-            onProgress(progress);
-          }
-        }
-      });
-
-      process.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(
-            new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`)
-          );
-        }
-      });
-
-      process.on('error', (error) => {
-        reject(error);
-      });
-    });
+    return args;
   }
 
   /**
@@ -499,20 +463,23 @@ export class FFmpegService {
       const outputDir = path.dirname(outputPath);
       await fs.promises.mkdir(outputDir, { recursive: true });
 
-      const command = [
-        'ffmpeg',
+      const args = [
         '-y', // Overwrite output file
-        `-i "${inputPath}"`, // Input file
+        '-i',
+        inputPath, // Input file
         '-vn', // No video
-        '-ac 1', // Convert to mono (1 channel) for speech recognition
-        '-ar 16000', // 16kHz sample rate (optimal for speech recognition)
-        `-f ${format}`, // Output format
-        `"${outputPath}"`, // Output file
-      ].join(' ');
+        '-ac',
+        '1', // Convert to mono (1 channel) for speech recognition
+        '-ar',
+        '16000', // 16kHz sample rate (optimal for speech recognition)
+        '-f',
+        format, // Output format
+        outputPath, // Output file
+      ];
 
-      this.logger.debug(`Extracting audio: ${command}`);
+      this.logger.debug(`Extracting audio: ffmpeg ${args.join(' ')}`);
 
-      const { stderr } = await execAsync(command);
+      const { stderr } = await this.executeWithCappedStderr('ffmpeg', args);
 
       if (stderr) {
         this.logger.debug(`FFmpeg stderr: ${stderr}`);
@@ -529,6 +496,48 @@ export class FFmpegService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to extract audio: ${errorMessage}`);
       throw new Error(`Audio extraction failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Execute FFmpeg command with progress tracking
+   * This is a public wrapper around executeWithCappedStderr for direct command execution
+   */
+  async executeWithProgress(
+    args: string[],
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    try {
+      // Try to extract input file path from args for duration calculation
+      let totalDuration = 0;
+      if (onProgress) {
+        const inputIndex = args.indexOf('-i');
+        if (inputIndex >= 0 && inputIndex < args.length - 1) {
+          const inputPath = args[inputIndex + 1];
+          try {
+            const probeResult = await this.probe(inputPath);
+            totalDuration = probeResult.format.duration;
+          } catch (error) {
+            this.logger.warn(
+              `Could not probe input for progress tracking: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        }
+      }
+
+      this.logger.debug(`Executing FFmpeg: ffmpeg ${args.join(' ')}`);
+
+      await this.executeWithCappedStderr(
+        'ffmpeg',
+        args,
+        totalDuration,
+        onProgress
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to execute FFmpeg: ${errorMessage}`);
+      throw new Error(`FFmpeg execution failed: ${errorMessage}`);
     }
   }
 

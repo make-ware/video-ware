@@ -23,7 +23,7 @@
     "format:check": "yarn workspaces foreach -A run format:check",
     "clean": "yarn workspaces foreach -R run clean && rm -rf pb/pocketbase",
     "typegen": "yarn workspace @project/shared typegen",
-    "precommit": "yarn run build:shared && yarn run lint && yarn run typecheck && yarn run format && yarn run test",
+    "precommit": "yarn run build:shared && yarn run lint && yarn run typecheck && yarn run format && yarn run build && yarn run test",
     "db:download": "yarn workspace @project/pb download",
     "db:start": "yarn workspace @project/pb dev:debug",
     "db:migrate": "yarn workspace @project/shared migrate:generate",

@@ -458,19 +458,60 @@ export class PocketBaseService implements OnModuleInit {
   }
 
   /**
-   * Get timeline clips for a timeline
+   * Get timeline clips for a timeline (returns all clips)
    */
   async getTimelineClips(timelineId: string) {
+    return this.getAllTimelineClips(timelineId);
+  }
+
+  /**
+   * Get timeline clips for a timeline with pagination
+   */
+  async getPaginatedTimelineClips(timelineId: string, page = 1, perPage = 100) {
     try {
-      const results = await this.timelineClipMutator.getList(
-        1,
-        100, // Assuming max 100 clips per timeline
+      return await this.timelineClipMutator.getList(
+        page,
+        perPage,
         `TimelineRef = "${timelineId}"`
       );
-      return results.items;
     } catch (error) {
       this.logger.error(
         `Failed to get timeline clips for ${timelineId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return {
+        page,
+        perPage,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      };
+    }
+  }
+
+  /**
+   * Get all timeline clips for a timeline (fetches all pages)
+   */
+  async getAllTimelineClips(timelineId: string) {
+    try {
+      const allItems = [];
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const result = await this.getPaginatedTimelineClips(
+          timelineId,
+          page,
+          500
+        );
+        allItems.push(...result.items);
+        totalPages = result.totalPages;
+        page++;
+      } while (page <= totalPages);
+
+      return allItems;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get all timeline clips for ${timelineId}: ${error instanceof Error ? error.message : String(error)}`
       );
       return [];
     }

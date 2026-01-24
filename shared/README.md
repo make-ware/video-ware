@@ -131,8 +131,7 @@ shared/
 │   │   ├── baseMutator.ts    # Base mutator class
 │   │   └── userMutator.ts    # Example mutator implementation
 │   ├── schema/           # Collection definitions using defineCollection
-│   │   ├── user.ts           # User collection schema
-│   │   └── todo.ts           # Todo collection schema
+│   │   └── user.ts           # User collection schema
 │   ├── types/            # TypeScript type definitions
 │   ├── utils/            # Utility functions
 │   ├── pocketbase/       # PocketBase client configuration

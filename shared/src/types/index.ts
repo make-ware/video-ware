@@ -10,7 +10,6 @@ import type { File } from '../schema/file';
 import type { Media } from '../schema/media';
 import type { Workspace } from '../schema/workspace';
 import type { WorkspaceMember } from '../schema/workspace-member';
-import type { Todo } from '../schema/todo';
 import type { Timeline } from '../schema/timeline';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
@@ -58,7 +57,6 @@ export interface TypedPocketBase extends PocketBase {
     idOrName: 'TimelineRecommendations'
   ): RecordService<TimelineRecommendation>;
   collection(idOrName: 'Timelines'): RecordService<Timeline>;
-  collection(idOrName: 'Todos'): RecordService<Todo>;
   collection(idOrName: 'Uploads'): RecordService<Upload>;
   collection(idOrName: 'Users'): RecordService<User>;
   collection(idOrName: 'WatchedFiles'): RecordService<WatchedFile>;

@@ -116,13 +116,12 @@ describe('PocketBaseService', () => {
       const timelineId = 'timeline-123';
       const result = await service.getPaginatedTimelineClips(timelineId);
 
-      expect(mockGetList).toHaveBeenCalledWith(
-        1,
-        100,
-        expect.objectContaining({
-          filter: `TimelineRef = "${timelineId}"`,
-        })
-      );
+      expect(mockGetList).toHaveBeenCalledWith(1, 100, {
+        expand:
+          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef',
+        filter: `TimelineRef = "${timelineId}"`,
+        sort: 'order',
+      });
 
       // Expect full result object
       expect(result).toEqual({
@@ -146,13 +145,12 @@ describe('PocketBaseService', () => {
       const timelineId = 'timeline-123';
       const result = await service.getPaginatedTimelineClips(timelineId, 2, 50);
 
-      expect(mockGetList).toHaveBeenCalledWith(
-        2,
-        50,
-        expect.objectContaining({
-          filter: `TimelineRef = "${timelineId}"`,
-        })
-      );
+      expect(mockGetList).toHaveBeenCalledWith(2, 50, {
+        expand:
+          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef',
+        filter: `TimelineRef = "${timelineId}"`,
+        sort: 'order',
+      });
 
       expect(result.page).toBe(2);
       expect(result.perPage).toBe(50);

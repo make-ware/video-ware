@@ -1,5 +1,6 @@
-import { RecommendationStrategy } from '@project/shared';
+import { RecommendationStrategy, Media } from '@project/shared';
 import { BaseRecommendationStrategy } from './base-strategy';
+import { ExpandedTimelineClip } from '@/types/expanded-types';
 import type {
   MediaStrategyContext,
   ScoredMediaCandidate,
@@ -118,17 +119,22 @@ export class TemporalNearbyStrategy extends BaseRecommendationStrategy {
       context.searchParams.timeWindow || this.DEFAULT_TIME_WINDOW;
 
     // Helper for absolute time
-    const getAbsTime = (media: any, offset: number): number | null => {
-      if (!media?.mediaDate) return null;
+    const getAbsTime = (
+      media: Media | string | null | undefined,
+      offset: number
+    ): number | null => {
+      if (!media || typeof media !== 'object' || !media.mediaDate) return null;
       const t = new Date(media.mediaDate).getTime();
       return isNaN(t) ? null : t + offset * 1000;
     };
 
-    const seedMedia = (seed as any).expand?.MediaRef || (seed as any).MediaRef;
+    const expandedSeed = seed as unknown as ExpandedTimelineClip;
+    const seedMedia = expandedSeed.expand?.MediaRef || expandedSeed.MediaRef;
     const seedAbsStart = getAbsTime(seedMedia, seed.start);
 
-    for (const clip of context.availableClips) {
-      if (clip.id === seed.id) continue;
+    for (const c of context.availableClips) {
+      if (c.id === seed.id) continue;
+      const clip = c as unknown as ExpandedTimelineClip;
 
       let timeDelta = Infinity;
 
@@ -146,8 +152,7 @@ export class TemporalNearbyStrategy extends BaseRecommendationStrategy {
       }
       // Case 2: Different Media (using dates)
       else if (seedAbsStart !== null) {
-        const clipMedia =
-          (clip as any).expand?.MediaRef || (clip as any).MediaRef;
+        const clipMedia = clip.expand?.MediaRef || clip.MediaRef;
         const clipAbsStart = getAbsTime(clipMedia, clip.start);
 
         if (clipAbsStart !== null) {

@@ -9,28 +9,17 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Info, X, Clock, Tag, FileVideo } from 'lucide-react';
-import type { TimelineClip, Media, MediaClip, File } from '@project/shared';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { calculateMediaDate, formatMediaDateTime } from '@/utils/date-utils';
-
-interface DetailedTimelineClip extends Omit<TimelineClip, 'expand'> {
-  expand?: {
-    MediaRef?: Media & {
-      expand?: {
-        spriteFileRef?: File;
-      };
-    };
-    MediaClipRef?: MediaClip;
-  };
-}
+import { ExpandedTimelineClip } from '@/types/expanded-types';
 
 interface TimelineClipDetailsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  clip: DetailedTimelineClip;
+  clip: ExpandedTimelineClip;
 }
 
 export function TimelineClipDetailsDialog({
@@ -94,7 +83,7 @@ export function TimelineClipDetailsDialog({
                 ) : (
                   <SpriteAnimator
                     media={media}
-                    spriteFile={(media as any).expand?.spriteFileRef}
+                    spriteFile={media.expand?.spriteFileRef}
                     start={clip.start}
                     end={clip.end}
                     isHovering={true}

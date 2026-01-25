@@ -4,9 +4,12 @@ import { useState } from 'react';
 import {
   TimelineRecommendation,
   RecommendationStrategy,
-  MediaClip,
   Media,
 } from '@project/shared';
+import {
+  ExpandedTimelineRecommendation,
+  ExpandedTimelineClip,
+} from '@/types/expanded-types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Replace, X, Check, Eye } from 'lucide-react';
@@ -15,7 +18,7 @@ import { MediaBaseCard } from '@/components/media/media-base-card';
 import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
 
 interface TimelineRecommendationCardProps {
-  recommendation: TimelineRecommendation;
+  recommendation: ExpandedTimelineRecommendation;
   onAdd?: (recommendation: TimelineRecommendation) => void;
   onReplace?: (recommendation: TimelineRecommendation) => void;
   onDismiss?: (recommendation: TimelineRecommendation) => void;
@@ -41,7 +44,9 @@ export function TimelineRecommendationCard({
 }: TimelineRecommendationCardProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [detailsClip, setDetailsClip] = useState<any>(null);
+  const [detailsClip, setDetailsClip] = useState<ExpandedTimelineClip | null>(
+    null
+  );
 
   // Get strategy display name
   const getStrategyDisplay = (strategy: RecommendationStrategy): string => {
@@ -110,29 +115,12 @@ export function TimelineRecommendationCard({
   const scorePercentage = Math.round(recommendation.score * 100);
 
   // Type-safe access to nested expands
-  const mediaClip =
-    recommendation.expand && 'MediaClipRef' in recommendation.expand
-      ? (recommendation.expand.MediaClipRef as MediaClip & {
-          expand?: {
-            MediaRef?: Media & {
-              expand?: {
-                UploadRef?: { name?: string };
-              };
-            };
-          };
-        })
-      : undefined;
-  const media = mediaClip?.expand?.MediaRef as Media | undefined;
+  const mediaClip = recommendation.expand?.MediaClipRef;
+  const media = mediaClip?.expand?.MediaRef;
   const clipStart = mediaClip?.start;
   const clipEnd = mediaClip?.end;
 
-  const mediaName =
-    mediaClip?.expand?.MediaRef &&
-    'expand' in mediaClip.expand.MediaRef &&
-    mediaClip.expand.MediaRef.expand &&
-    'UploadRef' in mediaClip.expand.MediaRef.expand
-      ? mediaClip.expand.MediaRef.expand.UploadRef?.name
-      : undefined;
+  const mediaName = media?.expand?.UploadRef?.name;
   const displayName = mediaName || 'Recommended Clip';
 
   // Check if recommendation is used (has associated timeline clips)
@@ -142,17 +130,28 @@ export function TimelineRecommendationCard({
 
   const handleViewDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (!media || !mediaClip) return;
+
     // Construct a pseudo-clip for the dialog
-    const pseudoClip: any = {
+    const pseudoClip: ExpandedTimelineClip = {
       id: recommendation.id,
+      TimelineRef: 'recommendation',
+      MediaRef: media.id,
+      MediaClipRef: mediaClip.id,
       start: clipStart || 0,
       end: clipEnd || 0,
+      duration: (clipEnd || 0) - (clipStart || 0),
+      collectionId: '',
+      collectionName: '',
       order: 0,
       meta: {
         reason: recommendation.reason,
         score: recommendation.score,
         strategy: recommendation.strategy,
       },
+      created: recommendation.created,
+      updated: recommendation.updated,
       expand: {
         MediaRef: media,
         MediaClipRef: mediaClip,
@@ -165,7 +164,7 @@ export function TimelineRecommendationCard({
   return (
     <>
       <MediaBaseCard
-        media={media}
+        media={media as unknown as Media}
         startTime={clipStart}
         endTime={clipEnd}
         className={cn(
@@ -243,7 +242,10 @@ export function TimelineRecommendationCard({
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAction(onAdd, recommendation);
+                  handleAction(
+                    onAdd,
+                    recommendation as unknown as TimelineRecommendation
+                  );
                 }}
                 disabled={isProcessing}
                 className="h-7 w-7 shadow-md"
@@ -258,7 +260,10 @@ export function TimelineRecommendationCard({
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAction(onReplace, recommendation);
+                  handleAction(
+                    onReplace,
+                    recommendation as unknown as TimelineRecommendation
+                  );
                 }}
                 disabled={isProcessing}
                 className="h-7 w-7 shadow-md"
@@ -274,7 +279,10 @@ export function TimelineRecommendationCard({
                 variant="secondary"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAction(onDismiss, recommendation);
+                  handleAction(
+                    onDismiss,
+                    recommendation as unknown as TimelineRecommendation
+                  );
                 }}
                 disabled={isProcessing}
                 className="h-7 w-7 shadow-md"

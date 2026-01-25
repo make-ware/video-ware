@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, Film, AlertCircle } from 'lucide-react';
-import { ClipBrowserItem, type MediaClipWithExpand } from './clip-browser-item';
+import { ClipBrowserItem } from './clip-browser-item';
+import { ExpandedMediaClip } from '@/types/expanded-types';
 import { CLIP_GRID_CLASS } from './constants';
 
 interface ClipBrowserProps {
@@ -39,7 +40,7 @@ const CLIP_TYPE_OPTIONS = [
 export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
   const { currentWorkspace } = useWorkspace();
   const { addClip } = useTimeline();
-  const [clips, setClips] = useState<MediaClipWithExpand[]>([]);
+  const [clips, setClips] = useState<ExpandedMediaClip[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,13 +81,13 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
         }
       );
 
-      const items = result.items as MediaClipWithExpand[];
+      const items = result.items as ExpandedMediaClip[];
 
       // Client-side sorting
       if (sortBy === 'name') {
         items.sort((a, b) => {
-          const nameA = a.expand?.MediaRef?.expand?.UploadRef?.filename || '';
-          const nameB = b.expand?.MediaRef?.expand?.UploadRef?.filename || '';
+          const nameA = a.expand?.MediaRef?.expand?.UploadRef?.name || '';
+          const nameB = b.expand?.MediaRef?.expand?.UploadRef?.name || '';
           return nameA.localeCompare(nameB);
         });
       } else if (sortBy === 'duration') {
@@ -136,7 +137,7 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
   }, [loadClips]);
 
   const handleAddClip = useCallback(
-    async (clip: MediaClipWithExpand) => {
+    async (clip: ExpandedMediaClip) => {
       try {
         await addClip(clip.MediaRef, clip.start, clip.end, clip.id);
       } catch (err) {
@@ -175,7 +176,12 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
               className="pl-8 h-9"
             />
           </div>
-          <Select value={sortBy} onValueChange={(val: any) => setBySort(val)}>
+          <Select
+            value={sortBy}
+            onValueChange={(val) =>
+              setBySort(val as 'recent' | 'duration' | 'name' | 'media_time')
+            }
+          >
             <SelectTrigger className="w-[120px] h-9">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
@@ -238,7 +244,7 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
           </div>
         ) : (
           <div className={`${CLIP_GRID_CLASS} pb-8`}>
-            {clips.map((clip: MediaClipWithExpand) => (
+            {clips.map((clip: ExpandedMediaClip) => (
               <ClipBrowserItem
                 key={clip.id}
                 clip={clip}

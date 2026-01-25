@@ -6,6 +6,7 @@ import { Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
+import { ExpandedTimelineClip } from '@/types/expanded-types';
 
 interface MediaClipItemProps {
   clip: MediaClip;
@@ -34,18 +35,25 @@ export function MediaClipItem({
     return `${min}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
+  const clipData = clip.clipData as Record<string, unknown> | undefined;
   const label =
-    typeof (clip.clipData as any)?.label === 'string'
-      ? (clip.clipData as any).label
-      : 'Clip';
+    typeof clipData?.label === 'string' ? (clipData.label as string) : 'Clip';
 
   // Construct a pseudo-clip for the dialog
-  const detailsClip: any = {
+  const detailsClip: ExpandedTimelineClip = {
     id: clip.id,
+    TimelineRef: 'preview',
+    MediaRef: media.id,
+    MediaClipRef: clip.id,
     start: clip.start,
     end: clip.end,
+    duration: clip.end - clip.start,
+    collectionId: '',
+    collectionName: '',
     order: 0,
     meta: clip.clipData,
+    created: clip.created,
+    updated: clip.updated,
     expand: {
       MediaRef: media,
       MediaClipRef: clip,

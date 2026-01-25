@@ -30,7 +30,7 @@ export class GoogleCloudService implements OnModuleInit {
 
   private readonly projectId: string;
   private readonly keyFilename?: string;
-  private readonly credentials?: any;
+  private readonly credentials?: Record<string, unknown>;
   private readonly gcsBucket?: string;
   private readonly enabled: {
     videoIntelligence: boolean;
@@ -43,7 +43,8 @@ export class GoogleCloudService implements OnModuleInit {
       'google.projectId'
     ) as string;
     this.keyFilename = this.configService.get<string>('google.keyFilename');
-    this.credentials = this.configService.get<any>('google.credentials');
+    this.credentials =
+      this.configService.get<Record<string, unknown>>('google.credentials');
     this.gcsBucket = this.configService.get<string>('google.gcsBucket');
 
     this.enabled = {
@@ -74,7 +75,7 @@ export class GoogleCloudService implements OnModuleInit {
       return;
     }
 
-    const clientConfig: any = {
+    const clientConfig: Record<string, unknown> = {
       projectId: this.projectId,
       location: this.configService.get<string>('google.location'),
     };
@@ -120,26 +121,30 @@ export class GoogleCloudService implements OnModuleInit {
 
     try {
       // Initialize Storage client (always needed for temp uploads)
-      this.storageClient = new Storage(clientConfig);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.storageClient = new Storage(clientConfig as any);
       this.logger.log('Google Cloud Storage client initialized');
 
       // Initialize Video Intelligence client if explicitly enabled or if any GCVI processor needs it
       if (hasVideoIntelligenceProcessor) {
         this.videoIntelligenceClient = new VideoIntelligenceServiceClient(
-          clientConfig
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          clientConfig as any
         );
         this.logger.log('Google Cloud Video Intelligence client initialized');
       }
 
       // Initialize Speech client if explicitly enabled or if Speech Transcription is enabled
       if (hasSpeechProcessor) {
-        this.speechClient = new SpeechClient(clientConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.speechClient = new SpeechClient(clientConfig as any);
         this.logger.log('Google Cloud Speech-to-Text client initialized');
       }
 
       // Initialize Transcoder client
       if (this.enabled.transcoder) {
-        this.transcoderClient = new TranscoderServiceClient(clientConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.transcoderClient = new TranscoderServiceClient(clientConfig as any);
         this.logger.log('Google Cloud Transcoder client initialized');
       }
 
@@ -166,7 +171,7 @@ export class GoogleCloudService implements OnModuleInit {
     inputUri?: string;
     outputUri: string;
     preset?: string;
-    jobConfig?: any; // Google Cloud Transcoder JobConfig
+    jobConfig?: Record<string, unknown>; // Google Cloud Transcoder JobConfig
   }): Promise<TranscoderJobResult> {
     if (!this.transcoderClient) {
       throw new Error('Transcoder client not initialized');
@@ -182,18 +187,20 @@ export class GoogleCloudService implements OnModuleInit {
       );
       const parent = `projects/${this.projectId}/locations/${location}`;
 
-      const request: any = {
+      const request: Record<string, unknown> = {
         parent,
         job: {
           outputUri,
-        },
+        } as Record<string, unknown>,
       };
 
+      const jobRequest = request.job as Record<string, unknown>;
+
       if (jobConfig) {
-        request.job.config = jobConfig;
+        jobRequest.config = jobConfig;
       } else {
-        request.job.inputUri = inputUri;
-        request.job.templateId = preset || 'preset/web-hd';
+        jobRequest.inputUri = inputUri;
+        jobRequest.templateId = preset || 'preset/web-hd';
       }
 
       const [job] = await this.transcoderClient.createJob(request);

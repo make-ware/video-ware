@@ -54,7 +54,7 @@ export class AudioStepProcessor extends BaseStepProcessor<
     const media = await this.pocketbaseService.findMediaByUpload(
       input.uploadId
     );
-    const probeData = media?.mediaData as any; // ProbeOutput
+    const probeData = media?.mediaData as { audio?: boolean }; // ProbeOutput
 
     // Skip if no audio stream is detected
     if (media && probeData && !probeData.audio) {

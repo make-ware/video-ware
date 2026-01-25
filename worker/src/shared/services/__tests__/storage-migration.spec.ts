@@ -1,6 +1,5 @@
 import { ConfigService } from '@nestjs/config';
 import { StorageService } from '../storage.service';
-import { StorageBackendType } from '@project/shared';
 import * as fs from 'fs';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 

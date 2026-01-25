@@ -60,7 +60,6 @@ export class SpeechTranscriptionNormalizer {
     const labelEntities: LabelEntityData[] = [];
     const labelSpeech: LabelSpeechData[] = [];
     const labelTracks: LabelTrackData[] = [];
-    const seenSpeakers = new Set<number>();
 
     // Create speech segments (time-bounded chunks)
     const segments = this.createSpeechSegments(response.words);
@@ -70,10 +69,12 @@ export class SpeechTranscriptionNormalizer {
     const speakerSegments = new Map<number, typeof segments>();
     for (const segment of segments) {
       const tag = segment.speakerTag ?? 0;
-      if (!speakerSegments.has(tag)) {
-        speakerSegments.set(tag, []);
+      let segmentsList = speakerSegments.get(tag);
+      if (!segmentsList) {
+        segmentsList = [];
+        speakerSegments.set(tag, segmentsList);
       }
-      speakerSegments.get(tag)!.push(segment);
+      segmentsList.push(segment);
     }
 
     // Process each speaker

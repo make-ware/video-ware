@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider, LabelType } from '@project/shared';
+import { ProcessingProvider } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { SpeechTranscriptionExecutor } from '../executors/speech-transcription.executor';
@@ -10,8 +10,8 @@ import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { SpeechTranscriptionStepInput } from '../types/step-inputs';
 import type { SpeechTranscriptionStepOutput } from '../types/step-outputs';
+import type { SpeechTranscriptionResponse } from '../types/executor-responses';
 import type {
-  LabelEntityData,
   LabelTrackData,
   LabelSpeechData,
 } from '../types/normalizer-outputs';
@@ -55,7 +55,7 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
    */
   async process(
     input: SpeechTranscriptionStepInput,
-    job: Job<StepJobData>
+    _job: Job<StepJobData>
   ): Promise<SpeechTranscriptionStepOutput> {
     const startTime = Date.now();
 
@@ -100,7 +100,7 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
         this.processorVersion
       );
 
-      let response: any;
+      let response: unknown;
       let cacheHit = false;
 
       if (
@@ -143,7 +143,7 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
       // Step 3: Call normalizer to transform response
       const normalizedData = await this.speechTranscriptionNormalizer.normalize(
         {
-          response,
+          response: response as SpeechTranscriptionResponse,
           mediaId: input.mediaId,
           workspaceRef: input.workspaceRef,
           taskRef: input.taskRef,
@@ -165,7 +165,8 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
           entity.processor,
           entity.metadata
         );
-        const speakerTag = (entity.metadata as any)?.speakerTag ?? 0;
+        const speakerTag =
+          (entity.metadata as { speakerTag?: number })?.speakerTag ?? 0;
         entityMap.set(speakerTag, entityId);
       }
       this.logger.debug(`Processed ${entityMap.size} speaker entities`);
@@ -174,7 +175,8 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
       // Link tracks to entities
       const trackMap = new Map<number, string>();
       const tracksToInsert = (normalizedData.labelTracks || []).map((track) => {
-        const speakerTag = (track.trackData as any)?.speakerTag ?? 0;
+        const speakerTag =
+          (track.trackData as { speakerTag?: number })?.speakerTag ?? 0;
         return {
           ...track,
           LabelEntityRef: entityMap.get(speakerTag),
@@ -185,8 +187,11 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
 
       // Map speaker tags to track IDs (using tracksToInsert to maintain order)
       tracksToInsert.forEach((track, index) => {
-        const speakerTag = (track.trackData as any)?.speakerTag ?? 0;
-        trackMap.set(speakerTag, trackIds[index]);
+        const speakerTag =
+          (track.trackData as { speakerTag?: number })?.speakerTag ?? 0;
+        if (trackIds[index]) {
+          trackMap.set(speakerTag, trackIds[index]);
+        }
       });
       this.logger.debug(`Inserted ${trackIds.length} speaker tracks`);
 

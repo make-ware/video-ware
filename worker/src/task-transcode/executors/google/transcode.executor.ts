@@ -21,7 +21,7 @@ export class GoogleTranscodeExecutor implements ITranscodeExecutor {
     filePath: string,
     outputPath: string,
     config: TranscodeConfig,
-    onProgress?: ProgressCallback
+    _onProgress?: ProgressCallback
   ): Promise<TranscodeResult> {
     this.logger.debug(`Transcoding with Google Cloud: ${outputPath}`);
 

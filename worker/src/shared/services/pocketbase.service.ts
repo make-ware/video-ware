@@ -89,7 +89,9 @@ export class PocketBaseService implements OnModuleInit {
       );
     }
 
-    this.pb = await this.pocketBaseClientService.createClient(url);
+    this.pb = (await this.pocketBaseClientService.createClient(
+      url
+    )) as TypedPocketBase;
     this.pb.autoCancellation(false);
 
     try {

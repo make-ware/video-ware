@@ -13,7 +13,6 @@ import {
   TaskRenderPrepareStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import type { Media } from '@project/shared';
 
 /**
  * Processor for the PREPARE step in rendering

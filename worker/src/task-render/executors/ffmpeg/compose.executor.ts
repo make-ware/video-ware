@@ -5,7 +5,6 @@ import type {
   RenderTimelinePayload,
   Media,
   TimelineTrack,
-  TimelineSegment,
 } from '@project/shared';
 
 /**
@@ -65,6 +64,8 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       ) as (typeof probeResult.streams)[0] & {
         r_frame_rate?: string;
         avg_frame_rate?: string;
+        width?: number;
+        height?: number;
       };
 
       if (!videoStream) {
@@ -125,7 +126,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         args.push('-i', clip.filePath);
         inputFileMap.set(assetId, inputCounter++);
       }
-      return inputFileMap.get(assetId)!;
+      return inputFileMap.get(assetId) as number;
     };
 
     // Calculate output dimensions
@@ -147,7 +148,6 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     );
 
     let lastVideoLabel = '[base]';
-    const hasBaseVideo = false;
     const audioInputs: string[] = [];
 
     // Create a base black background
@@ -177,7 +177,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           }
 
           // Check if media has audio streams
-          const hasAudio = !!(clip.media?.mediaData as any)?.audio;
+          const hasAudio = !!(
+            clip.media?.mediaData as unknown as { audio?: boolean }
+          )?.audio;
 
           if (!hasAudio) {
             this.logger.debug(
@@ -190,7 +192,6 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           const sourceStart = seg.time.sourceStart || 0;
           const duration = seg.time.duration;
           const start = seg.time.start;
-          const label = `[a_${seg.id}]`;
 
           // Trimming and Delay
           // adelay is in milliseconds

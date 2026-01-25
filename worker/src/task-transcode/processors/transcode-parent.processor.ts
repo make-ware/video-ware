@@ -12,12 +12,7 @@ import {
   type TaskTranscodeTranscodeStep,
   type TaskTranscodeAudioStep,
 } from '@project/shared/jobs';
-import {
-  ProcessingProvider,
-  TaskType,
-  type DetectLabelsPayload,
-  type ProcessUploadPayload,
-} from '@project/shared';
+import { type ProcessUploadPayload } from '@project/shared';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { StorageService } from '../../shared/services/storage.service';
 import { ProbeStepProcessor } from './probe-step.processor';

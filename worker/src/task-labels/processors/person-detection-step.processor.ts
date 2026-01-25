@@ -14,8 +14,6 @@ import type { PersonDetectionResponse } from '../types/executor-responses';
 import type {
   LabelPersonData,
   LabelTrackData,
-  KeyframeData,
-  LabelMediaData,
 } from '../types/normalizer-outputs';
 
 // Re-export types for parent processor

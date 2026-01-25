@@ -66,11 +66,11 @@ export class RenderProcessor {
     taskId: string,
     status: TaskStatus,
     progress?: number,
-    result?: any,
+    result?: unknown,
     error?: string
   ): Promise<void> {
     try {
-      const updates: any = { status };
+      const updates: Record<string, unknown> = { status };
 
       if (progress !== undefined) {
         updates.progress = Math.round(progress);

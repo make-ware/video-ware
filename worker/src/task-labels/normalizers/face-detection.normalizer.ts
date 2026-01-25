@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { LabelType, ProcessingProvider } from '@project/shared';
 import type {
   FaceDetectionResponse,
+  FaceAttributes,
   NormalizerInput,
   NormalizerOutput,
   LabelEntityData,
@@ -251,7 +252,7 @@ export class FaceDetectionNormalizer {
    */
   private aggregateAttributes(
     frames: Array<{
-      attributes?: Record<string, any>;
+      attributes?: Record<string, unknown> | FaceAttributes;
     }>
   ): Record<string, unknown> {
     const counts: Record<string, Map<string, number>> = {
@@ -265,11 +266,8 @@ export class FaceDetectionNormalizer {
       lookingAtCameraLikelihood: new Map(),
     };
 
-    let totalFramesWithAttributes = 0;
-
     for (const frame of frames) {
       if (frame.attributes) {
-        totalFramesWithAttributes++;
         for (const [key, value] of Object.entries(frame.attributes)) {
           if (counts[key] && value) {
             const valStr = String(value);

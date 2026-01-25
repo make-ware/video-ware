@@ -190,11 +190,12 @@ export class LabelDetectionExecutor {
   /**
    * Parse Google Cloud time offset to seconds
    */
-  private parseTimeOffset(timeOffset: any): number {
+  private parseTimeOffset(timeOffset: unknown): number {
     if (!timeOffset) return 0;
 
-    const seconds = parseInt(timeOffset.seconds || '0');
-    const nanos = parseInt(timeOffset.nanos || '0');
+    const t = timeOffset as { seconds?: string | number; nanos?: number };
+    const seconds = parseInt(String(t.seconds || '0'));
+    const nanos = parseInt(String(t.nanos || '0'));
 
     return seconds + nanos / 1000000000;
   }
@@ -202,7 +203,9 @@ export class LabelDetectionExecutor {
   /**
    * Calculate average confidence from segments
    */
-  private calculateAverageConfidence(segments: any[]): number {
+  private calculateAverageConfidence(
+    segments: { confidence?: number | null }[]
+  ): number {
     if (!segments || segments.length === 0) return 0;
 
     const sum = segments.reduce((acc, seg) => acc + (seg.confidence || 0), 0);

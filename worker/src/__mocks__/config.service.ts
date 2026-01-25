@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { vi, type Mock } from 'vitest';
+import { vi } from 'vitest';
 
 /**
  * Creates a mock ConfigService with the provided configuration values.
@@ -17,11 +17,11 @@ import { vi, type Mock } from 'vitest';
  * ```
  */
 export function createMockConfigService(
-  config: Record<string, any> = {},
-  defaultValue?: any
+  config: Record<string, unknown> = {},
+  defaultValue?: unknown
 ): ConfigService {
   return {
-    get: vi.fn((key: string, fallback?: any) => {
+    get: vi.fn((key: string, fallback?: unknown) => {
       if (key in config) {
         return config[key];
       }

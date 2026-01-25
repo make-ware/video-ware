@@ -45,14 +45,14 @@ export class JobService {
     const labelsFlow = LabelsFlowBuilder.buildFlow(actualLabelsTask);
 
     const uploadStep = labelsFlow.children.find(
-      (c: any) => c.name === DetectLabelsStepType.UPLOAD_TO_GCS
+      (c) => c.name === DetectLabelsStepType.UPLOAD_TO_GCS
     );
 
     if (uploadStep) {
       if (!uploadStep.children) uploadStep.children = [];
-      uploadStep.children.push(transcodeFlow as any);
+      uploadStep.children.push(transcodeFlow as unknown as FlowDefinition);
     } else {
-      labelsFlow.children.push(transcodeFlow as any);
+      labelsFlow.children.push(transcodeFlow as unknown as FlowDefinition);
     }
 
     return this.flowService.addFlow(labelsFlow);
@@ -61,8 +61,8 @@ export class JobService {
   async submitCompositeJob(
     name: string,
     queueName: string,
-    data: any,
-    steps: any[]
+    data: Record<string, unknown>,
+    steps: unknown[]
   ): Promise<string> {
     this.logger.log(`Submitting composite job: ${name}`);
     return this.flowService.addFlow({
@@ -70,7 +70,7 @@ export class JobService {
       queueName,
       data,
       children: steps,
-    } as any);
+    } as unknown as FlowDefinition);
   }
 
   async submitFlow(flow: FlowDefinition): Promise<string> {

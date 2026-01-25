@@ -64,6 +64,11 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     const fileName = `${timelineName}_render.${format}`;
     let fileRecord;
 
+    const meta = {
+      ...probeOutput,
+      mimeType: this.getMimeType(format),
+    };
+
     try {
       fileRecord = await this.pocketbaseService.uploadFile({
         localFilePath: localPath,
@@ -73,9 +78,7 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
         storageKey: storagePath,
         workspaceRef: workspaceId,
         mimeType: this.getMimeType(format),
-        meta: {
-          ...probeOutput,
-        },
+        meta,
       });
     } catch (error) {
       const errorMessage =
@@ -106,10 +109,7 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
           fileSource: FileSource.S3,
           s3Key: storagePath,
           WorkspaceRef: workspaceId,
-          meta: {
-            mimeType: this.getMimeType(format),
-            ...probeOutput,
-          },
+          meta,
         });
       } catch (fallbackError) {
         const fallbackErrorMessage =
@@ -142,9 +142,24 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     };
   }
 
-  private mapProbeResult(probeResult: any): any {
+  private mapProbeResult(probeResult: {
+    streams: Array<{
+      codec_type: string;
+      width?: number;
+      height?: number;
+      codec_name?: string;
+      r_frame_rate?: string;
+      avg_frame_rate?: string;
+    }>;
+    format: {
+      duration?: string | number;
+      bit_rate?: string | number;
+      format_name?: string;
+      size?: string | number;
+    };
+  }): Record<string, unknown> {
     const videoStream = probeResult.streams.find(
-      (s: any) => s.codec_type === 'video'
+      (s) => s.codec_type === 'video'
     );
     const parseFps = (fpsString: string | undefined): number => {
       if (!fpsString) return 0;

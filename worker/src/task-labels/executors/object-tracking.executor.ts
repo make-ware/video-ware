@@ -96,7 +96,7 @@ export class ObjectTrackingExecutor {
 
       // Process object annotations
       const objects = (annotation.objectAnnotations || []).map((obj, index) => {
-        const rawTrackId = (obj as any).trackId;
+        const rawTrackId = (obj as unknown as { trackId?: string }).trackId;
         const trackId =
           rawTrackId !== undefined &&
           rawTrackId !== null &&
@@ -151,11 +151,12 @@ export class ObjectTrackingExecutor {
   /**
    * Parse Google Cloud time offset to seconds
    */
-  private parseTimeOffset(timeOffset: any): number {
+  private parseTimeOffset(timeOffset: unknown): number {
     if (!timeOffset) return 0;
 
-    const seconds = parseInt(timeOffset.seconds || '0');
-    const nanos = parseInt(timeOffset.nanos || '0');
+    const t = timeOffset as { seconds?: string | number; nanos?: number };
+    const seconds = parseInt(String(t.seconds || '0'));
+    const nanos = parseInt(String(t.nanos || '0'));
 
     return seconds + nanos / 1000000000;
   }

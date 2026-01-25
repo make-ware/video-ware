@@ -649,11 +649,6 @@ export class StorageService implements OnModuleInit {
     }
 
     // Fallback if called before initialization
-    const storageType = this.configService.get<string>(
-      'storage.type',
-      'local'
-    ) as StorageBackendType;
-
     const localPath = this.configService.get<string>(
       'storage.localPath',
       './data'

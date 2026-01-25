@@ -1,7 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TranscodeStepType } from '@project/shared';
-import type { ParentJobData, StepResult } from '../types/job.types';
-import { TaskType, TaskStatus } from '@project/shared';
+import type { StepResult } from '../types/job.types';
 import * as fc from 'fast-check';
 
 /**

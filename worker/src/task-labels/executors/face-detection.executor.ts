@@ -108,7 +108,8 @@ export class FaceDetectionExecutor {
         (face, index) => {
           // Extract track ID from the first track (faces typically have one track)
           const track = face.tracks?.[0];
-          const rawTrackId = (track as any)?.trackId;
+          const rawTrackId = (track as unknown as { trackId?: string })
+            ?.trackId;
           const trackId =
             rawTrackId !== undefined &&
             rawTrackId !== null &&
@@ -116,7 +117,7 @@ export class FaceDetectionExecutor {
               ? String(rawTrackId)
               : String(index);
 
-          const faceId = (face as any).faceId;
+          const faceId = (face as unknown as { faceId?: string }).faceId;
           const thumbnail = face.thumbnail
             ? (face.thumbnail as Buffer).toString('base64')
             : undefined;
@@ -205,11 +206,12 @@ export class FaceDetectionExecutor {
   /**
    * Parse Google Cloud time offset to seconds
    */
-  private parseTimeOffset(timeOffset: any): number {
+  private parseTimeOffset(timeOffset: unknown): number {
     if (!timeOffset) return 0;
 
-    const seconds = parseInt(timeOffset.seconds || '0');
-    const nanos = parseInt(timeOffset.nanos || '0');
+    const t = timeOffset as { seconds?: string | number; nanos?: number };
+    const seconds = parseInt(String(t.seconds || '0'));
+    const nanos = parseInt(String(t.nanos || '0'));
 
     return seconds + nanos / 1000000000;
   }

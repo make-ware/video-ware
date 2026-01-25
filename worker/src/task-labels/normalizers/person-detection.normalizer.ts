@@ -60,7 +60,7 @@ export class PersonDetectionNormalizer {
       workspaceRef,
       taskRef,
       version,
-      processor,
+      processor: _processor,
       processorVersion,
     } = input;
 
@@ -301,10 +301,12 @@ export class PersonDetectionNormalizer {
           );
 
           // Collect confidences for averaging
-          if (!landmarkConfidences.has(landmark.type)) {
-            landmarkConfidences.set(landmark.type, []);
+          let confidences = landmarkConfidences.get(landmark.type);
+          if (!confidences) {
+            confidences = [];
+            landmarkConfidences.set(landmark.type, confidences);
           }
-          landmarkConfidences.get(landmark.type)!.push(landmark.confidence);
+          confidences.push(landmark.confidence);
         }
       }
     }

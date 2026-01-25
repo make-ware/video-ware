@@ -46,7 +46,7 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
    */
   async process(
     input: UploadToGcsStepInput,
-    job: Job<StepJobData>
+    _job: Job<StepJobData>
   ): Promise<UploadToGcsStepOutput> {
     this.logger.log(`Uploading file to GCS for media ${input.mediaId}`);
 

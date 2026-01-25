@@ -77,7 +77,7 @@ export interface RenderChildJobDefinition {
     workspaceId: string;
     stepType: RenderStepType;
     parentJobId: string;
-    input: any;
+    input: unknown;
   };
   opts?: ChildJobOpts;
   children?: (ChildJobDependency | FlowDefinition)[];
@@ -102,7 +102,7 @@ export interface LabelsChildJobDefinition {
     workspaceId: string;
     stepType: DetectLabelsStepType | RecommendationStepType;
     parentJobId: string;
-    input: any;
+    input: unknown;
   };
   opts?: ChildJobOpts;
   children?: (ChildJobDependency | FlowDefinition)[];
@@ -127,7 +127,7 @@ export interface RecommendationsChildJobDefinition {
     workspaceId: string;
     stepType: RecommendationStepType;
     parentJobId: string;
-    input: any;
+    input: unknown;
   };
   opts?: ChildJobOpts;
   children?: (ChildJobDependency | FlowDefinition)[];

@@ -43,7 +43,7 @@ export class LabelDetectionNormalizer {
       workspaceRef,
       taskRef,
       version,
-      processor,
+      processor: _processor,
       processorVersion,
     } = input;
 

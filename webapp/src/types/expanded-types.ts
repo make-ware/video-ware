@@ -34,8 +34,10 @@ export interface ExpandedTimelineClip extends Omit<TimelineClip, 'expand'> {
 }
 
 // Expanded TimelineRecommendation
-export interface ExpandedTimelineRecommendation
-  extends Omit<TimelineRecommendation, 'expand'> {
+export interface ExpandedTimelineRecommendation extends Omit<
+  TimelineRecommendation,
+  'expand'
+> {
   expand?: {
     MediaClipRef?: ExpandedMediaClip;
     TimelineClipsRef?: ExpandedTimelineClip[];

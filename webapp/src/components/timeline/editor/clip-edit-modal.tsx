@@ -17,6 +17,7 @@ import { Trash2, Clock, Palette, Type } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
+import { ExpandedTimelineClip } from '@/types/expanded-types';
 
 interface ClipEditModalProps {
   clipId: string | null;
@@ -118,10 +119,11 @@ export function ClipEditModal({
     }
   };
 
+  const expandedClip = clip as ExpandedTimelineClip;
   const mediaName =
-    (clip as any).expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
+    expandedClip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
   const duration = end - start;
-  const media = (clip as any).expand?.MediaRef;
+  const media = expandedClip.expand?.MediaRef;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

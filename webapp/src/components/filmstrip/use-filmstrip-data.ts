@@ -18,12 +18,16 @@ export function useFilmstripData<
   const [filmstrips, setFilmstrips] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const mediaExpand = 'expand' in media ? media.expand : undefined;
+  const mediaId = media.id;
+  const mediaFilmstripFileRefs = media.filmstripFileRefs;
+
   useEffect(() => {
     async function fetchFilmstrips() {
       // Check if we already have expanded filmstrips
       const expanded =
-        'expand' in media && media.expand && 'filmstripFileRefs' in media.expand
-          ? (media.expand.filmstripFileRefs as File[] | undefined)
+        mediaExpand && 'filmstripFileRefs' in mediaExpand
+          ? (mediaExpand.filmstripFileRefs as File[] | undefined)
           : undefined;
       if (expanded && Array.isArray(expanded) && expanded.length > 0) {
         // Sort expanded files just in case
@@ -37,7 +41,7 @@ export function useFilmstripData<
       }
 
       // If no refs, nothing to fetch
-      if (!media.filmstripFileRefs || media.filmstripFileRefs.length === 0) {
+      if (!mediaFilmstripFileRefs || mediaFilmstripFileRefs.length === 0) {
         setFilmstrips([]);
         return;
       }
@@ -47,7 +51,7 @@ export function useFilmstripData<
         // Fetch files related to this media that are filmstrips
         // Using MediaRef is more reliable than constructing a massive OR filter for IDs
         const files = await pb.collection('Files').getFullList<File>({
-          filter: `MediaRef = "${media.id}" && fileType = "filmstrip"`,
+          filter: `MediaRef = "${mediaId}" && fileType = "filmstrip"`,
           sort: 'created',
         });
 
@@ -66,11 +70,7 @@ export function useFilmstripData<
     }
 
     fetchFilmstrips();
-  }, [
-    media.id,
-    media.filmstripFileRefs,
-    'expand' in media ? media.expand : undefined,
-  ]);
+  }, [mediaId, mediaFilmstripFileRefs, mediaExpand]);
 
   const getFilmstripForTime = (time: number) => {
     if (!filmstrips.length) return null;

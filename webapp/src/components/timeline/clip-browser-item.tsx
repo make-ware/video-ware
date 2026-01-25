@@ -1,43 +1,23 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { MediaClip, Media } from '@project/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Eye } from 'lucide-react';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
-
-/**
- * Extended MediaClip type with expanded relations
- */
-export interface MediaClipWithExpand extends Omit<MediaClip, 'expand'> {
-  expand?: {
-    MediaRef?: Media & {
-      expand?: {
-        UploadRef?: {
-          filename: string;
-          name?: string;
-        };
-        thumbnailFileRef?: {
-          id: string;
-          collectionId: string;
-          file: string;
-        };
-        spriteFileRef?: any;
-        filmstripFileRefs?: any[];
-      };
-    };
-  };
-}
+import {
+  ExpandedMediaClip,
+  ExpandedTimelineClip,
+} from '@/types/expanded-types';
 
 // Card dimensions
 export const CARD_WIDTH = 200;
 export const CARD_HEIGHT = 160;
 
 interface ClipBrowserItemProps {
-  clip: MediaClipWithExpand;
-  onAddToTimeline: (clip: MediaClipWithExpand) => void;
+  clip: ExpandedMediaClip;
+  onAddToTimeline: (clip: ExpandedMediaClip) => void;
 }
 
 export function ClipBrowserItem({
@@ -55,7 +35,7 @@ export function ClipBrowserItem({
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
-  const mediaName = upload?.filename || upload?.name || 'Unknown Media';
+  const mediaName = upload?.name || 'Unknown Media';
 
   const handleViewDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -63,17 +43,27 @@ export function ClipBrowserItem({
   };
 
   // Construct a pseudo-clip for the dialog
-  const detailsClip: any = {
-    id: clip.id,
-    start: clip.start,
-    end: clip.end,
-    order: 0,
-    meta: {},
-    expand: {
-      MediaRef: media,
-      MediaClipRef: clip,
-    },
-  };
+  const detailsClip: ExpandedTimelineClip | null = media
+    ? {
+        id: clip.id,
+        TimelineRef: 'preview',
+        MediaRef: media.id,
+        MediaClipRef: clip.id,
+        start: clip.start,
+        end: clip.end,
+        duration: clip.end - clip.start,
+        collectionId: '',
+        collectionName: '',
+        order: 0,
+        meta: {},
+        created: clip.created,
+        updated: clip.updated,
+        expand: {
+          MediaRef: media,
+          MediaClipRef: clip,
+        },
+      }
+    : null;
 
   return (
     <>
@@ -158,11 +148,13 @@ export function ClipBrowserItem({
           e.dataTransfer.effectAllowed = 'copy';
         }}
       />
-      <TimelineClipDetailsDialog
-        open={isDetailsOpen}
-        onOpenChange={setIsDetailsOpen}
-        clip={detailsClip}
-      />
+      {detailsClip && (
+        <TimelineClipDetailsDialog
+          open={isDetailsOpen}
+          onOpenChange={setIsDetailsOpen}
+          clip={detailsClip}
+        />
+      )}
     </>
   );
 }

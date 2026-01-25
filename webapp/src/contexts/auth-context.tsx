@@ -80,29 +80,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
     initAuth();
 
     // Listen for auth store changes
-    const unsubscribe = pb.authStore.onChange((token: string, record: any) => {
-      // Use functional state update to access current user without adding it to dependency array
-      setUser((currentUser: User | null) => {
-        const nextUser = record as User | null;
+    const unsubscribe = pb.authStore.onChange(
+      (token: string, record: unknown) => {
+        // Use functional state update to access current user without adding it to dependency array
+        setUser((currentUser: User | null) => {
+          const nextUser = record as User | null;
 
-        // If both are null, no change
-        if (!currentUser && !nextUser) return null;
+          // If both are null, no change
+          if (!currentUser && !nextUser) return null;
 
-        // If one is null and other is not, change
-        if (!currentUser || !nextUser) return nextUser;
+          // If one is null and other is not, change
+          if (!currentUser || !nextUser) return nextUser;
 
-        // If IDs are different, change
-        if (currentUser.id !== nextUser.id) return nextUser;
+          // If IDs are different, change
+          if (currentUser.id !== nextUser.id) return nextUser;
 
-        // If updated timestamp is different, change
-        // Note: PocketBase 'updated' is a string
-        if (currentUser.updated !== nextUser.updated) return nextUser;
+          // If updated timestamp is different, change
+          // Note: PocketBase 'updated' is a string
+          if (currentUser.updated !== nextUser.updated) return nextUser;
 
-        // Otherwise, return current user to prevent re-render
-        // This is crucial for stability: authRefresh returns a new object even if data is same
-        return currentUser;
-      });
-    });
+          // Otherwise, return current user to prevent re-render
+          // This is crucial for stability: authRefresh returns a new object even if data is same
+          return currentUser;
+        });
+      }
+    );
 
     return () => {
       unsubscribe();

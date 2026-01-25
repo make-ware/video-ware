@@ -1,5 +1,6 @@
-import { RecommendationStrategy, LabelType } from '@project/shared';
+import { RecommendationStrategy, LabelType, Media } from '@project/shared';
 import { BaseRecommendationStrategy } from './base-strategy';
+import { ExpandedTimelineClip } from '@/types/expanded-types';
 import type {
   MediaStrategyContext,
   ScoredMediaCandidate,
@@ -97,13 +98,16 @@ export class TemporalContinuityStrategy extends BaseRecommendationStrategy {
     const candidates: ScoredTimelineCandidate[] = [];
     if (!context.seedClip) return [];
 
-    const seed = context.seedClip;
+    const seed = context.seedClip as unknown as ExpandedTimelineClip;
     // Access expanded MediaRef.
     // Note: The type definition might not include 'expand', but the runtime object from mutator does.
-    const seedMedia = (seed as any).expand?.MediaRef || (seed as any).MediaRef;
+    const seedMedia = seed.expand?.MediaRef || seed.MediaRef;
 
-    const getAbsTime = (media: any, offsetSeconds: number): number | null => {
-      if (!media?.mediaDate) return null;
+    const getAbsTime = (
+      media: Media | string | null | undefined,
+      offsetSeconds: number
+    ): number | null => {
+      if (!media || typeof media !== 'object' || !media.mediaDate) return null;
       const base = new Date(media.mediaDate).getTime();
       if (isNaN(base)) return null;
       return base + offsetSeconds * 1000;
@@ -111,17 +115,18 @@ export class TemporalContinuityStrategy extends BaseRecommendationStrategy {
 
     const seedAbsEnd = getAbsTime(seedMedia, seed.end);
 
-    for (const clip of context.availableClips) {
-      if (clip.id === seed.id) continue;
+    for (const c of context.availableClips) {
+      if (c.id === seed.id) continue;
+      const clip = c as unknown as ExpandedTimelineClip;
 
-      const clipMedia =
-        (clip as any).expand?.MediaRef || (clip as any).MediaRef;
+      const clipMedia = clip.expand?.MediaRef || clip.MediaRef;
 
       let score = 0;
       let reason = '';
       let timeGap = 0;
 
       // Case 1: Same Media (Local Continuity)
+      // Note: Comparing MediaRef string IDs
       if (clip.MediaRef === seed.MediaRef) {
         const gap = clip.start - seed.end;
         // Allow slight overlap (-0.5s) or small gap (< 10s)

@@ -24,8 +24,13 @@ import {
   Check,
   Sparkles,
   Info,
+  Captions,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { TranscriptOverlay } from '@/components/media/transcript-overlay';
+import { TranscriptList } from '@/components/media/transcript-list';
+import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
+import { cn } from '@/lib/utils';
 import { MediaClip, MediaRecommendation } from '@project/shared';
 import { ClipType } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -46,9 +51,18 @@ function MediaDetailsPageContentWithRecommendations() {
     isLoading: isLoadingRecommendations,
     generateRecommendations,
   } = useMediaRecommendations();
+  const {
+    transcripts,
+    isLoading: isLoadingTranscripts,
+    createTranscript,
+    updateTranscript,
+    deleteTranscript,
+    refresh: refreshTranscripts,
+  } = useMediaTranscripts(id);
   const [isInlineCreateMode, setIsInlineCreateMode] = useState(false);
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('clips');
+  const [showTranscripts, setShowTranscripts] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Get clip ID from URL query parameter
@@ -370,7 +384,15 @@ function MediaDetailsPageContentWithRecommendations() {
                       autoPlay={false}
                       className="w-full h-full"
                       ref={videoRef}
-                    />
+                    >
+                      {(currentTime) => (
+                        <TranscriptOverlay
+                          transcripts={transcripts}
+                          currentTime={currentTime}
+                          isVisible={showTranscripts}
+                        />
+                      )}
+                    </MediaVideoPlayer>
                   </div>
 
                   {/* Create/Edit Clip Button */}
@@ -464,10 +486,10 @@ function MediaDetailsPageContentWithRecommendations() {
                     <Scissors className="h-4 w-4" />
                     Clips
                   </TabsTrigger>
-                  {/* <TabsTrigger value="labels" className="flex-1 gap-1.5">
-                    <Tag className="h-4 w-4" />
-                    Labels
-                  </TabsTrigger> */}
+                  <TabsTrigger value="transcripts" className="flex-1 gap-1.5">
+                    <Captions className="h-4 w-4" />
+                    Transcripts
+                  </TabsTrigger>
                   <TabsTrigger
                     value="recommendations"
                     className="flex-1 gap-1.5"
@@ -496,6 +518,37 @@ function MediaDetailsPageContentWithRecommendations() {
                     onClipUpdate={handleClipUpdate}
                     onClipDelete={handleClipDelete}
                     onInlineEdit={handleStartEditClip}
+                  />
+                </TabsContent>
+
+                <TabsContent
+                  value="transcripts"
+                  className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
+                >
+                  <div className="mb-3 flex items-center justify-between px-0">
+                    <span className="text-xs sm:text-sm font-normal text-muted-foreground">
+                      {transcripts.length} found
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'h-6 text-xs',
+                        showTranscripts && 'bg-muted'
+                      )}
+                      onClick={() => setShowTranscripts(!showTranscripts)}
+                    >
+                      {showTranscripts ? 'Hide Overlay' : 'Show Overlay'}
+                    </Button>
+                  </div>
+                  <TranscriptList
+                    transcripts={transcripts}
+                    mediaId={media.id}
+                    workspaceId={currentWorkspace?.id || ''}
+                    onSeek={handleJumpToTime}
+                    onCreate={createTranscript}
+                    onUpdate={updateTranscript}
+                    onDelete={deleteTranscript}
                   />
                 </TabsContent>
 

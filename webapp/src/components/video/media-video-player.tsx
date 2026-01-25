@@ -17,16 +17,22 @@ interface MediaVideoPlayerProps<
   clip?: MediaClip;
   autoPlay?: boolean;
   className?: string;
+  onTimeUpdate?: (time: number) => void;
+  children?: React.ReactNode | ((currentTime: number) => React.ReactNode);
 }
 
 export const MediaVideoPlayer = forwardRef<
   HTMLVideoElement,
   MediaVideoPlayerProps
->(({ media, clip, autoPlay = false, className }, ref) => {
-  const { src, poster, startTime, endTime, isLoading } = useVideoSource(
-    media,
-    clip
-  );
+>(
+  (
+    { media, clip, autoPlay = false, className, onTimeUpdate, children },
+    ref
+  ) => {
+    const { src, poster, startTime, endTime, isLoading } = useVideoSource(
+      media,
+      clip
+    );
 
   if (isLoading) {
     return (
@@ -57,7 +63,10 @@ export const MediaVideoPlayer = forwardRef<
       endTime={endTime}
       autoPlay={autoPlay}
       className={className}
-    />
+      onTimeUpdate={onTimeUpdate}
+    >
+      {children}
+    </VideoPlayerUI>
   );
 });
 

@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Pencil, Trash2, Plus, Play, Save, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface TranscriptListProps {
   transcripts: LabelSpeech[];
@@ -28,6 +29,18 @@ function formatTime(seconds: number): string {
   const s = Math.floor(seconds % 60);
   const ms = Math.floor((seconds % 1) * 10);
   return `${m}:${s.toString().padStart(2, '0')}.${ms}`;
+}
+
+function generateSpeechHash(text: string, start: number, end: number): string {
+  // Deterministic hash based on content and timestamp
+  const input = `${text}|${start}|${end}|${Date.now()}`;
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36);
 }
 
 export function TranscriptList({
@@ -67,6 +80,11 @@ export function TranscriptList({
       const start = parseFloat(newStart);
       const end = parseFloat(newEnd);
 
+      if (isNaN(start) || isNaN(end)) {
+        toast.error('Invalid time values');
+        return;
+      }
+
       await onCreate({
         WorkspaceRef: workspaceId,
         MediaRef: mediaId,
@@ -76,8 +94,7 @@ export function TranscriptList({
         duration: end - start,
         confidence: 1.0,
         words: [],
-        speechHash:
-          Math.random().toString(36).substring(7) + Date.now().toString(),
+        speechHash: generateSpeechHash(newText, start, end),
         languageCode: 'en-US',
       });
       setIsCreating(false);
@@ -101,6 +118,11 @@ export function TranscriptList({
       setIsSubmitting(true);
       const start = parseFloat(editStart);
       const end = parseFloat(editEnd);
+
+      if (isNaN(start) || isNaN(end)) {
+        toast.error('Invalid time values');
+        return;
+      }
 
       await onUpdate(id, {
         transcript: editText,

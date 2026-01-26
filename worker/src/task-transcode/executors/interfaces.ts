@@ -61,6 +61,12 @@ export interface TranscodeConfig {
   bitrate?: number;
   sourceWidth: number;
   sourceHeight: number;
+  /** Display width after rotation (for aspect ratio calculation) */
+  sourceDisplayWidth?: number;
+  /** Display height after rotation (for aspect ratio calculation) */
+  sourceDisplayHeight?: number;
+  /** Rotation in degrees (0, 90, 180, 270) */
+  rotation?: number;
 }
 
 /**

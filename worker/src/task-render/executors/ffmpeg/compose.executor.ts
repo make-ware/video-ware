@@ -83,6 +83,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         duration: parseFloat(String(probeResult.format.duration)) || 0,
         width: videoStream.width || 0,
         height: videoStream.height || 0,
+        displayWidth: videoStream.width || 0,
+        displayHeight: videoStream.height || 0,
+        rotation: 0, // Rendered output has no rotation
         codec: videoStream.codec_name || 'unknown',
         fps:
           parseFps(videoStream.r_frame_rate || videoStream.avg_frame_rate) || 0,

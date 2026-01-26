@@ -33,6 +33,10 @@ export interface ProbeResult {
     level?: number;
     color_space?: string;
     tags?: Record<string, string>;
+    side_data_list?: Array<{
+      side_data_type: string;
+      rotation?: number;
+    }>;
   }>;
 }
 

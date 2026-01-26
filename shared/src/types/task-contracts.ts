@@ -112,10 +112,16 @@ export interface AudioConfig {
 export interface ProbeOutput {
   /** Duration in seconds */
   duration: number;
-  /** Video width in pixels */
+  /** Video width in pixels (raw encoded dimensions) */
   width: number;
-  /** Video height in pixels */
+  /** Video height in pixels (raw encoded dimensions) */
   height: number;
+  /** Display width after applying rotation */
+  displayWidth: number;
+  /** Display height after applying rotation */
+  displayHeight: number;
+  /** Rotation in degrees (0, 90, 180, 270) */
+  rotation: number;
   /** Video codec (e.g., 'h264', 'vp9') */
   codec: string;
   /** Frames per second */
@@ -138,6 +144,8 @@ export interface ProbeOutput {
     pixFmt?: string;
     level?: string;
     colorSpace?: string;
+    /** Rotation in degrees from metadata */
+    rotation?: number;
   };
   /** Audio stream details (if present) */
   audio?: {

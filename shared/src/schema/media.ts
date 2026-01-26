@@ -27,6 +27,7 @@ export const MediaSchema = z
     duration: NumberField(), // seconds as float
     width: NumberField(), // video width in pixels
     height: NumberField(), // video height in pixels
+    rotation: NumberField().optional().default(0), // rotation in degrees (0, 90, 180, 270)
     aspectRatio: NumberField(), // calculated aspect ratio (width/height)
     mediaData: JSONField(MediaMetadataSchema), // full probe output
     thumbnailFileRef: RelationField({ collection: 'Files' }).optional(),

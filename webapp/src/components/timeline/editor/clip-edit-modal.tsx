@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,8 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ExpandedTimelineClip } from '@/types/expanded-types';
+import { SegmentEditor, type Segment } from '../segment-editor';
+import { TimeInput } from '../time-input';
 
 interface ClipEditModalProps {
   clipId: string | null;
@@ -58,6 +60,17 @@ export function ClipEditModal({
   const [end, setEnd] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
+  const [segments, setSegments] = useState<Segment[]>([]);
+
+  // Detect if this is a composite clip
+  const expandedClip = clip as ExpandedTimelineClip;
+  const mediaClip = expandedClip?.expand?.MediaClipRef;
+  const isComposite = useMemo(() => {
+    const clipData = mediaClip?.clipData as
+      | { segments?: Segment[] }
+      | undefined;
+    return mediaClip?.type === 'composite' && !!clipData?.segments?.length;
+  }, [mediaClip]);
 
   // Reset state when clip changes
   useEffect(() => {
@@ -75,17 +88,36 @@ export function ClipEditModal({
       setStart(clip.start);
       setEnd(clip.end);
       setPreviewTime(null);
+
+      // Initialize segments for composite clips
+      const clipData = mediaClip?.clipData as
+        | { segments?: Segment[] }
+        | undefined;
+      if (isComposite && clipData?.segments) {
+        setSegments(clipData.segments);
+      } else {
+        setSegments([]);
+      }
     }
-  }, [clip]);
+  }, [clip, mediaClip, isComposite]);
 
   if (!clip) return null;
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Update start/end based on segments if composite
+      let finalStart = start;
+      let finalEnd = end;
+      if (isComposite && segments.length > 0) {
+        const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
+        finalStart = sortedSegs[0].start;
+        finalEnd = sortedSegs[sortedSegs.length - 1].end;
+      }
+
       await updateClip(clip.id, {
-        start,
-        end,
+        start: finalStart,
+        end: finalEnd,
         meta: {
           ...(typeof clip.meta === 'object' && clip.meta !== null
             ? clip.meta
@@ -94,6 +126,11 @@ export function ClipEditModal({
           color,
         },
       });
+
+      // TODO: If composite, also update MediaClip.clipData.segments
+      // This would require a separate API call to update the MediaClip
+      // For now, we only update the TimelineClip metadata
+
       toast.success('Clip updated');
       onOpenChange(false);
     } catch (error) {
@@ -119,10 +156,12 @@ export function ClipEditModal({
     }
   };
 
-  const expandedClip = clip as ExpandedTimelineClip;
   const mediaName =
     expandedClip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
-  const duration = end - start;
+  const duration =
+    isComposite && segments.length > 0
+      ? segments.reduce((sum, seg) => sum + (seg.end - seg.start), 0)
+      : end - start;
   const media = expandedClip.expand?.MediaRef;
 
   return (
@@ -195,77 +234,84 @@ export function ClipEditModal({
             </div>
           </div>
 
-          {/* Timing Section */}
-          <div className="grid gap-4">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                Clip Timing
-              </Label>
-              <div className="text-xs font-mono font-bold text-primary">
-                {duration.toFixed(2)}s
-              </div>
-            </div>
-
-            {/* Slider */}
-            <div className="px-2 pt-2 pb-6">
-              <Slider
-                value={[start, end]}
-                max={media?.duration || 100}
-                step={0.1}
-                minStepsBetweenThumbs={0.5}
-                onValueChange={([newStart, newEnd]) => {
-                  if (newStart !== start) {
-                    setPreviewTime(newStart);
-                  } else if (newEnd !== end) {
-                    setPreviewTime(newEnd);
-                  }
-                  setStart(newStart);
-                  setEnd(newEnd);
-                }}
-                onValueCommit={() => setPreviewTime(null)}
+          {/* Segment Editor for Composite Clips */}
+          {isComposite && (
+            <div className="border rounded-lg p-4 bg-muted/30">
+              <SegmentEditor
+                segments={segments}
+                mediaDuration={media?.duration || 100}
+                onChange={setSegments}
               />
             </div>
+          )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-1.5">
-                <Label
-                  htmlFor="start"
-                  className="text-xs text-muted-foreground font-normal"
-                >
-                  Start (s)
+          {/* Timing Section - Only show for non-composite clips */}
+          {!isComposite && (
+            <div className="grid gap-4">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Clip Timing
                 </Label>
-                <Input
-                  id="start"
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  max={end}
-                  value={start}
-                  onChange={(e) => setStart(parseFloat(e.target.value))}
-                  className="h-8 font-mono"
+                <div className="text-xs font-mono font-bold text-primary">
+                  {duration.toFixed(2)}s
+                </div>
+              </div>
+
+              {/* Slider */}
+              <div className="px-2 pt-2 pb-6">
+                <Slider
+                  value={[start, end]}
+                  max={media?.duration || 100}
+                  step={0.1}
+                  minStepsBetweenThumbs={0.5}
+                  onValueChange={([newStart, newEnd]) => {
+                    if (newStart !== start) {
+                      setPreviewTime(newStart);
+                    } else if (newEnd !== end) {
+                      setPreviewTime(newEnd);
+                    }
+                    setStart(newStart);
+                    setEnd(newEnd);
+                  }}
+                  onValueCommit={() => setPreviewTime(null)}
                 />
               </div>
-              <div className="grid gap-1.5">
-                <Label
-                  htmlFor="end"
-                  className="text-xs text-muted-foreground font-normal"
-                >
-                  End (s)
-                </Label>
-                <Input
-                  id="end"
-                  type="number"
-                  step="0.1"
-                  min={start}
-                  max={media?.duration}
-                  value={end}
-                  onChange={(e) => setEnd(parseFloat(e.target.value))}
-                  className="h-8 font-mono"
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <Label
+                    htmlFor="start"
+                    className="text-xs text-muted-foreground font-normal"
+                  >
+                    Start (s)
+                  </Label>
+                  <TimeInput
+                    id="start"
+                    min={0}
+                    max={end}
+                    value={start}
+                    onChange={setStart}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label
+                    htmlFor="end"
+                    className="text-xs text-muted-foreground font-normal"
+                  >
+                    End (s)
+                  </Label>
+                  <TimeInput
+                    id="end"
+                    min={start}
+                    max={media?.duration}
+                    value={end}
+                    onChange={setEnd}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         <DialogFooter className="flex justify-between sm:justify-between items-center mt-2">

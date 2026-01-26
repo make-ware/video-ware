@@ -6,7 +6,13 @@
 
 import type { TimelineTrack, TimelineSegment } from '../types/task-contracts';
 import type { TimelineClip } from '../schema/timeline-clip';
-
+import type { MediaClip } from '../schema/media-clip';
+import {
+  isMediaClipComposite,
+  getCompositeSegments,
+  expandCompositeToSegments,
+  calculateEffectiveDuration,
+} from './composite-utils';
 /**
  * Validation result for validation
  */
@@ -29,6 +35,106 @@ export interface ValidationError {
 }
 
 /**
+ * Extended TimelineClip type with expanded MediaClipRef
+ * Used when the mutator expands the MediaClipRef relation
+ */
+export type TimelineClipWithExpand = TimelineClip & {
+  expand?: Record<string, unknown> & {
+    MediaClipRef?: MediaClip;
+  };
+};
+
+import type { TimelineTrackRecord } from '../schema/timeline-track';
+
+/**
+ * Result of generating segments from a single clip
+ */
+interface ClipSegmentResult {
+  segments: TimelineSegment[];
+  totalDuration: number;
+}
+
+/**
+ * Generate timeline segments from a single clip
+ *
+ * Handles both regular clips and composite clips (with segments in clipData).
+ * For composite clips, this expands them into multiple segments.
+ *
+ * @param clip - The timeline clip to process
+ * @param startTime - Where on the timeline this clip starts
+ * @param trackSettings - Optional video/audio settings from the track
+ * @returns Array of generated segments and total duration
+ */
+function generateSegmentsFromClip(
+  clip: TimelineClip,
+  startTime: number,
+  trackSettings?: { opacity?: number; isMuted?: boolean; volume?: number }
+): ClipSegmentResult {
+  const clipWithExpand = clip as TimelineClipWithExpand;
+  const mediaClip = clipWithExpand.expand?.MediaClipRef;
+
+  // Check if this is a composite clip
+  if (isMediaClipComposite(mediaClip)) {
+    const compositeSegments = getCompositeSegments(mediaClip);
+    if (compositeSegments && compositeSegments.length > 0) {
+      // Calculate effective duration from segments
+      const usageSourceStart = 0;
+      const usageDuration = calculateEffectiveDuration(
+        clip.start,
+        clip.end,
+        compositeSegments
+      );
+
+      const expanded = expandCompositeToSegments(
+        compositeSegments,
+        usageSourceStart,
+        usageDuration,
+        startTime
+      );
+
+      const segments: TimelineSegment[] = expanded.map((expSeg, i) => ({
+        id: `${clip.id}_${i}`,
+        assetId: mediaClip!.MediaRef,
+        type: 'video' as const,
+        time: {
+          start: expSeg.timelineStart,
+          duration: expSeg.duration,
+          sourceStart: expSeg.sourceStart,
+        },
+        video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
+        audio: trackSettings
+          ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
+          : undefined,
+      }));
+
+      return { segments, totalDuration: usageDuration };
+    }
+  }
+
+  // Standard clip (non-composite)
+  const duration = clip.end - clip.start;
+
+  const segments: TimelineSegment[] = [
+    {
+      id: clip.id,
+      assetId: clip.MediaRef,
+      type: 'video',
+      time: {
+        start: startTime,
+        duration: duration,
+        sourceStart: clip.start,
+      },
+      video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
+      audio: trackSettings
+        ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
+        : undefined,
+    },
+  ];
+
+  return { segments, totalDuration: duration };
+}
+
+/**
  * Generate Tracks from timeline clips
  *
  * Converts TimelineClip records into a multi-track structure suitable for rendering.
@@ -38,7 +144,6 @@ export interface ValidationError {
  * @param timelineClips - Array of TimelineClip records (should be sorted by order)
  * @returns Array of TimelineTrack objects
  */
-import type { TimelineTrackRecord } from '../schema/timeline-track';
 
 /**
  * Generate Tracks from timeline clips and track definitions
@@ -90,35 +195,26 @@ export function generateTracks(
 
     for (const clip of trackClips) {
       // Determine start time: use timelineStart if available, otherwise append sequentially
-      // For now, if timelineStart is missing but previous clips had it, we might have gaps or overlaps.
-      // Logic: If timelineStart is set, use it. Else use currentAccumulatedTime.
-
-      const startTime =
+      let startTime =
         typeof clip.timelineStart === 'number'
           ? clip.timelineStart
           : currentTimelineTime;
 
-      const duration = clip.end - clip.start;
+      // Force sequential placement on Layer 0 (Primary Storyline) to prevent overlaps
+      // caused by incorrect timelineStart values (e.g., 0)
+      if (trackEntity.layer === 0 && startTime < currentTimelineTime) {
+        startTime = currentTimelineTime;
+      }
 
-      segments.push({
-        id: clip.id,
-        assetId: clip.MediaRef,
-        type: 'video', // Assumes video for now, can be refined based on Media type
-        time: {
-          start: startTime,
-          duration: duration,
-          sourceStart: clip.start,
-        },
-        video: {
-          opacity: trackEntity.opacity, // Apply track settings
-        },
-        audio: {
-          volume: trackEntity.isMuted ? 0 : trackEntity.volume,
-        },
+      // Generate segments (handles both regular and composite clips)
+      const result = generateSegmentsFromClip(clip, startTime, {
+        opacity: trackEntity.opacity,
+        isMuted: trackEntity.isMuted,
+        volume: trackEntity.volume,
       });
 
-      // Update accumulator (assuming sequential relative to this clip)
-      currentTimelineTime = startTime + duration;
+      segments.push(...result.segments);
+      currentTimelineTime = startTime + result.totalDuration;
     }
 
     tracks.push({
@@ -152,23 +248,20 @@ export function generateTracks(
       let currentTimelineTime = 0;
 
       for (const clip of clipsWithoutTrack) {
-        const startTime =
+        let startTime =
           typeof clip.timelineStart === 'number'
             ? clip.timelineStart
             : currentTimelineTime;
-        const duration = clip.end - clip.start;
 
-        segments.push({
-          id: clip.id,
-          assetId: clip.MediaRef,
-          type: 'video',
-          time: {
-            start: startTime,
-            duration: duration,
-            sourceStart: clip.start,
-          },
-        });
-        currentTimelineTime = startTime + duration;
+        // Force sequential placement for orphan clips
+        if (startTime < currentTimelineTime) {
+          startTime = currentTimelineTime;
+        }
+
+        // Generate segments (handles both regular and composite clips)
+        const result = generateSegmentsFromClip(clip, startTime);
+        segments.push(...result.segments);
+        currentTimelineTime = startTime + result.totalDuration;
       }
 
       // If no tracks exist at all (legacy timeline), this is the main track.
@@ -216,18 +309,20 @@ export function generateTracks(
       const segments: TimelineSegment[] = [];
       let currentTimelineTime = 0;
       for (const clip of clipsWithoutTrack) {
-        const startTime =
+        let startTime =
           typeof clip.timelineStart === 'number'
             ? clip.timelineStart
             : currentTimelineTime;
-        const duration = clip.end - clip.start;
-        segments.push({
-          id: clip.id,
-          assetId: clip.MediaRef,
-          type: 'video',
-          time: { start: startTime, duration, sourceStart: clip.start },
-        });
-        currentTimelineTime = startTime + duration;
+
+        // Force sequential placement for default track
+        if (startTime < currentTimelineTime) {
+          startTime = currentTimelineTime;
+        }
+
+        // Generate segments (handles both regular and composite clips)
+        const result = generateSegmentsFromClip(clip, startTime);
+        segments.push(...result.segments);
+        currentTimelineTime = startTime + result.totalDuration;
       }
 
       tracks.push({

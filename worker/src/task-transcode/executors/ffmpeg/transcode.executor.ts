@@ -54,15 +54,21 @@ export class FFmpegTranscodeExecutor implements ITranscodeExecutor {
       '1080p': { width: 1920, height: 1080 },
     };
 
+    // Use display dimensions (rotation-adjusted) for aspect ratio calculation
+    // Fall back to source dimensions if display dimensions not provided
+    const displayWidth = config.sourceDisplayWidth ?? config.sourceWidth;
+    const displayHeight = config.sourceDisplayHeight ?? config.sourceHeight;
+
     if (config.resolution === 'original') {
-      return { width: config.sourceWidth, height: config.sourceHeight };
+      // For original resolution, return display dimensions (post-rotation)
+      return { width: displayWidth, height: displayHeight };
     }
 
     // Get target resolution
     const targetRes = resolutions[config.resolution] || resolutions['720p'];
 
-    // Calculate source aspect ratio
-    const sourceAspectRatio = config.sourceWidth / config.sourceHeight;
+    // Calculate source aspect ratio using display dimensions
+    const sourceAspectRatio = displayWidth / displayHeight;
 
     // Maintain aspect ratio by adjusting dimensions
     // Scale to fit within target resolution while preserving aspect ratio
@@ -78,6 +84,10 @@ export class FFmpegTranscodeExecutor implements ITranscodeExecutor {
     // Ensure dimensions are even (required by most video codecs)
     width = Math.round(width / 2) * 2;
     height = Math.round(height / 2) * 2;
+
+    this.logger.debug(
+      `Resolved resolution: ${displayWidth}x${displayHeight} (rotation: ${config.rotation ?? 0}°) -> ${width}x${height}`
+    );
 
     return { width, height };
   }

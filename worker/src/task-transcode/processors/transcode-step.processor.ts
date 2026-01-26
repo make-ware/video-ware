@@ -72,6 +72,9 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       bitrate: input.config.bitrate,
       sourceWidth: probeOutput.width,
       sourceHeight: probeOutput.height,
+      sourceDisplayWidth: probeOutput.displayWidth,
+      sourceDisplayHeight: probeOutput.displayHeight,
+      rotation: probeOutput.rotation,
     };
 
     // Generate output path using FileResolver

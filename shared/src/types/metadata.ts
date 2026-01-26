@@ -52,6 +52,9 @@ export const MediaMetadataSchema = z.object({
   format: z.string(),
   fps: z.number(),
   height: z.number(),
+  displayWidth: z.number().optional(),
+  displayHeight: z.number().optional(),
+  rotation: z.number().optional(),
   mediaDate: z.string(),
   size: z.number(),
   video: z.object({
@@ -62,17 +65,18 @@ export const MediaMetadataSchema = z.object({
     pixFmt: z.string(),
     profile: z.string(),
     width: z.number(),
+    rotation: z.number().optional(),
   }),
   width: z.number(),
 });
 
 export const MediaClipMetadataSchema = z.object({
-  labelType: z.string(),
-  rank: z.number(),
-  score: z.number(),
-  sourceId: z.string(),
-  sourceType: z.string(),
-  strategy: z.string(),
+  labelType: z.string().optional(),
+  rank: z.number().optional(),
+  score: z.number().optional(),
+  sourceId: z.string().optional(),
+  sourceType: z.string().optional(),
+  strategy: z.string().optional(),
   segments: z
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),

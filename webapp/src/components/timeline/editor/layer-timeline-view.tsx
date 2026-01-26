@@ -11,7 +11,8 @@ import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { TimelineClip } from '@project/shared';
+import type { TimelineClip, MediaClip } from '@project/shared';
+import { CompositeClipOverlay } from './composite-clip-overlay';
 
 const PIXELS_PER_SECOND = 20;
 const MIN_CLIP_DURATION = 0.5;
@@ -274,6 +275,32 @@ export function LayerTimelineView() {
               </div>
             </>
           )}
+
+          {/* Composite Clip Overlay - show segment visualization */}
+          {(() => {
+            const mediaClip = (
+              clip as TimelineClip & { expand?: { MediaClipRef?: MediaClip } }
+            ).expand?.MediaClipRef;
+            const clipData = mediaClip?.clipData as
+              | { segments?: Array<{ start: number; end: number }> }
+              | undefined;
+            const segments = clipData?.segments;
+            if (
+              mediaClip?.type === 'composite' &&
+              segments &&
+              segments.length > 0
+            ) {
+              return (
+                <CompositeClipOverlay
+                  segments={segments}
+                  clipStart={clip.start}
+                  clipEnd={clip.end}
+                  showBadge={true}
+                />
+              );
+            }
+            return null;
+          })()}
         </div>
       );
     });

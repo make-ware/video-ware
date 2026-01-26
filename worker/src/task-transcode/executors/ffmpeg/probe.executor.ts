@@ -74,10 +74,22 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
       throw new Error('No video stream found in input file');
     }
 
+    const width = videoStream.width || 0;
+    const height = videoStream.height || 0;
+    const rotation = this.extractRotation(videoStream);
+    const { displayWidth, displayHeight } = this.getDisplayDimensions(
+      width,
+      height,
+      rotation
+    );
+
     const probeOutput: ProbeOutput = {
       duration: parseFloat(String(result.format.duration || 0)),
-      width: videoStream.width || 0,
-      height: videoStream.height || 0,
+      width,
+      height,
+      displayWidth,
+      displayHeight,
+      rotation,
       codec: videoStream.codec_name || 'unknown',
       fps: this.parseFps(
         videoStream.r_frame_rate || videoStream.avg_frame_rate
@@ -92,12 +104,13 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
       video: {
         codec: videoStream.codec_name || 'unknown',
         profile: videoStream.profile || undefined,
-        width: videoStream.width || 0,
-        height: videoStream.height || 0,
+        width,
+        height,
         aspectRatio: videoStream.display_aspect_ratio || undefined,
         pixFmt: videoStream.pix_fmt || undefined,
         level: videoStream.level?.toString() || undefined,
         colorSpace: videoStream.color_space || undefined,
+        rotation,
       },
     };
 
@@ -119,6 +132,48 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
     }
 
     return probeOutput;
+  }
+
+  /**
+   * Extract rotation from video stream metadata.
+   * Looks for rotation in side_data_list (Display Matrix) or stream tags.
+   */
+  private extractRotation(
+    videoStream: FFmpegProbeResult['streams'][0]
+  ): number {
+    // Check side_data_list first (more reliable, contains Display Matrix)
+    if (videoStream.side_data_list) {
+      const displayMatrix = videoStream.side_data_list.find(
+        (sd) => sd.side_data_type === 'Display Matrix'
+      );
+      if (displayMatrix?.rotation !== undefined) {
+        // FFprobe returns negative rotation (e.g., -90 for 90° CW)
+        return Math.abs(displayMatrix.rotation);
+      }
+    }
+
+    // Fall back to rotation tag (older method, still used by some containers)
+    if (videoStream.tags?.rotate) {
+      return parseInt(videoStream.tags.rotate, 10);
+    }
+
+    return 0;
+  }
+
+  /**
+   * Calculate display dimensions after applying rotation.
+   * For 90° or 270° rotation, width and height are swapped.
+   */
+  private getDisplayDimensions(
+    width: number,
+    height: number,
+    rotation: number
+  ): { displayWidth: number; displayHeight: number } {
+    // For 90° or 270°, swap width and height
+    if (rotation === 90 || rotation === 270) {
+      return { displayWidth: height, displayHeight: width };
+    }
+    return { displayWidth: width, displayHeight: height };
   }
 
   private parseFps(fpsString?: string): number {

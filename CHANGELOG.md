@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.4...video-ware-v0.2.0) (2026-01-26)
+
+
+### Features
+
+* Add media transcript management and overlay ([33f2119](https://github.com/make-ware/video-ware/commit/33f2119101814f28eb32bc8b6ee748b7d2241565))
+* Refactor FFmpeg service to fix memory leak ([e91c0e8](https://github.com/make-ware/video-ware/commit/e91c0e82befdeaca6eefcad10a87c0133e098505))
+* **webapp:** add dark mode support ([8f92b5d](https://github.com/make-ware/video-ware/commit/8f92b5d3575b22d4fb1dc59864bb1c7d23e57fc3))
+* **webapp:** add dark mode support\n\n- Add `next-themes` provider to `RootLayout`\n- Create `ModeToggle` component\n- Add toggle to `NavigationBar` desktop and mobile views\n- Ensure `yarn precommit` passes ([04233da](https://github.com/make-ware/video-ware/commit/04233da9e5e1e4e1e454fbfc4f64f8bced5ca404))
+
+
+### Bug Fixes
+
+* add timeline tracks ([7d98c3c](https://github.com/make-ware/video-ware/commit/7d98c3cff2c2eb7feee1cad87d89d99d408ec886))
+* Add Timeline Tracks ([a8b4400](https://github.com/make-ware/video-ware/commit/a8b44004d87ba7ac636be6e6681fb94d0faa0dda))
+* resolve eslint warnings and type issues in worker workspace ([ec9df9d](https://github.com/make-ware/video-ware/commit/ec9df9de838fc41718620f27587561ffe1cbe02d))
+* resolve eslint warnings and type issues in worker workspace ([4cf30ba](https://github.com/make-ware/video-ware/commit/4cf30ba30e8d9c3b8c18357cc0291d96fa86c1ba))
+
+
+### Performance Improvements
+
+* use structuredClone for timeline deep cloning ([9038e1f](https://github.com/make-ware/video-ware/commit/9038e1fbef4e6250afc6a66748fc5e664df80206))
+
 ## [0.1.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.3...video-ware-v0.1.4) (2026-01-23)
 
 

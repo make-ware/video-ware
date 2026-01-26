@@ -2,6 +2,7 @@ import type { TypedPocketBase } from '@project/shared/types';
 import {
   TimelineMutator,
   TimelineClipMutator,
+  TimelineTrackMutator,
   MediaClipMutator,
   MediaMutator,
   TaskMutator,
@@ -12,15 +13,16 @@ import type {
   TimelineClip,
   TimelineClipInput,
   Task,
+  ValidationResult,
+  ValidationError,
+  TimelineTrack,
+  RenderFlowConfig,
+  TimelineTrackRecord,
 } from '@project/shared';
 import {
   generateTracks,
   validateTimeRange,
   calculateDuration as calcDuration,
-  type ValidationResult,
-  type ValidationError,
-  type TimelineTrack,
-  type RenderFlowConfig,
 } from '@project/shared';
 
 /**
@@ -28,6 +30,7 @@ import {
  */
 export interface TimelineWithClips extends Timeline {
   clips: TimelineClip[];
+  tracks: TimelineTrackRecord[];
 }
 
 /**
@@ -44,6 +47,7 @@ export class TimelineService {
   private pb: TypedPocketBase;
   private timelineMutator: TimelineMutator;
   private timelineClipMutator: TimelineClipMutator;
+  private timelineTrackMutator: TimelineTrackMutator;
   private mediaClipMutator: MediaClipMutator;
   private mediaMutator: MediaMutator;
   private taskMutator: TaskMutator;
@@ -52,6 +56,7 @@ export class TimelineService {
     this.pb = pb;
     this.timelineMutator = new TimelineMutator(pb);
     this.timelineClipMutator = new TimelineClipMutator(pb);
+    this.timelineTrackMutator = new TimelineTrackMutator(pb);
     this.mediaClipMutator = new MediaClipMutator(pb);
     this.mediaMutator = new MediaMutator(pb);
     this.taskMutator = new TaskMutator(pb);
@@ -74,7 +79,16 @@ export class TimelineService {
       duration: 0,
       version: 1,
     };
-    return this.timelineMutator.create(input);
+    const timeline = await this.timelineMutator.create(input);
+
+    // Create default track
+    await this.timelineTrackMutator.create({
+      TimelineRef: timeline.id,
+      name: 'Main Track',
+      layer: 0,
+    });
+
+    return timeline;
   }
 
   /**
@@ -89,10 +103,12 @@ export class TimelineService {
     }
 
     const clips = await this.timelineClipMutator.getByTimeline(id);
+    const tracks = await this.timelineTrackMutator.getByTimeline(id);
 
     return {
       ...timeline,
       clips,
+      tracks: tracks.items,
     };
   }
 
@@ -154,12 +170,34 @@ export class TimelineService {
     mediaId: string,
     start: number,
     end: number,
-    mediaClipId?: string
+    mediaClipId?: string,
+    trackId?: string
   ): Promise<TimelineClip> {
     // Get the media to validate time range
     const media = await this.mediaMutator.getById(mediaId);
     if (!media) {
       throw new Error(`Media not found: ${mediaId}`);
+    }
+
+    // Determine track
+    let targetTrackId = trackId;
+    if (!targetTrackId) {
+      // Find default track (layer 0)
+      const tracks = await this.timelineTrackMutator.getByTimeline(timelineId);
+      const defaultTrack =
+        tracks.items.find((t) => t.layer === 0) || tracks.items[0];
+
+      if (defaultTrack) {
+        targetTrackId = defaultTrack.id;
+      } else {
+        // Create default track if none exists (legacy support)
+        const newTrack = await this.timelineTrackMutator.create({
+          TimelineRef: timelineId,
+          name: 'Main Track',
+          layer: 0,
+        });
+        targetTrackId = newTrack.id;
+      }
     }
 
     // Validate time range
@@ -176,13 +214,14 @@ export class TimelineService {
     // Create the timeline clip
     const input: TimelineClipInput = {
       TimelineRef: timelineId,
+      TimelineTrackRef: targetTrackId, // REQUIRED link to track
       MediaRef: mediaId,
       MediaClipRef: mediaClipId,
       order,
       start,
       end,
       duration: 1,
-    };
+    } as any;
 
     return this.timelineClipMutator.create(input);
   }
@@ -275,9 +314,12 @@ export class TimelineService {
   async saveTimeline(timelineId: string): Promise<Timeline> {
     // Get timeline clips
     const clips = await this.timelineClipMutator.getByTimeline(timelineId);
+    // Get tracks
+    const tracksList =
+      await this.timelineTrackMutator.getByTimeline(timelineId);
 
     // Generate tracks
-    const tracks = generateTracks(clips);
+    const tracks = generateTracks(clips, tracksList.items);
 
     // Calculate duration
     const duration = clips.reduce(
@@ -316,7 +358,8 @@ export class TimelineService {
    */
   async generateTracks(timelineId: string): Promise<TimelineTrack[]> {
     const clips = await this.timelineClipMutator.getByTimeline(timelineId);
-    return generateTracks(clips);
+    const tracks = await this.timelineTrackMutator.getByTimeline(timelineId);
+    return generateTracks(clips, tracks.items);
   }
 
   // ============================================================================
@@ -448,7 +491,7 @@ export class TimelineService {
       throw new Error(`Timeline not found: ${timelineId}`);
     }
 
-    // Generate tracks
+    // Generate tracks (implicit track generation handled inside helper)
     const tracks = await this.generateTracks(timelineId);
 
     // Get current user ID - use provided userId or fall back to authStore

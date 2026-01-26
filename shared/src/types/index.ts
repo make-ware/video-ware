@@ -25,6 +25,7 @@ import { LabelSegment } from '../schema/label-segment';
 import { LabelShot } from '../schema/label-shot';
 import { LabelObject } from '../schema/label-objects';
 import { UsageEvent } from '../schema/usage-events';
+import { TimelineTrack } from './task-contracts.js';
 
 export * from './video-ware.js';
 export * from './task-contracts.js';
@@ -63,6 +64,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'WorkspaceMembers'): RecordService<WorkspaceMember>;
   collection(idOrName: 'Workspaces'): RecordService<Workspace>;
   collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;
+  collection(idOrName: 'TimelineTracks'): RecordService<TimelineTrack>;
 }
 
 // PocketBase response types

@@ -44,7 +44,8 @@ interface TimelineContextType {
     mediaId: string,
     start: number,
     end: number,
-    mediaClipId?: string
+    mediaClipId?: string,
+    trackId?: string
   ) => Promise<void>;
   removeClip: (clipId: string) => Promise<void>;
   reorderClips: (clipOrders: { id: string; order: number }[]) => Promise<void>;
@@ -222,7 +223,8 @@ export function TimelineProvider({
       mediaId: string,
       start: number,
       end: number,
-      mediaClipId?: string
+      mediaClipId?: string,
+      trackId?: string
     ) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
@@ -237,7 +239,8 @@ export function TimelineProvider({
           mediaId,
           start,
           end,
-          mediaClipId
+          mediaClipId,
+          trackId
         );
 
         // Update local state

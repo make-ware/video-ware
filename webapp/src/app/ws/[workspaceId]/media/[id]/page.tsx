@@ -27,8 +27,8 @@ import {
   Captions,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { TranscriptOverlay } from '@/components/media/transcript-overlay';
-import { TranscriptList } from '@/components/media/transcript-list';
+import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
+import { TranscriptList } from '@/components/transcripts/transcript-list';
 import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
 import { cn } from '@/lib/utils';
 import { MediaClip, MediaRecommendation } from '@project/shared';

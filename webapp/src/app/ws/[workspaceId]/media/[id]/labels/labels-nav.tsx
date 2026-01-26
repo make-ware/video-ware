@@ -20,6 +20,10 @@ export function LabelsNav() {
       name: 'People',
       href: `/ws/${workspaceId}/media/${mediaId}/labels/people`,
     },
+    {
+      name: 'Transcripts',
+      href: `/ws/${workspaceId}/media/${mediaId}/labels/transcripts`,
+    },
     { name: 'Shots', href: `/ws/${workspaceId}/media/${mediaId}/labels/shots` },
   ];
 

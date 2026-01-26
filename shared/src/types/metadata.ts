@@ -73,6 +73,9 @@ export const MediaClipMetadataSchema = z.object({
   sourceId: z.string(),
   sourceType: z.string(),
   strategy: z.string(),
+  segments: z
+    .array(z.object({ start: z.number(), end: z.number() }))
+    .optional(),
 });
 
 // ============================================================================

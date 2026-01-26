@@ -89,6 +89,7 @@ export enum ClipType {
   FACE = 'face',
   SPEECH = 'speech',
   RECOMMENDATION = 'recommendation',
+  COMPOSITE = 'composite',
 }
 
 export enum LabelType {

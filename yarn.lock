@@ -7293,6 +7293,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"chainsaw@npm:>=0.0.7 <0.1":
+  version: 0.0.9
+  resolution: "chainsaw@npm:0.0.9"
+  dependencies:
+    traverse: "npm:>=0.3.0 <0.4"
+  checksum: 10/282e9d574957976f8139032366d6d8cd4bcc04bd562fd4b9db1e4ab5fdd391b0d2d3b3226010d12fced8f6b3688d6822b8200bd420bfeaf6bac2f5e4621c330c
+  languageName: node
+  linkType: hard
+
 "chalk@npm:4.1.2, chalk@npm:^4.0.0, chalk@npm:^4.1.0, chalk@npm:^4.1.2":
   version: 4.1.2
   resolution: "chalk@npm:4.1.2"
@@ -9877,6 +9886,15 @@ __metadata:
   version: 2.0.1
   resolution: "has-unicode@npm:2.0.1"
   checksum: 10/041b4293ad6bf391e21c5d85ed03f412506d6623786b801c4ab39e4e6ca54993f13201bceb544d92963f9e0024e6e7fbf0cb1d84c9d6b31cb9c79c8c990d13d8
+  languageName: node
+  linkType: hard
+
+"hashish@npm:>=0.0.2 <0.1":
+  version: 0.0.4
+  resolution: "hashish@npm:0.0.4"
+  dependencies:
+    traverse: "npm:>=0.2.4"
+  checksum: 10/a1143ad6f3d075458aabef1c7a2e88a253555c71ecc3d7975ac5dd22b4ad6e88b665d63193138ed1d6e07600323efdc7791e28ad9cebd8b9f68ecb91270fc716
   languageName: node
   linkType: hard
 
@@ -12952,6 +12970,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"remove@npm:^0.1.5":
+  version: 0.1.5
+  resolution: "remove@npm:0.1.5"
+  dependencies:
+    seq: "npm:>= 0.3.5"
+  checksum: 10/5ee886cb3509e09e706789bc4a9014c1d20b0ee6d004db581b382f3a256a45888526e23b36ce441fbd96ba3ecc453a18785d1e0d4d10dddb8e2e118961f93d9f
+  languageName: node
+  linkType: hard
+
 "require-directory@npm:^2.1.1":
   version: 2.1.1
   resolution: "require-directory@npm:2.1.1"
@@ -13372,6 +13399,16 @@ __metadata:
     range-parser: "npm:^1.2.1"
     statuses: "npm:^2.0.2"
   checksum: 10/274f842d69ccfa49d4940a85598c6825da58dee6cb8ea33b08d5bd3988e6a82267c4d7c32b23d0e4706aad076ee95b1edfa13f859877db9b589829019397e355
+  languageName: node
+  linkType: hard
+
+"seq@npm:>= 0.3.5":
+  version: 0.3.5
+  resolution: "seq@npm:0.3.5"
+  dependencies:
+    chainsaw: "npm:>=0.0.7 <0.1"
+    hashish: "npm:>=0.0.2 <0.1"
+  checksum: 10/7fd0934475e01dfb046e8407be5fb534df579b1aa811eed48f96f230baf83efeee107ed13958cc25eb415810fc1cbb6d8c3dd65dd6763284b4d064ef5e1dda31
   languageName: node
   linkType: hard
 
@@ -14427,6 +14464,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"traverse@npm:>=0.2.4":
+  version: 0.6.11
+  resolution: "traverse@npm:0.6.11"
+  dependencies:
+    gopd: "npm:^1.2.0"
+    typedarray.prototype.slice: "npm:^1.0.5"
+    which-typed-array: "npm:^1.1.18"
+  checksum: 10/f70d9ea9dd7e2f14e805815b9734bcac5f459b5946b32b4dbfc6e66f1738dc21921c7353722b61e7bd4d3b79ff5b51234078e0a243d72eaeccef802353cc9075
+  languageName: node
+  linkType: hard
+
+"traverse@npm:>=0.3.0 <0.4":
+  version: 0.3.9
+  resolution: "traverse@npm:0.3.9"
+  checksum: 10/ffbb8460a934f271b7b7ae654e676f740d81037d6c20ab9fd05781cfdf644929f494399b5cb3aa3db4ab69cbfef06ff8f885560d523ca49b7da33763f6c4c9f1
+  languageName: node
+  linkType: hard
+
 "tree-kill@npm:1.2.2, tree-kill@npm:^1.2.2":
   version: 1.2.2
   resolution: "tree-kill@npm:1.2.2"
@@ -14655,6 +14710,22 @@ __metadata:
     possible-typed-array-names: "npm:^1.0.0"
     reflect.getprototypeof: "npm:^1.0.6"
   checksum: 10/d6b2f0e81161682d2726eb92b1dc2b0890890f9930f33f9bcf6fc7272895ce66bc368066d273e6677776de167608adc53fcf81f1be39a146d64b630edbf2081c
+  languageName: node
+  linkType: hard
+
+"typedarray.prototype.slice@npm:^1.0.5":
+  version: 1.0.5
+  resolution: "typedarray.prototype.slice@npm:1.0.5"
+  dependencies:
+    call-bind: "npm:^1.0.8"
+    define-properties: "npm:^1.2.1"
+    es-abstract: "npm:^1.23.9"
+    es-errors: "npm:^1.3.0"
+    get-proto: "npm:^1.0.1"
+    math-intrinsics: "npm:^1.1.0"
+    typed-array-buffer: "npm:^1.0.3"
+    typed-array-byte-offset: "npm:^1.0.4"
+  checksum: 10/df1a35ccb86bd30280310d628d6def7a9a78fe3c787fe63b67559473ffe5cb0d3b6351f38a1105cd9f15c6d3707420ca60720bfffe41f79e376071f6a9c8104f
   languageName: node
   linkType: hard
 
@@ -15031,6 +15102,8 @@ __metadata:
     eslint: "npm:^9.39.2"
     eslint-plugin-react-hooks: "npm:^7.0.1"
     prettier: "npm:^3.8.0"
+    recharts: "npm:^3.7.0"
+    remove: "npm:^0.1.5"
     typescript: "npm:^5.9.3"
   languageName: unknown
   linkType: soft
@@ -15297,7 +15370,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"which-typed-array@npm:^1.1.16, which-typed-array@npm:^1.1.19":
+"which-typed-array@npm:^1.1.16, which-typed-array@npm:^1.1.18, which-typed-array@npm:^1.1.19":
   version: 1.1.20
   resolution: "which-typed-array@npm:1.1.20"
   dependencies:

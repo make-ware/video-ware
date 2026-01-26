@@ -18,19 +18,18 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from 'recharts';
-import { format, parseISO, startOfMonth, subMonths, isSameMonth } from 'date-fns';
+import {
+  format,
+  parseISO,
+  startOfMonth,
+  subMonths,
+  isSameMonth,
+} from 'date-fns';
 import { Loader2, HardDrive, Cpu, Video, AlertTriangle } from 'lucide-react';
 import type { UsageEvent as UsageEventRecord } from '@project/shared';
 import type { File as FileRecord } from '@project/shared';
 import type { Upload as UploadRecord } from '@project/shared';
-
-interface MonthlyData {
-  month: string;
-  value: number;
-  label: string;
-}
 
 export default function MetricsPage() {
   const params = useParams();
@@ -38,7 +37,9 @@ export default function MetricsPage() {
 
   const [loading, setLoading] = useState(true);
   const [gcviEvents, setGcviEvents] = useState<UsageEventRecord[]>([]);
-  const [transcodeEvents, setTranscodeEvents] = useState<UsageEventRecord[]>([]);
+  const [transcodeEvents, setTranscodeEvents] = useState<UsageEventRecord[]>(
+    []
+  );
   const [storageEvents, setStorageEvents] = useState<UsageEventRecord[]>([]);
   const [currentFiles, setCurrentFiles] = useState<FileRecord[]>([]);
   const [currentUploads, setCurrentUploads] = useState<UploadRecord[]>([]);
@@ -55,13 +56,12 @@ export default function MetricsPage() {
         const oneYearAgo = subMonths(new Date(), 12);
         const filterDate = format(oneYearAgo, 'yyyy-MM-dd 00:00:00');
 
-        const usageEvents =
-          await pb
-            .collection('UsageEvents')
-            .getFullList<UsageEventRecord>({
-              filter: `WorkspaceRef = "${workspaceId}" && created >= "${filterDate}"`,
-              sort: 'created',
-            });
+        const usageEvents = await pb
+          .collection('UsageEvents')
+          .getFullList<UsageEventRecord>({
+            filter: `WorkspaceRef = "${workspaceId}" && created >= "${filterDate}"`,
+            sort: 'created',
+          });
 
         const gcvi = usageEvents.filter((e) => e.type === 'GOOGLE_VIDEO');
         const transcode = usageEvents.filter((e) => e.subtype === 'TRANSCODE');
@@ -88,7 +88,6 @@ export default function MetricsPage() {
 
         setCurrentFiles(files);
         setCurrentUploads(uploads);
-
       } catch (error) {
         console.error('Failed to fetch metrics:', error);
       } finally {
@@ -101,7 +100,10 @@ export default function MetricsPage() {
 
   // Calculations
   const totalGcviMinutes = useMemo(() => {
-    const seconds = gcviEvents.reduce((acc, curr) => acc + (curr.value || 0), 0);
+    const seconds = gcviEvents.reduce(
+      (acc, curr) => acc + (curr.value || 0),
+      0
+    );
     return Math.round(seconds / 60);
   }, [gcviEvents]);
 
@@ -118,13 +120,22 @@ export default function MetricsPage() {
   }, [gcviEvents]);
 
   const totalTranscodeMinutes = useMemo(() => {
-    const seconds = transcodeEvents.reduce((acc, curr) => acc + (curr.value || 0), 0);
+    const seconds = transcodeEvents.reduce(
+      (acc, curr) => acc + (curr.value || 0),
+      0
+    );
     return Math.round(seconds / 60);
   }, [transcodeEvents]);
 
   const totalStorageBytes = useMemo(() => {
-    const filesSize = currentFiles.reduce((acc, curr) => acc + (curr.size || 0), 0);
-    const uploadsSize = currentUploads.reduce((acc, curr) => acc + (curr.size || 0), 0);
+    const filesSize = currentFiles.reduce(
+      (acc, curr) => acc + (curr.size || 0),
+      0
+    );
+    const uploadsSize = currentUploads.reduce(
+      (acc, curr) => acc + (curr.size || 0),
+      0
+    );
     return filesSize + uploadsSize;
   }, [currentFiles, currentUploads]);
 
@@ -148,9 +159,18 @@ export default function MetricsPage() {
       .sort((a, b) => a.month.localeCompare(b.month));
   };
 
-  const gcviChartData = useMemo(() => groupByMonth(gcviEvents, 1/60), [gcviEvents]); // Seconds to Minutes
-  const transcodeChartData = useMemo(() => groupByMonth(transcodeEvents, 1/60), [transcodeEvents]); // Seconds to Minutes
-  const storageTrendChartData = useMemo(() => groupByMonth(storageEvents, 1 / (1024 * 1024 * 1024)), [storageEvents]); // Bytes to GB
+  const gcviChartData = useMemo(
+    () => groupByMonth(gcviEvents, 1 / 60),
+    [gcviEvents]
+  ); // Seconds to Minutes
+  const transcodeChartData = useMemo(
+    () => groupByMonth(transcodeEvents, 1 / 60),
+    [transcodeEvents]
+  ); // Seconds to Minutes
+  const storageTrendChartData = useMemo(
+    () => groupByMonth(storageEvents, 1 / (1024 * 1024 * 1024)),
+    [storageEvents]
+  ); // Bytes to GB
 
   if (loading) {
     return (
@@ -207,7 +227,9 @@ export default function MetricsPage() {
             <Cpu className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalTranscodeMinutes} min</div>
+            <div className="text-2xl font-bold">
+              {totalTranscodeMinutes} min
+            </div>
             <p className="text-xs text-muted-foreground">
               Total transcoding time
             </p>
@@ -235,7 +257,7 @@ export default function MetricsPage() {
         {/* GCVI Chart */}
         <Card className="col-span-1">
           <CardHeader>
-            <CardTitle>GCVI Usage Trend</CardTitle>
+            <CardTitle>Label Usage Trend</CardTitle>
             <CardDescription>Monthly usage in minutes</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px]">
@@ -243,13 +265,27 @@ export default function MetricsPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={gcviChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis
+                    dataKey="label"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
                   <YAxis fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip
                     cursor={{ fill: 'transparent' }}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: 'none',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
                   />
-                  <Bar dataKey="value" name="Minutes" fill="#8884d8" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="value"
+                    name="Minutes"
+                    fill="#8884d8"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -267,17 +303,31 @@ export default function MetricsPage() {
             <CardDescription>Monthly usage in minutes</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px]">
-             {transcodeChartData.length > 0 ? (
+            {transcodeChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={transcodeChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis
+                    dataKey="label"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
                   <YAxis fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip
-                     cursor={{ fill: 'transparent' }}
-                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: 'none',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
                   />
-                  <Bar dataKey="value" name="Minutes" fill="#82ca9d" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="value"
+                    name="Minutes"
+                    fill="#82ca9d"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -299,13 +349,27 @@ export default function MetricsPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={storageTrendChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis
+                    dataKey="label"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
                   <YAxis fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip
-                     cursor={{ fill: 'transparent' }}
-                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: 'none',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
                   />
-                  <Bar dataKey="value" name="GB Added" fill="#ffc658" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="value"
+                    name="GB Added"
+                    fill="#ffc658"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

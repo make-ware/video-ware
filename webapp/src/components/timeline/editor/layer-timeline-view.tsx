@@ -204,9 +204,7 @@ export function LayerTimelineView() {
 
     const mainTrackId = mainTrack.id;
     return clips.filter(
-      (c) =>
-        !(c as any).TimelineTrackRef ||
-        (c as any).TimelineTrackRef === mainTrackId
+      (c) => !c.TimelineTrackRef || c.TimelineTrackRef === mainTrackId
     );
   }, [timeline?.clips, timeline?.tracks]);
 

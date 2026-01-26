@@ -5,7 +5,15 @@ import { QUEUE_NAMES } from '../queue/queue.constants';
 import { FlowService } from '../queue/flow.service';
 import { RenderFlowBuilder } from '../queue/flows';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
-import { Task, TaskStatus } from '@project/shared';
+import {
+  Task,
+  TaskStatus,
+  RenderTimelinePayload,
+  TimelineTrack,
+  TimelineSegment,
+  MediaClip,
+  ClipType,
+} from '@project/shared';
 
 @Processor(QUEUE_NAMES.RENDER)
 export class RenderProcessor {
@@ -18,12 +26,17 @@ export class RenderProcessor {
 
   @Process('process')
   async handleRender(job: Job<Task>) {
-    const task = job.data;
+    let task = job.data;
     this.logger.log(`Processing render task ${task.id} (job ${job.id})`);
 
     try {
       // Update task status to running
       await this.updateTaskStatus(task.id, TaskStatus.RUNNING, 0);
+
+      // Pre-process: Resolve Composite Clips
+      // We expand any composite clips into their constituent raw segments
+      // so that the executor (FFmpeg) treats them as simple cuts.
+      task = await this.resolveCompositeClips(task);
 
       // Create the render flow (new flow-based architecture)
       const flowDefinition = RenderFlowBuilder.buildFlow(task);
@@ -57,6 +70,165 @@ export class RenderProcessor {
       // Re-throw error so Bull can handle retry logic
       throw error;
     }
+  }
+
+  /**
+   * Resolves composite clips in the timeline tracks by expanding them
+   * into their constituent segments.
+   */
+  private async resolveCompositeClips(task: Task): Promise<Task> {
+    const payload = task.payload as RenderTimelinePayload;
+    if (!payload.tracks) return task;
+
+    const tracks = payload.tracks;
+    const processedTracks: TimelineTrack[] = [];
+
+    // Collect all asset IDs to fetch
+    const assetIds = new Set<string>();
+    for (const track of tracks) {
+      for (const seg of track.segments || []) {
+        if (seg.assetId) assetIds.add(seg.assetId);
+      }
+    }
+
+    if (assetIds.size === 0) return task;
+
+    // Fetch all MediaClips in one go (optimization)
+    // We only care about MediaClips, so we filter by IDs that look like MediaClip IDs
+    // or just try to fetch. PocketBase doesn't support "fetch any collection by ID",
+    // so we assume they are MediaClip IDs if they match the pattern or we just query MediaClips.
+    // However, assetId could be Media ID or MediaClip ID.
+    // We'll try to fetch MediaClips. If not found, it might be Media.
+    // Note: In typical flow, the segments might mix Media and MediaClip.
+
+    // We'll fetch all matching MediaClips.
+    // Since we can't easily distinguish without checking, we'll query MediaClips collection.
+    // IDs that aren't MediaClips won't be returned.
+
+    const mediaClipsMap = new Map<string, MediaClip>();
+
+    // Chunking not implemented for brevity, assuming standard usage
+    try {
+      const filter = Array.from(assetIds)
+        .map((id) => `id="${id}"`)
+        .join('||');
+      if (filter) {
+        const records = await this.pocketbaseService
+          .getClient()
+          .collection('MediaClips')
+          .getFullList<MediaClip>({ filter });
+
+        for (const r of records) {
+          mediaClipsMap.set(r.id, r);
+        }
+      }
+    } catch (e) {
+      // Ignore errors, maybe some IDs were not MediaClips
+      this.logger.warn(`Error fetching media clips: ${e}`);
+    }
+
+    for (const track of tracks) {
+      const newSegments: TimelineSegment[] = [];
+
+      for (const seg of track.segments || []) {
+        if (!seg.assetId) {
+          newSegments.push(seg);
+          continue;
+        }
+
+        const clip = mediaClipsMap.get(seg.assetId);
+
+        // Check if it is a COMPOSITE clip
+        if (
+          clip &&
+          clip.type === ClipType.COMPOSITE &&
+          clip.clipData?.segments
+        ) {
+          // EXPAND
+          const compositeSegments = clip.clipData.segments as {
+            start: number;
+            end: number;
+          }[];
+
+          // Segment Usage on Timeline
+          // timeline: [time.start, time.start + time.duration]
+          // source (composite): [time.sourceStart, time.sourceStart + time.duration]
+
+          const usageSourceStart = seg.time.sourceStart || 0;
+          const usageDuration = seg.time.duration;
+          const usageTimelineStart = seg.time.start;
+          const usageSourceEnd = usageSourceStart + usageDuration;
+
+          // We need to find which "real" segments intersect with [usageSourceStart, usageSourceEnd]
+          // Mapping Logic:
+          // "Composite Time" 0 starts at beginning of compositeSegments[0]
+
+          // 1. Build a "Composite Timeline" map
+          // Map [0, S1.len) -> S1
+          // Map [S1.len, S1.len + S2.len) -> S2
+
+          let currentCompositeTime = 0;
+
+          for (const realSeg of compositeSegments) {
+            const realLen = realSeg.end - realSeg.start;
+            const realSegCompositeStart = currentCompositeTime;
+            const realSegCompositeEnd = currentCompositeTime + realLen;
+
+            // Check intersection with usage range
+            const intersectStart = Math.max(
+              usageSourceStart,
+              realSegCompositeStart
+            );
+            const intersectEnd = Math.min(usageSourceEnd, realSegCompositeEnd);
+
+            if (intersectEnd > intersectStart) {
+              // Intersection found!
+              const intersectionLen = intersectEnd - intersectStart;
+
+              // Offset into the Real Segment
+              // unique sourceStart = realSeg.start + (intersectStart - realSegCompositeStart)
+              const offsetInRealSeg = intersectStart - realSegCompositeStart;
+              const finalSourceStart = realSeg.start + offsetInRealSeg;
+
+              // Timeline Start for this piece
+              // offset in usage = intersectStart - usageSourceStart
+              const offsetInUsage = intersectStart - usageSourceStart;
+              const finalTimelineStart = usageTimelineStart + offsetInUsage;
+
+              newSegments.push({
+                ...seg,
+                id: `${seg.id}_${newSegments.length}`, // Unique ID
+                assetId: clip.MediaRef, // Point to the RAW Media, NOT the Clip
+                time: {
+                  start: finalTimelineStart,
+                  duration: intersectionLen,
+                  sourceStart: finalSourceStart,
+                },
+              });
+            }
+
+            currentCompositeTime += realLen;
+          }
+        } else {
+          // Pass through standard segments
+          newSegments.push(seg);
+        }
+      }
+
+      processedTracks.push({
+        ...track,
+        segments: newSegments,
+      });
+    }
+
+    // Return new task with updated payload
+    return {
+      ...task,
+      payload: {
+        ...payload,
+        tracks: processedTracks,
+      },
+    };
   }
 
   /**

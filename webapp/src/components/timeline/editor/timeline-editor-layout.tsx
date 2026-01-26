@@ -7,6 +7,7 @@ import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
 import { ClipBrowser } from '@/components/timeline/clip-browser';
 import { TimelineRecommendationsPanelWrapper } from './timeline-recommendations-wrapper';
 import { useTimeline } from '@/hooks/use-timeline';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { Button } from '@/components/ui/button';
 import {
   Save,
@@ -29,6 +30,7 @@ export function TimelineEditorLayout() {
     isLoading,
     createRenderTask,
   } = useTimeline();
+  const { currentWorkspace } = useWorkspace();
   const router = useRouter();
   const [activeMobilePanel, setActiveMobilePanel] = useState<
     'library' | 'recommendations' | null
@@ -60,7 +62,11 @@ export function TimelineEditorLayout() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => router.push('/timelines')}
+              onClick={() => {
+                if (currentWorkspace) {
+                  router.push(`/ws/${currentWorkspace.id}/timelines`);
+                }
+              }}
               className="h-8 px-2 lg:px-3"
             >
               <ArrowLeft className="h-4 w-4 lg:mr-2" />
@@ -75,7 +81,13 @@ export function TimelineEditorLayout() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/timelines/${timeline.id}/renders`)}
+              onClick={() => {
+                if (currentWorkspace) {
+                  router.push(
+                    `/ws/${currentWorkspace.id}/timelines/${timeline.id}/renders`
+                  );
+                }
+              }}
               className="h-8 px-2 lg:px-3"
             >
               <Download className="h-4 w-4 lg:mr-2" />

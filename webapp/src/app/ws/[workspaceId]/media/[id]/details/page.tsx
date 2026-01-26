@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMediaDetails } from '@/hooks/use-media-details';
 import { MediaDetailsEditor } from '@/components/media/media-details-editor';
 import { MediaPreviewFiles } from '@/components/media/media-preview-files';
+import { MediaLabelJobs } from '@/components/media/media-label-jobs';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Sparkles, Tag } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -125,6 +126,7 @@ export default function MediaDetailsPage() {
       <div className="space-y-6">
         <MediaDetailsEditor media={media} onUpdate={refresh} />
         <MediaPreviewFiles media={media} onUpdate={refresh} />
+        <MediaLabelJobs media={media} onUpdate={refresh} />
       </div>
     </div>
   );

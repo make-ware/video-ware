@@ -5,6 +5,7 @@ import {
   MediaClipMutator,
   TaskMutator,
   UploadMutator,
+  LabelJobMutator,
 } from '@project/shared/mutator';
 import type {
   Media,
@@ -15,6 +16,7 @@ import type {
   LabelsFlowConfig,
   DetectLabelsPayload,
   ProcessUploadPayload,
+  LabelJob,
 } from '@project/shared';
 import { ProcessingProvider } from '@project/shared';
 
@@ -41,6 +43,7 @@ export class MediaService {
   private mediaClipMutator: MediaClipMutator;
   private taskMutator: TaskMutator;
   private uploadMutator: UploadMutator;
+  private labelJobMutator: LabelJobMutator;
 
   constructor(pb: TypedPocketBase) {
     this.mediaMutator = new MediaMutator(pb);
@@ -48,6 +51,7 @@ export class MediaService {
     this.mediaClipMutator = new MediaClipMutator(pb);
     this.taskMutator = new TaskMutator(pb);
     this.uploadMutator = new UploadMutator(pb);
+    this.labelJobMutator = new LabelJobMutator(pb);
   }
 
   /**
@@ -123,6 +127,47 @@ export class MediaService {
   async getMediaClips(mediaId: string): Promise<MediaClip[]> {
     const result = await this.mediaClipMutator.getByMedia(mediaId);
     return result.items;
+  }
+
+  /**
+   * Get label jobs for a media item
+   * @param mediaId The media ID
+   * @returns List of label jobs
+   */
+  async getLabelJobs(mediaId: string): Promise<LabelJob[]> {
+    return this.labelJobMutator.getByMedia(mediaId);
+  }
+
+  /**
+   * Regenerate a specific label job
+   * @param mediaId The media ID
+   * @param type The label job type
+   * @returns The updated or created label job
+   */
+  async regenerateLabel(mediaId: string, type: string): Promise<LabelJob> {
+    const config: LabelsFlowConfig = {
+      confidenceThreshold: 0.5,
+      detectObjects: type === 'object',
+      detectLabels: type === 'shot',
+      detectFaces: type === 'face',
+      detectPersons: type === 'person',
+      detectSpeech: type === 'speech',
+    };
+
+    const task = await this.createTaskForLabel(mediaId, undefined, config);
+
+    const existing = await this.labelJobMutator.getByType(mediaId, type);
+    if (existing) {
+      return this.labelJobMutator.update(existing.id, {
+        TaskRef: task.id,
+      });
+    } else {
+      return this.labelJobMutator.create({
+        MediaRef: mediaId,
+        jobType: type,
+        TaskRef: task.id,
+      });
+    }
   }
 
   /**

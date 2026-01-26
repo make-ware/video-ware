@@ -96,34 +96,37 @@ export function LayerTimelineView() {
   );
 
   // Handle Drag Start for Resizing
-  const handleResizeStart = (
-    e: React.MouseEvent | React.TouchEvent,
-    clip: TimelineClip,
-    handle: 'left' | 'right'
-  ) => {
-    e.stopPropagation();
-    // Prevent default to stop scrolling while dragging handles
-    if (e.cancelable) {
-      e.preventDefault();
-    }
-    setIsScrubbing(false);
+  const handleResizeStart = useCallback(
+    (
+      e: React.MouseEvent | React.TouchEvent,
+      clip: TimelineClip,
+      handle: 'left' | 'right'
+    ) => {
+      e.stopPropagation();
+      // Prevent default to stop scrolling while dragging handles
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      setIsScrubbing(false);
 
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
 
-    const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
-    const state: DragState = {
-      clipId: clip.id,
-      handle,
-      initialX: clientX,
-      currentX: clientX,
-      initialStart: clip.start,
-      initialEnd: clip.end,
-      mediaDuration,
-    };
+      const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
+      const state: DragState = {
+        clipId: clip.id,
+        handle,
+        initialX: clientX,
+        currentX: clientX,
+        initialStart: clip.start,
+        initialEnd: clip.end,
+        mediaDuration,
+      };
 
-    setDragState(state);
-    dragInfoRef.current = state;
-  };
+      setDragState(state);
+      dragInfoRef.current = state;
+    },
+    [setIsScrubbing, setDragState]
+  );
 
   // Global mouse handlers for resize drag
   useEffect(() => {
@@ -188,25 +191,48 @@ export function LayerTimelineView() {
     };
   }, [dragState, updateClipTimes]);
 
+  // Determine the clips to display, filtered by the main track (Layer 0)
+  const displayClips = useMemo(() => {
+    const clips = timeline?.clips;
+    if (!clips) return [];
+
+    const tracks = timeline?.tracks;
+    const mainTrack = tracks?.find((t) => t.layer === 0) || tracks?.[0];
+
+    // If no tracks are found, fallback to showing all clips (legacy/empty state)
+    if (!mainTrack) return clips;
+
+    const mainTrackId = mainTrack.id;
+    return clips.filter(
+      (c) => !c.TimelineTrackRef || c.TimelineTrackRef === mainTrackId
+    );
+  }, [timeline?.clips, timeline?.tracks]);
+
   // Calculate clip positions and elements
-  // We compute this on every render; the React Compiler will optimize this automatically
-  // if it can, and it was failing to reconcile the manual useMemo with its internal logic.
-  let accTime = 0;
-  const clipElements =
-    timeline?.clips.map((clip: TimelineClip) => {
-      // Get potentially modified times
+  const clipElements = useMemo(() => {
+    // Phase 1: Calculate positions in a simple loop.
+    // This avoids reassigning a variable that is later captured by JSX during a map,
+    // which satisfies the React Compiler's strict mutation rules.
+    const positions: { left: number; width: number; clipDuration: number }[] =
+      [];
+    let acc = 0;
+    for (const clip of displayClips) {
       const { start, end } = getClipTimes(clip);
-      const clipDuration = end - start;
+      const duration = end - start;
+      positions.push({
+        left: acc * PIXELS_PER_SECOND,
+        width: duration * PIXELS_PER_SECOND,
+        clipDuration: duration,
+      });
+      acc += duration;
+    }
 
-      const left = accTime * PIXELS_PER_SECOND;
-      const width = clipDuration * PIXELS_PER_SECOND;
-
+    // Phase 2: Map to elements
+    return displayClips.map((clip: TimelineClip, i: number) => {
+      const pos = positions[i];
       const isSelected = selectedClipId === clip.id;
       const clipColor =
         clip.meta?.color || (isSelected ? 'bg-primary' : 'bg-blue-600/60');
-
-      // Update accumulator for next clip
-      accTime += clipDuration;
 
       return (
         <div
@@ -216,11 +242,8 @@ export function LayerTimelineView() {
             clipColor,
             isSelected && 'ring-2 ring-inset ring-white/50 z-10 shadow-sm'
           )}
-          style={{ left, width }}
+          style={{ left: pos.left, width: pos.width }}
           onClick={(e) => {
-            // Allow bubbling to container for scrubbing?
-            // If we stopPropagation, clicking clip selects but doesn't move playhead.
-            // Let's stopPropagation to make it distinct.
             e.stopPropagation();
             setSelectedClipId(clip.id);
           }}
@@ -247,13 +270,20 @@ export function LayerTimelineView() {
 
               {/* Info Label */}
               <div className="absolute top-1 left-4 text-[10px] text-white font-mono pointer-events-none truncate pr-4 drop-shadow-md">
-                {Math.round(clipDuration * 10) / 10}s
+                {Math.round(pos.clipDuration * 10) / 10}s
               </div>
             </>
           )}
         </div>
       );
-    }) || [];
+    });
+  }, [
+    displayClips,
+    getClipTimes,
+    selectedClipId,
+    handleResizeStart,
+    setSelectedClipId,
+  ]);
 
   const handleTimelineClick = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {

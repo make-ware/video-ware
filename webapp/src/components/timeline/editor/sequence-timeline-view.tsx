@@ -123,6 +123,17 @@ export function SequenceTimelineView() {
 
   if (!timeline) return null;
 
+  // Determine the main track (Layer 0) for display
+  // We handle this inside render or memo to avoid hook order issues if we put it before early return (though hooks are top level)
+  const mainTrack =
+    timeline.tracks?.find((t) => t.layer === 0) || timeline.tracks?.[0];
+
+  const displayClips = timeline.clips.filter(
+    (c) =>
+      !(c as any).TimelineTrackRef ||
+      (mainTrack && (c as any).TimelineTrackRef === mainTrack.id)
+  );
+
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedClipId(id);
     e.dataTransfer.setData('clipId', id);
@@ -161,7 +172,7 @@ export function SequenceTimelineView() {
   return (
     <div className="flex flex-col w-full bg-background/30 rounded-lg overflow-hidden h-48 lg:h-40">
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 flex items-center gap-3 no-scrollbar">
-        {timeline.clips.map((clip) => (
+        {displayClips.map((clip) => (
           <SequenceClipCard
             key={clip.id}
             clip={clip}

@@ -24,6 +24,7 @@ export { MediaRecommendationMutator } from './media-recommendation';
 // Timeline and clip mutators
 export { TimelineMutator } from './timeline';
 export { TimelineClipMutator } from './timeline-clip';
+export { TimelineTrackMutator } from './timeline-track';
 export { TimelineRenderMutator } from './timeline-render';
 export { TimelineRecommendationMutator } from './timeline-recommendation';
 

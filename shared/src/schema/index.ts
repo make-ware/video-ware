@@ -15,6 +15,7 @@ export * from './timeline-clip.js';
 export * from './timeline-recommendation.js';
 export * from './timeline-render.js';
 export * from './timeline.js';
+export * from './timeline-track.js';
 export * from './upload.js';
 export * from './user.js';
 export * from './watched-file.js';

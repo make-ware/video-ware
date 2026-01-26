@@ -49,5 +49,9 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "prettier": "^3.8.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "recharts": "^3.7.0",
+    "remove": "^0.1.5"
   }
 }

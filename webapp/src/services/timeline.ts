@@ -221,7 +221,7 @@ export class TimelineService {
       start,
       end,
       duration: 1,
-    } as any;
+    };
 
     return this.timelineClipMutator.create(input);
   }

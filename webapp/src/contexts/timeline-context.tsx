@@ -7,13 +7,10 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import {
-  TimelineService,
-  type TimelineWithClips,
-  type OutputSettings,
-} from '@/services/timeline';
+import { TimelineService, type TimelineWithClips } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
 import { useAuth } from '@/hooks/use-auth';
+import { RenderFlowConfig } from '@project/shared';
 
 interface TimelineContextType {
   // Current timeline state
@@ -44,7 +41,8 @@ interface TimelineContextType {
     mediaId: string,
     start: number,
     end: number,
-    mediaClipId?: string
+    mediaClipId?: string,
+    trackId?: string
   ) => Promise<void>;
   removeClip: (clipId: string) => Promise<void>;
   reorderClips: (clipOrders: { id: string; order: number }[]) => Promise<void>;
@@ -59,7 +57,7 @@ interface TimelineContextType {
   ) => Promise<void>;
 
   // Render operations
-  createRenderTask: (outputSettings: OutputSettings) => Promise<void>;
+  createRenderTask: (outputSettings: RenderFlowConfig) => Promise<void>;
 
   // Utility
   clearError: () => void;
@@ -222,7 +220,8 @@ export function TimelineProvider({
       mediaId: string,
       start: number,
       end: number,
-      mediaClipId?: string
+      mediaClipId?: string,
+      trackId?: string
     ) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
@@ -237,7 +236,8 @@ export function TimelineProvider({
           mediaId,
           start,
           end,
-          mediaClipId
+          mediaClipId,
+          trackId
         );
 
         // Update local state
@@ -402,7 +402,7 @@ export function TimelineProvider({
 
   // Create render task
   const createRenderTask = useCallback(
-    async (outputSettings: OutputSettings) => {
+    async (outputSettings: RenderFlowConfig) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
       }

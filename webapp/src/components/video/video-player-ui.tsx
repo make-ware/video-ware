@@ -27,6 +27,8 @@ export interface VideoPlayerUIProps {
   /** Controls browser buffering behavior for better scrubbing UX. */
   preload?: HTMLVideoElement['preload'];
   className?: string;
+  onTimeUpdate?: (time: number) => void;
+  children?: React.ReactNode | ((currentTime: number) => React.ReactNode);
 }
 
 export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
@@ -40,6 +42,8 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
       seekOnStartTimeChange = true,
       preload = 'metadata',
       className,
+      onTimeUpdate,
+      children,
     },
     forwardedRef
   ) => {
@@ -171,6 +175,7 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
       }
 
       setCurrentTime(time);
+      onTimeUpdate?.(time);
     };
 
     const handleLoadedMetadata = (
@@ -239,6 +244,8 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
           onPause={() => setIsPlaying(false)}
           playsInline
         />
+
+        {typeof children === 'function' ? children(currentTime) : children}
 
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="mb-4">

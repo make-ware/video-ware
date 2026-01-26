@@ -11,6 +11,7 @@ import {
   Activity,
   Clapperboard,
   Building2,
+  BarChart,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/use-auth';
@@ -81,6 +82,11 @@ export function NavigationBar({ className }: NavigationBarProps) {
             href: `${wsPrefix}/timelines`,
             label: 'Timelines',
             icon: Clapperboard,
+          },
+          {
+            href: `${wsPrefix}/metrics`,
+            label: 'Metrics',
+            icon: BarChart,
           },
         ]
       : []),

@@ -34,40 +34,41 @@ export const MediaVideoPlayer = forwardRef<
       clip
     );
 
-  if (isLoading) {
+    if (isLoading) {
+      return (
+        <div
+          className={`flex items-center justify-center bg-black rounded-lg aspect-video ${className}`}
+        >
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      );
+    }
+
+    if (!src) {
+      return (
+        <div
+          className={`flex items-center justify-center bg-muted rounded-lg aspect-video ${className}`}
+        >
+          <p className="text-muted-foreground">No video source available</p>
+        </div>
+      );
+    }
+
     return (
-      <div
-        className={`flex items-center justify-center bg-black rounded-lg aspect-video ${className}`}
+      <VideoPlayerUI
+        ref={ref}
+        src={src}
+        poster={poster}
+        startTime={startTime}
+        endTime={endTime}
+        autoPlay={autoPlay}
+        className={className}
+        onTimeUpdate={onTimeUpdate}
       >
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-      </div>
+        {children}
+      </VideoPlayerUI>
     );
   }
-
-  if (!src) {
-    return (
-      <div
-        className={`flex items-center justify-center bg-muted rounded-lg aspect-video ${className}`}
-      >
-        <p className="text-muted-foreground">No video source available</p>
-      </div>
-    );
-  }
-
-  return (
-    <VideoPlayerUI
-      ref={ref}
-      src={src}
-      poster={poster}
-      startTime={startTime}
-      endTime={endTime}
-      autoPlay={autoPlay}
-      className={className}
-      onTimeUpdate={onTimeUpdate}
-    >
-      {children}
-    </VideoPlayerUI>
-  );
-});
+);
 
 MediaVideoPlayer.displayName = 'MediaVideoPlayer';

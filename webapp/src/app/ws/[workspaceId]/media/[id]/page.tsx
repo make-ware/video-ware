@@ -53,11 +53,11 @@ function MediaDetailsPageContentWithRecommendations() {
   } = useMediaRecommendations();
   const {
     transcripts,
-    isLoading: isLoadingTranscripts,
+    isLoading: _isLoadingTranscripts,
     createTranscript,
     updateTranscript,
     deleteTranscript,
-    refresh: refreshTranscripts,
+    refresh: _refreshTranscripts,
   } = useMediaTranscripts(id);
   const [isInlineCreateMode, setIsInlineCreateMode] = useState(false);
   const [editingClipId, setEditingClipId] = useState<string | null>(null);

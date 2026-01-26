@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { LabelSpeech } from '@project/shared';
+import {
+  LabelSpeech,
+  LabelSpeechInput,
+  LabelSpeechUpdate,
+} from '@project/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,8 +18,8 @@ interface TranscriptListProps {
   mediaId: string;
   workspaceId: string;
   onSeek: (time: number) => void;
-  onCreate: (data: any) => Promise<void>;
-  onUpdate: (id: string, data: any) => Promise<void>;
+  onCreate: (data: LabelSpeechInput) => Promise<void>;
+  onUpdate: (id: string, data: LabelSpeechUpdate) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -72,7 +76,8 @@ export function TranscriptList({
         duration: end - start,
         confidence: 1.0,
         words: [],
-        speechHash: Math.random().toString(36).substring(7) + Date.now().toString(),
+        speechHash:
+          Math.random().toString(36).substring(7) + Date.now().toString(),
         languageCode: 'en-US',
       });
       setIsCreating(false);
@@ -171,13 +176,21 @@ export function TranscriptList({
 
       <div className="space-y-2">
         {transcripts.map((t) => (
-          <Card key={t.id} className={cn("transition-colors", editingId === t.id && "border-primary")}>
+          <Card
+            key={t.id}
+            className={cn(
+              'transition-colors',
+              editingId === t.id && 'border-primary'
+            )}
+          >
             <CardContent className="p-3">
               {editingId === t.id ? (
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <div className="space-y-1 flex-1">
-                      <span className="text-xs text-muted-foreground">Start</span>
+                      <span className="text-xs text-muted-foreground">
+                        Start
+                      </span>
                       <Input
                         type="number"
                         step="0.1"
@@ -209,7 +222,11 @@ export function TranscriptList({
                     >
                       <X className="h-4 w-4" />
                     </Button>
-                    <Button size="sm" onClick={() => handleUpdate(t.id)} disabled={isSubmitting}>
+                    <Button
+                      size="sm"
+                      onClick={() => handleUpdate(t.id)}
+                      disabled={isSubmitting}
+                    >
                       <Save className="h-4 w-4" />
                     </Button>
                   </div>

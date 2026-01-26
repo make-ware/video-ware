@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import { LabelSpeech } from '@project/shared';
+import {
+  LabelSpeech,
+  LabelSpeechInput,
+  LabelSpeechUpdate,
+} from '@project/shared';
 import { LabelSpeechMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
 import { useAuth } from './use-auth';
@@ -37,7 +41,7 @@ export function useMediaTranscripts(mediaId: string) {
     fetchTranscripts();
   }, [fetchTranscripts]);
 
-  const createTranscript = async (input: any) => {
+  const createTranscript = async (input: LabelSpeechInput) => {
     try {
       const mutator = new LabelSpeechMutator(pb);
       await mutator.create(input);
@@ -50,7 +54,7 @@ export function useMediaTranscripts(mediaId: string) {
     }
   };
 
-  const updateTranscript = async (id: string, input: any) => {
+  const updateTranscript = async (id: string, input: LabelSpeechUpdate) => {
     try {
       const mutator = new LabelSpeechMutator(pb);
       await mutator.update(id, input);

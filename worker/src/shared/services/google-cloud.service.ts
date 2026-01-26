@@ -143,7 +143,6 @@ export class GoogleCloudService implements OnModuleInit {
 
       // Initialize Transcoder client
       if (this.enabled.transcoder) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.transcoderClient = new TranscoderServiceClient(
           clientConfig as any
         );

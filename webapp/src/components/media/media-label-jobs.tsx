@@ -1,13 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  Media,
-  Expanded,
-  MediaRelations,
-  LabelJob,
-  Task,
-} from '@project/shared';
+import { Media, Expanded, LabelJob, Task } from '@project/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,7 +18,7 @@ import { MediaService } from '@/services/media';
 import pb from '@/lib/pocketbase-client';
 
 interface MediaLabelJobsProps {
-  media: Expanded<Media, MediaRelations>;
+  media: Media;
   onUpdate: () => void;
 }
 
@@ -38,8 +32,9 @@ const JOB_TYPES = [
 
 export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
   const [regenerating, setRegenerating] = useState<Record<string, boolean>>({});
-  const [jobs, setJobs] = useState<Record<string, Expanded<LabelJob, { TaskRef?: Task }>>>({});
-  const [loading, setLoading] = useState(true);
+  const [jobs, setJobs] = useState<
+    Record<string, Expanded<LabelJob, { TaskRef?: Task }, 'TaskRef'>>
+  >({});
 
   const fetchJobs = async () => {
     try {
@@ -48,17 +43,20 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
       // but strictly speaking, the mutator returns expanded objects.
       // However, the return type in MediaService is LabelJob[].
       // We can assert it.
-      const fetchedJobs = await mediaService.getLabelJobs(media.id) as unknown as Expanded<LabelJob, { TaskRef?: Task }>[];
+      const fetchedJobs = (await mediaService.getLabelJobs(
+        media.id
+      )) as unknown as Expanded<LabelJob, { TaskRef?: Task }, 'TaskRef'>[];
 
-      const jobsMap: Record<string, Expanded<LabelJob, { TaskRef?: Task }>> = {};
+      const jobsMap: Record<
+        string,
+        Expanded<LabelJob, { TaskRef?: Task }, 'TaskRef'>
+      > = {};
       fetchedJobs.forEach((job) => {
         jobsMap[job.jobType] = job;
       });
       setJobs(jobsMap);
     } catch (error) {
       console.error('Failed to fetch label jobs:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -91,7 +89,7 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
 
     let status = 'Not Run';
     if (task) {
-      status = task.status;
+      status = Array.isArray(task.status) ? task.status[0] : task.status;
     }
 
     let countDisplay = '-';
@@ -126,10 +124,10 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
               status === 'success'
                 ? 'text-green-600'
                 : status === 'failed'
-                ? 'text-red-600'
-                : isProcessing
-                ? 'text-yellow-600'
-                : 'text-muted-foreground'
+                  ? 'text-red-600'
+                  : isProcessing
+                    ? 'text-yellow-600'
+                    : 'text-muted-foreground'
             }
           >
             {status.toUpperCase()}

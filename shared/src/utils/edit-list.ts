@@ -73,7 +73,43 @@ function generateSegmentsFromClip(
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
 
-  // Check if this is a composite clip
+  // Check for TimelineClip-level segments first (override)
+  if (clip.meta?.segments && clip.meta.segments.length > 0) {
+    const compositeSegments = clip.meta.segments;
+    // Calculate effective duration from segments
+    const usageSourceStart = 0;
+    const usageDuration = calculateEffectiveDuration(
+      clip.start,
+      clip.end,
+      compositeSegments
+    );
+
+    const expanded = expandCompositeToSegments(
+      compositeSegments,
+      usageSourceStart,
+      usageDuration,
+      startTime
+    );
+
+    const segments: TimelineSegment[] = expanded.map((expSeg, i) => ({
+      id: `${clip.id}_${i}`,
+      assetId: clip.MediaRef,
+      type: 'video' as const,
+      time: {
+        start: expSeg.timelineStart,
+        duration: expSeg.duration,
+        sourceStart: expSeg.sourceStart,
+      },
+      video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
+      audio: trackSettings
+        ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
+        : undefined,
+    }));
+
+    return { segments, totalDuration: usageDuration };
+  }
+
+  // Check if this is a composite clip (from MediaClip definition)
   if (isMediaClipComposite(mediaClip)) {
     const compositeSegments = getCompositeSegments(mediaClip);
     if (compositeSegments && compositeSegments.length > 0) {

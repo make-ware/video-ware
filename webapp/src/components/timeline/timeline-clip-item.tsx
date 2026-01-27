@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from 'react';
 import type { TimelineClip, Media, File } from '@project/shared';
 import { useTimeline } from '@/hooks/use-timeline';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
@@ -390,7 +396,8 @@ export function TimelineClipItem({
                 isHovering={isHovering}
                 className="w-full h-full"
               />
-            ) : media.filmstripFileRefs && media.filmstripFileRefs.length > 0 ? (
+            ) : media.filmstripFileRefs &&
+              media.filmstripFileRefs.length > 0 ? (
               <FilmstripViewer
                 media={media}
                 currentTime={previewTime}
@@ -660,24 +667,25 @@ export function TimelineClipItem({
             </div>
 
             {/* Original vs New comparison */}
-            {!isComposite && (editStart !== clip.start || editEnd !== clip.end) && (
-              <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Original:</span>
-                  <span className="font-mono">
-                    {formatTime(clip.start)} - {formatTime(clip.end)} (
-                    {formatTime(effectiveDuration)})
-                  </span>
+            {!isComposite &&
+              (editStart !== clip.start || editEnd !== clip.end) && (
+                <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Original:</span>
+                    <span className="font-mono">
+                      {formatTime(clip.start)} - {formatTime(clip.end)} (
+                      {formatTime(effectiveDuration)})
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">New:</span>
+                    <span className="font-mono text-primary">
+                      {formatTime(editStart)} - {formatTime(editEnd)} (
+                      {formatTime(editEnd - editStart)})
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">New:</span>
-                  <span className="font-mono text-primary">
-                    {formatTime(editStart)} - {formatTime(editEnd)} (
-                    {formatTime(editEnd - editStart)})
-                  </span>
-                </div>
-              </div>
-            )}
+              )}
 
             {/* Validation Error */}
             {validationError && (

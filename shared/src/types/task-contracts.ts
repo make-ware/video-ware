@@ -234,6 +234,10 @@ export interface RenderTimelineConfig {
   format: string;
   /** Output resolution (e.g., '1920x1080') */
   resolution: string;
+  /** Whether to include captions (text tracks) in the output */
+  includeCaptions?: boolean;
+  /** Whether to include transitions in the output */
+  includeTransitions?: boolean;
 }
 
 /**

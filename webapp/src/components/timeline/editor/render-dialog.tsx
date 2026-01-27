@@ -90,7 +90,10 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
                 checked={includeCaptions}
                 onCheckedChange={setIncludeCaptions}
               />
-              <Label htmlFor="captions" className="font-normal text-muted-foreground">
+              <Label
+                htmlFor="captions"
+                className="font-normal text-muted-foreground"
+              >
                 Include text tracks
               </Label>
             </div>
@@ -105,14 +108,21 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
                 checked={includeTransitions}
                 onCheckedChange={setIncludeTransitions}
               />
-              <Label htmlFor="transitions" className="font-normal text-muted-foreground">
+              <Label
+                htmlFor="transitions"
+                className="font-normal text-muted-foreground"
+              >
                 Enable transitions
               </Label>
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button onClick={handleRender} disabled={isSubmitting}>

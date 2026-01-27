@@ -21,16 +21,10 @@ import {
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 
 export function TimelineEditorLayout() {
-  const {
-    timeline,
-    hasUnsavedChanges,
-    saveTimeline,
-    isLoading,
-    createRenderTask,
-  } = useTimeline();
+  const { timeline, hasUnsavedChanges, saveTimeline, isLoading } =
+    useTimeline();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);

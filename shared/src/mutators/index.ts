@@ -31,3 +31,4 @@ export { TimelineRecommendationMutator } from './timeline-recommendation';
 // Task payload and result types
 export type { ProcessUploadPayload, ProcessUploadResult } from '../types';
 export { UsageEventMutator } from './usage-event.js';
+export * from './label-job.js';

@@ -84,7 +84,7 @@
     "@aws-sdk/lib-storage": "^3.971.0",
     "@aws-sdk/s3-request-presigner": "^3.971.0",
     "pocketbase": "^0.26.6",
-    "pocketbase-zod-schema": "^0.4.0",
+    "pocketbase-zod-schema": "^0.6.1",
     "zod": "^4.3.5"
   },
   "devDependencies": {

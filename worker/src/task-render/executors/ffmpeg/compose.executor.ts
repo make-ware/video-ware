@@ -203,9 +203,20 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           // Filter: trim -> volume -> adelay
           const volume = seg.audio?.volume ?? 1.0;
 
-          filterComplex.push(
-            `[${idx}:a]atrim=start=${sourceStart}:duration=${duration},asetpts=PTS-STARTPTS,volume=${volume},adelay=${delayMs}|${delayMs}[${seg.id}_delayed]`
-          );
+          // Apply fades (100ms or half duration if short) to prevent clicks
+          // Only apply if transitions are enabled (default true)
+          const useTransitions = outputSettings.includeTransitions !== false;
+          let audioFilter = `[${idx}:a]atrim=start=${sourceStart}:duration=${duration},asetpts=PTS-STARTPTS,volume=${volume}`;
+
+          if (useTransitions) {
+            const fadeDuration = Math.min(0.1, duration / 2);
+            const fadeOutStart = duration - fadeDuration;
+            audioFilter += `,afade=t=in:st=0:d=${fadeDuration},afade=t=out:st=${fadeOutStart}:d=${fadeDuration}`;
+          }
+
+          audioFilter += `,adelay=${delayMs}|${delayMs}[${seg.id}_delayed]`;
+
+          filterComplex.push(audioFilter);
           audioInputs.push(`[${seg.id}_delayed]`);
         }
         continue;
@@ -214,6 +225,11 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       // Visual Tracks (Video, Image, Text)
       for (const seg of track.segments) {
         if (seg.type === 'text') {
+          // Skip captions if disabled (default to true)
+          if (outputSettings.includeCaptions === false) {
+            continue;
+          }
+
           // Use drawtext on top of the current video chain
           const content = seg.text?.content || '';
           const fontSize = seg.text?.fontSize || 24;

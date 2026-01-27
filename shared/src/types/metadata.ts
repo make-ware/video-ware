@@ -319,6 +319,9 @@ export const TimelineMetadataSchema = z.array(TimelineTrackSchema);
 export const TimelineClipMetadataSchema = z.object({
   title: z.string().optional(),
   color: z.string().optional(), // hex color e.g. #FFFFFF
+  segments: z
+    .array(z.object({ start: z.number(), end: z.number() }))
+    .optional(),
 });
 
 // ============================================================================

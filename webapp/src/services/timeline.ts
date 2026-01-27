@@ -220,7 +220,7 @@ export class TimelineService {
       order,
       start,
       end,
-      duration: 1,
+      duration: end - start,
     };
 
     return this.timelineClipMutator.create(input);
@@ -322,10 +322,13 @@ export class TimelineService {
     const tracks = generateTracks(clips, tracksList.items);
 
     // Calculate duration
-    const duration = clips.reduce(
-      (sum, clip) => sum + calcDuration(clip.start, clip.end),
-      0
-    );
+    const duration = clips.reduce((sum, clip) => {
+      // If composite, use stored duration (which is effective duration)
+      if (clip.meta?.segments && clip.meta.segments.length > 0) {
+        return sum + clip.duration;
+      }
+      return sum + calcDuration(clip.start, clip.end);
+    }, 0);
 
     // Increment version
     const timeline = await this.timelineMutator.incrementVersion(timelineId);
@@ -345,10 +348,13 @@ export class TimelineService {
    */
   async calculateDuration(timelineId: string): Promise<number> {
     const clips = await this.timelineClipMutator.getByTimeline(timelineId);
-    return clips.reduce(
-      (sum, clip) => sum + calcDuration(clip.start, clip.end),
-      0
-    );
+    return clips.reduce((sum, clip) => {
+      // If composite, use stored duration (which is effective duration)
+      if (clip.meta?.segments && clip.meta.segments.length > 0) {
+        return sum + clip.duration;
+      }
+      return sum + calcDuration(clip.start, clip.end);
+    }, 0);
   }
 
   /**

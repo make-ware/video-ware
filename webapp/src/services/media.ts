@@ -130,6 +130,19 @@ export class MediaService {
   }
 
   /**
+   * Update a media clip
+   * @param clipId The media clip ID
+   * @param data The data to update
+   * @returns The updated media clip
+   */
+  async updateMediaClip(
+    clipId: string,
+    data: Partial<MediaClip>
+  ): Promise<MediaClip> {
+    return this.mediaClipMutator.update(clipId, data);
+  }
+
+  /**
    * Get label jobs for a media item
    * @param mediaId The media ID
    * @returns List of label jobs

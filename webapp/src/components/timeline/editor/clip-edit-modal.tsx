@@ -20,6 +20,8 @@ import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ExpandedTimelineClip } from '@/types/expanded-types';
 import { SegmentEditor, type Segment } from '../segment-editor';
 import { TimeInput } from '../time-input';
+import pb from '@/lib/pocketbase-client';
+import { MediaService } from '@/services/media';
 
 interface ClipEditModalProps {
   clipId: string | null;
@@ -53,6 +55,8 @@ export function ClipEditModal({
 }: ClipEditModalProps) {
   const { timeline, updateClip, removeClip } = useTimeline();
   const clip = timeline?.clips.find((c) => c.id === clipId);
+
+  const mediaService = useMemo(() => new MediaService(pb), []);
 
   const [title, setTitle] = useState('');
   const [color, setColor] = useState('');
@@ -127,9 +131,17 @@ export function ClipEditModal({
         },
       });
 
-      // TODO: If composite, also update MediaClip.clipData.segments
-      // This would require a separate API call to update the MediaClip
-      // For now, we only update the TimelineClip metadata
+      // If composite, also update MediaClip.clipData.segments
+      if (isComposite && mediaClip) {
+        const currentClipData =
+          (mediaClip.clipData as Record<string, unknown>) || {};
+        await mediaService.updateMediaClip(mediaClip.id, {
+          clipData: {
+            ...currentClipData,
+            segments,
+          },
+        });
+      }
 
       toast.success('Clip updated');
       onOpenChange(false);

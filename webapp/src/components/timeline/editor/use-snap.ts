@@ -24,9 +24,12 @@ export interface UseSnapOptions {
  * Result returned by the useSnap hook
  */
 export interface UseSnapResult {
-  snapTime: (candidateTime: number, excludeClipId?: string) => { 
-    snapped: number; 
-    guide: SnapPosition | null 
+  snapTime: (
+    candidateTime: number,
+    excludeClipId?: string
+  ) => {
+    snapped: number;
+    guide: SnapPosition | null;
   };
   activeGuides: SnapPosition[];
   clearGuides: () => void;
@@ -34,7 +37,7 @@ export interface UseSnapResult {
 
 /**
  * Finds the nearest snap target within the threshold distance.
- * 
+ *
  * @param candidateTime - The time position to snap (in seconds)
  * @param targets - Array of available snap targets
  * @param thresholdSeconds - Maximum distance for snapping (in seconds)
@@ -61,10 +64,10 @@ export function findSnapTarget(
 
 /**
  * Custom hook for managing timeline snapping behavior.
- * 
+ *
  * Collects snap targets from clip edges and the playhead, then provides
  * a function to snap candidate times to the nearest target within threshold.
- * 
+ *
  * @param options - Configuration options for snapping
  * @returns Snap utilities including snapTime function and active guides
  */
@@ -124,7 +127,7 @@ export function useSnap(options: UseSnapOptions): UseSnapResult {
 
   /**
    * Snaps a candidate time to the nearest target within threshold.
-   * 
+   *
    * @param candidateTime - The time to snap (in seconds)
    * @param excludeClipId - Optional clip ID to exclude from snapping (e.g., the clip being dragged)
    * @returns Object with snapped time and the guide to display (if any)
@@ -141,12 +144,15 @@ export function useSnap(options: UseSnapOptions): UseSnapResult {
       if (excludeClipId) {
         const excludedClip = clips.find((c) => c.id === excludeClipId);
         if (excludedClip) {
-          const excludedStart = excludedClip.timelineStart ?? excludedClip.start;
-          const excludedEnd = excludedStart + (excludedClip.end - excludedClip.start);
-          
+          const excludedStart =
+            excludedClip.timelineStart ?? excludedClip.start;
+          const excludedEnd =
+            excludedStart + (excludedClip.end - excludedClip.start);
+
           targets = snapTargets.filter(
-            (t) => Math.abs(t.time - excludedStart) > 0.001 && 
-                   Math.abs(t.time - excludedEnd) > 0.001
+            (t) =>
+              Math.abs(t.time - excludedStart) > 0.001 &&
+              Math.abs(t.time - excludedEnd) > 0.001
           );
         }
       }

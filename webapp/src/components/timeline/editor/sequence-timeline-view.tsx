@@ -128,22 +128,22 @@ export function SequenceTimelineView() {
 
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
-  const [selectedTrackFilter, setSelectedTrackFilter] = useState<string>(ALL_TRACKS_VALUE);
+  const [selectedTrackFilter, setSelectedTrackFilter] =
+    useState<string>(ALL_TRACKS_VALUE);
 
-  if (!timeline) return null;
-
-  // Sort tracks by layer (lowest to highest for display order)
+  // Sort tracks by layer (lowest to highest for display order) - hooks must run unconditionally
   const sortedTracks = useMemo(() => {
     return [...tracks].sort((a, b) => a.layer - b.layer);
   }, [tracks]);
 
   // Filter clips based on selected track
   const displayClips = useMemo(() => {
+    if (!timeline) return [];
     if (selectedTrackFilter === ALL_TRACKS_VALUE) {
       // Show all clips, sorted by track layer then by order
       return [...timeline.clips].sort((a, b) => {
-        const aTrack = tracks.find(t => t.id === (a as any).TimelineTrackRef);
-        const bTrack = tracks.find(t => t.id === (b as any).TimelineTrackRef);
+        const aTrack = tracks.find((t) => t.id === a.TimelineTrackRef);
+        const bTrack = tracks.find((t) => t.id === b.TimelineTrackRef);
         const aLayer = aTrack?.layer ?? 0;
         const bLayer = bTrack?.layer ?? 0;
 
@@ -152,26 +152,28 @@ export function SequenceTimelineView() {
         }
         return a.order - b.order;
       });
-    } else {
-      // Show only clips from selected track
-      return timeline.clips.filter(
-        (c) => (c as any).TimelineTrackRef === selectedTrackFilter
-      ).sort((a, b) => a.order - b.order);
     }
-  }, [timeline.clips, selectedTrackFilter, tracks]);
+    // Show only clips from selected track
+    return timeline.clips
+      .filter((c) => c.TimelineTrackRef === selectedTrackFilter)
+      .sort((a, b) => a.order - b.order);
+  }, [timeline, selectedTrackFilter, tracks]);
 
   // Group clips by track when showing all tracks
   const groupedClips = useMemo(() => {
-    if (selectedTrackFilter !== ALL_TRACKS_VALUE) {
+    if (!timeline || selectedTrackFilter !== ALL_TRACKS_VALUE) {
       return null;
     }
 
-    const groups: Array<{ track: typeof sortedTracks[0] | null; clips: TimelineClip[] }> = [];
+    const groups: Array<{
+      track: (typeof sortedTracks)[0] | null;
+      clips: TimelineClip[];
+    }> = [];
 
-    sortedTracks.forEach(track => {
-      const trackClips = timeline.clips.filter(
-        c => (c as any).TimelineTrackRef === track.id
-      ).sort((a, b) => a.order - b.order);
+    sortedTracks.forEach((track) => {
+      const trackClips = timeline.clips
+        .filter((c) => c.TimelineTrackRef === track.id)
+        .sort((a, b) => a.order - b.order);
 
       if (trackClips.length > 0) {
         groups.push({ track, clips: trackClips });
@@ -179,16 +181,22 @@ export function SequenceTimelineView() {
     });
 
     // Add clips without a track assignment
-    const unassignedClips = timeline.clips.filter(
-      c => !(c as any).TimelineTrackRef || !tracks.find(t => t.id === (c as any).TimelineTrackRef)
-    ).sort((a, b) => a.order - b.order);
+    const unassignedClips = timeline.clips
+      .filter(
+        (c) =>
+          !c.TimelineTrackRef ||
+          !tracks.find((t) => t.id === c.TimelineTrackRef)
+      )
+      .sort((a, b) => a.order - b.order);
 
     if (unassignedClips.length > 0) {
       groups.push({ track: null, clips: unassignedClips });
     }
 
     return groups;
-  }, [timeline.clips, sortedTracks, tracks, selectedTrackFilter]);
+  }, [timeline, sortedTracks, tracks, selectedTrackFilter]);
+
+  if (!timeline) return null;
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedClipId(id);
@@ -229,8 +237,13 @@ export function SequenceTimelineView() {
     <div className="flex flex-col w-full bg-background/30 rounded-lg overflow-hidden h-48 lg:h-40">
       {/* Track Selector */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
-        <span className="text-xs font-medium text-muted-foreground">Track:</span>
-        <Select value={selectedTrackFilter} onValueChange={setSelectedTrackFilter}>
+        <span className="text-xs font-medium text-muted-foreground">
+          Track:
+        </span>
+        <Select
+          value={selectedTrackFilter}
+          onValueChange={setSelectedTrackFilter}
+        >
           <SelectTrigger className="w-[180px] h-8 text-xs">
             <SelectValue placeholder="Select track" />
           </SelectTrigger>

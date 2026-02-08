@@ -1,20 +1,18 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TimelineClip, TimelineClipUpdate, Media, File } from '@project/shared';
+import type {
+  TimelineClip,
+  TimelineClipUpdate,
+  Media,
+  File,
+} from '@project/shared';
 import { useTimeline } from '@/hooks/use-timeline';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import {
-  Trash2,
-  GripVertical,
-  Clock,
-  Edit,
-  Eye,
-  Calendar,
-} from 'lucide-react';
+import { Trash2, GripVertical, Clock, Edit, Eye, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
 import { calculateEffectiveDuration, ClipType } from '@project/shared';
@@ -76,7 +74,11 @@ export function TimelineClipItem({
   const effectiveDuration = useMemo(() => {
     if (isComposite && clip.meta?.segments) {
       if (clip.duration > 0) return clip.duration;
-      return calculateEffectiveDuration(clip.start, clip.end, clip.meta.segments);
+      return calculateEffectiveDuration(
+        clip.start,
+        clip.end,
+        clip.meta.segments
+      );
     }
     return clip.duration || clip.end - clip.start;
   }, [isComposite, clip.duration, clip.start, clip.end, clip.meta]);
@@ -191,7 +193,8 @@ export function TimelineClipItem({
                 isHovering={isHovering}
                 className="w-full h-full"
               />
-            ) : media.filmstripFileRefs && media.filmstripFileRefs.length > 0 ? (
+            ) : media.filmstripFileRefs &&
+              media.filmstripFileRefs.length > 0 ? (
               <FilmstripViewer
                 media={media}
                 currentTime={previewTime}
@@ -231,18 +234,28 @@ export function TimelineClipItem({
           <div className="text-xs space-y-1">
             {isComposite ? (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground font-medium">Segments:</span>
-                <span className="font-mono text-[11px]">{clip.meta?.segments?.length || 0}</span>
+                <span className="text-muted-foreground font-medium">
+                  Segments:
+                </span>
+                <span className="font-mono text-[11px]">
+                  {clip.meta?.segments?.length || 0}
+                </span>
               </div>
             ) : (
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground font-medium">In:</span>
-                  <span className="font-mono text-[11px]">{formatTime(clip.start)}</span>
+                  <span className="font-mono text-[11px]">
+                    {formatTime(clip.start)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground font-medium">Out:</span>
-                  <span className="font-mono text-[11px]">{formatTime(clip.end)}</span>
+                  <span className="text-muted-foreground font-medium">
+                    Out:
+                  </span>
+                  <span className="font-mono text-[11px]">
+                    {formatTime(clip.end)}
+                  </span>
                 </div>
               </>
             )}
@@ -253,7 +266,9 @@ export function TimelineClipItem({
                 Date:
               </span>
               <span className="font-mono text-[11px]">
-                {formatMediaDate(calculateMediaDate(media?.mediaDate, clip.start))}
+                {formatMediaDate(
+                  calculateMediaDate(media?.mediaDate, clip.start)
+                )}
               </span>
             </div>
           </div>
@@ -263,10 +278,12 @@ export function TimelineClipItem({
       <ClipBaseDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
-        clip={{
-          ...clip,
-          type: isComposite ? ClipType.COMPOSITE : ClipType.USER,
-        } as ExpandedTimelineClip & { type: string }}
+        clip={
+          {
+            ...clip,
+            type: isComposite ? ClipType.COMPOSITE : ClipType.USER,
+          } as ExpandedTimelineClip & { type: string }
+        }
         initialMode={dialogMode}
         onSave={handleSave}
       />

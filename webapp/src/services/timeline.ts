@@ -19,10 +19,7 @@ import type {
   RenderFlowConfig,
   TimelineTrackRecord,
 } from '@project/shared';
-import {
-  generateTracks,
-  validateTimeRange,
-} from '@project/shared';
+import { generateTracks, validateTimeRange } from '@project/shared';
 
 /**
  * Extended Timeline type with clips included
@@ -516,9 +513,7 @@ export class TimelineService {
   ): Promise<TimelineClip> {
     // Validate timelineStart is non-negative
     if (timelineStart < 0) {
-      throw new Error(
-        `Invalid timelineStart: ${timelineStart}. Must be >= 0.`
-      );
+      throw new Error(`Invalid timelineStart: ${timelineStart}. Must be >= 0.`);
     }
 
     // Update the clip

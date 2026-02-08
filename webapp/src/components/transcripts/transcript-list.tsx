@@ -245,9 +245,8 @@ export function TranscriptList({
       // 3. Create composite clip
       const pb = (await import('@/lib/pocketbase-client')).default;
       const { MediaClipMutator } = await import('@project/shared/mutator');
-      const { ClipType, calculateEffectiveDuration } = await import(
-        '@project/shared'
-      );
+      const { ClipType, calculateEffectiveDuration } =
+        await import('@project/shared');
 
       const mutator = new MediaClipMutator(pb);
 

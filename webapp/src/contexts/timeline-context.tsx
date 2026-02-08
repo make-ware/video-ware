@@ -10,7 +10,11 @@ import React, {
 import { TimelineService, type TimelineWithClips } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
 import { useAuth } from '@/hooks/use-auth';
-import { RenderFlowConfig, TimelineTrackRecord, TimelineTrackRecordInput } from '@project/shared';
+import {
+  RenderFlowConfig,
+  TimelineTrackRecord,
+  TimelineTrackRecordInput,
+} from '@project/shared';
 
 interface TimelineContextType {
   // Current timeline state
@@ -63,11 +67,18 @@ interface TimelineContextType {
 
   // Track operations
   createTrack: (name?: string) => Promise<void>;
-  updateTrack: (trackId: string, data: Partial<TimelineTrackRecordInput>) => Promise<void>;
+  updateTrack: (
+    trackId: string,
+    data: Partial<TimelineTrackRecordInput>
+  ) => Promise<void>;
   deleteTrack: (trackId: string, deleteClips?: boolean) => Promise<void>;
 
   // Clip positioning operations
-  moveClipToTrack: (clipId: string, targetTrackId: string, timelineStart?: number) => Promise<void>;
+  moveClipToTrack: (
+    clipId: string,
+    targetTrackId: string,
+    timelineStart?: number
+  ) => Promise<void>;
   updateClipPosition: (clipId: string, timelineStart: number) => Promise<void>;
 
   // Render operations
@@ -442,7 +453,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, clearError, handleError, refreshTimeline]
   );
 
   const updateTrack = useCallback(
@@ -501,7 +512,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, clearError, handleError, refreshTimeline]
   );
 
   // Clip positioning operations

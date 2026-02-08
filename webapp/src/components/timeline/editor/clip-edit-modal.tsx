@@ -113,7 +113,7 @@ export function ClipEditModal({
       let finalStart = start;
       let finalEnd = end;
       let finalDuration = end - start;
-      
+
       if (isComposite && segments.length > 0) {
         const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
         finalStart = sortedSegs[0].start;
@@ -144,7 +144,7 @@ export function ClipEditModal({
       if (isComposite && mediaClip?.id) {
         const mutator = new MediaClipMutator(pb);
         const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
-        
+
         await mutator.update(mediaClip.id, {
           start: finalStart,
           end: finalEnd,

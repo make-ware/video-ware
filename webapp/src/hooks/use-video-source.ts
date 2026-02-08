@@ -27,7 +27,10 @@ export function useVideoSource<
       ? (media.expand.proxyFileRef as File | undefined)
       : undefined;
   const thumbnailFileFromExpand =
-    media && 'expand' in media && media.expand && 'thumbnailFileRef' in media.expand
+    media &&
+    'expand' in media &&
+    media.expand &&
+    'thumbnailFileRef' in media.expand
       ? (media.expand.thumbnailFileRef as File | undefined)
       : undefined;
 
@@ -40,11 +43,13 @@ export function useVideoSource<
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!media) return;
+    const currentMedia = media;
+    if (!currentMedia) return;
 
-    async function fetchFiles() {
-      const needsProxy = !proxyFile && !!media.proxyFileRef;
-      const needsThumbnail = !thumbnailFile && !!media.thumbnailFileRef;
+    type MediaParam = NonNullable<typeof media>;
+    async function fetchFiles(m: MediaParam) {
+      const needsProxy = !proxyFile && !!m.proxyFileRef;
+      const needsThumbnail = !thumbnailFile && !!m.thumbnailFileRef;
 
       if (!needsProxy && !needsThumbnail) return;
 
@@ -53,13 +58,13 @@ export function useVideoSource<
         if (needsProxy) {
           const file = await pb
             .collection('Files')
-            .getOne<File>(media.proxyFileRef!);
+            .getOne<File>(m.proxyFileRef!);
           setProxyFile(file);
         }
         if (needsThumbnail) {
           const file = await pb
             .collection('Files')
-            .getOne<File>(media.thumbnailFileRef!);
+            .getOne<File>(m.thumbnailFileRef!);
           setThumbnailFile(file);
         }
       } catch (error) {
@@ -69,8 +74,14 @@ export function useVideoSource<
       }
     }
 
-    fetchFiles();
-  }, [media, media?.proxyFileRef, media?.thumbnailFileRef, proxyFile, thumbnailFile]);
+    fetchFiles(currentMedia);
+  }, [
+    media,
+    media?.proxyFileRef,
+    media?.thumbnailFileRef,
+    proxyFile,
+    thumbnailFile,
+  ]);
 
   const src = useMemo(() => {
     if (!proxyFile?.file) return '';

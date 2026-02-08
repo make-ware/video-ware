@@ -2,11 +2,11 @@ import type { TimelineClip } from '@project/shared';
 
 /**
  * Calculates the visual position and width of a clip on the timeline.
- * 
+ *
  * Positioning logic:
  * - If clip.timelineStart is defined: absolute positioning at that time offset
  * - Otherwise: sequential positioning after all preceding clips on the same track
- * 
+ *
  * @param clip - The timeline clip to position
  * @param precedingClips - Array of clips that come before this clip on the same track (in order)
  * @param pixelsPerSecond - The timeline zoom level (pixels per second)
@@ -22,21 +22,21 @@ export function calculateClipPosition(
 
   // Absolute positioning if timelineStart is defined
   if (clip.timelineStart !== undefined && clip.timelineStart !== null) {
-    return { 
-      left: clip.timelineStart * pixelsPerSecond, 
-      width 
+    return {
+      left: clip.timelineStart * pixelsPerSecond,
+      width,
     };
   }
 
   // Sequential positioning (fallback)
   // Accumulate the durations of all preceding clips
   const accumulatedTime = precedingClips.reduce(
-    (sum, c) => sum + (c.end - c.start), 
+    (sum, c) => sum + (c.end - c.start),
     0
   );
-  
-  return { 
-    left: accumulatedTime * pixelsPerSecond, 
-    width 
+
+  return {
+    left: accumulatedTime * pixelsPerSecond,
+    width,
   };
 }

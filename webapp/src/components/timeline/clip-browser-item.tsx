@@ -45,24 +45,24 @@ export function ClipBrowserItem({
   // Construct a pseudo-clip for the dialog
   const detailsClip: ExpandedTimelineClip | null = media
     ? {
-      id: clip.id,
-      TimelineRef: 'preview',
-      MediaRef: media.id,
-      MediaClipRef: clip.id,
-      start: clip.start,
-      end: clip.end,
-      duration: clip.end - clip.start,
-      collectionId: '',
-      collectionName: '',
-      order: 0,
-      meta: {},
-      created: clip.created,
-      updated: clip.updated,
-      expand: {
-        MediaRef: media,
-        MediaClipRef: clip,
-      },
-    }
+        id: clip.id,
+        TimelineRef: 'preview',
+        MediaRef: media.id,
+        MediaClipRef: clip.id,
+        start: clip.start,
+        end: clip.end,
+        duration: clip.end - clip.start,
+        collectionId: '',
+        collectionName: '',
+        order: 0,
+        meta: {},
+        created: clip.created,
+        updated: clip.updated,
+        expand: {
+          MediaRef: media,
+          MediaClipRef: clip,
+        },
+      }
     : null;
 
   return (

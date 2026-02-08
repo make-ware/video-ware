@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+} from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Plus,
-  Trash2,
-  GripVertical,
-  Layers,
-  ZoomIn,
-} from 'lucide-react';
+import { Plus, Trash2, GripVertical, Layers, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { calculateEffectiveDuration } from '@project/shared';
 import { TimeInput } from './time-input';
@@ -87,48 +87,50 @@ export function SegmentEditor({
     return gaps;
   }, [segments]);
 
-  const handleSegmentChange = useCallback((
-    index: number,
-    field: 'start' | 'end',
-    value: number
-  ) => {
-    const newSegments = [...segments];
-    const current = newSegments[index];
-    const newValue = Math.max(0, Math.min(mediaDuration, value));
+  const handleSegmentChange = useCallback(
+    (index: number, field: 'start' | 'end', value: number) => {
+      const newSegments = [...segments];
+      const current = newSegments[index];
+      const newValue = Math.max(0, Math.min(mediaDuration, value));
 
-    if (field === 'start') {
-      // Ensure start doesn't cross end
-      newSegments[index] = {
-        ...current,
-        start: Math.min(newValue, current.end - 0.1),
-      };
-    } else {
-      // Ensure end doesn't cross start
-      newSegments[index] = {
-        ...current,
-        end: Math.max(newValue, current.start + 0.1),
-      };
-    }
+      if (field === 'start') {
+        // Ensure start doesn't cross end
+        newSegments[index] = {
+          ...current,
+          start: Math.min(newValue, current.end - 0.1),
+        };
+      } else {
+        // Ensure end doesn't cross start
+        newSegments[index] = {
+          ...current,
+          end: Math.max(newValue, current.start + 0.1),
+        };
+      }
 
-    onChange(newSegments);
-  }, [segments, mediaDuration, onChange]);
+      onChange(newSegments);
+    },
+    [segments, mediaDuration, onChange]
+  );
 
-  const handleMouseDown = useCallback((
-    e: React.MouseEvent | React.TouchEvent,
-    index: number,
-    handle: 'start' | 'end'
-  ) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const seg = segments[index];
-    setDragging({
-      index,
-      handle,
-      initialX: clientX,
-      initialTime: handle === 'start' ? seg.start : seg.end,
-    });
-  }, [segments]);
+  const handleMouseDown = useCallback(
+    (
+      e: React.MouseEvent | React.TouchEvent,
+      index: number,
+      handle: 'start' | 'end'
+    ) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const seg = segments[index];
+      setDragging({
+        index,
+        handle,
+        initialX: clientX,
+        initialTime: handle === 'start' ? seg.start : seg.end,
+      });
+    },
+    [segments]
+  );
 
   useEffect(() => {
     if (!dragging) return;
@@ -261,13 +263,19 @@ export function SegmentEditor({
                 isExpanded && 'bg-primary ring-2 ring-primary ring-inset'
               )}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
-              onClick={() => setExpandedIndex(isExpanded ? null : seg.originalIndex)}
+              onClick={() =>
+                setExpandedIndex(isExpanded ? null : seg.originalIndex)
+              }
             >
               {/* Left Handle */}
               <div
                 className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/30 z-20 flex items-center justify-center"
-                onMouseDown={(e) => handleMouseDown(e, seg.originalIndex, 'start')}
-                onTouchStart={(e) => handleMouseDown(e, seg.originalIndex, 'start')}
+                onMouseDown={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'start')
+                }
+                onTouchStart={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'start')
+                }
               >
                 <div className="w-px h-3 bg-white/50" />
               </div>
@@ -275,8 +283,12 @@ export function SegmentEditor({
               {/* Right Handle */}
               <div
                 className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/30 z-20 flex items-center justify-center"
-                onMouseDown={(e) => handleMouseDown(e, seg.originalIndex, 'end')}
-                onTouchStart={(e) => handleMouseDown(e, seg.originalIndex, 'end')}
+                onMouseDown={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'end')
+                }
+                onTouchStart={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'end')
+                }
               >
                 <div className="w-px h-3 bg-white/50" />
               </div>

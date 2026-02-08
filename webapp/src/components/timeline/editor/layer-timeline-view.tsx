@@ -11,7 +11,7 @@ import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
 import { X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { TimelineClip, MediaClip } from '@project/shared';
+import type { TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
@@ -136,7 +136,7 @@ export function LayerTimelineView() {
   });
 
   // Helper to get clip display times (taking drag into account)
-  const getClipTimes = useCallback(
+  const _getClipTimes = useCallback(
     (clip: TimelineClip) => {
       if (dragState && dragState.clipId === clip.id) {
         const deltaPixels = dragState.currentX - dragState.initialX;
@@ -166,7 +166,7 @@ export function LayerTimelineView() {
   );
 
   // Handle Drag Start for Resizing
-  const handleResizeStart = useCallback(
+  const _handleResizeStart = useCallback(
     (
       e: React.MouseEvent | React.TouchEvent,
       clip: TimelineClip,
@@ -356,18 +356,26 @@ export function LayerTimelineView() {
 
   // Clip drag and drop handlers
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
-  const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null);
+  const [_dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(
+    null
+  );
 
-  const handleClipDragStart = useCallback((clipId: string, e: React.DragEvent) => {
-    setDraggedClipId(clipId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', clipId);
-  }, []);
+  const handleClipDragStart = useCallback(
+    (clipId: string, e: React.DragEvent) => {
+      setDraggedClipId(clipId);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', clipId);
+    },
+    []
+  );
 
-  const handleTrackDragOver = useCallback((trackId: string, e: React.DragEvent) => {
-    e.preventDefault();
-    setDragTargetTrackId(trackId);
-  }, []);
+  const handleTrackDragOver = useCallback(
+    (trackId: string, e: React.DragEvent) => {
+      e.preventDefault();
+      setDragTargetTrackId(trackId);
+    },
+    []
+  );
 
   const handleTrackDrop = useCallback(
     async (trackId: string, e: React.DragEvent) => {
@@ -411,7 +419,15 @@ export function LayerTimelineView() {
         clearGuides();
       }
     },
-    [draggedClipId, sortedTracks, timeline?.clips, snapTime, updateClipPosition, moveClipToTrack, clearGuides]
+    [
+      draggedClipId,
+      sortedTracks,
+      timeline?.clips,
+      snapTime,
+      updateClipPosition,
+      moveClipToTrack,
+      clearGuides,
+    ]
   );
 
   const handleTimelineClick = useCallback(
@@ -553,14 +569,22 @@ export function LayerTimelineView() {
       {/* Timeline Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Track Headers Sidebar */}
-        <div className="flex-shrink-0 border-r bg-muted/20" style={{ width: TRACK_HEADER_WIDTH }}>
+        <div
+          className="flex-shrink-0 border-r bg-muted/20"
+          style={{ width: TRACK_HEADER_WIDTH }}
+        >
           {/* Ruler Header Spacer */}
           <div className="h-8 border-b bg-muted/30 flex items-center justify-center">
-            <span className="text-xs text-muted-foreground font-medium">Tracks</span>
+            <span className="text-xs text-muted-foreground font-medium">
+              Tracks
+            </span>
           </div>
 
           {/* Track Headers */}
-          <div className="overflow-y-auto" style={{ maxHeight: 'calc(100% - 2rem)' }}>
+          <div
+            className="overflow-y-auto"
+            style={{ maxHeight: 'calc(100% - 2rem)' }}
+          >
             {hasNoTracks ? (
               <div className="p-4 text-center text-sm text-muted-foreground">
                 No tracks yet. Create one to get started.
@@ -573,10 +597,18 @@ export function LayerTimelineView() {
                   isSelected={selectedTrackId === track.id}
                   onSelect={() => setSelectedTrackId(track.id)}
                   onRename={(name) => handleTrackRename(track.id, name)}
-                  onToggleMute={() => handleTrackToggleMute(track.id, track.isMuted)}
-                  onToggleLock={() => handleTrackToggleLock(track.id, track.isLocked)}
-                  onVolumeChange={(volume) => handleTrackVolumeChange(track.id, volume)}
-                  onOpacityChange={(opacity) => handleTrackOpacityChange(track.id, opacity)}
+                  onToggleMute={() =>
+                    handleTrackToggleMute(track.id, track.isMuted)
+                  }
+                  onToggleLock={() =>
+                    handleTrackToggleLock(track.id, track.isLocked)
+                  }
+                  onVolumeChange={(volume) =>
+                    handleTrackVolumeChange(track.id, volume)
+                  }
+                  onOpacityChange={(opacity) =>
+                    handleTrackOpacityChange(track.id, opacity)
+                  }
                   onDelete={() => handleTrackDelete(track.id)}
                 />
               ))
@@ -640,7 +672,7 @@ export function LayerTimelineView() {
                       onClipDragStart={handleClipDragStart}
                       onDragOver={(e) => handleTrackDragOver(track.id, e)}
                       onDrop={(e) => handleTrackDrop(track.id, e)}
-                      onClipResize={(clipId, handle, deltaTime) => {
+                      onClipResize={(_clipId, _handle, _deltaTime) => {
                         // This is handled by the resize handlers above
                       }}
                       snapGuides={activeGuides}

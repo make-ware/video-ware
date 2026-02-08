@@ -4,9 +4,9 @@ import { findSnapTarget, type SnapPosition } from '../use-snap';
 
 /**
  * Property-Based Tests for Snap Engine
- * 
+ *
  * Feature: timeline-editor-enhancement
- * 
+ *
  * These tests validate the correctness properties for the snap engine:
  * - Property 9: Snap finds nearest target within threshold
  * - Property 10: Snap disabled returns unmodified time
@@ -16,7 +16,7 @@ describe('snap-engine', () => {
   describe('Property 9: Snap finds nearest target within threshold', () => {
     /**
      * **Validates: Requirements 4.1, 4.2**
-     * 
+     *
      * For any candidate time, set of snap targets (clip edges + playhead), and threshold value,
      * the snap function SHALL return the target closest to the candidate if the distance is
      * within the threshold, or the original candidate time if no target is within the threshold.
@@ -97,7 +97,11 @@ describe('snap-engine', () => {
             );
 
             if (farTargets.length > 0) {
-              const result = findSnapTarget(candidateTime, farTargets, threshold);
+              const result = findSnapTarget(
+                candidateTime,
+                farTargets,
+                threshold
+              );
               expect(result).toBeNull();
             }
           }
@@ -209,10 +213,10 @@ describe('snap-engine', () => {
   describe('Property 10: Snap disabled returns unmodified time', () => {
     /**
      * **Validates: Requirements 4.4**
-     * 
+     *
      * For any candidate time and set of snap targets, when snapping is disabled,
      * the snap function SHALL return the candidate time unchanged with no active guides.
-     * 
+     *
      * Note: This property is tested at the findSnapTarget level by verifying that
      * when the function is not called (enabled=false in useSnap), the original time
      * is preserved. The useSnap hook itself handles the enabled flag.

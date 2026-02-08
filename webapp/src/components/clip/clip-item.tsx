@@ -37,15 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import {
-  Edit,
-  Trash2,
-  X,
-  Plus,
-  ListVideo,
-  Scissors,
-  Eye,
-} from 'lucide-react';
+import { Edit, Trash2, X, Plus, ListVideo, Scissors, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
@@ -77,7 +69,8 @@ export function ClipItem({
   // Dialog state
   const [dialogMode, setDialogMode] = useState<'view' | 'edit'>('view');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isAddToTimelineDialogOpen, setIsAddToTimelineDialogOpen] = useState(false);
+  const [isAddToTimelineDialogOpen, setIsAddToTimelineDialogOpen] =
+    useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
@@ -354,7 +347,11 @@ export function ClipItem({
               variant="secondary"
               onClick={handleOpenEditDialog}
               className="h-7 w-7 shadow-md"
-              title={clip.type === ClipType.COMPOSITE ? "Fine-Tune Segments" : "Edit Time Range"}
+              title={
+                clip.type === ClipType.COMPOSITE
+                  ? 'Fine-Tune Segments'
+                  : 'Edit Time Range'
+              }
             >
               <Edit className="h-4 w-4" />
             </Button>,

@@ -245,7 +245,9 @@ export function TranscriptList({
       // 3. Create composite clip
       const pb = (await import('@/lib/pocketbase-client')).default;
       const { MediaClipMutator } = await import('@project/shared/mutator');
-      const { ClipType } = await import('@project/shared');
+      const { ClipType, calculateEffectiveDuration } = await import(
+        '@project/shared'
+      );
 
       const mutator = new MediaClipMutator(pb);
 
@@ -256,6 +258,11 @@ export function TranscriptList({
       // For standard metadata 'start'/'end' we usually put the full range.
       const totalStart = segments[0].start;
       const totalEnd = segments[segments.length - 1].end;
+      const effectiveDuration = calculateEffectiveDuration(
+        totalStart,
+        totalEnd,
+        segments
+      );
 
       await mutator.create({
         WorkspaceRef: workspaceId,
@@ -263,7 +270,7 @@ export function TranscriptList({
         type: ClipType.COMPOSITE,
         start: totalStart,
         end: totalEnd,
-        duration: totalEnd - totalStart, // This is "wall clock" duration, active duration might be less
+        duration: effectiveDuration,
         version: 1,
         clipData: {
           labelType: 'speech',

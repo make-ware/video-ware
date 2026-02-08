@@ -20,6 +20,9 @@ import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ExpandedTimelineClip } from '@/types/expanded-types';
 import { SegmentEditor, type Segment } from '../segment-editor';
 import { TimeInput } from '../time-input';
+import pb from '@/lib/pocketbase-client';
+import { MediaClipMutator } from '@project/shared/mutator';
+import { calculateEffectiveDuration } from '@project/shared';
 
 interface ClipEditModalProps {
   clipId: string | null;
@@ -109,12 +112,20 @@ export function ClipEditModal({
       // Update start/end based on segments if composite
       let finalStart = start;
       let finalEnd = end;
+      let finalDuration = end - start;
+      
       if (isComposite && segments.length > 0) {
         const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
         finalStart = sortedSegs[0].start;
         finalEnd = sortedSegs[sortedSegs.length - 1].end;
+        finalDuration = calculateEffectiveDuration(
+          finalStart,
+          finalEnd,
+          sortedSegs
+        );
       }
 
+      // Update TimelineClip
       await updateClip(clip.id, {
         start: finalStart,
         end: finalEnd,
@@ -124,12 +135,28 @@ export function ClipEditModal({
             : {}),
           title,
           color,
+          // Include segments in TimelineClip meta for timeline-level override
+          ...(isComposite && segments.length > 0 ? { segments } : {}),
         },
       });
 
-      // TODO: If composite, also update MediaClip.clipData.segments
-      // This would require a separate API call to update the MediaClip
-      // For now, we only update the TimelineClip metadata
+      // If composite, also update MediaClip.clipData.segments (source of truth)
+      if (isComposite && mediaClip?.id) {
+        const mutator = new MediaClipMutator(pb);
+        const sortedSegs = [...segments].sort((a, b) => a.start - b.start);
+        
+        await mutator.update(mediaClip.id, {
+          start: finalStart,
+          end: finalEnd,
+          duration: finalDuration,
+          clipData: {
+            ...(mediaClip.clipData && typeof mediaClip.clipData === 'object'
+              ? mediaClip.clipData
+              : {}),
+            segments: sortedSegs,
+          },
+        });
+      }
 
       toast.success('Clip updated');
       onOpenChange(false);

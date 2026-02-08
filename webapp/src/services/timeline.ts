@@ -22,7 +22,6 @@ import type {
 import {
   generateTracks,
   validateTimeRange,
-  calculateDuration as calcDuration,
 } from '@project/shared';
 
 /**
@@ -323,11 +322,7 @@ export class TimelineService {
 
     // Calculate duration
     const duration = clips.reduce((sum, clip) => {
-      // If composite, use stored duration (which is effective duration)
-      if (clip.meta?.segments && clip.meta.segments.length > 0) {
-        return sum + clip.duration;
-      }
-      return sum + calcDuration(clip.start, clip.end);
+      return sum + clip.duration;
     }, 0);
 
     // Increment version
@@ -349,11 +344,7 @@ export class TimelineService {
   async calculateDuration(timelineId: string): Promise<number> {
     const clips = await this.timelineClipMutator.getByTimeline(timelineId);
     return clips.reduce((sum, clip) => {
-      // If composite, use stored duration (which is effective duration)
-      if (clip.meta?.segments && clip.meta.segments.length > 0) {
-        return sum + clip.duration;
-      }
-      return sum + calcDuration(clip.start, clip.end);
+      return sum + clip.duration;
     }, 0);
   }
 
@@ -464,6 +455,151 @@ export class TimelineService {
       valid: errors.length === 0,
       errors,
     };
+  }
+
+  // ============================================================================
+  // Clip Positioning Operations
+  // ============================================================================
+
+  /**
+   * Move a clip to a different track
+   * @param clipId Timeline clip ID
+   * @param targetTrackId Target track ID
+   * @param timelineStart Optional absolute timeline position (seconds)
+   * @returns The updated timeline clip
+   */
+  async moveClipToTrack(
+    clipId: string,
+    targetTrackId: string,
+    timelineStart?: number
+  ): Promise<TimelineClip> {
+    // Get the clip
+    const clip = await this.timelineClipMutator.getById(clipId);
+    if (!clip) {
+      throw new Error(`Timeline clip not found: ${clipId}`);
+    }
+
+    // Get the target track to validate it exists
+    const targetTrack = await this.timelineTrackMutator.getById(targetTrackId);
+    if (!targetTrack) {
+      throw new Error(`Target track not found: ${targetTrackId}`);
+    }
+
+    // Verify the target track belongs to the same timeline
+    if (targetTrack.TimelineRef !== clip.TimelineRef) {
+      throw new Error(
+        `Target track belongs to a different timeline. Clip timeline: ${clip.TimelineRef}, Track timeline: ${targetTrack.TimelineRef}`
+      );
+    }
+
+    // Update the clip with new track and optional position
+    const updateData: Partial<TimelineClipInput> = {
+      TimelineTrackRef: targetTrackId,
+    };
+
+    if (timelineStart !== undefined) {
+      updateData.timelineStart = timelineStart;
+    }
+
+    return this.timelineClipMutator.update(clipId, updateData);
+  }
+
+  /**
+   * Update a clip's absolute timeline position
+   * @param clipId Timeline clip ID
+   * @param timelineStart Absolute timeline position (seconds)
+   * @returns The updated timeline clip
+   */
+  async updateClipPosition(
+    clipId: string,
+    timelineStart: number
+  ): Promise<TimelineClip> {
+    // Validate timelineStart is non-negative
+    if (timelineStart < 0) {
+      throw new Error(
+        `Invalid timelineStart: ${timelineStart}. Must be >= 0.`
+      );
+    }
+
+    // Update the clip
+    return this.timelineClipMutator.update(clipId, { timelineStart });
+  }
+
+  // ============================================================================
+  // Track Management Operations
+  // ============================================================================
+
+  /**
+   * Create a new track for a timeline
+   * @param timelineId Timeline ID
+   * @param name Optional track name (defaults to "Track {layer}")
+   * @returns The created track
+   */
+  async createTrack(
+    timelineId: string,
+    name?: string
+  ): Promise<TimelineTrackRecord> {
+    // Get the maximum layer number for this timeline
+    const maxLayer = await this.timelineTrackMutator.getMaxLayer(timelineId);
+    const nextLayer = maxLayer + 1;
+
+    // Generate default name if not provided
+    const trackName = name || `Track ${nextLayer}`;
+
+    // Create the track
+    return this.timelineTrackMutator.create({
+      TimelineRef: timelineId,
+      name: trackName,
+      layer: nextLayer,
+    });
+  }
+
+  /**
+   * Update a track
+   * @param trackId Track ID
+   * @param data Partial track data to update
+   * @returns The updated track
+   */
+  async updateTrack(
+    trackId: string,
+    data: Partial<TimelineTrackRecord>
+  ): Promise<TimelineTrackRecord> {
+    return this.timelineTrackMutator.update(trackId, data);
+  }
+
+  /**
+   * Delete a track
+   * @param trackId Track ID
+   * @param deleteClips If true, delete all clips on this track; if false, reject if track has clips
+   */
+  async deleteTrack(trackId: string, deleteClips = false): Promise<void> {
+    // Get the track to find its timeline
+    const track = await this.timelineTrackMutator.getById(trackId);
+    if (!track) {
+      throw new Error(`Track not found: ${trackId}`);
+    }
+
+    // Get all clips on this track
+    const allClips = await this.timelineClipMutator.getByTimeline(
+      track.TimelineRef
+    );
+    const trackClips = allClips.filter((c) => c.TimelineTrackRef === trackId);
+
+    if (trackClips.length > 0 && !deleteClips) {
+      throw new Error(
+        `Cannot delete track with clips. Set deleteClips=true to force deletion.`
+      );
+    }
+
+    // Delete clips if requested
+    if (deleteClips && trackClips.length > 0) {
+      await Promise.all(
+        trackClips.map((clip) => this.timelineClipMutator.delete(clip.id))
+      );
+    }
+
+    // Delete the track
+    await this.timelineTrackMutator.delete(trackId);
   }
 
   // ============================================================================

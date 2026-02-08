@@ -1,14 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
 import { Pencil, GripVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ClipEditModal } from './clip-edit-modal';
 import type { TimelineClip } from '@project/shared';
 
 const BLOCK_WIDTH = 160;
+const ALL_TRACKS_VALUE = '__all__';
 
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { Film } from 'lucide-react';
@@ -115,24 +123,72 @@ function SequenceClipCard({
 }
 
 export function SequenceTimelineView() {
-  const { timeline, selectedClipId, setSelectedClipId, reorderClips } =
+  const { timeline, selectedClipId, setSelectedClipId, reorderClips, tracks } =
     useTimeline();
 
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
+  const [selectedTrackFilter, setSelectedTrackFilter] = useState<string>(ALL_TRACKS_VALUE);
 
   if (!timeline) return null;
 
-  // Determine the main track (Layer 0) for display
-  // We handle this inside render or memo to avoid hook order issues if we put it before early return (though hooks are top level)
-  const mainTrack =
-    timeline.tracks?.find((t) => t.layer === 0) || timeline.tracks?.[0];
+  // Sort tracks by layer (lowest to highest for display order)
+  const sortedTracks = useMemo(() => {
+    return [...tracks].sort((a, b) => a.layer - b.layer);
+  }, [tracks]);
 
-  const displayClips = timeline.clips.filter(
-    (c) =>
-      !(c as any).TimelineTrackRef ||
-      (mainTrack && (c as any).TimelineTrackRef === mainTrack.id)
-  );
+  // Filter clips based on selected track
+  const displayClips = useMemo(() => {
+    if (selectedTrackFilter === ALL_TRACKS_VALUE) {
+      // Show all clips, sorted by track layer then by order
+      return [...timeline.clips].sort((a, b) => {
+        const aTrack = tracks.find(t => t.id === (a as any).TimelineTrackRef);
+        const bTrack = tracks.find(t => t.id === (b as any).TimelineTrackRef);
+        const aLayer = aTrack?.layer ?? 0;
+        const bLayer = bTrack?.layer ?? 0;
+
+        if (aLayer !== bLayer) {
+          return aLayer - bLayer;
+        }
+        return a.order - b.order;
+      });
+    } else {
+      // Show only clips from selected track
+      return timeline.clips.filter(
+        (c) => (c as any).TimelineTrackRef === selectedTrackFilter
+      ).sort((a, b) => a.order - b.order);
+    }
+  }, [timeline.clips, selectedTrackFilter, tracks]);
+
+  // Group clips by track when showing all tracks
+  const groupedClips = useMemo(() => {
+    if (selectedTrackFilter !== ALL_TRACKS_VALUE) {
+      return null;
+    }
+
+    const groups: Array<{ track: typeof sortedTracks[0] | null; clips: TimelineClip[] }> = [];
+
+    sortedTracks.forEach(track => {
+      const trackClips = timeline.clips.filter(
+        c => (c as any).TimelineTrackRef === track.id
+      ).sort((a, b) => a.order - b.order);
+
+      if (trackClips.length > 0) {
+        groups.push({ track, clips: trackClips });
+      }
+    });
+
+    // Add clips without a track assignment
+    const unassignedClips = timeline.clips.filter(
+      c => !(c as any).TimelineTrackRef || !tracks.find(t => t.id === (c as any).TimelineTrackRef)
+    ).sort((a, b) => a.order - b.order);
+
+    if (unassignedClips.length > 0) {
+      groups.push({ track: null, clips: unassignedClips });
+    }
+
+    return groups;
+  }, [timeline.clips, sortedTracks, tracks, selectedTrackFilter]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedClipId(id);
@@ -171,20 +227,82 @@ export function SequenceTimelineView() {
 
   return (
     <div className="flex flex-col w-full bg-background/30 rounded-lg overflow-hidden h-48 lg:h-40">
+      {/* Track Selector */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
+        <span className="text-xs font-medium text-muted-foreground">Track:</span>
+        <Select value={selectedTrackFilter} onValueChange={setSelectedTrackFilter}>
+          <SelectTrigger className="w-[180px] h-8 text-xs">
+            <SelectValue placeholder="Select track" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_TRACKS_VALUE}>All Tracks</SelectItem>
+            {sortedTracks.map((track) => (
+              <SelectItem key={track.id} value={track.id}>
+                {track.name} (Layer {track.layer})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Clips Display */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 flex items-center gap-3 no-scrollbar">
-        {displayClips.map((clip) => (
-          <SequenceClipCard
-            key={clip.id}
-            clip={clip}
-            isSelected={selectedClipId === clip.id}
-            onSelect={() => setSelectedClipId(clip.id)}
-            onEdit={() => setEditingClipId(clip.id)}
-            onDragStart={(e) => handleDragStart(e, clip.id)}
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, clip.id)}
-            isDragged={draggedClipId === clip.id}
-          />
-        ))}
+        {selectedTrackFilter === ALL_TRACKS_VALUE && groupedClips ? (
+          // Grouped view: show clips grouped by track with separators
+          <>
+            {groupedClips.map((group, groupIndex) => (
+              <React.Fragment key={group.track?.id || 'unassigned'}>
+                {groupIndex > 0 && (
+                  <div className="shrink-0 w-px h-16 bg-border/50 mx-2" />
+                )}
+                <div className="flex items-center gap-3">
+                  {/* Track label */}
+                  <div className="shrink-0 flex flex-col items-center justify-center px-2 py-1 rounded bg-muted/30 border border-border/30">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                      {group.track ? group.track.name : 'Unassigned'}
+                    </span>
+                    {group.track && (
+                      <span className="text-[8px] text-muted-foreground/50">
+                        L{group.track.layer}
+                      </span>
+                    )}
+                  </div>
+                  {/* Clips in this group */}
+                  {group.clips.map((clip) => (
+                    <SequenceClipCard
+                      key={clip.id}
+                      clip={clip}
+                      isSelected={selectedClipId === clip.id}
+                      onSelect={() => setSelectedClipId(clip.id)}
+                      onEdit={() => setEditingClipId(clip.id)}
+                      onDragStart={(e) => handleDragStart(e, clip.id)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, clip.id)}
+                      isDragged={draggedClipId === clip.id}
+                    />
+                  ))}
+                </div>
+              </React.Fragment>
+            ))}
+          </>
+        ) : (
+          // Single track view: show clips from selected track only
+          <>
+            {displayClips.map((clip) => (
+              <SequenceClipCard
+                key={clip.id}
+                clip={clip}
+                isSelected={selectedClipId === clip.id}
+                onSelect={() => setSelectedClipId(clip.id)}
+                onEdit={() => setEditingClipId(clip.id)}
+                onDragStart={(e) => handleDragStart(e, clip.id)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, clip.id)}
+                isDragged={draggedClipId === clip.id}
+              />
+            ))}
+          </>
+        )}
 
         {/* Drop zone for adding clips at the end if needed */}
         <div

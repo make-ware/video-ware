@@ -151,8 +151,8 @@ export function TimelineEditorLayout() {
             </div>
           </div>
 
-          {/* Timeline Area (Increased height for dual full-height views) */}
-          <div className="h-[400px] lg:h-[420px] border-t bg-background p-3 lg:p-4 shrink-0 z-10 overflow-hidden">
+          {/* Timeline Area (Increased height for multi-track support) */}
+          <div className="h-[420px] lg:h-[480px] border-t bg-background p-3 lg:p-4 shrink-0 z-10 overflow-hidden">
             <TimelineView />
           </div>
         </div>

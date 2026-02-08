@@ -10,7 +10,7 @@ import React, {
 import { TimelineService, type TimelineWithClips } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
 import { useAuth } from '@/hooks/use-auth';
-import { RenderFlowConfig } from '@project/shared';
+import { RenderFlowConfig, TimelineTrackRecord, TimelineTrackRecordInput } from '@project/shared';
 
 interface TimelineContextType {
   // Current timeline state
@@ -29,6 +29,11 @@ interface TimelineContextType {
   // Selected clip state
   selectedClipId: string | null;
   setSelectedClipId: (clipId: string | null) => void;
+
+  // Track state
+  tracks: TimelineTrackRecord[];
+  selectedTrackId: string | null;
+  setSelectedTrackId: (trackId: string | null) => void;
 
   // Timeline operations
   loadTimeline: (id: string) => Promise<void>;
@@ -55,6 +60,15 @@ interface TimelineContextType {
     clipId: string,
     data: Partial<import('@project/shared').TimelineClipInput>
   ) => Promise<void>;
+
+  // Track operations
+  createTrack: (name?: string) => Promise<void>;
+  updateTrack: (trackId: string, data: Partial<TimelineTrackRecordInput>) => Promise<void>;
+  deleteTrack: (trackId: string, deleteClips?: boolean) => Promise<void>;
+
+  // Clip positioning operations
+  moveClipToTrack: (clipId: string, targetTrackId: string, timelineStart?: number) => Promise<void>;
+  updateClipPosition: (clipId: string, timelineStart: number) => Promise<void>;
 
   // Render operations
   createRenderTask: (outputSettings: RenderFlowConfig) => Promise<void>;
@@ -85,6 +99,7 @@ export function TimelineProvider({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
 
   // Playback state
   const [currentTime, setCurrentTime] = useState(0);
@@ -97,6 +112,11 @@ export function TimelineProvider({
       (sum, clip) => sum + (clip.end - clip.start),
       0
     );
+  }, [timeline]);
+
+  // Get tracks from timeline
+  const tracks = useMemo(() => {
+    return timeline?.tracks || [];
   }, [timeline]);
 
   // Create timeline service - memoized to prevent recreation
@@ -400,6 +420,168 @@ export function TimelineProvider({
     [timeline, clearError, handleError]
   );
 
+  // Track operations
+  const createTrack = useCallback(
+    async (name?: string) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        await timelineService.createTrack(timeline.id, name);
+
+        // Reload timeline to get updated tracks
+        await refreshTimeline();
+      } catch (error) {
+        handleError(error, 'create track');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [timeline, timelineService, clearError, handleError]
+  );
+
+  const updateTrack = useCallback(
+    async (trackId: string, data: Partial<TimelineTrackRecordInput>) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        const updatedTrack = await timelineService.updateTrack(trackId, data);
+
+        // Update local state
+        setTimeline((prev) => {
+          if (!prev) return prev;
+
+          const updatedTracks = prev.tracks.map((track) =>
+            track.id === trackId ? updatedTrack : track
+          );
+
+          return {
+            ...prev,
+            tracks: updatedTracks,
+          };
+        });
+      } catch (error) {
+        handleError(error, 'update track');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [timeline, timelineService, clearError, handleError]
+  );
+
+  const deleteTrack = useCallback(
+    async (trackId: string, deleteClips = false) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        await timelineService.deleteTrack(trackId, deleteClips);
+
+        // Reload timeline to get updated tracks and clips
+        await refreshTimeline();
+      } catch (error) {
+        handleError(error, 'delete track');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [timeline, timelineService, clearError, handleError]
+  );
+
+  // Clip positioning operations
+  const moveClipToTrack = useCallback(
+    async (clipId: string, targetTrackId: string, timelineStart?: number) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        const updatedClip = await timelineService.moveClipToTrack(
+          clipId,
+          targetTrackId,
+          timelineStart
+        );
+
+        // Update local state optimistically
+        setTimeline((prev) => {
+          if (!prev) return prev;
+
+          const updatedClips = prev.clips.map((clip) =>
+            clip.id === clipId ? updatedClip : clip
+          );
+
+          return {
+            ...prev,
+            clips: updatedClips,
+          };
+        });
+      } catch (error) {
+        handleError(error, 'move clip to track');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [timeline, timelineService, clearError, handleError]
+  );
+
+  const updateClipPosition = useCallback(
+    async (clipId: string, timelineStart: number) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        const updatedClip = await timelineService.updateClipPosition(
+          clipId,
+          timelineStart
+        );
+
+        // Update local state optimistically
+        setTimeline((prev) => {
+          if (!prev) return prev;
+
+          const updatedClips = prev.clips.map((clip) =>
+            clip.id === clipId ? updatedClip : clip
+          );
+
+          return {
+            ...prev,
+            clips: updatedClips,
+          };
+        });
+      } catch (error) {
+        handleError(error, 'update clip position');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [timeline, timelineService, clearError, handleError]
+  );
+
   // Create render task
   const createRenderTask = useCallback(
     async (outputSettings: RenderFlowConfig) => {
@@ -458,6 +640,11 @@ export function TimelineProvider({
     selectedClipId,
     setSelectedClipId,
 
+    // Track state
+    tracks,
+    selectedTrackId,
+    setSelectedTrackId,
+
     // Timeline operations
     loadTimeline,
     saveTimeline,
@@ -470,6 +657,15 @@ export function TimelineProvider({
     reorderClips,
     updateClipTimes,
     updateClip,
+
+    // Track operations
+    createTrack,
+    updateTrack,
+    deleteTrack,
+
+    // Clip positioning operations
+    moveClipToTrack,
+    updateClipPosition,
 
     // Render operations
     createRenderTask,

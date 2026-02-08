@@ -24,12 +24,14 @@ export class LabelJobMutator extends BaseMutator<
     const filter = `MediaRef = "${mediaId}"`;
     // We sort by jobType to be deterministic, but getting list is enough.
     // The UI will filter/find by type.
-    const result = await this.getList(1, 50, filter, '-created', 'TaskRef');
+    // Pass expand as an array to ensure proper handling
+    const result = await this.getList(1, 50, filter, '-created', ['TaskRef']);
     return result.items;
   }
 
   async getByType(mediaId: string, type: string): Promise<LabelJob | null> {
     const filter = `MediaRef = "${mediaId}" && jobType = "${type}"`;
-    return this.getFirstByFilter(filter, 'TaskRef', '-created');
+    // Pass expand as an array to ensure proper handling
+    return this.getFirstByFilter(filter, ['TaskRef'], '-created');
   }
 }

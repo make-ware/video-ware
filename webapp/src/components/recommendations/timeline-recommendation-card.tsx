@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Replace, X, Check, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
-import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
+import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 
 interface TimelineRecommendationCardProps {
   recommendation: ExpandedTimelineRecommendation;
@@ -295,10 +295,11 @@ export function TimelineRecommendationCard({
         }
       />
       {detailsClip && (
-        <TimelineClipDetailsDialog
+        <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          clip={detailsClip}
+          clip={detailsClip as any}
+          initialMode="view"
         />
       )}
     </>

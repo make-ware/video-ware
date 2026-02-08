@@ -19,15 +19,15 @@ export interface VideoSource {
 export function useVideoSource<
   E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
 >(
-  media: Media | Expanded<Media, MediaRelations, E>,
+  media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
   clip?: MediaClip
 ): VideoSource {
   const proxyFileFromExpand =
-    'expand' in media && media.expand && 'proxyFileRef' in media.expand
+    media && 'expand' in media && media.expand && 'proxyFileRef' in media.expand
       ? (media.expand.proxyFileRef as File | undefined)
       : undefined;
   const thumbnailFileFromExpand =
-    'expand' in media && media.expand && 'thumbnailFileRef' in media.expand
+    media && 'expand' in media && media.expand && 'thumbnailFileRef' in media.expand
       ? (media.expand.thumbnailFileRef as File | undefined)
       : undefined;
 
@@ -40,6 +40,8 @@ export function useVideoSource<
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    if (!media) return;
+
     async function fetchFiles() {
       const needsProxy = !proxyFile && !!media.proxyFileRef;
       const needsThumbnail = !thumbnailFile && !!media.thumbnailFileRef;
@@ -68,7 +70,7 @@ export function useVideoSource<
     }
 
     fetchFiles();
-  }, [media.proxyFileRef, media.thumbnailFileRef, proxyFile, thumbnailFile]);
+  }, [media, media?.proxyFileRef, media?.thumbnailFileRef, proxyFile, thumbnailFile]);
 
   const src = useMemo(() => {
     if (!proxyFile?.file) return '';
@@ -89,6 +91,16 @@ export function useVideoSource<
       return '';
     }
   }, [thumbnailFile]);
+
+  if (!media) {
+    return {
+      src: '',
+      poster: '',
+      startTime: clip?.start ?? 0,
+      endTime: clip?.end,
+      isLoading: false,
+    };
+  }
 
   return {
     src,

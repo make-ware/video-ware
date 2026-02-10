@@ -156,9 +156,11 @@ export class TimelineService {
    * Add a clip to a timeline
    * @param timelineId Timeline ID
    * @param mediaId Media ID
-   * @param start Start time in seconds
-   * @param end End time in seconds
+   * @param start Start time in seconds (in source media)
+   * @param end End time in seconds (in source media)
    * @param mediaClipId Optional MediaClip ID (if adding from existing clip)
+   * @param trackId Optional track ID (defaults to layer 0)
+   * @param timelineStart Optional absolute timeline position in seconds (computed by caller for non-overlapping placement)
    * @returns The created timeline clip
    */
   async addClipToTimeline(
@@ -167,7 +169,8 @@ export class TimelineService {
     start: number,
     end: number,
     mediaClipId?: string,
-    trackId?: string
+    trackId?: string,
+    timelineStart?: number
   ): Promise<TimelineClip> {
     // Get the media to validate time range
     const media = await this.mediaMutator.getById(mediaId);
@@ -203,6 +206,11 @@ export class TimelineService {
       );
     }
 
+    // Validate timelineStart if provided
+    if (timelineStart !== undefined && timelineStart < 0) {
+      throw new Error(`Invalid timelineStart: ${timelineStart}. Must be >= 0.`);
+    }
+
     // Get the next order position
     const maxOrder = await this.timelineClipMutator.getMaxOrder(timelineId);
     const order = maxOrder + 1;
@@ -210,7 +218,7 @@ export class TimelineService {
     // Create the timeline clip
     const input: TimelineClipInput = {
       TimelineRef: timelineId,
-      TimelineTrackRef: targetTrackId, // REQUIRED link to track
+      TimelineTrackRef: targetTrackId,
       MediaRef: mediaId,
       MediaClipRef: mediaClipId,
       order,
@@ -218,6 +226,10 @@ export class TimelineService {
       end,
       duration: end - start,
     };
+
+    if (timelineStart !== undefined) {
+      input.timelineStart = timelineStart;
+    }
 
     return this.timelineClipMutator.create(input);
   }

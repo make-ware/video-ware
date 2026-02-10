@@ -16,6 +16,7 @@ import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
 import { useSnap } from './use-snap';
+import { findNonOverlappingTimelineStart } from './clip-placement';
 
 const PIXELS_PER_SECOND = 20;
 const MIN_CLIP_DURATION = 0.5;
@@ -50,6 +51,7 @@ export function LayerTimelineView() {
     deleteTrack,
     moveClipToTrack,
     updateClipPosition,
+    addClip,
   } = useTimeline();
 
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -377,13 +379,35 @@ export function LayerTimelineView() {
     []
   );
 
+  const parseMediaClipDragData = useCallback((e: React.DragEvent) => {
+    try {
+      const json = e.dataTransfer.getData('application/json');
+      if (json) {
+        const data = JSON.parse(json);
+        if (
+          data?.type === 'media-clip' &&
+          data.mediaId &&
+          data.start != null &&
+          data.end != null
+        ) {
+          return data as {
+            type: 'media-clip';
+            clipId?: string;
+            mediaId: string;
+            start: number;
+            end: number;
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }, []);
+
   const handleTrackDrop = useCallback(
     async (trackId: string, e: React.DragEvent) => {
       e.preventDefault();
-
-      if (!draggedClipId || !trackAreaRef.current) {
-        return;
-      }
 
       const track = sortedTracks.find((t) => t.id === trackId);
       if (!track || track.isLocked) {
@@ -392,23 +416,78 @@ export function LayerTimelineView() {
         return;
       }
 
-      // Calculate drop position on timeline
+      if (!trackAreaRef.current) {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        return;
+      }
+
       const rect = trackAreaRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - TRACK_HEADER_WIDTH;
+      const x = e.clientX - rect.left;
       const candidateTime = Math.max(0, x / PIXELS_PER_SECOND);
 
-      // Apply snapping
-      const { snapped: timelineStart } = snapTime(candidateTime, draggedClipId);
+      // Handle media-clip drop from clip browser
+      const mediaClipData = parseMediaClipDragData(e);
+      if (mediaClipData) {
+        try {
+          const trackClips = (timeline?.clips || []).filter(
+            (c) => c.TimelineTrackRef === trackId
+          );
+          const duration = mediaClipData.end - mediaClipData.start;
+          const { snapped } = snapTime(candidateTime, undefined);
+          const timelineStart = findNonOverlappingTimelineStart(
+            trackClips,
+            snapped,
+            duration
+          );
+          await addClip(
+            mediaClipData.mediaId,
+            mediaClipData.start,
+            mediaClipData.end,
+            mediaClipData.clipId,
+            trackId,
+            timelineStart
+          );
+        } catch (error) {
+          console.error('Failed to add clip from drop', error);
+        } finally {
+          setDragTargetTrackId(null);
+          clearGuides();
+        }
+        return;
+      }
+
+      // Handle existing clip move
+      if (!draggedClipId) {
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      const clip = timeline?.clips.find((c) => c.id === draggedClipId);
+      if (!clip) {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      const clipDuration = clip.end - clip.start;
+      const { snapped: snappedTime } = snapTime(candidateTime, draggedClipId);
+      const trackClips = (timeline?.clips || []).filter(
+        (c) => c.TimelineTrackRef === trackId
+      );
+      const timelineStart = findNonOverlappingTimelineStart(
+        trackClips,
+        snappedTime,
+        clipDuration,
+        draggedClipId
+      );
 
       try {
-        const clip = timeline?.clips.find((c) => c.id === draggedClipId);
-        const sourceTrackId = clip?.TimelineTrackRef;
+        const sourceTrackId = clip.TimelineTrackRef;
 
         if (sourceTrackId === trackId) {
-          // Same track - just update position
           await updateClipPosition(draggedClipId, timelineStart);
         } else {
-          // Different track - move clip
           await moveClipToTrack(draggedClipId, trackId, timelineStart);
         }
       } catch (error) {
@@ -426,6 +505,8 @@ export function LayerTimelineView() {
       snapTime,
       updateClipPosition,
       moveClipToTrack,
+      addClip,
+      parseMediaClipDragData,
       clearGuides,
     ]
   );
@@ -435,7 +516,7 @@ export function LayerTimelineView() {
       if (!trackAreaRef.current) return;
       const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const x = clientX - rect.left - TRACK_HEADER_WIDTH;
+      const x = clientX - rect.left;
       const time = Math.max(
         0,
         Math.min(displayDuration, x / PIXELS_PER_SECOND)
@@ -467,7 +548,7 @@ export function LayerTimelineView() {
       if (!trackAreaRef.current) return;
       const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const x = clientX - rect.left - TRACK_HEADER_WIDTH;
+      const x = clientX - rect.left;
       const time = Math.max(
         0,
         Math.min(displayDuration, x / PIXELS_PER_SECOND)

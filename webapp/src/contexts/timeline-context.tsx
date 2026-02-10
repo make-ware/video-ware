@@ -15,6 +15,7 @@ import {
   TimelineTrackRecord,
   TimelineTrackRecordInput,
 } from '@project/shared';
+import { computeClipPlacement } from '@/components/timeline/editor/clip-placement';
 
 interface TimelineContextType {
   // Current timeline state
@@ -51,7 +52,8 @@ interface TimelineContextType {
     start: number,
     end: number,
     mediaClipId?: string,
-    trackId?: string
+    trackId?: string,
+    timelineStart?: number
   ) => Promise<void>;
   removeClip: (clipId: string) => Promise<void>;
   reorderClips: (clipOrders: { id: string; order: number }[]) => Promise<void>;
@@ -245,14 +247,15 @@ export function TimelineProvider({
     });
   }, []);
 
-  // Add clip to timeline
+  // Add clip to timeline - places after selected clip or at end of track, never overlapping
   const addClip = useCallback(
     async (
       mediaId: string,
       start: number,
       end: number,
       mediaClipId?: string,
-      trackId?: string
+      trackId?: string,
+      timelineStart?: number
     ) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
@@ -262,13 +265,40 @@ export function TimelineProvider({
       clearError();
 
       try {
+        let targetTrackId = trackId ?? selectedTrackId ?? null;
+        let resolvedTimelineStart = timelineStart;
+
+        if (resolvedTimelineStart === undefined) {
+          if (!targetTrackId) {
+            const defaultTrack =
+              timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
+            targetTrackId = defaultTrack?.id ?? null;
+          }
+          const trackClips = (timeline.clips || []).filter(
+            (c) => c.TimelineTrackRef === targetTrackId
+          );
+          const duration = end - start;
+          resolvedTimelineStart = computeClipPlacement(
+            trackClips,
+            selectedClipId,
+            duration
+          );
+        }
+
+        if (!targetTrackId) {
+          const defaultTrack =
+            timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
+          targetTrackId = defaultTrack?.id ?? undefined;
+        }
+
         const newClip = await timelineService.addClipToTimeline(
           timeline.id,
           mediaId,
           start,
           end,
           mediaClipId,
-          trackId
+          targetTrackId,
+          resolvedTimelineStart
         );
 
         // Update local state
@@ -286,7 +316,14 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [
+      timeline,
+      timelineService,
+      selectedClipId,
+      selectedTrackId,
+      clearError,
+      handleError,
+    ]
   );
 
   // Remove clip from timeline

@@ -7,7 +7,7 @@ import { LayerTimelineView } from './layer-timeline-view';
 import { SequenceTimelineView } from './sequence-timeline-view';
 
 export function TimelineView() {
-  const { timeline, duration, currentTime } = useTimeline();
+  const { timeline, duration, currentTime, tracks } = useTimeline();
 
   if (!timeline) return null;
 
@@ -16,6 +16,8 @@ export function TimelineView() {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const trackCount = tracks.length;
 
   return (
     <div className="flex flex-col gap-2 lg:gap-4 w-full h-full overflow-hidden">
@@ -27,6 +29,10 @@ export function TimelineView() {
             <span className="w-1 h-1 rounded-full bg-primary/40" />
             <span className="font-mono text-primary/80 lowercase">
               {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+            <span className="w-1 h-1 rounded-full bg-primary/40" />
+            <span className="lowercase">
+              {trackCount} {trackCount === 1 ? 'track' : 'tracks'}
             </span>
           </span>
         </div>

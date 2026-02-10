@@ -19,15 +19,18 @@ export interface VideoSource {
 export function useVideoSource<
   E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
 >(
-  media: Media | Expanded<Media, MediaRelations, E>,
+  media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
   clip?: MediaClip
 ): VideoSource {
   const proxyFileFromExpand =
-    'expand' in media && media.expand && 'proxyFileRef' in media.expand
+    media && 'expand' in media && media.expand && 'proxyFileRef' in media.expand
       ? (media.expand.proxyFileRef as File | undefined)
       : undefined;
   const thumbnailFileFromExpand =
-    'expand' in media && media.expand && 'thumbnailFileRef' in media.expand
+    media &&
+    'expand' in media &&
+    media.expand &&
+    'thumbnailFileRef' in media.expand
       ? (media.expand.thumbnailFileRef as File | undefined)
       : undefined;
 
@@ -40,9 +43,13 @@ export function useVideoSource<
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    async function fetchFiles() {
-      const needsProxy = !proxyFile && !!media.proxyFileRef;
-      const needsThumbnail = !thumbnailFile && !!media.thumbnailFileRef;
+    const currentMedia = media;
+    if (!currentMedia) return;
+
+    type MediaParam = NonNullable<typeof media>;
+    async function fetchFiles(m: MediaParam) {
+      const needsProxy = !proxyFile && !!m.proxyFileRef;
+      const needsThumbnail = !thumbnailFile && !!m.thumbnailFileRef;
 
       if (!needsProxy && !needsThumbnail) return;
 
@@ -51,13 +58,13 @@ export function useVideoSource<
         if (needsProxy) {
           const file = await pb
             .collection('Files')
-            .getOne<File>(media.proxyFileRef!);
+            .getOne<File>(m.proxyFileRef!);
           setProxyFile(file);
         }
         if (needsThumbnail) {
           const file = await pb
             .collection('Files')
-            .getOne<File>(media.thumbnailFileRef!);
+            .getOne<File>(m.thumbnailFileRef!);
           setThumbnailFile(file);
         }
       } catch (error) {
@@ -67,8 +74,14 @@ export function useVideoSource<
       }
     }
 
-    fetchFiles();
-  }, [media.proxyFileRef, media.thumbnailFileRef, proxyFile, thumbnailFile]);
+    fetchFiles(currentMedia);
+  }, [
+    media,
+    media?.proxyFileRef,
+    media?.thumbnailFileRef,
+    proxyFile,
+    thumbnailFile,
+  ]);
 
   const src = useMemo(() => {
     if (!proxyFile?.file) return '';
@@ -89,6 +102,16 @@ export function useVideoSource<
       return '';
     }
   }, [thumbnailFile]);
+
+  if (!media) {
+    return {
+      src: '',
+      poster: '',
+      startTime: clip?.start ?? 0,
+      endTime: clip?.end,
+      isLoading: false,
+    };
+  }
 
   return {
     src,

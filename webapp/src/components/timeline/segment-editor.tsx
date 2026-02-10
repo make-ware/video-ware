@@ -1,16 +1,15 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+} from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Plus,
-  Trash2,
-  GripVertical,
-  Layers,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react';
+import { Plus, Trash2, GripVertical, Layers, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { calculateEffectiveDuration } from '@project/shared';
 import { TimeInput } from './time-input';
@@ -43,6 +42,14 @@ export function SegmentEditor({
 }: SegmentEditorProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [dragging, setDragging] = useState<{
+    index: number;
+    handle: 'start' | 'end';
+    initialX: number;
+    initialTime: number;
+  } | null>(null);
+
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   // Calculate display range for zoom
   const displayRange = useMemo(() => {
@@ -53,7 +60,8 @@ export function SegmentEditor({
     const ends = segments.map((s) => s.end);
     const minStart = Math.min(...starts);
     const maxEnd = Math.max(...ends);
-    const padding = Math.max(2, (maxEnd - minStart) * 0.1);
+    // Tighter zoom: less padding when zooming to fill
+    const padding = Math.max(0.5, (maxEnd - minStart) * 0.05);
     return {
       start: Math.max(0, minStart - padding),
       end: Math.min(mediaDuration, maxEnd + padding),
@@ -79,27 +87,85 @@ export function SegmentEditor({
     return gaps;
   }, [segments]);
 
-  const handleSegmentChange = (
-    index: number,
-    field: 'start' | 'end',
-    value: number
-  ) => {
-    const newSegments = [...segments];
-    newSegments[index] = {
-      ...newSegments[index],
-      [field]: Math.max(0, Math.min(mediaDuration, value)),
+  const handleSegmentChange = useCallback(
+    (index: number, field: 'start' | 'end', value: number) => {
+      const newSegments = [...segments];
+      const current = newSegments[index];
+      const newValue = Math.max(0, Math.min(mediaDuration, value));
+
+      if (field === 'start') {
+        // Ensure start doesn't cross end
+        newSegments[index] = {
+          ...current,
+          start: Math.min(newValue, current.end - 0.1),
+        };
+      } else {
+        // Ensure end doesn't cross start
+        newSegments[index] = {
+          ...current,
+          end: Math.max(newValue, current.start + 0.1),
+        };
+      }
+
+      onChange(newSegments);
+    },
+    [segments, mediaDuration, onChange]
+  );
+
+  const handleMouseDown = useCallback(
+    (
+      e: React.MouseEvent | React.TouchEvent,
+      index: number,
+      handle: 'start' | 'end'
+    ) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const seg = segments[index];
+      setDragging({
+        index,
+        handle,
+        initialX: clientX,
+        initialTime: handle === 'start' ? seg.start : seg.end,
+      });
+    },
+    [segments]
+  );
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+      if (!timelineRef.current) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const rect = timelineRef.current.getBoundingClientRect();
+
+      const deltaX = clientX - dragging.initialX;
+      const deltaTime = (deltaX / rect.width) * displayDuration;
+
+      handleSegmentChange(
+        dragging.index,
+        dragging.handle,
+        dragging.initialTime + deltaTime
+      );
     };
 
-    // Ensure start < end
-    if (field === 'start' && value >= newSegments[index].end) {
-      newSegments[index].end = Math.min(mediaDuration, value + 0.5);
-    }
-    if (field === 'end' && value <= newSegments[index].start) {
-      newSegments[index].start = Math.max(0, value - 0.5);
-    }
+    const handleMouseUp = () => {
+      setDragging(null);
+    };
 
-    onChange(newSegments);
-  };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleMouseMove);
+    window.addEventListener('touchend', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleMouseMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [dragging, displayDuration, handleSegmentChange]);
 
   const handleAddSegment = () => {
     // Find gap or add at end
@@ -110,7 +176,7 @@ export function SegmentEditor({
     if (sorted.length > 0) {
       // Try to add after the last segment
       const last = sorted[sorted.length - 1];
-      newStart = Math.min(last.end + 0.5, mediaDuration - 1);
+      newStart = Math.min(last.end + 0.5, mediaDuration - 0.5);
       newEnd = Math.min(newStart + 1, mediaDuration);
     }
 
@@ -168,40 +234,66 @@ export function SegmentEditor({
               isZoomed ? 'text-primary bg-primary/10' : 'text-muted-foreground'
             )}
             onClick={() => setIsZoomed(!isZoomed)}
-            title={isZoomed ? 'Zoom Out' : 'Zoom to Segments'}
+            title={isZoomed ? 'Zoom Out' : 'Zoom to Fill'}
           >
-            {isZoomed ? (
-              <ZoomOut className="w-3.5 h-3.5" />
-            ) : (
-              <ZoomIn className="w-3.5 h-3.5" />
-            )}
+            <ZoomIn className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
 
       {/* Segment Timeline Visualization */}
-      <div className="h-8 bg-muted rounded-lg relative overflow-hidden ring-1 ring-inset ring-black/5">
-        {sortedSegments.map((seg, i) => {
+      <div
+        ref={timelineRef}
+        className="h-10 bg-muted rounded-lg relative overflow-hidden ring-1 ring-inset ring-black/10 select-none shadow-inner"
+      >
+        {sortedSegments.map((seg) => {
           const leftPercent =
             ((seg.start - displayRange.start) / displayDuration) * 100;
           const widthPercent = ((seg.end - seg.start) / displayDuration) * 100;
+
           if (leftPercent + widthPercent < 0 || leftPercent > 100) return null;
+
+          const isExpanded = expandedIndex === seg.originalIndex;
+
           return (
             <div
               key={seg.originalIndex}
               className={cn(
-                'absolute top-0 bottom-0 bg-primary/80 border-r border-white/20 cursor-pointer transition-all hover:bg-primary',
-                expandedIndex === seg.originalIndex && 'ring-2 ring-white'
+                'absolute top-0 bottom-0 bg-primary/80 border-x border-white/20 transition-colors hover:bg-primary z-10 group',
+                isExpanded && 'bg-primary ring-2 ring-primary ring-inset'
               )}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
               onClick={() =>
-                setExpandedIndex(
-                  expandedIndex === seg.originalIndex ? null : seg.originalIndex
-                )
+                setExpandedIndex(isExpanded ? null : seg.originalIndex)
               }
-              title={`Segment ${i + 1}: ${formatTime(seg.start)} - ${formatTime(seg.end)}`}
             >
-              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-mono text-white/80">
+              {/* Left Handle */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/30 z-20 flex items-center justify-center"
+                onMouseDown={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'start')
+                }
+                onTouchStart={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'start')
+                }
+              >
+                <div className="w-px h-3 bg-white/50" />
+              </div>
+
+              {/* Right Handle */}
+              <div
+                className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/30 z-20 flex items-center justify-center"
+                onMouseDown={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'end')
+                }
+                onTouchStart={(e) =>
+                  handleMouseDown(e, seg.originalIndex, 'end')
+                }
+              >
+                <div className="w-px h-3 bg-white/50" />
+              </div>
+
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono font-bold text-white drop-shadow-sm pointer-events-none">
                 {Math.round((seg.end - seg.start) * 10) / 10}s
               </span>
             </div>

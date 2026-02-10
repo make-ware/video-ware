@@ -9,21 +9,28 @@ import React, {
 } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
-import { X } from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { TimelineClip, MediaClip } from '@project/shared';
-import { CompositeClipOverlay } from './composite-clip-overlay';
+import type { TimelineClip } from '@project/shared';
+import { TrackLane } from './track-lane';
+import { TrackHeader } from './track-header';
+import { SnapGuide } from './snap-guide';
+import { useSnap } from './use-snap';
+import { findNonOverlappingTimelineStart } from './clip-placement';
 
 const PIXELS_PER_SECOND = 20;
 const MIN_CLIP_DURATION = 0.5;
+const TRACK_HEADER_WIDTH = 200; // pixels
 
 interface DragState {
   clipId: string;
-  handle: 'left' | 'right';
+  sourceTrackId: string;
+  handle: 'left' | 'right' | 'move';
   initialX: number;
   currentX: number;
   initialStart: number;
   initialEnd: number;
+  initialTimelineStart?: number;
   mediaDuration: number;
 }
 
@@ -36,16 +43,25 @@ export function LayerTimelineView() {
     isPlaying,
     selectedClipId,
     setSelectedClipId,
+    selectedTrackId,
+    setSelectedTrackId,
     updateClipTimes,
+    createTrack,
+    updateTrack,
+    deleteTrack,
+    moveClipToTrack,
+    updateClipPosition,
+    addClip,
   } = useTimeline();
 
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragInfoRef = useRef<DragState | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
+  const trackAreaRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [shiftPressed, setShiftPressed] = useState(false);
 
   // Track container width for centering playhead
   useEffect(() => {
@@ -59,6 +75,29 @@ export function LayerTimelineView() {
     return () => observer.disconnect();
   }, []);
 
+  // Listen for Shift key to disable snapping
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setShiftPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setShiftPressed(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   // Ensure minimum duration of 60s for the timeline view
   const displayDuration = Math.max(duration, 60);
   const totalWidth = useMemo(
@@ -66,8 +105,40 @@ export function LayerTimelineView() {
     [displayDuration]
   );
 
+  // Sort tracks by layer (descending - highest layer on top)
+  const sortedTracks = useMemo(() => {
+    if (!timeline?.tracks) return [];
+    return [...timeline.tracks].sort((a, b) => b.layer - a.layer);
+  }, [timeline?.tracks]);
+
+  // Group clips by track
+  const clipsByTrack = useMemo(() => {
+    if (!timeline?.clips) return new Map();
+
+    const map = new Map<string, TimelineClip[]>();
+
+    for (const clip of timeline.clips) {
+      const trackId = clip.TimelineTrackRef || '';
+      if (!map.has(trackId)) {
+        map.set(trackId, []);
+      }
+      map.get(trackId)!.push(clip);
+    }
+
+    return map;
+  }, [timeline?.clips]);
+
+  // Initialize snap engine
+  const { snapTime, activeGuides, clearGuides } = useSnap({
+    clips: timeline?.clips || [],
+    currentTime,
+    pixelsPerSecond: PIXELS_PER_SECOND,
+    threshold: 8,
+    enabled: !shiftPressed,
+  });
+
   // Helper to get clip display times (taking drag into account)
-  const getClipTimes = useCallback(
+  const _getClipTimes = useCallback(
     (clip: TimelineClip) => {
       if (dragState && dragState.clipId === clip.id) {
         const deltaPixels = dragState.currentX - dragState.initialX;
@@ -82,7 +153,7 @@ export function LayerTimelineView() {
             Math.max(0, dragState.initialStart + deltaTime),
             dragState.initialEnd - MIN_CLIP_DURATION
           );
-        } else {
+        } else if (dragState.handle === 'right') {
           // Adjust end: clamp between (start + min_duration) and media_duration
           newEnd = Math.max(
             Math.min(dragState.mediaDuration, dragState.initialEnd + deltaTime),
@@ -97,7 +168,7 @@ export function LayerTimelineView() {
   );
 
   // Handle Drag Start for Resizing
-  const handleResizeStart = useCallback(
+  const _handleResizeStart = useCallback(
     (
       e: React.MouseEvent | React.TouchEvent,
       clip: TimelineClip,
@@ -113,13 +184,17 @@ export function LayerTimelineView() {
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
 
       const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
+      const trackId = clip.TimelineTrackRef || '';
+
       const state: DragState = {
         clipId: clip.id,
+        sourceTrackId: trackId,
         handle,
         initialX: clientX,
         currentX: clientX,
         initialStart: clip.start,
         initialEnd: clip.end,
+        initialTimelineStart: clip.timelineStart,
         mediaDuration,
       };
 
@@ -153,15 +228,23 @@ export function LayerTimelineView() {
         let finalEnd = info.initialEnd;
 
         if (info.handle === 'left') {
-          finalStart = Math.min(
+          const candidateStart = Math.min(
             Math.max(0, info.initialStart + deltaTime),
             info.initialEnd - MIN_CLIP_DURATION
           );
-        } else {
-          finalEnd = Math.max(
+
+          // Apply snapping
+          const { snapped } = snapTime(candidateStart, info.clipId);
+          finalStart = snapped;
+        } else if (info.handle === 'right') {
+          const candidateEnd = Math.max(
             Math.min(info.mediaDuration, info.initialEnd + deltaTime),
             info.initialStart + MIN_CLIP_DURATION
           );
+
+          // Apply snapping
+          const { snapped } = snapTime(candidateEnd, info.clipId);
+          finalEnd = snapped;
         }
 
         try {
@@ -178,6 +261,7 @@ export function LayerTimelineView() {
 
       setDragState(null);
       dragInfoRef.current = null;
+      clearGuides();
     };
 
     window.addEventListener('mousemove', onMove);
@@ -190,132 +274,247 @@ export function LayerTimelineView() {
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onUp);
     };
-  }, [dragState, updateClipTimes]);
+  }, [dragState, updateClipTimes, snapTime, clearGuides]);
 
-  // Determine the clips to display, filtered by the main track (Layer 0)
-  const displayClips = useMemo(() => {
-    const clips = timeline?.clips;
-    if (!clips) return [];
-
-    const tracks = timeline?.tracks;
-    const mainTrack = tracks?.find((t) => t.layer === 0) || tracks?.[0];
-
-    // If no tracks are found, fallback to showing all clips (legacy/empty state)
-    if (!mainTrack) return clips;
-
-    const mainTrackId = mainTrack.id;
-    return clips.filter(
-      (c) => !c.TimelineTrackRef || c.TimelineTrackRef === mainTrackId
-    );
-  }, [timeline?.clips, timeline?.tracks]);
-
-  // Calculate clip positions and elements
-  const clipElements = useMemo(() => {
-    // Phase 1: Calculate positions in a simple loop.
-    // This avoids reassigning a variable that is later captured by JSX during a map,
-    // which satisfies the React Compiler's strict mutation rules.
-    const positions: { left: number; width: number; clipDuration: number }[] =
-      [];
-    let acc = 0;
-    for (const clip of displayClips) {
-      const { start, end } = getClipTimes(clip);
-      const duration = end - start;
-      positions.push({
-        left: acc * PIXELS_PER_SECOND,
-        width: duration * PIXELS_PER_SECOND,
-        clipDuration: duration,
-      });
-      acc += duration;
+  // Track management handlers
+  const handleCreateTrack = useCallback(async () => {
+    try {
+      await createTrack();
+    } catch (error) {
+      console.error('Failed to create track', error);
     }
+  }, [createTrack]);
 
-    // Phase 2: Map to elements
-    return displayClips.map((clip: TimelineClip, i: number) => {
-      const pos = positions[i];
-      const isSelected = selectedClipId === clip.id;
-      const clipColor =
-        clip.meta?.color || (isSelected ? 'bg-primary' : 'bg-blue-600/60');
+  const handleTrackRename = useCallback(
+    async (trackId: string, name: string) => {
+      try {
+        await updateTrack(trackId, { name });
+      } catch (error) {
+        console.error('Failed to rename track', error);
+      }
+    },
+    [updateTrack]
+  );
 
-      return (
-        <div
-          key={clip.id}
-          className={cn(
-            'absolute top-0 bottom-0 border-r border-background/20 transition-all group cursor-pointer',
-            clipColor,
-            isSelected && 'ring-2 ring-inset ring-white/50 z-10 shadow-sm'
-          )}
-          style={{ left: pos.left, width: pos.width }}
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedClipId(clip.id);
-          }}
-        >
-          {isSelected && (
-            <>
-              {/* Left Handle */}
-              <div
-                className="absolute left-0 top-0 bottom-0 w-6 -left-3 cursor-ew-resize flex items-center justify-center z-20 group/handle"
-                onMouseDown={(e) => handleResizeStart(e, clip, 'left')}
-                onTouchStart={(e) => handleResizeStart(e, clip, 'left')}
-              >
-                <div className="w-1.5 h-8 bg-white shadow-sm rounded-full group-hover/handle:scale-110 transition-transform" />
-              </div>
+  const handleTrackToggleMute = useCallback(
+    async (trackId: string, currentMuted: boolean) => {
+      try {
+        await updateTrack(trackId, { isMuted: !currentMuted });
+      } catch (error) {
+        console.error('Failed to toggle mute', error);
+      }
+    },
+    [updateTrack]
+  );
 
-              {/* Right Handle */}
-              <div
-                className="absolute right-0 top-0 bottom-0 w-6 -right-3 cursor-ew-resize flex items-center justify-center z-20 group/handle"
-                onMouseDown={(e) => handleResizeStart(e, clip, 'right')}
-                onTouchStart={(e) => handleResizeStart(e, clip, 'right')}
-              >
-                <div className="w-1.5 h-8 bg-white shadow-sm rounded-full group-hover/handle:scale-110 transition-transform" />
-              </div>
+  const handleTrackToggleLock = useCallback(
+    async (trackId: string, currentLocked: boolean) => {
+      try {
+        await updateTrack(trackId, { isLocked: !currentLocked });
+      } catch (error) {
+        console.error('Failed to toggle lock', error);
+      }
+    },
+    [updateTrack]
+  );
 
-              {/* Info Label */}
-              <div className="absolute top-1 left-4 text-[10px] text-white font-mono pointer-events-none truncate pr-4 drop-shadow-md">
-                {Math.round(pos.clipDuration * 10) / 10}s
-              </div>
-            </>
-          )}
+  const handleTrackVolumeChange = useCallback(
+    async (trackId: string, volume: number) => {
+      try {
+        await updateTrack(trackId, { volume });
+      } catch (error) {
+        console.error('Failed to update volume', error);
+      }
+    },
+    [updateTrack]
+  );
 
-          {/* Composite Clip Overlay - show segment visualization */}
-          {(() => {
-            const mediaClip = (
-              clip as TimelineClip & { expand?: { MediaClipRef?: MediaClip } }
-            ).expand?.MediaClipRef;
-            const clipData = mediaClip?.clipData as
-              | { segments?: Array<{ start: number; end: number }> }
-              | undefined;
-            const segments = clipData?.segments;
-            if (
-              mediaClip?.type === 'composite' &&
-              segments &&
-              segments.length > 0
-            ) {
-              return (
-                <CompositeClipOverlay
-                  segments={segments}
-                  clipStart={clip.start}
-                  clipEnd={clip.end}
-                  showBadge={true}
-                />
-              );
-            }
-            return null;
-          })()}
-        </div>
+  const handleTrackOpacityChange = useCallback(
+    async (trackId: string, opacity: number) => {
+      try {
+        await updateTrack(trackId, { opacity });
+      } catch (error) {
+        console.error('Failed to update opacity', error);
+      }
+    },
+    [updateTrack]
+  );
+
+  const handleTrackDelete = useCallback(
+    async (trackId: string) => {
+      const confirmed = window.confirm(
+        'Are you sure you want to delete this track? All clips on this track will also be deleted.'
       );
-    });
-  }, [
-    displayClips,
-    getClipTimes,
-    selectedClipId,
-    handleResizeStart,
-    setSelectedClipId,
-  ]);
+      if (confirmed) {
+        try {
+          await deleteTrack(trackId, true);
+        } catch (error) {
+          console.error('Failed to delete track', error);
+        }
+      }
+    },
+    [deleteTrack]
+  );
+
+  // Clip drag and drop handlers
+  const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
+  const [_dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(
+    null
+  );
+
+  const handleClipDragStart = useCallback(
+    (clipId: string, e: React.DragEvent) => {
+      setDraggedClipId(clipId);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', clipId);
+    },
+    []
+  );
+
+  const handleTrackDragOver = useCallback(
+    (trackId: string, e: React.DragEvent) => {
+      e.preventDefault();
+      setDragTargetTrackId(trackId);
+    },
+    []
+  );
+
+  const parseMediaClipDragData = useCallback((e: React.DragEvent) => {
+    try {
+      const json = e.dataTransfer.getData('application/json');
+      if (json) {
+        const data = JSON.parse(json);
+        if (
+          data?.type === 'media-clip' &&
+          data.mediaId &&
+          data.start != null &&
+          data.end != null
+        ) {
+          return data as {
+            type: 'media-clip';
+            clipId?: string;
+            mediaId: string;
+            start: number;
+            end: number;
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }, []);
+
+  const handleTrackDrop = useCallback(
+    async (trackId: string, e: React.DragEvent) => {
+      e.preventDefault();
+
+      const track = sortedTracks.find((t) => t.id === trackId);
+      if (!track || track.isLocked) {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      if (!trackAreaRef.current) {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      const rect = trackAreaRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const candidateTime = Math.max(0, x / PIXELS_PER_SECOND);
+
+      // Handle media-clip drop from clip browser
+      const mediaClipData = parseMediaClipDragData(e);
+      if (mediaClipData) {
+        try {
+          const trackClips = (timeline?.clips || []).filter(
+            (c) => c.TimelineTrackRef === trackId
+          );
+          const duration = mediaClipData.end - mediaClipData.start;
+          const { snapped } = snapTime(candidateTime, undefined);
+          const timelineStart = findNonOverlappingTimelineStart(
+            trackClips,
+            snapped,
+            duration
+          );
+          await addClip(
+            mediaClipData.mediaId,
+            mediaClipData.start,
+            mediaClipData.end,
+            mediaClipData.clipId,
+            trackId,
+            timelineStart
+          );
+        } catch (error) {
+          console.error('Failed to add clip from drop', error);
+        } finally {
+          setDragTargetTrackId(null);
+          clearGuides();
+        }
+        return;
+      }
+
+      // Handle existing clip move
+      if (!draggedClipId) {
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      const clip = timeline?.clips.find((c) => c.id === draggedClipId);
+      if (!clip) {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        return;
+      }
+
+      const clipDuration = clip.end - clip.start;
+      const { snapped: snappedTime } = snapTime(candidateTime, draggedClipId);
+      const trackClips = (timeline?.clips || []).filter(
+        (c) => c.TimelineTrackRef === trackId
+      );
+      const timelineStart = findNonOverlappingTimelineStart(
+        trackClips,
+        snappedTime,
+        clipDuration,
+        draggedClipId
+      );
+
+      try {
+        const sourceTrackId = clip.TimelineTrackRef;
+
+        if (sourceTrackId === trackId) {
+          await updateClipPosition(draggedClipId, timelineStart);
+        } else {
+          await moveClipToTrack(draggedClipId, trackId, timelineStart);
+        }
+      } catch (error) {
+        console.error('Failed to move clip', error);
+      } finally {
+        setDraggedClipId(null);
+        setDragTargetTrackId(null);
+        clearGuides();
+      }
+    },
+    [
+      draggedClipId,
+      sortedTracks,
+      timeline?.clips,
+      snapTime,
+      updateClipPosition,
+      moveClipToTrack,
+      addClip,
+      parseMediaClipDragData,
+      clearGuides,
+    ]
+  );
 
   const handleTimelineClick = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
-      if (!trackRef.current) return;
-      const rect = trackRef.current.getBoundingClientRect();
+      if (!trackAreaRef.current) return;
+      const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const x = clientX - rect.left;
       const time = Math.max(
@@ -346,8 +545,8 @@ export function LayerTimelineView() {
     if (!isScrubbing) return;
 
     const handleMouseMove = (e: MouseEvent | TouchEvent) => {
-      if (!trackRef.current) return;
-      const rect = trackRef.current.getBoundingClientRect();
+      if (!trackAreaRef.current) return;
+      const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const x = clientX - rect.left;
       const time = Math.max(
@@ -427,8 +626,11 @@ export function LayerTimelineView() {
 
   if (!timeline) return null;
 
+  // Show empty state if no tracks exist
+  const hasNoTracks = sortedTracks.length === 0;
+
   return (
-    <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner h-40 relative group/timeline">
+    <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
       {/* Deselect Button (Visible only when a clip is selected) */}
       {selectedClipId && (
         <Button
@@ -445,57 +647,153 @@ export function LayerTimelineView() {
         </Button>
       )}
 
-      {/* Scrubber Area */}
-      <div
-        ref={containerRef}
-        className="relative h-full overflow-x-auto overflow-y-hidden bg-grid-white/[0.02] border-t border-b"
-      >
+      {/* Timeline Area */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Track Headers Sidebar */}
         <div
-          ref={trackRef}
-          className="relative h-full select-none"
-          style={{
-            width: totalWidth + containerWidth,
-            minWidth: '100%',
-            cursor: isScrubbing ? 'grabbing' : 'ew-resize',
-          }}
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleMouseDown}
+          className="flex-shrink-0 border-r bg-muted/20"
+          style={{ width: TRACK_HEADER_WIDTH }}
         >
-          {/* Ruler */}
-          <div className="absolute top-0 left-0 right-0 h-8 border-b bg-muted/30 z-10">
-            {ticks}
+          {/* Ruler Header Spacer */}
+          <div className="h-8 border-b bg-muted/30 flex items-center justify-center">
+            <span className="text-xs text-muted-foreground font-medium">
+              Tracks
+            </span>
           </div>
 
-          {/* Tracks (centered vertically in remaining space) */}
-          <div className="absolute top-8 left-0 right-0 bottom-0 bg-muted/5 flex items-center px-0">
-            <div className="h-16 w-full relative">
-              {/* Clickable background layer for deselect?
-                     Actually the container mouseDown handles scrubbing.
-                  */}
-              {clipElements}
+          {/* Track Headers */}
+          <div
+            className="overflow-y-auto"
+            style={{ maxHeight: 'calc(100% - 2rem)' }}
+          >
+            {hasNoTracks ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                No tracks yet. Create one to get started.
+              </div>
+            ) : (
+              sortedTracks.map((track) => (
+                <TrackHeader
+                  key={track.id}
+                  track={track}
+                  isSelected={selectedTrackId === track.id}
+                  onSelect={() => setSelectedTrackId(track.id)}
+                  onRename={(name) => handleTrackRename(track.id, name)}
+                  onToggleMute={() =>
+                    handleTrackToggleMute(track.id, track.isMuted)
+                  }
+                  onToggleLock={() =>
+                    handleTrackToggleLock(track.id, track.isLocked)
+                  }
+                  onVolumeChange={(volume) =>
+                    handleTrackVolumeChange(track.id, volume)
+                  }
+                  onOpacityChange={(opacity) =>
+                    handleTrackOpacityChange(track.id, opacity)
+                  }
+                  onDelete={() => handleTrackDelete(track.id)}
+                />
+              ))
+            )}
+
+            {/* Add Track Button */}
+            <div className="p-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={handleCreateTrack}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Track
+              </Button>
             </div>
           </div>
+        </div>
 
-          {/* Playhead */}
+        {/* Timeline Scrubber Area */}
+        <div
+          ref={containerRef}
+          className="relative flex-1 overflow-x-auto overflow-y-auto bg-grid-white/[0.02]"
+        >
           <div
-            className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
-            style={{ left: currentTime * PIXELS_PER_SECOND }}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              setIsScrubbing(true);
-              handleTimelineClick(e);
+            ref={trackAreaRef}
+            className="relative select-none"
+            style={{
+              width: totalWidth + containerWidth,
+              minWidth: '100%',
+              cursor: isScrubbing ? 'grabbing' : 'ew-resize',
             }}
-            onTouchStart={(e) => {
-              e.stopPropagation();
-              setIsScrubbing(true);
-              handleTimelineClick(e);
-            }}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleMouseDown}
           >
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform" />
+            {/* Ruler */}
+            <div className="sticky top-0 left-0 right-0 h-8 border-b bg-muted/30 z-20">
+              {ticks}
+            </div>
 
-            {/* Playhead Time Label */}
-            <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded opacity-0 group-hover/playhead:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md">
-              {formatTime(currentTime)}
+            {/* Track Lanes */}
+            <div className="relative">
+              {hasNoTracks ? (
+                <div className="h-16 flex items-center justify-center text-sm text-muted-foreground bg-muted/5 border-b">
+                  Create a track to start adding clips
+                </div>
+              ) : (
+                sortedTracks.map((track) => {
+                  const trackClips = clipsByTrack.get(track.id) || [];
+                  return (
+                    <TrackLane
+                      key={track.id}
+                      track={track}
+                      clips={trackClips}
+                      totalWidth={totalWidth}
+                      pixelsPerSecond={PIXELS_PER_SECOND}
+                      isLocked={track.isLocked}
+                      selectedClipId={selectedClipId}
+                      onClipSelect={setSelectedClipId}
+                      onClipDragStart={handleClipDragStart}
+                      onDragOver={(e) => handleTrackDragOver(track.id, e)}
+                      onDrop={(e) => handleTrackDrop(track.id, e)}
+                      onClipResize={(_clipId, _handle, _deltaTime) => {
+                        // This is handled by the resize handlers above
+                      }}
+                      snapGuides={activeGuides}
+                    />
+                  );
+                })
+              )}
+            </div>
+
+            {/* Snap Guides */}
+            {activeGuides.map((guide, index) => (
+              <SnapGuide
+                key={`${guide.source}-${guide.time}-${index}`}
+                position={guide.time * PIXELS_PER_SECOND}
+                orientation="vertical"
+                label={formatTime(guide.time)}
+              />
+            ))}
+
+            {/* Playhead */}
+            <div
+              className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
+              style={{ left: currentTime * PIXELS_PER_SECOND }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setIsScrubbing(true);
+                handleTimelineClick(e);
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                setIsScrubbing(true);
+                handleTimelineClick(e);
+              }}
+            >
+              <div className="absolute top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform" />
+
+              {/* Playhead Time Label */}
+              <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded opacity-0 group-hover/playhead:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md">
+                {formatTime(currentTime)}
+              </div>
             </div>
           </div>
         </div>

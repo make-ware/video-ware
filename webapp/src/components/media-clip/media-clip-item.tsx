@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
-import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
+import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 import { ExpandedTimelineClip } from '@/types/expanded-types';
 
 interface MediaClipItemProps {
@@ -47,7 +47,7 @@ export function MediaClipItem({
     MediaClipRef: clip.id,
     start: clip.start,
     end: clip.end,
-    duration: clip.end - clip.start,
+    duration: clip.duration,
     collectionId: '',
     collectionName: '',
     order: 0,
@@ -120,10 +120,11 @@ export function MediaClipItem({
       />
 
       {isDetailsOpen && (
-        <TimelineClipDetailsDialog
+        <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          clip={detailsClip}
+          clip={detailsClip as any}
+          initialMode="view"
         />
       )}
     </>

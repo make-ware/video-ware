@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Eye } from 'lucide-react';
 import { MediaBaseCard } from '@/components/media/media-base-card';
-import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
+import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 import {
   ExpandedMediaClip,
   ExpandedTimelineClip,
@@ -149,10 +149,11 @@ export function ClipBrowserItem({
         }}
       />
       {detailsClip && (
-        <TimelineClipDetailsDialog
+        <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          clip={detailsClip}
+          clip={detailsClip as any}
+          initialMode="view"
         />
       )}
     </>

@@ -30,6 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TranscriptList } from '@/components/transcripts/transcript-list';
 import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
+import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 import { cn } from '@/lib/utils';
 import { MediaClip, MediaRecommendation } from '@project/shared';
 import { ClipType } from '@project/shared';
@@ -63,6 +64,7 @@ function MediaDetailsPageContentWithRecommendations() {
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [showTranscripts, setShowTranscripts] = useState(true);
+  const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Get clip ID from URL query parameter
@@ -239,7 +241,7 @@ function MediaDetailsPageContentWithRecommendations() {
     return (
       <div className="container mx-auto px-4 py-8">
         <Button variant="ghost" className="mb-4" onClick={handleBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Gallery
+          <ArrowLeft className="mr-1 h-4 w-4" /> Back to Gallery
         </Button>
         <Alert variant="destructive">
           <AlertTitle>Error</AlertTitle>
@@ -417,6 +419,17 @@ function MediaDetailsPageContentWithRecommendations() {
                         Create Clip
                       </Button>
                     )}
+
+                    {activeClip && activeClip.type === ClipType.COMPOSITE && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setIsFineTuneOpen(true)}
+                        className="gap-2 w-full sm:w-auto ml-2"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Fine-Tune Segments
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -569,6 +582,16 @@ function MediaDetailsPageContentWithRecommendations() {
           </Card>
         </div>
       </div>
+
+      {activeClip && (
+        <ClipBaseDialog
+          open={isFineTuneOpen}
+          onOpenChange={setIsFineTuneOpen}
+          clip={activeClip as any}
+          initialMode="edit"
+          onClipUpdated={handleClipUpdate}
+        />
+      )}
     </div>
   );
 }

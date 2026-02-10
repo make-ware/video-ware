@@ -17,6 +17,13 @@
  * For any Timeline, the computed duration SHALL equal the sum of `(end - start)` for
  * all TimelineClips.
  * Validates: Requirements 5.4, 6.1, 6.3
+ *
+ * Feature: timeline-editor-enhancement
+ *
+ * Property 11: Next layer index calculation
+ * For any non-empty set of tracks with layer values, the next available layer index
+ * SHALL equal `max(layer values) + 1`. For an empty set, the next layer SHALL be `0`.
+ * Validates: Requirements 6.1
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -37,6 +44,7 @@ function createMockPocketBase(): TypedPocketBase {
   let timelineIdCounter = 0;
   let clipIdCounter = 0;
   let taskIdCounter = 0;
+  let trackIdCounter = 0;
 
   // Create generic mock collections
   const timelinesCollection = createGenericMockCollection<Timeline>(
@@ -47,6 +55,11 @@ function createMockPocketBase(): TypedPocketBase {
   const timelineClipsCollection = createGenericMockCollection<TimelineClip>(
     'TimelineClips',
     () => `clip-${++clipIdCounter}`
+  );
+
+  const timelineTracksCollection = createGenericMockCollection<any>(
+    'TimelineTracks',
+    () => `track-${++trackIdCounter}`
   );
 
   const mediaCollection = createGenericMockCollection<Media>(
@@ -70,6 +83,8 @@ function createMockPocketBase(): TypedPocketBase {
         return timelinesCollection;
       } else if (name === 'TimelineClips') {
         return timelineClipsCollection;
+      } else if (name === 'TimelineTracks') {
+        return timelineTracksCollection;
       } else if (name === 'Media') {
         return mediaCollection;
       } else if (name === 'MediaClips') {
@@ -459,6 +474,163 @@ describe('TimelineService Property Tests', () => {
         expect(Math.abs(calculatedDuration - expectedDuration)).toBeLessThan(
           0.0001
         );
+      }
+    });
+  });
+
+  /**
+   * Property 11: Next layer index calculation
+   * For any non-empty set of tracks with layer values, the next available layer index
+   * SHALL equal `max(layer values) + 1`. For an empty set, the next layer SHALL be `0`.
+   * Validates: Requirements 6.1
+   */
+  describe('Property 11: Next layer index calculation', () => {
+    it('should return 0 for empty timeline (no tracks)', async () => {
+      // Test with 20 different empty timelines
+      for (let i = 0; i < 20; i++) {
+        const timeline = await service.createTimeline(
+          'workspace-1',
+          `Empty Timeline ${i}`
+        );
+
+        // Delete the default track that gets created
+        const timelineWithTracks = await service.getTimeline(timeline.id);
+        if (timelineWithTracks && timelineWithTracks.tracks.length > 0) {
+          for (const track of timelineWithTracks.tracks) {
+            await service.deleteTrack(track.id, true);
+          }
+        }
+
+        // Create a new track - should have layer 0
+        const track = await service.createTrack(timeline.id);
+        expect(track.layer).toBe(0);
+      }
+    });
+
+    it('should return max(layers) + 1 for non-empty track sets', async () => {
+      // Test with 100 different track configurations
+      for (let test = 0; test < 100; test++) {
+        const timeline = await service.createTimeline(
+          'workspace-1',
+          `Timeline ${test}`
+        );
+
+        // Delete the default track
+        const timelineWithTracks = await service.getTimeline(timeline.id);
+        if (timelineWithTracks && timelineWithTracks.tracks.length > 0) {
+          for (const track of timelineWithTracks.tracks) {
+            await service.deleteTrack(track.id, true);
+          }
+        }
+
+        // Create random number of tracks (1-10)
+        const trackCount = 1 + Math.floor(Math.random() * 10);
+        const layers: number[] = [];
+
+        for (let i = 0; i < trackCount; i++) {
+          const track = await service.createTrack(timeline.id);
+          layers.push(track.layer);
+        }
+
+        // Verify each new track has layer = max(previous layers) + 1
+        for (let i = 0; i < layers.length; i++) {
+          if (i === 0) {
+            expect(layers[i]).toBe(0);
+          } else {
+            const maxPrevious = Math.max(...layers.slice(0, i));
+            expect(layers[i]).toBe(maxPrevious + 1);
+          }
+        }
+      }
+    });
+
+    it('should handle non-contiguous layer values correctly', async () => {
+      // Test with 50 scenarios where we delete middle tracks
+      for (let test = 0; test < 50; test++) {
+        const timeline = await service.createTimeline(
+          'workspace-1',
+          `Timeline ${test}`
+        );
+
+        // Delete the default track
+        const timelineWithTracks = await service.getTimeline(timeline.id);
+        if (timelineWithTracks && timelineWithTracks.tracks.length > 0) {
+          for (const track of timelineWithTracks.tracks) {
+            await service.deleteTrack(track.id, true);
+          }
+        }
+
+        // Create 5 tracks (layers 0, 1, 2, 3, 4)
+        const tracks = [];
+        for (let i = 0; i < 5; i++) {
+          const track = await service.createTrack(timeline.id);
+          tracks.push(track);
+        }
+
+        // Delete a random middle track (not first or last)
+        const deleteIndex = 1 + Math.floor(Math.random() * 3); // 1, 2, or 3
+        await service.deleteTrack(tracks[deleteIndex].id, true);
+
+        // Create a new track - should have layer 5 (max was 4, so 4 + 1)
+        const newTrack = await service.createTrack(timeline.id);
+        expect(newTrack.layer).toBe(5);
+      }
+    });
+
+    it('should handle arbitrary layer values correctly', async () => {
+      // Test with 50 scenarios using manually set layer values
+      for (let test = 0; test < 50; test++) {
+        const timeline = await service.createTimeline(
+          'workspace-1',
+          `Timeline ${test}`
+        );
+
+        // Delete the default track
+        const timelineWithTracks = await service.getTimeline(timeline.id);
+        if (timelineWithTracks && timelineWithTracks.tracks.length > 0) {
+          for (const track of timelineWithTracks.tracks) {
+            await service.deleteTrack(track.id, true);
+          }
+        }
+
+        // Create tracks with random layer values
+        const layerValues = [
+          Math.floor(Math.random() * 10),
+          Math.floor(Math.random() * 20) + 10,
+          Math.floor(Math.random() * 30) + 30,
+        ];
+
+        for (const layer of layerValues) {
+          await service.createTrack(timeline.id, `Track ${layer}`);
+          // Manually update the layer to a specific value
+          const tracks = await service.getTimeline(timeline.id);
+          const lastTrack = tracks!.tracks[tracks!.tracks.length - 1];
+          await service.updateTrack(lastTrack.id, { layer });
+        }
+
+        // Create a new track - should have layer = max(layerValues) + 1
+        const maxLayer = Math.max(...layerValues);
+        const newTrack = await service.createTrack(timeline.id);
+        expect(newTrack.layer).toBe(maxLayer + 1);
+      }
+    });
+
+    it('should handle single track correctly', async () => {
+      // Test with 20 timelines with single track
+      for (let i = 0; i < 20; i++) {
+        const timeline = await service.createTimeline(
+          'workspace-1',
+          `Single Track ${i}`
+        );
+
+        // The default track should have layer 0
+        const timelineWithTracks = await service.getTimeline(timeline.id);
+        expect(timelineWithTracks!.tracks.length).toBe(1);
+        expect(timelineWithTracks!.tracks[0].layer).toBe(0);
+
+        // Create another track - should have layer 1
+        const newTrack = await service.createTrack(timeline.id);
+        expect(newTrack.layer).toBe(1);
       }
     });
   });

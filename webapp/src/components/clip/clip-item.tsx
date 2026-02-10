@@ -4,16 +4,10 @@ import React, { useState } from 'react';
 import type { Media, MediaClip, Timeline } from '@project/shared';
 import { MediaClipMutator, TimelineMutator } from '@project/shared/mutator';
 import { ClipType } from '@project/shared/enums';
-import {
-  validateTimeRange,
-  calculateDuration,
-} from '@project/shared/utils/time';
 import pb from '@/lib/pocketbase-client';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { TimelineService } from '@/services/timeline';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -42,21 +36,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Edit,
-  Trash2,
-  Save,
-  X,
-  Plus,
-  ListVideo,
-  Scissors,
-  Eye,
-} from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Edit, Trash2, X, Plus, ListVideo, Scissors, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
-import { TimelineClipDetailsDialog } from '@/components/timeline/timeline-clip-details-dialog';
-import { ExpandedTimelineClip } from '@/types/expanded-types';
+import { ClipBaseDialog } from './clip-base-dialog';
 
 interface ClipItemProps {
   clip: MediaClip;
@@ -69,8 +54,6 @@ interface ClipItemProps {
   className?: string;
 }
 
-const MIN_CLIP_DURATION = 0.5; // seconds
-
 export function ClipItem({
   clip,
   media,
@@ -82,20 +65,16 @@ export function ClipItem({
   className,
 }: ClipItemProps) {
   const { currentWorkspace } = useWorkspace();
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // Dialog state
+  const [dialogMode, setDialogMode] = useState<'view' | 'edit'>('view');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAddToTimelineDialogOpen, setIsAddToTimelineDialogOpen] =
     useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [selectedTimelineId, setSelectedTimelineId] = useState<string>('');
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-
-  // Edit form state
-  const [editStart, setEditStart] = useState(clip.start.toString());
-  const [editEnd, setEditEnd] = useState(clip.end.toString());
-  const [validationError, setValidationError] = useState<string | null>(null);
 
   const formatTime = (seconds: number) => {
     const min = Math.floor(seconds / 60);
@@ -103,87 +82,11 @@ export function ClipItem({
     return `${min}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const formatDetailedTime = (seconds: number) => {
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
-    return `${min}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  };
-
-  // Validate edit form
-  React.useEffect(() => {
-    if (!isEditDialogOpen) return;
-
-    const start = parseFloat(editStart);
-    const end = parseFloat(editEnd);
-
-    if (isNaN(start) || isNaN(end)) {
-      setValidationError('Please enter valid numbers');
-      return;
-    }
-
-    if (!validateTimeRange(start, end, media.duration)) {
-      if (start < 0) {
-        setValidationError('Start time cannot be negative');
-      } else if (start >= end) {
-        setValidationError('Start time must be less than end time');
-      } else if (end > media.duration) {
-        setValidationError(
-          `End time cannot exceed media duration (${media.duration.toFixed(2)}s)`
-        );
-      } else {
-        setValidationError('Invalid time range');
-      }
-      return;
-    }
-
-    const duration = calculateDuration(start, end);
-    if (duration < MIN_CLIP_DURATION) {
-      setValidationError(`Clip must be at least ${MIN_CLIP_DURATION} seconds`);
-      return;
-    }
-
-    setValidationError(null);
-  }, [editStart, editEnd, media.duration, isEditDialogOpen]);
-
-  const handleEdit = async () => {
-    if (validationError) {
-      toast.error(validationError);
-      return;
-    }
-
-    const start = parseFloat(editStart);
-    const end = parseFloat(editEnd);
-    const duration = calculateDuration(start, end);
-
-    setIsSaving(true);
-
-    try {
-      const mutator = new MediaClipMutator(pb);
-      await mutator.update(clip.id, {
-        start,
-        end,
-        duration,
-      });
-
-      toast.success('Clip updated successfully');
-      setIsEditDialogOpen(false);
-      onUpdate?.();
-    } catch (error) {
-      console.error('Failed to update clip:', error);
-      toast.error('Failed to update clip');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleDelete = async () => {
     setIsDeleting(true);
-
     try {
       const mutator = new MediaClipMutator(pb);
       await mutator.delete(clip.id);
-
       toast.success('Clip deleted successfully');
       onDelete?.();
     } catch (error) {
@@ -196,10 +99,8 @@ export function ClipItem({
 
   const handleOpenEditDialog = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setEditStart(clip.start.toString());
-    setEditEnd(clip.end.toString());
-    setValidationError(null);
-    setIsEditDialogOpen(true);
+    setDialogMode('edit');
+    setIsDialogOpen(true);
   };
 
   const handleOpenAddToTimelineDialog = async (e?: React.MouseEvent) => {
@@ -211,7 +112,6 @@ export function ClipItem({
 
     setIsAddToTimelineDialogOpen(true);
 
-    // Load timelines for the current workspace
     try {
       const timelineMutator = new TimelineMutator(pb);
       const result = await timelineMutator.getByWorkspace(currentWorkspace.id);
@@ -253,33 +153,12 @@ export function ClipItem({
 
   const handleViewDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsDetailsOpen(true);
+    setDialogMode('view');
+    setIsDialogOpen(true);
   };
 
-  const clipData = clip.clipData as Record<string, unknown> | undefined;
-  const label =
-    typeof clipData?.label === 'string' ? (clipData.label as string) : 'Clip';
-
-  // Construct a pseudo-clip for the dialog
-  const detailsClip: ExpandedTimelineClip = {
-    id: clip.id,
-    TimelineRef: 'preview',
-    MediaRef: media.id,
-    MediaClipRef: clip.id,
-    start: clip.start,
-    end: clip.end,
-    duration: clip.end - clip.start,
-    collectionId: '',
-    collectionName: '',
-    order: 0,
-    meta: clip.clipData,
-    created: clip.created,
-    updated: clip.updated,
-    expand: {
-      MediaRef: media,
-      MediaClipRef: clip,
-    },
-  };
+  const clipData = (clip.clipData as any) || {};
+  const label = typeof clipData.label === 'string' ? clipData.label : 'Clip';
 
   return (
     <>
@@ -327,7 +206,6 @@ export function ClipItem({
                 {formatTime(clip.end)}
               </span>
             </div>
-            {/* Note: Date is handled by MediaBaseCard automatically via new logic */}
           </div>
         }
         overlayActions={
@@ -450,129 +328,33 @@ export function ClipItem({
             clip.type === ClipType.USER && onInlineEdit && (
               <Button
                 key="inline-edit"
-                variant="secondary"
                 size="icon"
-                className="h-7 w-7 shadow-md"
+                variant="secondary"
                 onClick={(e) => {
                   e.stopPropagation();
                   onInlineEdit(clip.id);
                 }}
+                className="h-7 w-7 shadow-md"
                 title="Edit with Trim Handles"
               >
                 <Scissors className="h-4 w-4" />
               </Button>
             ),
-            // Edit Dialog
-            <Dialog
-              key="edit-dialog"
-              open={isEditDialogOpen}
-              onOpenChange={setIsEditDialogOpen}
+            // Edit
+            <Button
+              key="edit"
+              size="icon"
+              variant="secondary"
+              onClick={handleOpenEditDialog}
+              className="h-7 w-7 shadow-md"
+              title={
+                clip.type === ClipType.COMPOSITE
+                  ? 'Fine-Tune Segments'
+                  : 'Edit Time Range'
+              }
             >
-              <DialogTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="h-7 w-7 shadow-md"
-                  onClick={(e) => handleOpenEditDialog(e)}
-                  title="Edit Time Range"
-                >
-                  <Edit className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent onClick={(e) => e.stopPropagation()}>
-                <DialogHeader>
-                  <DialogTitle>Edit Clip Time Range</DialogTitle>
-                  <DialogDescription>
-                    Adjust the start and end times for this clip.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-start">Start Time (seconds)</Label>
-                    <Input
-                      id="edit-start"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={media.duration}
-                      value={editStart}
-                      onChange={(e) => setEditStart(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {formatDetailedTime(parseFloat(editStart) || 0)}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-end">End Time (seconds)</Label>
-                    <Input
-                      id="edit-end"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={media.duration}
-                      value={editEnd}
-                      onChange={(e) => setEditEnd(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {formatDetailedTime(parseFloat(editEnd) || 0)}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <span className="text-sm font-medium">New Duration:</span>
-                    <span className="text-sm font-mono">
-                      {formatDetailedTime(
-                        calculateDuration(
-                          parseFloat(editStart) || 0,
-                          parseFloat(editEnd) || 0
-                        )
-                      )}
-                    </span>
-                  </div>
-
-                  {validationError && (
-                    <p className="text-sm text-destructive">
-                      {validationError}
-                    </p>
-                  )}
-                </div>
-
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsEditDialogOpen(false);
-                    }}
-                    disabled={isSaving}
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEdit();
-                    }}
-                    disabled={!!validationError || isSaving}
-                  >
-                    {isSaving ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="mr-2 h-4 w-4" />
-                        Save
-                      </>
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>,
+              <Edit className="h-4 w-4" />
+            </Button>,
             // Delete
             <AlertDialog key="delete">
               <AlertDialogTrigger asChild>
@@ -619,13 +401,13 @@ export function ClipItem({
         }
       />
 
-      {isDetailsOpen && (
-        <TimelineClipDetailsDialog
-          open={isDetailsOpen}
-          onOpenChange={setIsDetailsOpen}
-          clip={detailsClip}
-        />
-      )}
+      <ClipBaseDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        initialMode={dialogMode}
+        clip={clip as any}
+        onClipUpdated={onUpdate}
+      />
     </>
   );
 }

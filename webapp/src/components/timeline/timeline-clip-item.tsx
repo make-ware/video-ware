@@ -1,44 +1,25 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { TimelineClip, Media, File } from '@project/shared';
+import React, { useState, useMemo, useEffect } from 'react';
+import type {
+  TimelineClip,
+  TimelineClipUpdate,
+  Media,
+  File,
+} from '@project/shared';
 import { useTimeline } from '@/hooks/use-timeline';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Trash2,
-  GripVertical,
-  Clock,
-  Edit,
-  AlertCircle,
-  Check,
-  X,
-  Eye,
-  Calendar,
-} from 'lucide-react';
+import { Trash2, GripVertical, Clock, Edit, Eye, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { VideoPlayerUI } from '@/components/video/video-player-ui';
-import { TrimHandles } from '@/components/video/trim-handles';
-import { useVideoSource } from '@/hooks/use-video-source';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { TimelineClipDetailsDialog } from './timeline-clip-details-dialog';
 import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
+import { calculateEffectiveDuration, ClipType } from '@project/shared';
+import { CompositeClipPreview } from './composite-clip-preview';
+import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
+import type { ExpandedTimelineClip } from '@/types/expanded-types';
 
-const MIN_CLIP_DURATION = 0.5; // seconds
-
-/**
- * Extended TimelineClip type with expanded Media relation
- */
 interface TimelineClipWithExpand extends Omit<TimelineClip, 'expand'> {
   expand?: {
     MediaRef?: Media & {
@@ -70,113 +51,60 @@ export function TimelineClipItem({
   onViewDetails,
   className,
 }: TimelineClipItemProps) {
-  const { removeClip, updateClipTimes } = useTimeline();
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
-  const [editStart, setEditStart] = useState(clip.start);
-  const [editEnd, setEditEnd] = useState(clip.end);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const { removeClip, updateClip } = useTimeline();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<'view' | 'edit'>('view');
   const [isHovering, setIsHovering] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
-  const [previewTime, setPreviewTime] = useState(clip.start);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [previewTimeState, setPreviewTimeState] = useState(clip.start);
 
-  const duration = clip.end - clip.start;
-  const media = clip.expand?.MediaRef;
-  // Only use video source if we have valid media
-  const { src, poster } = useVideoSource(
-    media ||
-      ({
-        id: '',
-        collectionId: '',
-        collectionName: 'Media',
-        created: '',
-        updated: '',
-        WorkspaceRef: '',
-        UploadRef: '',
-        mediaType: 'video' as const,
-        duration: 0,
-        width: 0,
-        height: 0,
-        aspectRatio: 1,
-        mediaData: {},
-      } as Media)
-  );
+  // Sync preview state with props and hover state during render phase
+  // to avoid cascading renders from useEffect.
+  const [prevSync, setPrevSync] = useState({ start: clip.start, isHovering });
+  if (prevSync.start !== clip.start || prevSync.isHovering !== isHovering) {
+    setPrevSync({ start: clip.start, isHovering });
+    setPreviewTimeState(clip.start);
+  }
 
-  // Sync previewTime with clip.start whenever clip changes or stops hovering
-  useEffect(() => {
-    if (!isHovering) {
-      setPreviewTime(clip.start);
+  // Check if clip is composite
+  const isComposite = useMemo(() => {
+    return !!(clip.meta?.segments && clip.meta.segments.length > 0);
+  }, [clip.meta?.segments]);
+
+  // Calculate effective duration
+  const effectiveDuration = useMemo(() => {
+    if (isComposite && clip.meta?.segments) {
+      if (clip.duration > 0) return clip.duration;
+      return calculateEffectiveDuration(
+        clip.start,
+        clip.end,
+        clip.meta.segments
+      );
     }
-  }, [isHovering, clip.start]);
+    return clip.duration || clip.end - clip.start;
+  }, [isComposite, clip.duration, clip.start, clip.end, clip.meta]);
+
+  const media = clip.expand?.MediaRef;
+
+  // Derive previewTime: use state when hovering, clip.start when not hovering
+  const previewTime = isHovering ? previewTimeState : clip.start;
 
   // Handle preview animation on hover
   useEffect(() => {
     if (!isHovering) return;
 
-    // Use a 1-second interval for filmstrip preview animation
     const interval = setInterval(() => {
-      setPreviewTime((prev) => {
+      setPreviewTimeState((prev) => {
         const next = prev + 1;
         return next >= clip.end ? clip.start : next;
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, [isHovering, clip.start, clip.end]);
-
-  // Validate time range whenever inputs change
-  useEffect(() => {
-    if (!media) {
-      setValidationError('No media reference found');
-      return;
-    }
-
-    if (editStart < 0) {
-      setValidationError('Start time cannot be negative');
-      return;
-    }
-
-    if (editStart >= editEnd) {
-      setValidationError('Start time must be less than end time');
-      return;
-    }
-
-    if (editEnd > media.duration) {
-      setValidationError(
-        `End time cannot exceed media duration (${media.duration.toFixed(2)}s)`
-      );
-      return;
-    }
-
-    const clipDuration = editEnd - editStart;
-    if (clipDuration < MIN_CLIP_DURATION) {
-      setValidationError(`Clip must be at least ${MIN_CLIP_DURATION} seconds`);
-      return;
-    }
-
-    setValidationError(null);
-  }, [editStart, editEnd, media]);
-
-  // Track video current time for trim handles
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const handleTimeUpdate = () => {
-      setCurrentVideoTime(video.currentTime);
-    };
-
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, []);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleRemove = async (e: React.MouseEvent) => {
@@ -190,62 +118,19 @@ export function TimelineClipItem({
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditStart(clip.start);
-    setEditEnd(clip.end);
-    setValidationError(null);
-    setIsEditDialogOpen(true);
+    setDialogMode('edit');
+    setIsDialogOpen(true);
   };
 
   const handleDetailsClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsDetailsDialogOpen(true);
+    setDialogMode('view');
+    setIsDialogOpen(true);
     onViewDetails?.();
   };
 
-  const handleTrimChange = useCallback((start: number, end: number) => {
-    setEditStart(start);
-    setEditEnd(end);
-  }, []);
-
-  const handleScrub = useCallback((time: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    try {
-      video.currentTime = time;
-    } catch {
-      // no-op (seeking can fail if metadata isn't loaded yet)
-    }
-  }, []);
-
-  const handleSetCurrentAsStart = useCallback(() => {
-    if (videoRef.current) {
-      setEditStart(videoRef.current.currentTime);
-    }
-  }, []);
-
-  const handleSetCurrentAsEnd = useCallback(() => {
-    if (videoRef.current) {
-      setEditEnd(videoRef.current.currentTime);
-    }
-  }, []);
-
-  const handleSaveEdit = async () => {
-    if (validationError) {
-      return;
-    }
-
-    setIsUpdating(true);
-    try {
-      await updateClipTimes(clip.id, editStart, editEnd);
-      setIsEditDialogOpen(false);
-    } catch (error) {
-      console.error('Failed to update clip times:', error);
-      alert(
-        error instanceof Error ? error.message : 'Failed to update clip times'
-      );
-    } finally {
-      setIsUpdating(false);
-    }
+  const handleSave = async (updates: TimelineClipUpdate) => {
+    await updateClip(clip.id, updates);
   };
 
   return (
@@ -259,18 +144,16 @@ export function TimelineClipItem({
         onMouseLeave={() => setIsHovering(false)}
         className={cn(
           'relative w-48 cursor-move transition-all overflow-hidden group',
-          'p-0 gap-0', // Remove default Card padding and gap
+          'p-0 gap-0',
           isDragging && 'opacity-50 scale-95',
           isSelected && 'ring-2 ring-primary ring-offset-2',
           className
         )}
       >
-        {/* Drag Handle */}
         <div className="absolute top-2 left-2 text-foreground/80 z-10">
           <GripVertical className="h-4 w-4 drop-shadow-md" />
         </div>
 
-        {/* Action Buttons - Top Right */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Button
             variant="secondary"
@@ -301,10 +184,17 @@ export function TimelineClipItem({
           </Button>
         </div>
 
-        {/* Sprite Preview / Thumbnail */}
         <div className="h-24 bg-muted overflow-hidden relative">
           {media ? (
-            media.filmstripFileRefs && media.filmstripFileRefs.length > 0 ? (
+            isComposite && !isSelected && clip.meta?.segments ? (
+              <CompositeClipPreview
+                media={media}
+                segments={clip.meta.segments}
+                isHovering={isHovering}
+                className="w-full h-full"
+              />
+            ) : media.filmstripFileRefs &&
+              media.filmstripFileRefs.length > 0 ? (
               <FilmstripViewer
                 media={media}
                 currentTime={previewTime}
@@ -335,28 +225,41 @@ export function TimelineClipItem({
             </div>
           )}
 
-          {/* Duration Badge */}
           <div className="absolute bottom-2 left-2 bg-primary/90 text-primary-foreground text-xs px-2 py-0.5 rounded font-medium shadow-md">
-            {formatTime(duration)}
+            {formatTime(effectiveDuration)}
           </div>
         </div>
 
-        {/* Clip Info */}
         <div className="p-2.5 space-y-1.5">
           <div className="text-xs space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground font-medium">In:</span>
-              <span className="font-mono text-[11px]">
-                {formatTime(clip.start)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground font-medium">Out:</span>
-              <span className="font-mono text-[11px]">
-                {formatTime(clip.end)}
-              </span>
-            </div>
-            {/* Media Date */}
+            {isComposite ? (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground font-medium">
+                  Segments:
+                </span>
+                <span className="font-mono text-[11px]">
+                  {clip.meta?.segments?.length || 0}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground font-medium">In:</span>
+                  <span className="font-mono text-[11px]">
+                    {formatTime(clip.start)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground font-medium">
+                    Out:
+                  </span>
+                  <span className="font-mono text-[11px]">
+                    {formatTime(clip.end)}
+                  </span>
+                </div>
+              </>
+            )}
+
             <div className="flex items-center justify-between border-t pt-1 mt-1">
               <span className="text-muted-foreground font-medium flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
@@ -372,200 +275,18 @@ export function TimelineClipItem({
         </div>
       </Card>
 
-      <TimelineClipDetailsDialog
-        open={isDetailsDialogOpen}
-        onOpenChange={setIsDetailsDialogOpen}
-        clip={clip}
+      <ClipBaseDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        clip={
+          {
+            ...clip,
+            type: isComposite ? ClipType.COMPOSITE : ClipType.USER,
+          } as ExpandedTimelineClip & { type: string }
+        }
+        initialMode={dialogMode}
+        onSave={handleSave}
       />
-
-      {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-4xl" showCloseButton={false}>
-          <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-2">
-                <Edit className="h-5 w-5 text-primary" />
-                Edit Clip
-              </DialogTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditDialogOpen(false)}
-                  disabled={isUpdating}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSaveEdit}
-                  disabled={
-                    !!validationError ||
-                    isUpdating ||
-                    (editStart === clip.start && editEnd === clip.end)
-                  }
-                >
-                  {isUpdating ? (
-                    <>
-                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4 mr-1" />
-                      Save
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <div className="space-y-4 mt-4">
-            {/* Video Preview */}
-            <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
-              {src && media ? (
-                <VideoPlayerUI
-                  src={src}
-                  poster={poster}
-                  startTime={editStart}
-                  endTime={editEnd}
-                  autoPlay={false}
-                  seekOnStartTimeChange={false}
-                  preload="auto"
-                  className="w-full h-full"
-                  ref={videoRef}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No video source available
-                </div>
-              )}
-            </div>
-
-            {/* Visual Trim Handles */}
-            {media && (
-              <div className="space-y-2">
-                <TrimHandles
-                  duration={media.duration}
-                  startTime={editStart}
-                  endTime={editEnd}
-                  onChange={handleTrimChange}
-                  onScrub={handleScrub}
-                  currentTime={currentVideoTime}
-                  minDuration={MIN_CLIP_DURATION}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Drag the handles to adjust clip boundaries. Use arrow keys for
-                  fine-tuning (hold Shift for larger steps).
-                </p>
-              </div>
-            )}
-
-            {/* Precise Inputs */}
-            {media && (
-              <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-lg">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-start">Start Time</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="edit-start"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={media.duration}
-                      value={editStart.toFixed(2)}
-                      onChange={(e) =>
-                        setEditStart(parseFloat(e.target.value) || 0)
-                      }
-                      className="font-mono"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSetCurrentAsStart}
-                      title="Set current video time as start"
-                    >
-                      Use Current
-                    </Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatTime(editStart)}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-end">End Time</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="edit-end"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={media.duration}
-                      value={editEnd.toFixed(2)}
-                      onChange={(e) =>
-                        setEditEnd(parseFloat(e.target.value) || 0)
-                      }
-                      className="font-mono"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSetCurrentAsEnd}
-                      title="Set current video time as end"
-                    >
-                      Use Current
-                    </Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatTime(editEnd)}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Duration Display */}
-            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-              <span className="text-sm font-medium">Clip Duration:</span>
-              <span className="text-sm font-mono">
-                {formatTime(editEnd - editStart)}
-              </span>
-            </div>
-
-            {/* Original vs New comparison */}
-            {(editStart !== clip.start || editEnd !== clip.end) && (
-              <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Original:</span>
-                  <span className="font-mono">
-                    {formatTime(clip.start)} - {formatTime(clip.end)} (
-                    {formatTime(duration)})
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">New:</span>
-                  <span className="font-mono text-primary">
-                    {formatTime(editStart)} - {formatTime(editEnd)} (
-                    {formatTime(editEnd - editStart)})
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Validation Error */}
-            {validationError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{validationError}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

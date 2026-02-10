@@ -6,6 +6,7 @@ import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
 import { ClipBrowser } from '@/components/timeline/clip-browser';
 import { TimelineRecommendationsPanelWrapper } from './timeline-recommendations-wrapper';
+import { RenderDialog } from './render-dialog';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { Button } from '@/components/ui/button';
@@ -20,18 +21,13 @@ import {
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 
 export function TimelineEditorLayout() {
-  const {
-    timeline,
-    hasUnsavedChanges,
-    saveTimeline,
-    isLoading,
-    createRenderTask,
-  } = useTimeline();
+  const { timeline, hasUnsavedChanges, saveTimeline, isLoading } =
+    useTimeline();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
+  const [renderDialogOpen, setRenderDialogOpen] = useState(false);
   const [activeMobilePanel, setActiveMobilePanel] = useState<
     'library' | 'recommendations' | null
   >(null);
@@ -94,23 +90,7 @@ export function TimelineEditorLayout() {
               <span className="hidden lg:inline">Renders</span>
             </Button>
             <Button
-              onClick={async () => {
-                toast.promise(
-                  saveTimeline().then(() =>
-                    createRenderTask({
-                      resolution: '3840x2160',
-                      codec: 'libx264',
-                      format: 'mp4',
-                    })
-                  ),
-                  {
-                    loading: 'Saving and starting render...',
-                    success: 'Render task created! Check Renders for progress.',
-                    error: (err: Error) =>
-                      `Failed to start render: ${err.message}`,
-                  }
-                );
-              }}
+              onClick={() => setRenderDialogOpen(true)}
               disabled={isLoading}
               variant="default"
               size="sm"
@@ -234,6 +214,10 @@ export function TimelineEditorLayout() {
           </div>
         </div>
       )}
+      <RenderDialog
+        open={renderDialogOpen}
+        onOpenChange={setRenderDialogOpen}
+      />
     </div>
   );
 }

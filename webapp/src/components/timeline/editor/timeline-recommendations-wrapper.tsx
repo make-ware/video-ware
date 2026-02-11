@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useTimelineRecommendations } from '@/hooks/use-timeline-recommendations';
 import { TimelineRecommendationsPanel } from '@/components/recommendations/timeline-recommendations-panel';
@@ -8,6 +8,15 @@ import {
   type TimelineRecommendation,
   RecommendationTargetMode,
 } from '@project/shared';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export function TimelineRecommendationsPanelWrapper() {
   const {
@@ -29,6 +38,10 @@ export function TimelineRecommendationsPanelWrapper() {
   const requestedClipIds = useRef<Set<string>>(new Set());
   // Track if a generation request is in-flight to prevent race conditions
   const isGeneratingRef = useRef(false);
+
+  // Error dialog for add/replace failures (replaces alert())
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const lastClipId = useMemo(() => {
     if (timeline && timeline.clips.length > 0) {
@@ -182,7 +195,10 @@ export function TimelineRecommendationsPanelWrapper() {
       await refreshTimeline();
     } catch (error) {
       console.error('Failed to add recommendation:', error);
-      alert(error instanceof Error ? error.message : 'Failed to add clip');
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to add clip'
+      );
+      setErrorDialogOpen(true);
     }
   };
 
@@ -192,7 +208,8 @@ export function TimelineRecommendationsPanelWrapper() {
       recommendation.SeedClipRef || selectedClipId || lastClipId;
 
     if (!targetClipId) {
-      alert('No clip available to replace');
+      setErrorMessage('No clip available to replace');
+      setErrorDialogOpen(true);
       return;
     }
     try {
@@ -202,7 +219,10 @@ export function TimelineRecommendationsPanelWrapper() {
       await refreshTimeline();
     } catch (error) {
       console.error('Failed to replace clip:', error);
-      alert(error instanceof Error ? error.message : 'Failed to replace clip');
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to replace clip'
+      );
+      setErrorDialogOpen(true);
     }
   };
 
@@ -251,14 +271,27 @@ export function TimelineRecommendationsPanelWrapper() {
   };
 
   return (
-    <TimelineRecommendationsPanel
-      recommendations={timelineRecs}
-      selectedClipRecommendations={selectedRecs}
-      isLoading={isLoading}
-      onAdd={handleAdd}
-      onReplace={handleReplace}
-      onDismiss={handleDismiss}
-      onMoreLikeThis={handleRefresh}
-    />
+    <>
+      <AlertDialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Error</AlertDialogTitle>
+            <AlertDialogDescription>{errorMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <TimelineRecommendationsPanel
+        recommendations={timelineRecs}
+        selectedClipRecommendations={selectedRecs}
+        isLoading={isLoading}
+        onAdd={handleAdd}
+        onReplace={handleReplace}
+        onDismiss={handleDismiss}
+        onMoreLikeThis={handleRefresh}
+      />
+    </>
   );
 }

@@ -189,6 +189,73 @@ describe('generateTracks with composite clips', () => {
     expect(t1?.segments[0].time.start).toBe(2); // Should respect timelineStart on Layer 1
   });
 
+  it('should use meta.segments when present on TimelineClip (override)', () => {
+    // TimelineClip-level meta.segments overrides MediaClip clipData
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 0,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: {
+        segments: [
+          { start: 0, end: 3 },
+          { start: 5, end: 8 },
+        ],
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0].time.sourceStart).toBe(0);
+    expect(segments[0].time.duration).toBe(3);
+    expect(segments[1].time.sourceStart).toBe(5);
+    expect(segments[1].time.duration).toBe(3);
+    expect(segments[1].time.start).toBe(3);
+  });
+
+  it('should handle composite with out-of-order segments in clipData', () => {
+    // Segments stored in non-chronological order (e.g. from UI editing)
+    const clip = {
+      id: 'c1',
+      order: 0,
+      TimelineTrackRef: 't0',
+      MediaRef: 'm1',
+      start: 0,
+      end: 0,
+      expand: {
+        MediaClipRef: {
+          type: 'composite',
+          MediaRef: 'm1',
+          start: 0,
+          end: 0,
+          clipData: {
+            segments: [
+              { start: 10, end: 15 },
+              { start: 0, end: 5 },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 't0', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    // Should be expanded in chronological order (0-5 first, then 10-15)
+    expect(segments).toHaveLength(2);
+    expect(segments[0].time.sourceStart).toBe(0);
+    expect(segments[0].time.duration).toBe(5);
+    expect(segments[0].time.start).toBe(0);
+    expect(segments[1].time.sourceStart).toBe(10);
+    expect(segments[1].time.duration).toBe(5);
+    expect(segments[1].time.start).toBe(5);
+  });
+
   it('should allow gaps if timelineStart is valid (gap)', () => {
     const clip1 = {
       id: 'c1',

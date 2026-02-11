@@ -8,6 +8,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,6 +74,8 @@ export function ClipEditModal({
   const [isSaving, setIsSaving] = useState(false);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Detect if this is a composite clip
   const expandedClip = clip as ExpandedTimelineClip;
@@ -168,18 +180,23 @@ export function ClipEditModal({
     }
   };
 
-  const handleDelete = async () => {
-    if (
-      confirm('Are you sure you want to remove this clip from the timeline?')
-    ) {
-      try {
-        await removeClip(clip.id);
-        toast.success('Clip removed');
-        onOpenChange(false);
-      } catch (error) {
-        console.error('Failed to remove clip:', error);
-        toast.error('Failed to remove clip');
-      }
+  const handleDeleteClick = () => {
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await removeClip(clip.id);
+      toast.success('Clip removed');
+      setDeleteConfirmOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Failed to remove clip:', error);
+      toast.error('Failed to remove clip');
+      setDeleteConfirmOpen(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -192,179 +209,201 @@ export function ClipEditModal({
   const media = expandedClip.expand?.MediaRef;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[550px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span className={cn('w-3 h-3 rounded-full', color)} />
-            Edit Clip
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="grid gap-6 py-4">
-          {/* Preview Section */}
-          {media && (
-            <div className="aspect-video w-full overflow-hidden rounded-md bg-muted border relative">
-              <SpriteAnimator
-                media={media}
-                start={previewTime !== null ? previewTime : start}
-                end={previewTime !== null ? previewTime : end}
-                isHovering={previewTime === null} // Loop if not scrubbing
-                spriteFile={media?.expand?.spriteFileRef}
-              />
-              {previewTime !== null && (
-                <div className="absolute bottom-2 right-2 bg-black/75 text-white text-xs px-2 py-1 rounded font-mono">
-                  {previewTime.toFixed(2)}s
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Title Section */}
-          <div className="grid gap-2">
-            <Label htmlFor="title" className="flex items-center gap-2">
-              <Type className="w-4 h-4" />
-              Display Name
-            </Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={mediaName}
-            />
-            <p className="text-[10px] text-muted-foreground">
-              Sets a custom name for this clip on the timeline.
-            </p>
-          </div>
-
-          {/* Color Section */}
-          <div className="grid gap-3">
-            <Label className="flex items-center gap-2">
-              <Palette className="w-4 h-4" />
-              Clip Color
-            </Label>
-            <div className="grid grid-cols-8 gap-2">
-              {PRESET_COLORS.map((pc) => (
-                <button
-                  key={pc.value}
-                  className={cn(
-                    'w-full aspect-square rounded-md border-2 transition-all',
-                    pc.value,
-                    color === pc.value
-                      ? 'border-white ring-2 ring-primary ring-offset-1'
-                      : 'border-transparent hover:scale-110'
-                  )}
-                  onClick={() => setColor(pc.value)}
-                  title={pc.name}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Segment Editor for Composite Clips */}
-          {isComposite && (
-            <div className="border rounded-lg p-4 bg-muted/30">
-              <SegmentEditor
-                segments={segments}
-                mediaDuration={media?.duration || 100}
-                onChange={setSegments}
-              />
-            </div>
-          )}
-
-          {/* Timing Section - Only show for non-composite clips */}
-          {!isComposite && (
-            <div className="grid gap-4">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  Clip Timing
-                </Label>
-                <div className="text-xs font-mono font-bold text-primary">
-                  {duration.toFixed(2)}s
-                </div>
-              </div>
-
-              {/* Slider */}
-              <div className="px-2 pt-2 pb-6">
-                <Slider
-                  value={[start, end]}
-                  max={media?.duration || 100}
-                  step={0.1}
-                  minStepsBetweenThumbs={0.5}
-                  onValueChange={([newStart, newEnd]) => {
-                    if (newStart !== start) {
-                      setPreviewTime(newStart);
-                    } else if (newEnd !== end) {
-                      setPreviewTime(newEnd);
-                    }
-                    setStart(newStart);
-                    setEnd(newEnd);
-                  }}
-                  onValueCommit={() => setPreviewTime(null)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-1.5">
-                  <Label
-                    htmlFor="start"
-                    className="text-xs text-muted-foreground font-normal"
-                  >
-                    Start (s)
-                  </Label>
-                  <TimeInput
-                    id="start"
-                    min={0}
-                    max={end}
-                    value={start}
-                    onChange={setStart}
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label
-                    htmlFor="end"
-                    className="text-xs text-muted-foreground font-normal"
-                  >
-                    End (s)
-                  </Label>
-                  <TimeInput
-                    id="end"
-                    min={start}
-                    max={media?.duration}
-                    value={end}
-                    onChange={setEnd}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter className="flex justify-between sm:justify-between items-center mt-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={handleDelete}
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Remove
-          </Button>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenChange(false)}
+    <>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Clip</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove this clip from the timeline?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </Button>
+              {isDeleting ? 'Removing...' : 'Remove'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[550px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className={cn('w-3 h-3 rounded-full', color)} />
+              Edit Clip
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-6 py-4">
+            {/* Preview Section */}
+            {media && (
+              <div className="aspect-video w-full overflow-hidden rounded-md bg-muted border relative">
+                <SpriteAnimator
+                  media={media}
+                  start={previewTime !== null ? previewTime : start}
+                  end={previewTime !== null ? previewTime : end}
+                  isHovering={previewTime === null} // Loop if not scrubbing
+                  spriteFile={media?.expand?.spriteFileRef}
+                />
+                {previewTime !== null && (
+                  <div className="absolute bottom-2 right-2 bg-black/75 text-white text-xs px-2 py-1 rounded font-mono">
+                    {previewTime.toFixed(2)}s
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Title Section */}
+            <div className="grid gap-2">
+              <Label htmlFor="title" className="flex items-center gap-2">
+                <Type className="w-4 h-4" />
+                Display Name
+              </Label>
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={mediaName}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Sets a custom name for this clip on the timeline.
+              </p>
+            </div>
+
+            {/* Color Section */}
+            <div className="grid gap-3">
+              <Label className="flex items-center gap-2">
+                <Palette className="w-4 h-4" />
+                Clip Color
+              </Label>
+              <div className="grid grid-cols-8 gap-2">
+                {PRESET_COLORS.map((pc) => (
+                  <button
+                    key={pc.value}
+                    className={cn(
+                      'w-full aspect-square rounded-md border-2 transition-all',
+                      pc.value,
+                      color === pc.value
+                        ? 'border-white ring-2 ring-primary ring-offset-1'
+                        : 'border-transparent hover:scale-110'
+                    )}
+                    onClick={() => setColor(pc.value)}
+                    title={pc.name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Segment Editor for Composite Clips */}
+            {isComposite && (
+              <div className="border rounded-lg p-4 bg-muted/30">
+                <SegmentEditor
+                  segments={segments}
+                  mediaDuration={media?.duration || 100}
+                  onChange={setSegments}
+                />
+              </div>
+            )}
+
+            {/* Timing Section - Only show for non-composite clips */}
+            {!isComposite && (
+              <div className="grid gap-4">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Clip Timing
+                  </Label>
+                  <div className="text-xs font-mono font-bold text-primary">
+                    {duration.toFixed(2)}s
+                  </div>
+                </div>
+
+                {/* Slider */}
+                <div className="px-2 pt-2 pb-6">
+                  <Slider
+                    value={[start, end]}
+                    max={media?.duration || 100}
+                    step={0.1}
+                    minStepsBetweenThumbs={0.5}
+                    onValueChange={([newStart, newEnd]) => {
+                      if (newStart !== start) {
+                        setPreviewTime(newStart);
+                      } else if (newEnd !== end) {
+                        setPreviewTime(newEnd);
+                      }
+                      setStart(newStart);
+                      setEnd(newEnd);
+                    }}
+                    onValueCommit={() => setPreviewTime(null)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-1.5">
+                    <Label
+                      htmlFor="start"
+                      className="text-xs text-muted-foreground font-normal"
+                    >
+                      Start (s)
+                    </Label>
+                    <TimeInput
+                      id="start"
+                      min={0}
+                      max={end}
+                      value={start}
+                      onChange={setStart}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label
+                      htmlFor="end"
+                      className="text-xs text-muted-foreground font-normal"
+                    >
+                      End (s)
+                    </Label>
+                    <TimeInput
+                      id="end"
+                      min={start}
+                      max={media?.duration}
+                      value={end}
+                      onChange={setEnd}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          <DialogFooter className="flex justify-between sm:justify-between items-center mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={handleDeleteClick}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Remove
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

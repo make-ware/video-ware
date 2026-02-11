@@ -121,6 +121,35 @@ describe('composite-utils', () => {
       expect(mapping[1].compositeEnd).toBeCloseTo(6.1, 1);
       expect(mapping[1].sourceStart).toBe(12.3);
     });
+
+    it('should sort segments by start time when given out of order', () => {
+      const unsortedSegments = [
+        { start: 28.9, end: 31.1 },
+        { start: 1.8, end: 6.7 },
+        { start: 14.8, end: 17.1 },
+        { start: 12.3, end: 13.5 },
+      ];
+      const mapping = buildCompositeTimeMapping(unsortedSegments);
+
+      // Should produce same result as sorted
+      expect(mapping).toHaveLength(4);
+      expect(mapping[0].sourceStart).toBe(1.8);
+      expect(mapping[1].sourceStart).toBe(12.3);
+      expect(mapping[2].sourceStart).toBe(14.8);
+      expect(mapping[3].sourceStart).toBe(28.9);
+    });
+
+    it('should handle single segment', () => {
+      const mapping = buildCompositeTimeMapping([{ start: 5, end: 10 }]);
+      expect(mapping).toHaveLength(1);
+      expect(mapping[0]).toEqual({
+        compositeStart: 0,
+        compositeEnd: 5,
+        sourceStart: 5,
+        sourceEnd: 10,
+        duration: 5,
+      });
+    });
   });
 
   describe('expandCompositeToSegments', () => {
@@ -170,6 +199,42 @@ describe('composite-utils', () => {
       // - All of second segment 1.2s (composite 4.9-6.1)
       // - First 0.9s of third segment (composite 6.1-7.0)
       expect(expanded.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should return empty when usage range is outside segments', () => {
+      const expanded = expandCompositeToSegments(
+        exampleSegments,
+        100, // Past end of composite
+        5,
+        0
+      );
+      expect(expanded).toHaveLength(0);
+    });
+
+    it('should handle single segment expansion', () => {
+      const expanded = expandCompositeToSegments(
+        [{ start: 2.5, end: 5.5 }],
+        0,
+        3,
+        10
+      );
+      expect(expanded).toHaveLength(1);
+      expect(expanded[0].sourceStart).toBe(2.5);
+      expect(expanded[0].duration).toBe(3);
+      expect(expanded[0].timelineStart).toBe(10);
+    });
+
+    it('should correctly map sourceStart when usage starts mid-segment', () => {
+      // Usage starts at composite 2.0 (2s into first segment), use 2s total
+      // First segment: composite 0-4.9, source 1.8-6.7. At composite 2.0, we're at source 3.8
+      const expanded = expandCompositeToSegments(
+        exampleSegments,
+        2.0,
+        2.0, // 2 seconds - fits entirely in remainder of first segment
+        0
+      );
+      expect(expanded[0].sourceStart).toBeCloseTo(3.8, 1); // 1.8 + 2.0
+      expect(expanded[0].duration).toBe(2); // 2 seconds as requested
     });
   });
 

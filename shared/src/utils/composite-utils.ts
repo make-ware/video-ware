@@ -149,7 +149,10 @@ export function buildCompositeTimeMapping(
   const mapping: CompositeTimeMapping[] = [];
   let compositeTime = 0;
 
-  for (const seg of segments) {
+  // Sort by start time to ensure correct composite→source mapping
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+
+  for (const seg of sorted) {
     const duration = seg.end - seg.start;
     mapping.push({
       compositeStart: compositeTime,

@@ -145,6 +145,11 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       return hex;
     };
 
+    // Round time values to avoid floating-point precision issues (e.g. 18.599999999999998)
+    // Composite clips with decimal segments can accumulate errors; millisecond precision is sufficient
+    const fmtTime = (t: number): number =>
+      Math.round(t * 1000) / 1000;
+
     // Sort tracks by layer
     const sortedTracks = [...tracks].sort(
       (a, b) => (a.layer || 0) - (b.layer || 0)
@@ -154,16 +159,17 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     const audioInputs: string[] = [];
 
     // Create a base black background
-    // Calculate total duration
+    // Calculate total duration (use fmtTime to avoid floating-point accumulation from composite segments)
     let totalDuration = 0;
     for (const track of sortedTracks) {
       for (const seg of track.segments) {
-        const end = seg.time.start + seg.time.duration;
+        const end = fmtTime(seg.time.start + seg.time.duration);
         if (end > totalDuration) totalDuration = end;
       }
     }
+    totalDuration = totalDuration || 1;
     filterComplex.push(
-      `color=c=black:s=${targetWidth}x${targetHeight}:d=${totalDuration || 1}[base]`
+      `color=c=black:s=${targetWidth}x${targetHeight}:d=${fmtTime(totalDuration)}[base]`
     );
 
     // Process Video/Image/Text Tracks
@@ -192,9 +198,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           }
 
           const idx = getInputIndex(seg.assetId);
-          const sourceStart = seg.time.sourceStart || 0;
-          const duration = seg.time.duration;
-          const start = seg.time.start;
+          const sourceStart = fmtTime(seg.time.sourceStart || 0);
+          const duration = fmtTime(seg.time.duration);
+          const start = fmtTime(seg.time.start);
 
           // Trimming and Delay
           // adelay is in milliseconds
@@ -221,8 +227,8 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           const x = seg.text?.x || '(w-text_w)/2';
           const y = seg.text?.y || '(h-text_h)/2';
 
-          const start = seg.time.start;
-          const end = start + seg.time.duration;
+          const start = fmtTime(seg.time.start);
+          const end = fmtTime(start + seg.time.duration);
           const enable = `between(t,${start},${end})`;
 
           const nextLabel = `[v_txt_${seg.id}]`;
@@ -244,9 +250,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         if (!seg.assetId) continue;
         const idx = getInputIndex(seg.assetId);
 
-        const sourceStart = seg.time.sourceStart || 0;
-        const duration = seg.time.duration;
-        const start = seg.time.start;
+        const sourceStart = fmtTime(seg.time.sourceStart || 0);
+        const duration = fmtTime(seg.time.duration);
+        const start = fmtTime(seg.time.start);
 
         // Prepare the segment: trim -> scale -> setpts
         // Scale logic
@@ -280,7 +286,8 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         const overlayLabel = `[v_over_${seg.id}]`;
         const xPos = seg.video?.x || 0;
         const yPos = seg.video?.y || 0;
-        const enable = `between(t,${start},${start + duration})`;
+        const segmentEnd = fmtTime(start + duration);
+        const enable = `between(t,${start},${segmentEnd})`;
 
         filterComplex.push(
           `${lastVideoLabel}[v_seg_${seg.id}]overlay=x=${xPos}:y=${yPos}:enable='${enable}':eof_action=pass${overlayLabel}`
@@ -296,7 +303,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       );
     } else {
       filterComplex.push(
-        `anullsrc=channel_layout=stereo:sample_rate=44100:d=${totalDuration || 1}[outa]`
+        `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
       );
     }
 

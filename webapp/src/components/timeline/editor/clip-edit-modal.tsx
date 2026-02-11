@@ -8,6 +8,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,6 +74,8 @@ export function ClipEditModal({
   const [isSaving, setIsSaving] = useState(false);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Detect if this is a composite clip
   const expandedClip = clip as ExpandedTimelineClip;
@@ -168,18 +180,23 @@ export function ClipEditModal({
     }
   };
 
-  const handleDelete = async () => {
-    if (
-      confirm('Are you sure you want to remove this clip from the timeline?')
-    ) {
-      try {
-        await removeClip(clip.id);
-        toast.success('Clip removed');
-        onOpenChange(false);
-      } catch (error) {
-        console.error('Failed to remove clip:', error);
-        toast.error('Failed to remove clip');
-      }
+  const handleDeleteClick = () => {
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await removeClip(clip.id);
+      toast.success('Clip removed');
+      setDeleteConfirmOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Failed to remove clip:', error);
+      toast.error('Failed to remove clip');
+      setDeleteConfirmOpen(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -192,7 +209,28 @@ export function ClipEditModal({
   const media = expandedClip.expand?.MediaRef;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Clip</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove this clip from the timeline?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Removing...' : 'Remove'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[550px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -346,7 +384,7 @@ export function ClipEditModal({
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={handleDelete}
+            onClick={handleDeleteClick}
           >
             <Trash2 className="w-4 h-4 mr-2" />
             Remove
@@ -366,5 +404,6 @@ export function ClipEditModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

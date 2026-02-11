@@ -11,6 +11,16 @@ import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
 import { X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
@@ -56,6 +66,9 @@ export function LayerTimelineView() {
 
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragInfoRef = useRef<DragState | null>(null);
+  const [trackDeleteDialogOpen, setTrackDeleteDialogOpen] = useState(false);
+  const [trackToDelete, setTrackToDelete] = useState<string | null>(null);
+  const [isDeletingTrack, setIsDeletingTrack] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackAreaRef = useRef<HTMLDivElement>(null);
@@ -340,21 +353,26 @@ export function LayerTimelineView() {
     [updateTrack]
   );
 
-  const handleTrackDelete = useCallback(
-    async (trackId: string) => {
-      const confirmed = window.confirm(
-        'Are you sure you want to delete this track? All clips on this track will also be deleted.'
-      );
-      if (confirmed) {
-        try {
-          await deleteTrack(trackId, true);
-        } catch (error) {
-          console.error('Failed to delete track', error);
-        }
-      }
-    },
-    [deleteTrack]
-  );
+  const handleTrackDelete = useCallback((trackId: string) => {
+    setTrackToDelete(trackId);
+    setTrackDeleteDialogOpen(true);
+  }, []);
+
+  const handleConfirmTrackDelete = useCallback(async () => {
+    if (!trackToDelete) return;
+    setIsDeletingTrack(true);
+    try {
+      await deleteTrack(trackToDelete, true);
+      setTrackDeleteDialogOpen(false);
+      setTrackToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete track', error);
+      setTrackDeleteDialogOpen(false);
+      setTrackToDelete(null);
+    } finally {
+      setIsDeletingTrack(false);
+    }
+  }, [trackToDelete, deleteTrack]);
 
   // Clip drag and drop handlers
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
@@ -630,7 +648,37 @@ export function LayerTimelineView() {
   const hasNoTracks = sortedTracks.length === 0;
 
   return (
-    <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
+    <>
+      <AlertDialog
+        open={trackDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setTrackDeleteDialogOpen(open);
+          if (!open) setTrackToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Track</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this track? All clips on this
+              track will also be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingTrack}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmTrackDelete}
+              disabled={isDeletingTrack}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingTrack ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
       {/* Deselect Button (Visible only when a clip is selected) */}
       {selectedClipId && (
         <Button
@@ -799,5 +847,6 @@ export function LayerTimelineView() {
         </div>
       </div>
     </div>
+    </>
   );
 }

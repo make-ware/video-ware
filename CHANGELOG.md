@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.2.0...video-ware-v0.3.0) (2026-02-11)
+
+
+### Features
+
+* Add Label Jobs table to Media Details ([4bca94e](https://github.com/make-ware/video-ware/commit/4bca94e39dcc3f9a06b0e44a0a6c1b51fbbfd45e))
+* Add Label Jobs table to Media Details ([4198171](https://github.com/make-ware/video-ware/commit/4198171fd17e11209781092c4dc26b7fbd2d27bc))
+* add workspace metrics utility page ([304ff21](https://github.com/make-ware/video-ware/commit/304ff2185fb059940ea0a6387942e54fc32ef7eb))
+* **timeline:** Update composite clip representation and duration logic ([47dc1d9](https://github.com/make-ware/video-ware/commit/47dc1d9ed3295297ec40b2ef9c4d219e863584eb))
+
+
+### Bug Fixes
+
+* Add new timeline editor ([396e3b9](https://github.com/make-ware/video-ware/commit/396e3b94061ee5e24c1e2f182d5d02592cc07dcd))
+* Add render support ([2d71d03](https://github.com/make-ware/video-ware/commit/2d71d0370219495d8b901a7f435156a4f66404cf))
+* Add Speech Clips and Composite Clips ([d2bee71](https://github.com/make-ware/video-ware/commit/d2bee71d87e6baa65f60405f15b7bc17fcbf92c6))
+* Dead URLs ([6375a7c](https://github.com/make-ware/video-ware/commit/6375a7cfa4f8348736cc1f5268766986f197f18a))
+* Update Composite Clips Rendering ([ae95da1](https://github.com/make-ware/video-ware/commit/ae95da1e3d8c7cc372a9652865357d12fd5d34e3))
+
 ## [0.2.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.1.4...video-ware-v0.2.0) (2026-01-26)
 
 

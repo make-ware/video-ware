@@ -195,7 +195,9 @@ export function TimelineRecommendationsPanelWrapper() {
       await refreshTimeline();
     } catch (error) {
       console.error('Failed to add recommendation:', error);
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to add clip');
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to add clip'
+      );
       setErrorDialogOpen(true);
     }
   };
@@ -217,7 +219,9 @@ export function TimelineRecommendationsPanelWrapper() {
       await refreshTimeline();
     } catch (error) {
       console.error('Failed to replace clip:', error);
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to replace clip');
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to replace clip'
+      );
       setErrorDialogOpen(true);
     }
   };
@@ -280,14 +284,14 @@ export function TimelineRecommendationsPanelWrapper() {
         </AlertDialogContent>
       </AlertDialog>
       <TimelineRecommendationsPanel
-      recommendations={timelineRecs}
-      selectedClipRecommendations={selectedRecs}
-      isLoading={isLoading}
-      onAdd={handleAdd}
-      onReplace={handleReplace}
-      onDismiss={handleDismiss}
-      onMoreLikeThis={handleRefresh}
-    />
+        recommendations={timelineRecs}
+        selectedClipRecommendations={selectedRecs}
+        isLoading={isLoading}
+        onAdd={handleAdd}
+        onReplace={handleReplace}
+        onDismiss={handleDismiss}
+        onMoreLikeThis={handleRefresh}
+      />
     </>
   );
 }

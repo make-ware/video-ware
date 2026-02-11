@@ -370,12 +370,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
@@ -415,12 +414,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
@@ -474,12 +472,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
@@ -527,12 +524,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
@@ -599,12 +595,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
@@ -652,12 +647,11 @@ describe('FFmpegComposeExecutor', () => {
     };
 
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
-    await executor.execute(
-      tracks,
-      clipMediaMap,
-      '/tmp/output.mp4',
-      { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
-    );
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];

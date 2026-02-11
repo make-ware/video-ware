@@ -207,10 +207,7 @@ describe('generateTracks with composite clips', () => {
       },
     } as any;
 
-    const tracks = generateTracks(
-      [clip],
-      [{ id: 'track1', layer: 0 } as any]
-    );
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
     const segments = tracks[0].segments;
 
     expect(segments).toHaveLength(2);

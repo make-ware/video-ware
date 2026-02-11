@@ -147,8 +147,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
     // Round time values to avoid floating-point precision issues (e.g. 18.599999999999998)
     // Composite clips with decimal segments can accumulate errors; millisecond precision is sufficient
-    const fmtTime = (t: number): number =>
-      Math.round(t * 1000) / 1000;
+    const fmtTime = (t: number): number => Math.round(t * 1000) / 1000;
 
     // Sort tracks by layer
     const sortedTracks = [...tracks].sort(

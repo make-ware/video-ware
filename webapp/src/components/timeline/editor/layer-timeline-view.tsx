@@ -679,174 +679,174 @@ export function LayerTimelineView() {
         </AlertDialogContent>
       </AlertDialog>
       <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
-      {/* Deselect Button (Visible only when a clip is selected) */}
-      {selectedClipId && (
-        <Button
-          variant="secondary"
-          size="icon"
-          className="absolute top-2 right-2 z-50 h-8 w-8 rounded-full shadow-lg opacity-0 group-hover/timeline:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedClipId(null);
-          }}
-          title="Deselect Clip"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      )}
-
-      {/* Timeline Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Track Headers Sidebar */}
-        <div
-          className="flex-shrink-0 border-r bg-muted/20"
-          style={{ width: TRACK_HEADER_WIDTH }}
-        >
-          {/* Ruler Header Spacer */}
-          <div className="h-8 border-b bg-muted/30 flex items-center justify-center">
-            <span className="text-xs text-muted-foreground font-medium">
-              Tracks
-            </span>
-          </div>
-
-          {/* Track Headers */}
-          <div
-            className="overflow-y-auto"
-            style={{ maxHeight: 'calc(100% - 2rem)' }}
-          >
-            {hasNoTracks ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                No tracks yet. Create one to get started.
-              </div>
-            ) : (
-              sortedTracks.map((track) => (
-                <TrackHeader
-                  key={track.id}
-                  track={track}
-                  isSelected={selectedTrackId === track.id}
-                  onSelect={() => setSelectedTrackId(track.id)}
-                  onRename={(name) => handleTrackRename(track.id, name)}
-                  onToggleMute={() =>
-                    handleTrackToggleMute(track.id, track.isMuted)
-                  }
-                  onToggleLock={() =>
-                    handleTrackToggleLock(track.id, track.isLocked)
-                  }
-                  onVolumeChange={(volume) =>
-                    handleTrackVolumeChange(track.id, volume)
-                  }
-                  onOpacityChange={(opacity) =>
-                    handleTrackOpacityChange(track.id, opacity)
-                  }
-                  onDelete={() => handleTrackDelete(track.id)}
-                />
-              ))
-            )}
-
-            {/* Add Track Button */}
-            <div className="p-2 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={handleCreateTrack}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Track
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Timeline Scrubber Area */}
-        <div
-          ref={containerRef}
-          className="relative flex-1 overflow-x-auto overflow-y-auto bg-grid-white/[0.02]"
-        >
-          <div
-            ref={trackAreaRef}
-            className="relative select-none"
-            style={{
-              width: totalWidth + containerWidth,
-              minWidth: '100%',
-              cursor: isScrubbing ? 'grabbing' : 'ew-resize',
+        {/* Deselect Button (Visible only when a clip is selected) */}
+        {selectedClipId && (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="absolute top-2 right-2 z-50 h-8 w-8 rounded-full shadow-lg opacity-0 group-hover/timeline:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedClipId(null);
             }}
-            onMouseDown={handleMouseDown}
-            onTouchStart={handleMouseDown}
+            title="Deselect Clip"
           >
-            {/* Ruler */}
-            <div className="sticky top-0 left-0 right-0 h-8 border-b bg-muted/30 z-20">
-              {ticks}
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+
+        {/* Timeline Area */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Track Headers Sidebar */}
+          <div
+            className="flex-shrink-0 border-r bg-muted/20"
+            style={{ width: TRACK_HEADER_WIDTH }}
+          >
+            {/* Ruler Header Spacer */}
+            <div className="h-8 border-b bg-muted/30 flex items-center justify-center">
+              <span className="text-xs text-muted-foreground font-medium">
+                Tracks
+              </span>
             </div>
 
-            {/* Track Lanes */}
-            <div className="relative">
+            {/* Track Headers */}
+            <div
+              className="overflow-y-auto"
+              style={{ maxHeight: 'calc(100% - 2rem)' }}
+            >
               {hasNoTracks ? (
-                <div className="h-16 flex items-center justify-center text-sm text-muted-foreground bg-muted/5 border-b">
-                  Create a track to start adding clips
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  No tracks yet. Create one to get started.
                 </div>
               ) : (
-                sortedTracks.map((track) => {
-                  const trackClips = clipsByTrack.get(track.id) || [];
-                  return (
-                    <TrackLane
-                      key={track.id}
-                      track={track}
-                      clips={trackClips}
-                      totalWidth={totalWidth}
-                      pixelsPerSecond={PIXELS_PER_SECOND}
-                      isLocked={track.isLocked}
-                      selectedClipId={selectedClipId}
-                      onClipSelect={setSelectedClipId}
-                      onClipDragStart={handleClipDragStart}
-                      onDragOver={(e) => handleTrackDragOver(track.id, e)}
-                      onDrop={(e) => handleTrackDrop(track.id, e)}
-                      onClipResize={(_clipId, _handle, _deltaTime) => {
-                        // This is handled by the resize handlers above
-                      }}
-                      snapGuides={activeGuides}
-                    />
-                  );
-                })
+                sortedTracks.map((track) => (
+                  <TrackHeader
+                    key={track.id}
+                    track={track}
+                    isSelected={selectedTrackId === track.id}
+                    onSelect={() => setSelectedTrackId(track.id)}
+                    onRename={(name) => handleTrackRename(track.id, name)}
+                    onToggleMute={() =>
+                      handleTrackToggleMute(track.id, track.isMuted)
+                    }
+                    onToggleLock={() =>
+                      handleTrackToggleLock(track.id, track.isLocked)
+                    }
+                    onVolumeChange={(volume) =>
+                      handleTrackVolumeChange(track.id, volume)
+                    }
+                    onOpacityChange={(opacity) =>
+                      handleTrackOpacityChange(track.id, opacity)
+                    }
+                    onDelete={() => handleTrackDelete(track.id)}
+                  />
+                ))
               )}
+
+              {/* Add Track Button */}
+              <div className="p-2 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleCreateTrack}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Track
+                </Button>
+              </div>
             </div>
+          </div>
 
-            {/* Snap Guides */}
-            {activeGuides.map((guide, index) => (
-              <SnapGuide
-                key={`${guide.source}-${guide.time}-${index}`}
-                position={guide.time * PIXELS_PER_SECOND}
-                orientation="vertical"
-                label={formatTime(guide.time)}
-              />
-            ))}
-
-            {/* Playhead */}
+          {/* Timeline Scrubber Area */}
+          <div
+            ref={containerRef}
+            className="relative flex-1 overflow-x-auto overflow-y-auto bg-grid-white/[0.02]"
+          >
             <div
-              className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
-              style={{ left: currentTime * PIXELS_PER_SECOND }}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                setIsScrubbing(true);
-                handleTimelineClick(e);
+              ref={trackAreaRef}
+              className="relative select-none"
+              style={{
+                width: totalWidth + containerWidth,
+                minWidth: '100%',
+                cursor: isScrubbing ? 'grabbing' : 'ew-resize',
               }}
-              onTouchStart={(e) => {
-                e.stopPropagation();
-                setIsScrubbing(true);
-                handleTimelineClick(e);
-              }}
+              onMouseDown={handleMouseDown}
+              onTouchStart={handleMouseDown}
             >
-              <div className="absolute top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform" />
+              {/* Ruler */}
+              <div className="sticky top-0 left-0 right-0 h-8 border-b bg-muted/30 z-20">
+                {ticks}
+              </div>
 
-              {/* Playhead Time Label */}
-              <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded opacity-0 group-hover/playhead:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md">
-                {formatTime(currentTime)}
+              {/* Track Lanes */}
+              <div className="relative">
+                {hasNoTracks ? (
+                  <div className="h-16 flex items-center justify-center text-sm text-muted-foreground bg-muted/5 border-b">
+                    Create a track to start adding clips
+                  </div>
+                ) : (
+                  sortedTracks.map((track) => {
+                    const trackClips = clipsByTrack.get(track.id) || [];
+                    return (
+                      <TrackLane
+                        key={track.id}
+                        track={track}
+                        clips={trackClips}
+                        totalWidth={totalWidth}
+                        pixelsPerSecond={PIXELS_PER_SECOND}
+                        isLocked={track.isLocked}
+                        selectedClipId={selectedClipId}
+                        onClipSelect={setSelectedClipId}
+                        onClipDragStart={handleClipDragStart}
+                        onDragOver={(e) => handleTrackDragOver(track.id, e)}
+                        onDrop={(e) => handleTrackDrop(track.id, e)}
+                        onClipResize={(_clipId, _handle, _deltaTime) => {
+                          // This is handled by the resize handlers above
+                        }}
+                        snapGuides={activeGuides}
+                      />
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Snap Guides */}
+              {activeGuides.map((guide, index) => (
+                <SnapGuide
+                  key={`${guide.source}-${guide.time}-${index}`}
+                  position={guide.time * PIXELS_PER_SECOND}
+                  orientation="vertical"
+                  label={formatTime(guide.time)}
+                />
+              ))}
+
+              {/* Playhead */}
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
+                style={{ left: currentTime * PIXELS_PER_SECOND }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setIsScrubbing(true);
+                  handleTimelineClick(e);
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  setIsScrubbing(true);
+                  handleTimelineClick(e);
+                }}
+              >
+                <div className="absolute top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform" />
+
+                {/* Playhead Time Label */}
+                <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded opacity-0 group-hover/playhead:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md">
+                  {formatTime(currentTime)}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
     </>
   );
 }

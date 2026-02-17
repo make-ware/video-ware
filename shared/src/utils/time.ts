@@ -6,6 +6,7 @@
  */
 
 import type { TimeOffset } from '../types/video-ware';
+import { MediaType } from '../enums';
 
 /**
  * Convert seconds (float) to TimeOffset format
@@ -49,24 +50,37 @@ export function fromTimeOffset(offset: TimeOffset): number {
  * @param start - Start time in seconds
  * @param end - End time in seconds
  * @param mediaDuration - Total duration of the media in seconds
+ * @param mediaType - Optional media type to allow infinite duration for images
  * @returns true if the range is valid, false otherwise
  *
  * Valid range requirements:
  * - start >= 0
  * - start < end
- * - end <= mediaDuration
+ * - end <= mediaDuration (unless mediaType is 'image' or mediaDuration is 0)
  *
  * @example
  * validateTimeRange(0, 10, 60) // true
  * validateTimeRange(10, 5, 60) // false (start >= end)
  * validateTimeRange(-1, 10, 60) // false (start < 0)
  * validateTimeRange(0, 70, 60) // false (end > mediaDuration)
+ * validateTimeRange(0, 70, 5, 'image') // true
  */
 export function validateTimeRange(
   start: number,
   end: number,
-  mediaDuration: number
+  mediaDuration: number,
+  mediaType?: string
 ): boolean {
+  // Images can be infinitely extended
+  if (mediaType === MediaType.IMAGE) {
+    return start >= 0 && start < end;
+  }
+
+  // If media duration is 0, we allow any positive duration (fallback for unknown types/legacy)
+  if (mediaDuration === 0) {
+    return start >= 0 && start < end;
+  }
+
   return start >= 0 && start < end && end <= mediaDuration;
 }
 

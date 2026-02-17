@@ -10,7 +10,7 @@ import type {
   TaskTranscodeSpriteStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource } from '@project/shared';
+import { FileType, FileSource, MediaType } from '@project/shared';
 
 /**
  * Processor for the SPRITE step
@@ -42,6 +42,22 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       throw new Error(`Upload ${input.uploadId} not found`);
     }
 
+    const mediaData = await this.pocketbaseService.findMediaByUpload(
+      input.uploadId
+    );
+    if (!mediaData) {
+      throw new Error(`Media not found for upload ${input.uploadId}`);
+    }
+
+    // Skip processing for images
+    if (mediaData.mediaType === MediaType.IMAGE) {
+      this.logger.log(
+        `Skipping sprite generation for image media: ${mediaData.id}`
+      );
+      // Return empty result
+      return { spritePath: '', spriteFileId: '' };
+    }
+
     // Resolve file path
     const filePath = await FileResolver.resolveFilePath(
       input.uploadId,
@@ -49,13 +65,6 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       this.storageService,
       this.pocketbaseService
     );
-
-    const mediaData = await this.pocketbaseService.findMediaByUpload(
-      input.uploadId
-    );
-    if (!mediaData) {
-      throw new Error(`Media not found for upload ${input.uploadId}`);
-    }
 
     // Use probe output from input
     const duration = mediaData.duration;

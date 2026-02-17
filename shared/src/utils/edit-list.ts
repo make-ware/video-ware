@@ -150,11 +150,13 @@ function generateSegmentsFromClip(
   // Standard clip (non-composite)
   const duration = clip.end - clip.start;
 
+  const isImage = clipWithExpand.expand?.MediaRef?.mediaType === 'image';
+
   const segments: TimelineSegment[] = [
     {
       id: clip.id,
       assetId: clip.MediaRef,
-      type: 'video',
+      type: isImage ? 'image' : 'video',
       time: {
         start: startTime,
         duration: duration,

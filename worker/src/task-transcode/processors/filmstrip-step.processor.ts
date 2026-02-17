@@ -10,7 +10,7 @@ import type {
   TaskTranscodeFilmstripStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource } from '@project/shared';
+import { FileType, FileSource, MediaType } from '@project/shared';
 
 /**
  * Processor for the FILMSTRIP step
@@ -35,13 +35,11 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
     input: TaskTranscodeFilmstripStep,
     _job: Job<StepJobData>
   ): Promise<TaskTranscodeFilmstripStepOutput> {
-    // Resolve file path
-    const filePath = await FileResolver.resolveFilePath(
-      input.uploadId,
-      input.filePath,
-      this.storageService,
-      this.pocketbaseService
-    );
+    // Get upload for workspace reference
+    const upload = await this.pocketbaseService.getUpload(input.uploadId);
+    if (!upload) {
+      throw new Error(`Upload ${input.uploadId} not found`);
+    }
 
     const mediaData = await this.pocketbaseService.findMediaByUpload(
       input.uploadId
@@ -49,6 +47,27 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
     if (!mediaData) {
       throw new Error(`Media not found for upload ${input.uploadId}`);
     }
+
+    // Skip processing for images
+    if (mediaData.mediaType === MediaType.IMAGE) {
+      this.logger.log(
+        `Skipping filmstrip generation for image media: ${mediaData.id}`
+      );
+      // Return empty result
+      return {
+        filmstripPath: '',
+        filmstripFileId: '',
+        allFilmstripFileIds: [],
+      };
+    }
+
+    // Resolve file path
+    const filePath = await FileResolver.resolveFilePath(
+      input.uploadId,
+      input.filePath,
+      this.storageService,
+      this.pocketbaseService
+    );
 
     const duration = mediaData.duration;
     const segmentDuration = 100; // 100 seconds per segment
@@ -66,12 +85,6 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
       tileHeight = Math.round(tileWidth / aspectRatio);
       // Ensure even number for FFmpeg
       tileHeight = Math.round(tileHeight / 2) * 2;
-    }
-
-    // Get upload for workspace reference
-    const upload = await this.pocketbaseService.getUpload(input.uploadId);
-    if (!upload) {
-      throw new Error(`Upload ${input.uploadId} not found`);
     }
 
     const filmstripFileIds: string[] = [];

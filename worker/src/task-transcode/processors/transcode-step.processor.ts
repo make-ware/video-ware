@@ -18,7 +18,12 @@ import type {
   TaskTranscodeTranscodeStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { ProcessingProvider, FileType, FileSource } from '@project/shared';
+import {
+  ProcessingProvider,
+  FileType,
+  FileSource,
+  MediaType,
+} from '@project/shared';
 
 /**
  * Processor for the TRANSCODE step
@@ -49,6 +54,20 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
     const upload = await this.pocketbaseService.getUpload(input.uploadId);
     if (!upload) {
       throw new Error(`Upload ${input.uploadId} not found`);
+    }
+
+    const mediaData = await this.pocketbaseService.findMediaByUpload(
+      input.uploadId
+    );
+    if (!mediaData) {
+      throw new Error(`Media not found for upload ${input.uploadId}`);
+    }
+
+    // Skip processing for images
+    if (mediaData.mediaType === MediaType.IMAGE) {
+      this.logger.log(`Skipping transcoding for image media: ${mediaData.id}`);
+      // Return empty result
+      return { proxyPath: '', proxyFileId: '' };
     }
 
     // Resolve file path

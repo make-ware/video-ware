@@ -203,7 +203,7 @@ export class TimelineService {
     // Handle potential array type from SelectField
     const mediaType = Array.isArray(media.mediaType)
       ? media.mediaType[0]
-      : media.mediaType;
+      : (media.mediaType as string);
     if (!validateTimeRange(start, end, media.duration, mediaType)) {
       throw new Error(
         `Invalid time range: start=${start}, end=${end}, duration=${media.duration}`
@@ -435,7 +435,7 @@ export class TimelineService {
       // Handle potential array type from SelectField
       const mediaType = Array.isArray(media.mediaType)
         ? media.mediaType[0]
-        : media.mediaType;
+        : (media.mediaType as string);
       if (!validateTimeRange(clip.start, clip.end, media.duration, mediaType)) {
         errors.push({
           code: 'OFFSET_OUT_OF_BOUNDS',

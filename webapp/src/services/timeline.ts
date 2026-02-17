@@ -200,7 +200,11 @@ export class TimelineService {
     }
 
     // Validate time range
-    if (!validateTimeRange(start, end, media.duration, media.mediaType)) {
+    // Handle potential array type from SelectField
+    const mediaType = Array.isArray(media.mediaType)
+      ? media.mediaType[0]
+      : media.mediaType;
+    if (!validateTimeRange(start, end, media.duration, mediaType)) {
       throw new Error(
         `Invalid time range: start=${start}, end=${end}, duration=${media.duration}`
       );
@@ -428,14 +432,11 @@ export class TimelineService {
       }
 
       // Verify time offsets are within media duration bounds
-      if (
-        !validateTimeRange(
-          clip.start,
-          clip.end,
-          media.duration,
-          media.mediaType
-        )
-      ) {
+      // Handle potential array type from SelectField
+      const mediaType = Array.isArray(media.mediaType)
+        ? media.mediaType[0]
+        : media.mediaType;
+      if (!validateTimeRange(clip.start, clip.end, media.duration, mediaType)) {
         errors.push({
           code: 'OFFSET_OUT_OF_BOUNDS',
           message: `Timeline clip time range exceeds media duration`,

@@ -200,7 +200,7 @@ export class TimelineService {
     }
 
     // Validate time range
-    if (!validateTimeRange(start, end, media.duration)) {
+    if (!validateTimeRange(start, end, media.duration, media.mediaType)) {
       throw new Error(
         `Invalid time range: start=${start}, end=${end}, duration=${media.duration}`
       );
@@ -300,7 +300,7 @@ export class TimelineService {
     }
 
     // Validate time range
-    if (!validateTimeRange(start, end, media.duration)) {
+    if (!validateTimeRange(start, end, media.duration, media.mediaType)) {
       throw new Error(
         `Invalid time range: start=${start}, end=${end}, duration=${media.duration}`
       );
@@ -428,7 +428,14 @@ export class TimelineService {
       }
 
       // Verify time offsets are within media duration bounds
-      if (!validateTimeRange(clip.start, clip.end, media.duration)) {
+      if (
+        !validateTimeRange(
+          clip.start,
+          clip.end,
+          media.duration,
+          media.mediaType
+        )
+      ) {
         errors.push({
           code: 'OFFSET_OUT_OF_BOUNDS',
           message: `Timeline clip time range exceeds media duration`,

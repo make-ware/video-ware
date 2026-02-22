@@ -85,6 +85,7 @@ export interface UploadManagerActions {
   pauseAll(): void;
   resumeAll(): void;
   cancelAll(): void;
+  removeUpload(id: string): void;
   clearCompleted(): void;
 
   // Configuration

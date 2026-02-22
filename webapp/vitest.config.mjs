@@ -34,6 +34,10 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../shared/src/env.ts'),
       },
       {
+        find: '@project/shared/enums',
+        replacement: path.resolve(__dirname, '../shared/src/enums.ts'),
+      },
+      {
         find: '@project/shared',
         replacement: path.resolve(__dirname, '../shared'),
       },

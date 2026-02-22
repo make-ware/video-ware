@@ -19,8 +19,13 @@ import {
   Library,
   Sparkles,
   X,
+  FileCode,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { MediaMutator } from '@project/shared/mutator';
+import { generateFCPXML } from '@/utils/fcpxml';
+import pb from '@/lib/pocketbase-client';
+import { toast } from 'sonner';
 
 export function TimelineEditorLayout() {
   const { timeline, hasUnsavedChanges, saveTimeline, isLoading } =
@@ -31,6 +36,59 @@ export function TimelineEditorLayout() {
   const [activeMobilePanel, setActiveMobilePanel] = useState<
     'library' | 'recommendations' | null
   >(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportFCPXML = async () => {
+    if (!timeline) return;
+
+    try {
+      setIsExporting(true);
+      // Collect unique media IDs
+      const mediaIds = new Set<string>();
+      timeline.clips.forEach((clip) => {
+        if (clip.MediaRef) mediaIds.add(clip.MediaRef);
+      });
+
+      if (mediaIds.size === 0) {
+        toast.error('No media in timeline to export');
+        setIsExporting(false);
+        return;
+      }
+
+      // Fetch media records
+      const mediaMutator = new MediaMutator(pb);
+      // Construct filter string: id="id1" || id="id2" ...
+      const filter = Array.from(mediaIds)
+        .map((id) => `id="${id}"`)
+        .join('||');
+
+      // Fetch all media (up to 1000 for now)
+      const mediaList = await mediaMutator.getList(1, 1000, filter);
+      const mediaMap = new Map();
+      mediaList.items.forEach((media) => mediaMap.set(media.id, media));
+
+      // Generate XML
+      const xml = generateFCPXML(timeline, mediaMap);
+
+      // Download
+      const blob = new Blob([xml], { type: 'text/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${timeline.name || 'timeline'}.fcpxml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('FCPXML exported successfully');
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Failed to export FCPXML');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   if (!timeline) return null;
 
@@ -74,6 +132,21 @@ export function TimelineEditorLayout() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportFCPXML}
+              disabled={isExporting}
+              className="h-8 px-2 lg:px-3"
+              title="Export FCPXML for DaVinci Resolve"
+            >
+              {isExporting ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <FileCode className="h-4 w-4 lg:mr-2" />
+              )}
+              <span className="hidden lg:inline">Export XML</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { generateFCPXML } from '../fcpxml';
 import type { TimelineWithClips } from '@/services/timeline';
 import type { Media } from '@project/shared/schema';
+import { MediaType } from '@project/shared/enums';
+import type { TimelineClip, TimelineTrackRecord } from '@project/shared';
 
 describe('generateFCPXML', () => {
   it('should generate valid FCPXML for a simple timeline', () => {
@@ -22,7 +24,7 @@ describe('generateFCPXML', () => {
           end: 5,
           duration: 5,
           timelineStart: 0,
-        },
+        } as TimelineClip,
         {
           id: 'clip-2',
           TimelineRef: 'timeline-1',
@@ -33,7 +35,7 @@ describe('generateFCPXML', () => {
           end: 15,
           duration: 5,
           timelineStart: 5,
-        },
+        } as TimelineClip,
       ],
       tracks: [
         {
@@ -43,10 +45,13 @@ describe('generateFCPXML', () => {
           layer: 0,
           created: '',
           updated: '',
-        },
+        } as unknown as TimelineTrackRecord,
       ],
       created: '',
       updated: '',
+      collectionId: '',
+      collectionName: '',
+      expand: {},
     };
 
     const mediaMap = new Map<string, Media>();
@@ -54,7 +59,7 @@ describe('generateFCPXML', () => {
       id: 'media-1',
       WorkspaceRef: 'workspace-1',
       UploadRef: 'upload-1',
-      mediaType: 'VIDEO',
+      mediaType: MediaType.VIDEO,
       duration: 100,
       width: 1920,
       height: 1080,
@@ -62,12 +67,14 @@ describe('generateFCPXML', () => {
       mediaData: {},
       created: '',
       updated: '',
-    });
+      collectionId: '',
+      collectionName: '',
+    } as unknown as Media);
     mediaMap.set('media-2', {
       id: 'media-2',
       WorkspaceRef: 'workspace-1',
       UploadRef: 'upload-2',
-      mediaType: 'VIDEO',
+      mediaType: MediaType.VIDEO,
       duration: 200,
       width: 1920,
       height: 1080,
@@ -75,7 +82,9 @@ describe('generateFCPXML', () => {
       mediaData: {},
       created: '',
       updated: '',
-    });
+      collectionId: '',
+      collectionName: '',
+    } as unknown as Media);
 
     const xml = generateFCPXML(timeline, mediaMap);
 
@@ -123,7 +132,7 @@ describe('generateFCPXML', () => {
           end: 5,
           duration: 5,
           timelineStart: 0,
-        },
+        } as TimelineClip,
         // Gap from 5 to 10
         {
           id: 'clip-2',
@@ -135,7 +144,7 @@ describe('generateFCPXML', () => {
           end: 5,
           duration: 5,
           timelineStart: 10,
-        },
+        } as TimelineClip,
       ],
       tracks: [
         {
@@ -145,10 +154,13 @@ describe('generateFCPXML', () => {
           layer: 0,
           created: '',
           updated: '',
-        },
+        } as unknown as TimelineTrackRecord,
       ],
       created: '',
       updated: '',
+      collectionId: '',
+      collectionName: '',
+      expand: {},
     };
 
     const mediaMap = new Map<string, Media>();
@@ -156,7 +168,7 @@ describe('generateFCPXML', () => {
       id: 'media-1',
       WorkspaceRef: 'workspace-1',
       UploadRef: 'upload-1',
-      mediaType: 'VIDEO',
+      mediaType: MediaType.VIDEO,
       duration: 100,
       width: 1920,
       height: 1080,
@@ -164,7 +176,9 @@ describe('generateFCPXML', () => {
       mediaData: {},
       created: '',
       updated: '',
-    });
+      collectionId: '',
+      collectionName: '',
+    } as unknown as Media);
 
     const xml = generateFCPXML(timeline, mediaMap);
 

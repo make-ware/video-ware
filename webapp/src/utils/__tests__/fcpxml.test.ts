@@ -95,10 +95,14 @@ describe('generateFCPXML', () => {
 
     // Check for sequence and clips
     // Clip 1: start 0, duration 5 -> offset 0s, duration 150/30s
-    expect(xml).toContain('<video name="media-1" offset="0/30s" ref="asset_media-1" duration="150/30s" start="0/30s">');
+    expect(xml).toContain(
+      '<video name="media-1" offset="0/30s" ref="asset_media-1" duration="150/30s" start="0/30s">'
+    );
 
     // Clip 2: start 10, duration 5, timelineStart 5 -> offset 5s (150/30s), duration 150/30s, start 10s (300/30s)
-    expect(xml).toContain('<video name="media-2" offset="150/30s" ref="asset_media-2" duration="150/30s" start="300/30s">');
+    expect(xml).toContain(
+      '<video name="media-2" offset="150/30s" ref="asset_media-2" duration="150/30s" start="300/30s">'
+    );
   });
 
   it('should handle gaps correctly', () => {
@@ -166,7 +170,9 @@ describe('generateFCPXML', () => {
 
     // Check for gap
     // Gap starts at 5s (150/30s) and lasts 5s (150/30s)
-    expect(xml).toContain('<gap name="Gap" offset="150/30s" duration="150/30s" start="0s"/>');
+    expect(xml).toContain(
+      '<gap name="Gap" offset="150/30s" duration="150/30s" start="0s"/>'
+    );
 
     // Second clip starts at 10s (300/30s)
     expect(xml).toContain('offset="300/30s"');

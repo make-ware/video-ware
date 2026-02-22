@@ -50,11 +50,11 @@ export function generateFCPXML(
 
   // Add media assets
   const mediaIds = new Set<string>();
-  timeline.clips.forEach(clip => {
+  timeline.clips.forEach((clip) => {
     if (clip.MediaRef) mediaIds.add(clip.MediaRef);
   });
 
-  mediaIds.forEach(mediaId => {
+  mediaIds.forEach((mediaId) => {
     const media = mediaMap.get(mediaId);
     if (media) {
       // Use a generic filename if not available, usually media.id + extension
@@ -103,18 +103,21 @@ export function generateFCPXML(
   // FCPXML 1.10 supports lanes.
 
   // Let's filter for the main track (layer 0) first to build the spine.
-  const mainTrack = timeline.tracks.find(t => t.layer === 0);
+  const mainTrack = timeline.tracks.find((t) => t.layer === 0);
   const mainTrackId = mainTrack?.id;
 
-  const spineClips = sortedClips.filter(c => c.TimelineTrackRef === mainTrackId || (!mainTrackId && c.order >= 0));
+  const spineClips = sortedClips.filter(
+    (c) => c.TimelineTrackRef === mainTrackId || (!mainTrackId && c.order >= 0)
+  );
 
   let currentTime = 0;
 
-  spineClips.forEach(clip => {
+  spineClips.forEach((clip) => {
     // Check for gap
     if (clip.timelineStart !== undefined && clip.timelineStart > currentTime) {
       const gapDuration = clip.timelineStart - currentTime;
-      if (gapDuration > 0.001) { // distinct gap
+      if (gapDuration > 0.001) {
+        // distinct gap
         xml += `            <gap name="Gap" offset="${toRationalTime(currentTime, fps)}" duration="${toRationalTime(gapDuration, fps)}" start="0s"/>\n`;
         currentTime += gapDuration;
       }
@@ -131,13 +134,13 @@ export function generateFCPXML(
       xml += `            <video name="${escapeXML(media.id)}" offset="${clipOffset}" ref="${assetId}" duration="${clipDuration}" start="${clipStart}">\n`;
       xml += `            </video>\n`;
     } else {
-        // Fallback for missing media
-        const clipDuration = toRationalTime(clip.end - clip.start, fps);
-        const clipOffset = toRationalTime(currentTime, fps);
-        xml += `            <gap name="Missing Media" offset="${clipOffset}" duration="${clipDuration}" start="0s"/>\n`;
+      // Fallback for missing media
+      const clipDuration = toRationalTime(clip.end - clip.start, fps);
+      const clipOffset = toRationalTime(currentTime, fps);
+      xml += `            <gap name="Missing Media" offset="${clipOffset}" duration="${clipDuration}" start="0s"/>\n`;
     }
 
-    currentTime += (clip.end - clip.start);
+    currentTime += clip.end - clip.start;
   });
 
   xml += `          </spine>\n`;

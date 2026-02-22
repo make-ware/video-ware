@@ -57,6 +57,7 @@ type QueueAction =
   | { type: 'PAUSE_UPLOAD'; payload: { id: string } }
   | { type: 'RESUME_UPLOAD'; payload: { id: string } }
   | { type: 'CANCEL_UPLOAD'; payload: { id: string } }
+  | { type: 'REMOVE_UPLOAD'; payload: { id: string } }
   | { type: 'RETRY_UPLOAD'; payload: { id: string } }
   | { type: 'PAUSE_ALL' }
   | { type: 'RESUME_ALL' }
@@ -293,6 +294,24 @@ function queueReducer(
       };
     }
 
+    case 'REMOVE_UPLOAD': {
+      const { id } = action.payload;
+      const items = state.items.filter((item) => item.id !== id);
+
+      const activeCount = items.filter(
+        (item) => item.status === 'uploading'
+      ).length;
+
+      const totalProgress = calculateTotalProgress(items);
+
+      return {
+        ...state,
+        items,
+        activeCount,
+        totalProgress,
+      };
+    }
+
     case 'RETRY_UPLOAD': {
       const { id } = action.payload;
       const items = state.items.map((item) =>
@@ -526,6 +545,23 @@ export function UploadQueueProvider({
 
       dispatch({ type: 'CANCEL_ALL' });
       uploadStartTimes.current.clear();
+    }, []),
+
+    removeUpload: useCallback((id: string) => {
+      // Abort active upload if any
+      const activeUpload = activeUploadsRef.current.get(id);
+      if (activeUpload) {
+        activeUpload.abort();
+        activeUploadsRef.current.delete(id);
+      }
+      uploadStartTimes.current.delete(id);
+      setChunkProgress((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
+
+      dispatch({ type: 'REMOVE_UPLOAD', payload: { id } });
     }, []),
 
     clearCompleted: useCallback(() => {

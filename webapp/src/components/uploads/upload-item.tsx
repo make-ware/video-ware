@@ -33,6 +33,7 @@ interface UploadItemProps {
   item: UploadItemType;
   onCancel?: (id: string) => void;
   onRetry?: (id: string) => void;
+  onRemove?: (id: string) => void;
   className?: string;
   // Chunk progress (optional, for chunked uploads)
   chunkProgress?: {
@@ -46,6 +47,7 @@ export function UploadItem({
   item,
   onCancel,
   onRetry,
+  onRemove,
   className,
   chunkProgress,
 }: UploadItemProps) {
@@ -180,6 +182,19 @@ export function UploadItem({
               title="Retry upload"
             >
               <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* Remove button (for failed items) */}
+          {isFailed && onRemove && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onRemove(item.id)}
+              className="h-8 w-8 p-0 text-gray-500 hover:text-red-600 hover:bg-red-50"
+              title="Remove from queue"
+            >
+              <X className="h-4 w-4" />
             </Button>
           )}
 

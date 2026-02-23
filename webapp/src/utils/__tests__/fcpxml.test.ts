@@ -90,7 +90,7 @@ describe('generateFCPXML', () => {
 
     // Basic structure checks
     expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-    expect(xml).toContain('<fcpxml version="1.10">');
+    expect(xml).toContain('<fcpxml version="1.9">');
     expect(xml).toContain('<resources>');
     expect(xml).toContain('<library>');
     expect(xml).toContain('<event name="Exported Timeline">');

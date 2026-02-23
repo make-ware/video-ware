@@ -2,7 +2,7 @@ import type { Media } from '@project/shared/schema';
 import type { TimelineWithClips } from '@/services/timeline';
 
 // Constants for FCPXML
-const FCPXML_VERSION = '1.10';
+const FCPXML_VERSION = '1.9';
 const DEFAULT_FRAME_RATE = 30;
 const TIMEBASE = 30; // Using integer 30fps for simplicity, can be improved to support 29.97 etc.
 

@@ -57,10 +57,10 @@ export function TimelineEditorLayout() {
 
       // Fetch media records
       const mediaMutator = new MediaMutator(pb);
-      // Construct filter string: id="id1" || id="id2" ...
-      const filter = Array.from(mediaIds)
+      // Construct filter string: (id="id1" || id="id2" ...)
+      const filter = `(${Array.from(mediaIds)
         .map((id) => `id="${id}"`)
-        .join('||');
+        .join('||')})`;
 
       // Fetch all media (up to 1000 for now)
       const mediaList = await mediaMutator.getList(1, 1000, filter);

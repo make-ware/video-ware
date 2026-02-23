@@ -285,4 +285,27 @@ describe('generateTracks with composite clips', () => {
     // Gap from 10 to 15
     expect(segments[1].time.start).toBe(15);
   });
+
+  it('should generate image segment for image media type', () => {
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      expand: {
+        MediaRef: {
+          mediaType: 'image',
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments[0].type).toBe('image');
+    expect(segments[0].time.duration).toBe(5);
+  });
 });

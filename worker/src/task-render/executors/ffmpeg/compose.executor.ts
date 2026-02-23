@@ -284,6 +284,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         // Trim filter
         let trim = '';
         if (seg.type === 'image') {
+          this.logger.debug(
+            `Processing image segment ${seg.id}: duration=${duration}s`
+          );
           // Use loop filter for images to repeat the frame
           trim = `loop=loop=-1:size=1:start=0,trim=start=${sourceStart}:duration=${duration},`;
         } else {

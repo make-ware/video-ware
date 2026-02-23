@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.3.0...video-ware-v0.4.0) (2026-02-23)
+
+
+### Features
+
+* Add full support for images in upload, timeline, and render ([13f0b67](https://github.com/make-ware/video-ware/commit/13f0b677439178301d5912fcfda2b8abc0e1426c))
+* Add full support for images in upload, timeline, and render ([d2b82ed](https://github.com/make-ware/video-ware/commit/d2b82ed21a8d4fbf4c594cac07d0893ac93999d3))
+* **webapp:** add FCPXML export for DaVinci Resolve compatibility ([3a95fa0](https://github.com/make-ware/video-ware/commit/3a95fa0d591c6f3861f26de3893e17f72b2e1ff0))
+* **webapp:** allow removing failed uploads from the queue ([d1111f2](https://github.com/make-ware/video-ware/commit/d1111f24217ac5ae0d26e137af1baf130a14bb01))
+
+
+### Bug Fixes
+
+* **fcpxml:** use v1.9 and safe filter syntax ([ad0323f](https://github.com/make-ware/video-ware/commit/ad0323fd65c02fe500e0060a1412a47dd4a657f0))
+* Resolve TS error in timeline validation for image support ([3425812](https://github.com/make-ware/video-ware/commit/3425812e6d82d3883ad2a397bcec02df0d686cc3))
+* Resolve TS error in timeline validation for image support ([50006c8](https://github.com/make-ware/video-ware/commit/50006c840407d12803d9684241cbadd3ac4f2eff))
+* Resolve TS error in timeline validation for image support ([0bf3aaf](https://github.com/make-ware/video-ware/commit/0bf3aaf9e9f7fcb2b0b29c0d18630d5e333f0bce))
+* **webapp:** fix fcpxml tests types and aliases ([046791a](https://github.com/make-ware/video-ware/commit/046791a892be79a0b9d65f38b5337e178390fe55))
+* **webapp:** format FCPXML export files ([6060fa9](https://github.com/make-ware/video-ware/commit/6060fa9db329ebeeda4f8b13084fb732c0c0b4b3))
+
 ## [0.3.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.2.0...video-ware-v0.3.0) (2026-02-11)
 
 

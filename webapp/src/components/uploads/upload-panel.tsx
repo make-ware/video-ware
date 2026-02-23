@@ -139,6 +139,7 @@ export function UploadPanel({ className }: UploadPanelProps) {
                     item={item}
                     onRetry={actions.retryUpload}
                     onCancel={actions.cancelUpload}
+                    onRemove={actions.removeUpload}
                   />
                 ))}
               </>

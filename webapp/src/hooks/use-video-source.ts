@@ -17,7 +17,10 @@ export interface VideoSource {
 }
 
 export function useVideoSource<
-  E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
+  E extends keyof MediaRelations =
+    | 'proxyFileRef'
+    | 'thumbnailFileRef'
+    | 'audioFileRef',
 >(
   media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
   clip?: MediaClip
@@ -33,12 +36,19 @@ export function useVideoSource<
     'thumbnailFileRef' in media.expand
       ? (media.expand.thumbnailFileRef as File | undefined)
       : undefined;
+  const audioFileFromExpand =
+    media && 'expand' in media && media.expand && 'audioFileRef' in media.expand
+      ? (media.expand.audioFileRef as File | undefined)
+      : undefined;
 
   const [proxyFile, setProxyFile] = useState<File | null>(
     proxyFileFromExpand ?? null
   );
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(
     thumbnailFileFromExpand ?? null
+  );
+  const [audioFile, setAudioFile] = useState<File | null>(
+    audioFileFromExpand ?? null
   );
   const [isLoading, setIsLoading] = useState(false);
 
@@ -50,8 +60,9 @@ export function useVideoSource<
     async function fetchFiles(m: MediaParam) {
       const needsProxy = !proxyFile && !!m.proxyFileRef;
       const needsThumbnail = !thumbnailFile && !!m.thumbnailFileRef;
+      const needsAudio = !audioFile && !!m.audioFileRef;
 
-      if (!needsProxy && !needsThumbnail) return;
+      if (!needsProxy && !needsThumbnail && !needsAudio) return;
 
       setIsLoading(true);
       try {
@@ -67,8 +78,14 @@ export function useVideoSource<
             .getOne<File>(m.thumbnailFileRef!);
           setThumbnailFile(file);
         }
+        if (needsAudio) {
+          const file = await pb
+            .collection('Files')
+            .getOne<File>(m.audioFileRef!);
+          setAudioFile(file);
+        }
       } catch (error) {
-        console.error('Failed to fetch video files:', error);
+        console.error('Failed to fetch media files:', error);
       } finally {
         setIsLoading(false);
       }
@@ -79,19 +96,30 @@ export function useVideoSource<
     media,
     media?.proxyFileRef,
     media?.thumbnailFileRef,
+    media?.audioFileRef,
     proxyFile,
     thumbnailFile,
+    audioFile,
   ]);
 
   const src = useMemo(() => {
-    if (!proxyFile?.file) return '';
-    try {
-      return pb.files.getURL(proxyFile, proxyFile.file);
-    } catch (error) {
-      console.error('Failed to get proxy URL:', error);
-      return '';
+    // Prefer proxy (video), then audio
+    if (proxyFile?.file) {
+      try {
+        return pb.files.getURL(proxyFile, proxyFile.file);
+      } catch (error) {
+        console.error('Failed to get proxy URL:', error);
+      }
     }
-  }, [proxyFile]);
+    if (audioFile?.file) {
+      try {
+        return pb.files.getURL(audioFile, audioFile.file);
+      } catch (error) {
+        console.error('Failed to get audio URL:', error);
+      }
+    }
+    return '';
+  }, [proxyFile, audioFile]);
 
   const poster = useMemo(() => {
     if (!thumbnailFile?.file) return '';

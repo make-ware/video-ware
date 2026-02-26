@@ -3,9 +3,10 @@ import Image from 'next/image';
 import type { Media, MediaRelations, Expanded } from '@project/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Film, Clock, Maximize2 } from 'lucide-react';
+import { Film, Clock, Maximize2, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import pb from '@/lib/pocketbase-client';
+import { MediaType } from '@project/shared';
 import { SpriteAnimator } from '../sprite/sprite-animator';
 
 interface MediaCardProps<
@@ -139,12 +140,21 @@ export function MediaCard({
           </>
         ) : (
           <div className="flex items-center justify-center h-full">
-            <Film
-              className={cn(
-                compact ? 'h-6 w-6' : 'h-12 w-12',
-                'text-muted-foreground'
-              )}
-            />
+            {media.mediaType === MediaType.AUDIO ? (
+              <Music
+                className={cn(
+                  compact ? 'h-6 w-6' : 'h-12 w-12',
+                  'text-muted-foreground'
+                )}
+              />
+            ) : (
+              <Film
+                className={cn(
+                  compact ? 'h-6 w-6' : 'h-12 w-12',
+                  'text-muted-foreground'
+                )}
+              />
+            )}
           </div>
         )}
 

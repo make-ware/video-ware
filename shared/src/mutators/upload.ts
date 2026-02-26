@@ -138,6 +138,10 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
       // Ignore error, media does not exist
     }
 
+    // Detect media type from extension
+    const isAudio = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(upload.name);
+    const mediaType = isAudio ? MediaType.AUDIO : MediaType.VIDEO;
+
     if (!media) {
       // Initialize dummy media data for validation
       const dummyMediaData = {
@@ -171,7 +175,7 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
       const mediaInput: MediaInput = {
         WorkspaceRef: upload.WorkspaceRef,
         UploadRef: uploadId,
-        mediaType: MediaType.VIDEO, // Default to VIDEO
+        mediaType, // Use detected type
         mediaDate: new Date().toISOString(),
         duration: 0,
         width: 0,
@@ -192,26 +196,32 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
 
     const defaultTranscode: TranscodeFlowConfig = {
       provider: ProcessingProvider.FFMPEG,
-      sprite: {
-        fps: 1,
-        cols: 10,
-        rows: 10,
-        tileWidth: 320,
-        tileHeight: 180,
-      },
-      thumbnail: {
-        timestamp: 'midpoint',
-        width: 640,
-        height: 360,
-      },
-      filmstrip: {
-        cols: 100,
-        rows: 1,
-        tileWidth: 320,
-        tileHeight: 180,
-      },
+      sprite: isAudio
+        ? undefined
+        : {
+            fps: 1,
+            cols: 10,
+            rows: 10,
+            tileWidth: 320,
+            tileHeight: 180,
+          },
+      thumbnail: isAudio
+        ? undefined
+        : {
+            timestamp: 'midpoint',
+            width: 640,
+            height: 360,
+          },
+      filmstrip: isAudio
+        ? undefined
+        : {
+            cols: 100,
+            rows: 1,
+            tileWidth: 320,
+            tileHeight: 180,
+          },
       transcode: {
-        enabled: true,
+        enabled: !isAudio,
         codec: 'h265',
         resolution: '720p',
       },
@@ -223,10 +233,10 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
 
     const defaultLabels: LabelsFlowConfig = {
       confidenceThreshold: 0.5,
-      detectObjects: true,
-      detectLabels: true,
-      detectFaces: true,
-      detectPersons: true,
+      detectObjects: !isAudio,
+      detectLabels: !isAudio,
+      detectFaces: !isAudio,
+      detectPersons: !isAudio,
       detectSpeech: true,
     };
 

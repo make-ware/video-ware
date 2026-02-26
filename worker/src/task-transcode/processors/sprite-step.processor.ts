@@ -49,10 +49,13 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       throw new Error(`Media not found for upload ${input.uploadId}`);
     }
 
-    // Skip processing for images
-    if (mediaData.mediaType === MediaType.IMAGE) {
+    // Skip processing for images and audio
+    if (
+      mediaData.mediaType === MediaType.IMAGE ||
+      mediaData.mediaType === MediaType.AUDIO
+    ) {
       this.logger.log(
-        `Skipping sprite generation for image media: ${mediaData.id}`
+        `Skipping sprite generation for ${mediaData.mediaType} media: ${mediaData.id}`
       );
       // Return empty result
       return { spritePath: '', spriteFileId: '' };

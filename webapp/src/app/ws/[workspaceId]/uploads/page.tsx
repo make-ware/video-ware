@@ -61,7 +61,7 @@ function UploadsPageContent() {
             Upload Files
           </CardTitle>
           <CardDescription className="text-xs">
-            MP4, WebM, QuickTime, AVI, MKV • Max 24GB
+            Video & Audio (MP4, WebM, MP3, WAV, etc.) • Max 24GB
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -74,6 +74,12 @@ function UploadsPageContent() {
               'video/quicktime',
               'video/x-msvideo',
               'video/x-matroska',
+              'audio/mpeg',
+              'audio/wav',
+              'audio/x-m4a',
+              'audio/aac',
+              'audio/ogg',
+              'audio/flac',
             ]}
             maxSize={24 * 1024 * 1024 * 1024} // 24GB (chunked upload)
           />

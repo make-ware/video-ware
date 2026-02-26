@@ -63,9 +63,14 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       throw new Error(`Media not found for upload ${input.uploadId}`);
     }
 
-    // Skip processing for images
-    if (mediaData.mediaType === MediaType.IMAGE) {
-      this.logger.log(`Skipping transcoding for image media: ${mediaData.id}`);
+    // Skip processing for images and audio
+    if (
+      mediaData.mediaType === MediaType.IMAGE ||
+      mediaData.mediaType === MediaType.AUDIO
+    ) {
+      this.logger.log(
+        `Skipping transcoding for ${mediaData.mediaType} media: ${mediaData.id}`
+      );
       // Return empty result
       return { proxyPath: '', proxyFileId: '' };
     }

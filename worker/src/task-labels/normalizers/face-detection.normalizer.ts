@@ -108,31 +108,70 @@ export class FaceDetectionNormalizer {
         );
       }
 
-      // Extract keyframes from frames with attributes
-      const keyframes: KeyframeData[] = face.frames.map((frame) => ({
-        t: frame.timeOffset,
-        bbox: {
-          left: frame.boundingBox.left,
-          top: frame.boundingBox.top,
-          right: frame.boundingBox.right,
-          bottom: frame.boundingBox.bottom,
-        },
-        confidence: frame.confidence,
-        attributes: frame.attributes ? { ...frame.attributes } : undefined,
-      }));
+      // Initialize aggregation variables
+      const keyframes: KeyframeData[] = [];
+      let totalConfidence = 0;
+      let maxConfidence = -Infinity;
+      let minConfidence = Infinity;
 
-      // Calculate track start, end, and duration
-      const start = face.frames[0]?.timeOffset ?? 0;
-      const end = face.frames[face.frames.length - 1]?.timeOffset ?? 0;
+      const attributeCounts: Record<string, Map<string, number>> = {
+        joyLikelihood: new Map(),
+        sorrowLikelihood: new Map(),
+        angerLikelihood: new Map(),
+        surpriseLikelihood: new Map(),
+        underExposedLikelihood: new Map(),
+        blurredLikelihood: new Map(),
+        headwearLikelihood: new Map(),
+        lookingAtCameraLikelihood: new Map(),
+      };
+
+      // Single pass over frames to collect all necessary data
+      for (const frame of face.frames) {
+        // 1. Extract keyframe
+        keyframes.push({
+          t: frame.timeOffset,
+          bbox: {
+            left: frame.boundingBox.left,
+            top: frame.boundingBox.top,
+            right: frame.boundingBox.right,
+            bottom: frame.boundingBox.bottom,
+          },
+          confidence: frame.confidence,
+          attributes: frame.attributes ? { ...frame.attributes } : undefined,
+        });
+
+        // 2. Track confidence metrics
+        totalConfidence += frame.confidence;
+        if (frame.confidence > maxConfidence) {
+          maxConfidence = frame.confidence;
+        }
+        if (frame.confidence < minConfidence) {
+          minConfidence = frame.confidence;
+        }
+
+        // 3. Aggregate attributes
+        if (frame.attributes) {
+          for (const [key, value] of Object.entries(frame.attributes)) {
+            const countMap = attributeCounts[key];
+            if (countMap && value !== undefined && value !== null) {
+              const valStr = String(value);
+              countMap.set(valStr, (countMap.get(valStr) ?? 0) + 1);
+            }
+          }
+        }
+      }
+
+      // Calculate final aggregated values
+      const start = face.frames[0].timeOffset;
+      const end = face.frames[face.frames.length - 1].timeOffset;
       const duration = end - start;
+      const avgConfidence = totalConfidence / face.frames.length;
 
-      // Calculate average confidence
-      const avgConfidence =
-        face.frames.reduce((sum, frame) => sum + frame.confidence, 0) /
-        face.frames.length;
-
-      // Aggregate attributes across frames
-      const attributesSummary = this.aggregateAttributes(face.frames);
+      // Summarize attributes by finding the most common values
+      const attributesSummary: Record<string, unknown> = {};
+      for (const key of Object.keys(attributeCounts)) {
+        attributesSummary[key] = this.getMostCommon(attributeCounts[key]);
+      }
 
       // Generate track hash
       const trackHash = this.generateTrackHash(
@@ -198,8 +237,8 @@ export class FaceDetectionNormalizer {
         trackData: {
           entity: 'Face',
           frameCount: face.frames.length,
-          maxConfidence: Math.max(...face.frames.map((f) => f.confidence)),
-          minConfidence: Math.min(...face.frames.map((f) => f.confidence)),
+          maxConfidence,
+          minConfidence,
           attributes: attributesSummary,
         },
         keyframes,
@@ -243,47 +282,6 @@ export class FaceDetectionNormalizer {
       labelTracks: validTracks,
       labelMediaUpdate,
     };
-  }
-
-  /**
-   * Aggregate face attributes across all frames
-   *
-   * Returns the most common attribute values
-   */
-  private aggregateAttributes(
-    frames: Array<{
-      attributes?: Record<string, unknown> | FaceAttributes;
-    }>
-  ): Record<string, unknown> {
-    const counts: Record<string, Map<string, number>> = {
-      joyLikelihood: new Map(),
-      sorrowLikelihood: new Map(),
-      angerLikelihood: new Map(),
-      surpriseLikelihood: new Map(),
-      underExposedLikelihood: new Map(),
-      blurredLikelihood: new Map(),
-      headwearLikelihood: new Map(),
-      lookingAtCameraLikelihood: new Map(),
-    };
-
-    for (const frame of frames) {
-      if (frame.attributes) {
-        for (const [key, value] of Object.entries(frame.attributes)) {
-          if (counts[key] && value) {
-            const valStr = String(value);
-            counts[key].set(valStr, (counts[key].get(valStr) ?? 0) + 1);
-          }
-        }
-      }
-    }
-
-    // Find most common values for each attribute
-    const result: Record<string, unknown> = {};
-    for (const key of Object.keys(counts)) {
-      result[key] = this.getMostCommon(counts[key]);
-    }
-
-    return result;
   }
 
   /**

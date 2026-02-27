@@ -10,7 +10,7 @@ import type {
   TaskTranscodeThumbnailStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource } from '@project/shared';
+import { FileType, FileSource, MediaType } from '@project/shared';
 
 /**
  * Processor for the THUMBNAIL step
@@ -55,6 +55,15 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
     );
     if (!mediaData) {
       throw new Error(`Media not found for upload ${input.uploadId}`);
+    }
+
+    // Skip processing for audio
+    if (mediaData.mediaType === MediaType.AUDIO) {
+      this.logger.log(
+        `Skipping thumbnail generation for audio media: ${mediaData.id}`
+      );
+      // Return empty result
+      return { thumbnailPath: '', thumbnailFileId: '' };
     }
 
     // Create enhanced config with source dimensions

@@ -13,7 +13,17 @@ interface FileUploaderProps {
   className?: string;
 }
 
-const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+const ALLOWED_TYPES = [
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/x-m4a',
+  'audio/aac',
+  'audio/ogg',
+  'audio/flac',
+];
 const MAX_SIZE = 8 * 1024 * 1024 * 1024; // 8GB
 
 export function FileUploader({

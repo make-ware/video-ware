@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.4.0...video-ware-v0.5.0) (2026-02-28)
+
+
+### Features
+
+* Implement audio file uploads and playback ([29ed4ae](https://github.com/make-ware/video-ware/commit/29ed4aebbb865714fc8630193e116768c0f14d0c))
+
+
+### Performance Improvements
+
+* optimize face detection normalizer by consolidating frame iterations ([a7fafc1](https://github.com/make-ware/video-ware/commit/a7fafc1d10e77945bf093a21eb6342911900b030))
+
 ## [0.4.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.3.0...video-ware-v0.4.0) (2026-02-23)
 
 

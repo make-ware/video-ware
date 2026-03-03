@@ -104,6 +104,18 @@ export async function PUT(req: Request) {
       );
     }
 
+    // If the upload already completed (e.g. client retry after a timeout),
+    // return success so the client doesn't treat it as a failure.
+    if (upload.status === UploadStatus.UPLOADED || upload.status === UploadStatus.PROCESSING || upload.status === UploadStatus.READY) {
+      return NextResponse.json({
+        success: true,
+        complete: true,
+        upload,
+        chunkIndex,
+        totalChunks,
+      });
+    }
+
     if (
       upload.status !== UploadStatus.QUEUED &&
       upload.status !== UploadStatus.UPLOADING

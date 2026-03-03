@@ -34,9 +34,11 @@ export function loadStorageConfig(): StorageConfig {
     StorageBackendType.LOCAL;
 
   if (backend === StorageBackendType.LOCAL) {
+    // Use WORKER_DATA_DIR if set (e.g. /data/storage in Docker), otherwise fall back
+    // to relative 'data' for local development.
     // Keep this module client-safe: do not resolve paths here (no fs/path).
     // Server-side backends will resolve relative paths against a sensible project root.
-    const basePath = 'data';
+    const basePath = process.env.WORKER_DATA_DIR || 'data';
     return {
       type: StorageBackendType.LOCAL,
       local: { basePath },

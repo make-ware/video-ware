@@ -22,6 +22,9 @@ export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-passw
 # Defaults to /data/storage (aligned with KISS structure)
 export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/storage}"
 
+# Storage backend type (local or s3)
+export STORAGE_TYPE="${STORAGE_TYPE:-local}"
+
 
 
 # Redis Configuration for NestJS worker

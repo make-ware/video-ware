@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.4.0...video-ware-v0.5.0) (2026-03-03)
+
+
+### Features
+
+* [TSK-17] Create Directories for Files and Add Multi Select ([e4043fc](https://github.com/make-ware/video-ware/commit/e4043fc49b93094901c82ff287bac8b282bd500f))
+* add multi-select ([d8bc53d](https://github.com/make-ware/video-ware/commit/d8bc53d27d903a75c14970ff93c447150797a334))
+* Implement audio file uploads and playback ([29ed4ae](https://github.com/make-ware/video-ware/commit/29ed4aebbb865714fc8630193e116768c0f14d0c))
+* tsk-17 tsk-18 tsk-19 mvp ([32913cf](https://github.com/make-ware/video-ware/commit/32913cf0424622e216f483ff08130888a93641c5))
+
+
+### Bug Fixes
+
+* lint ([f1db904](https://github.com/make-ware/video-ware/commit/f1db904e6786b6099ffd5e11599e826e4616ae19))
+* work directory failing ([b415ae6](https://github.com/make-ware/video-ware/commit/b415ae66a76991a599f95fc667778ba400066f25))
+
+
+### Performance Improvements
+
+* optimize face detection normalizer by consolidating frame iterations ([a7fafc1](https://github.com/make-ware/video-ware/commit/a7fafc1d10e77945bf093a21eb6342911900b030))
+
 ## [0.4.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.3.0...video-ware-v0.4.0) (2026-02-23)
 
 

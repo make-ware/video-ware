@@ -13,8 +13,8 @@ export interface TrackLaneProps {
   totalWidth: number;
   pixelsPerSecond: number;
   isLocked: boolean;
-  selectedClipId: string | null;
-  onClipSelect: (clipId: string) => void;
+  selectedClipIds: Set<string>;
+  onClipSelect: (clipId: string, e: React.MouseEvent) => void;
   onClipDragStart: (clipId: string, e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -32,7 +32,7 @@ export function TrackLane({
   totalWidth,
   pixelsPerSecond,
   isLocked,
-  selectedClipId,
+  selectedClipIds,
   onClipSelect,
   onClipDragStart,
   onDragOver,
@@ -103,9 +103,9 @@ export function TrackLane({
           clip={clip}
           left={left}
           width={width}
-          isSelected={selectedClipId === clip.id}
+          isSelected={selectedClipIds.has(clip.id)}
           isLocked={isLocked}
-          onSelect={() => onClipSelect(clip.id)}
+          onSelect={(e) => onClipSelect(clip.id, e)}
           onResizeStart={(handle, e) => {
             // Calculate delta time from mouse movement
             // This will be handled by the parent component

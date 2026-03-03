@@ -48,6 +48,7 @@ export interface UploadItem {
   startedAt?: Date; // When upload started
   completedAt?: Date; // When upload completed
   workspaceId: string; // Target workspace
+  directoryId?: string; // Target directory within workspace
   storageBackend: StorageBackendType; // Storage backend to use
   externalPath?: string; // Path in external storage (once uploaded)
   thumbnail?: string; // Data URL for preview (optional)
@@ -73,7 +74,7 @@ export interface UploadQueueState {
  */
 export interface UploadManagerActions {
   // Add files to the queue
-  addFiles(files: File[], workspaceId: string): void;
+  addFiles(files: File[], workspaceId: string, directoryId?: string): void;
 
   // Individual upload controls
   pauseUpload(id: string): void;

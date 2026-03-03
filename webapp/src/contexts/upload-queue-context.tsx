@@ -45,7 +45,10 @@ import { useMemo } from 'react';
 
 // Action types for the reducer
 type QueueAction =
-  | { type: 'ADD_FILES'; payload: { files: File[]; workspaceId: string } }
+  | {
+      type: 'ADD_FILES';
+      payload: { files: File[]; workspaceId: string; directoryId?: string };
+    }
   | {
       type: 'UPDATE_ITEM';
       payload: { id: string; updates: Partial<UploadItem> };
@@ -91,7 +94,7 @@ function queueReducer(
 ): UploadQueueState {
   switch (action.type) {
     case 'ADD_FILES': {
-      const { files, workspaceId } = action.payload;
+      const { files, workspaceId, directoryId } = action.payload;
 
       // Create upload items for each file
       const newItems: UploadItem[] = files.map((file) => ({
@@ -111,6 +114,7 @@ function queueReducer(
         retryCount: 0,
         createdAt: new Date(),
         workspaceId,
+        directoryId,
         storageBackend: StorageBackendType.LOCAL, // Default, can be configured
       }));
 
@@ -500,9 +504,15 @@ export function UploadQueueProvider({
 
   // Actions
   const actions: UploadManagerActions = {
-    addFiles: useCallback((files: File[], workspaceId: string) => {
-      dispatch({ type: 'ADD_FILES', payload: { files, workspaceId } });
-    }, []),
+    addFiles: useCallback(
+      (files: File[], workspaceId: string, directoryId?: string) => {
+        dispatch({
+          type: 'ADD_FILES',
+          payload: { files, workspaceId, directoryId },
+        });
+      },
+      []
+    ),
 
     pauseUpload: useCallback((id: string) => {
       dispatch({ type: 'PAUSE_UPLOAD', payload: { id } });
@@ -636,7 +646,8 @@ export function UploadQueueProvider({
                   startTime,
                 },
               });
-            }
+            },
+            item.directoryId
           );
         })
         .then((upload) => {

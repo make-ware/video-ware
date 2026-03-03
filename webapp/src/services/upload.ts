@@ -330,7 +330,8 @@ export class UploadService {
     uploadId: string,
     userId: string,
     transcodeConfig?: TranscodeFlowConfig,
-    labelsConfig?: LabelsFlowConfig
+    labelsConfig?: LabelsFlowConfig,
+    directoryId?: string
   ): Promise<Task> {
     const upload = await this.uploadMutator.getById(uploadId);
     if (!upload) {
@@ -345,7 +346,8 @@ export class UploadService {
       uploadId,
       userId,
       transcodeConfig,
-      labelsConfig
+      labelsConfig,
+      directoryId
     );
   }
 

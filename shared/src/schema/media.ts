@@ -13,6 +13,7 @@ import {
 import { z } from 'zod';
 import { MediaType } from '../enums';
 import { MediaMetadataSchema } from '../types';
+import type { Directory } from './directory';
 import type { File } from './file';
 import type { Upload } from './upload';
 import type { Workspace } from './workspace';
@@ -39,6 +40,7 @@ export const MediaSchema = z
     isActive: BoolField().optional().default(false),
     version: NumberField().default(1).optional(),
     processor: TextField().optional(),
+    DirectoryRef: RelationField({ collection: 'Directories' }).optional(),
   })
   .extend(baseSchema);
 
@@ -62,6 +64,7 @@ export const MediaInputSchema = z.object({
   isActive: z.boolean().optional(),
   version: NumberField().default(1).optional(),
   processor: z.string().optional(),
+  DirectoryRef: z.string().optional(),
 });
 
 // Define the collection with workspace-scoped permissions
@@ -97,4 +100,5 @@ export interface MediaRelations {
   filmstripFileRefs?: File[];
   proxyFileRef?: File;
   audioFileRef?: File;
+  DirectoryRef?: Directory;
 }

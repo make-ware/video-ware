@@ -101,6 +101,46 @@ export class MediaService {
   }
 
   /**
+   * Get media in a specific directory with preview assets
+   */
+  async getMediaByDirectory(
+    directoryId: string,
+    page = 1,
+    perPage = 50
+  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+    const result = await this.mediaMutator.getByDirectory(
+      directoryId,
+      page,
+      perPage,
+      ['thumbnailFileRef', 'spriteFileRef']
+    );
+
+    return Promise.all(
+      result.items.map((media) => this.enrichMediaWithPreviews(media))
+    );
+  }
+
+  /**
+   * Get media at the workspace root (no directory assigned)
+   */
+  async getMediaByWorkspaceRoot(
+    workspaceId: string,
+    page = 1,
+    perPage = 50
+  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+    const result = await this.mediaMutator.getByWorkspaceRoot(
+      workspaceId,
+      page,
+      perPage,
+      ['thumbnailFileRef', 'spriteFileRef']
+    );
+
+    return Promise.all(
+      result.items.map((media) => this.enrichMediaWithPreviews(media))
+    );
+  }
+
+  /**
    * Get media by upload ID
    * @param uploadId The upload ID
    * @returns Media with preview URLs or null if not found
@@ -168,6 +208,38 @@ export class MediaService {
         TaskRef: task.id,
       });
     }
+  }
+
+  /**
+   * Delete multiple media items in bulk
+   * Uses Promise.allSettled for resilience to partial failures
+   */
+  async bulkDeleteMedia(mediaIds: string[]): Promise<{
+    succeeded: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const results = await Promise.allSettled(
+      mediaIds.map((id) => this.mediaMutator.delete(id).then(() => id))
+    );
+
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        succeeded.push(result.value);
+      } else {
+        failed.push({
+          id: mediaIds[index],
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : 'Unknown error',
+        });
+      }
+    });
+
+    return { succeeded, failed };
   }
 
   /**

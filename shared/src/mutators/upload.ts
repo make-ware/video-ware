@@ -115,7 +115,8 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
     uploadId: string,
     userId?: string,
     transcodeConfig?: TranscodeFlowConfig,
-    labelsConfig?: LabelsFlowConfig
+    labelsConfig?: LabelsFlowConfig,
+    directoryId?: string
   ): Promise<Task> {
     const upload = await this.getById(uploadId);
     if (!upload) {
@@ -185,6 +186,7 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
         hasAudio: true,
         isActive: false,
         version: 1,
+        ...(directoryId ? { DirectoryRef: directoryId } : {}),
       };
 
       media = await this.pb.collection('Media').create(mediaInput);

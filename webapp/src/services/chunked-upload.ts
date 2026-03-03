@@ -74,7 +74,8 @@ export class ChunkedUploadService {
     chunkIndex: number,
     totalChunks: number,
     abortSignal: AbortSignal,
-    onProgress?: (loaded: number, total: number) => void
+    onProgress?: (loaded: number, total: number) => void,
+    directoryId?: string
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -139,6 +140,9 @@ export class ChunkedUploadService {
       xhr.setRequestHeader('x-chunk-index', chunkIndex.toString());
       xhr.setRequestHeader('x-total-chunks', totalChunks.toString());
       xhr.setRequestHeader('x-chunk-size', chunk.size.toString());
+      if (directoryId) {
+        xhr.setRequestHeader('x-directory-id', directoryId);
+      }
       xhr.timeout = this.config.timeout;
 
       xhr.send(chunk);
@@ -153,7 +157,8 @@ export class ChunkedUploadService {
     workspaceId: string,
     userId: string,
     file: File,
-    onProgress?: (progress: ChunkProgress) => void
+    onProgress?: (progress: ChunkProgress) => void,
+    directoryId?: string
   ): Promise<Upload> {
     const totalChunks = Math.ceil(file.size / this.config.chunkSize);
     const abortController = new AbortController();
@@ -210,7 +215,8 @@ export class ChunkedUploadService {
                     currentChunkSize: chunkSize,
                   });
                 }
-              }
+              },
+              directoryId
             );
 
             chunkUploaded = true;

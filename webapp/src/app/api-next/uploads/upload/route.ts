@@ -50,6 +50,7 @@ export async function PUT(req: Request) {
     const fileNameHeader = req.headers.get('x-file-name');
     const chunkIndexHeader = req.headers.get('x-chunk-index');
     const totalChunksHeader = req.headers.get('x-total-chunks');
+    const directoryIdHeader = req.headers.get('x-directory-id');
 
     uploadId = String(uploadIdHeader || '').trim();
     const workspaceId = String(workspaceIdHeader || '').trim();
@@ -57,6 +58,9 @@ export async function PUT(req: Request) {
     const fileName = String(fileNameHeader || '').trim();
     const chunkIndex = chunkIndexHeader ? parseInt(chunkIndexHeader, 10) : 0;
     const totalChunks = totalChunksHeader ? parseInt(totalChunksHeader, 10) : 1;
+    const directoryId = directoryIdHeader
+      ? String(directoryIdHeader).trim()
+      : undefined;
 
     if (!uploadId || !workspaceId || !userId || !fileName) {
       return NextResponse.json(
@@ -206,7 +210,10 @@ export async function PUT(req: Request) {
         await uploadService.processUploadAndDetectLabels(
           workspaceId,
           uploadId,
-          userId
+          userId,
+          undefined,
+          undefined,
+          directoryId
         );
 
         console.log(`Processing task created for upload ${uploadId}`);

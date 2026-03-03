@@ -18,15 +18,31 @@ interface MediaWithPreviews extends Media {
   spriteUrl?: string;
 }
 
+/**
+ * Directory filter for media:
+ * - null: show all media in workspace
+ * - 'root': show only media with no directory assigned
+ * - string: show media in specific directory
+ */
+type DirectoryFilter = string | null;
+
+interface BulkDeleteResult {
+  succeeded: string[];
+  failed: { id: string; error: string }[];
+}
+
 interface MediaContextType {
   // State
   media: MediaWithPreviews[];
   isLoading: boolean;
   error: string | null;
+  directoryFilter: DirectoryFilter;
 
   // Operations
   getMediaById: (mediaId: string) => MediaWithPreviews | undefined;
   getMediaByUpload: (uploadId: string) => MediaWithPreviews | undefined;
+  setDirectoryFilter: (filter: DirectoryFilter) => void;
+  bulkDeleteMedia: (mediaIds: string[]) => Promise<BulkDeleteResult>;
 
   // Real-time updates
   isConnected: boolean;
@@ -49,6 +65,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilter>(null);
 
   // Refs for cleanup
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -77,14 +94,21 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     clearError();
 
     try {
-      const result = await mediaService.getMediaByWorkspace(workspaceId);
+      let result;
+      if (directoryFilter === null) {
+        result = await mediaService.getMediaByWorkspace(workspaceId);
+      } else if (directoryFilter === 'root') {
+        result = await mediaService.getMediaByWorkspaceRoot(workspaceId);
+      } else {
+        result = await mediaService.getMediaByDirectory(directoryFilter);
+      }
       setMedia(result);
     } catch (error) {
       handleError(error, 'load');
     } finally {
       setIsLoading(false);
     }
-  }, [workspaceId, mediaService, clearError, handleError]);
+  }, [workspaceId, directoryFilter, mediaService, clearError, handleError]);
 
   // Refresh media
   const refreshMedia = useCallback(async () => {
@@ -107,6 +131,34 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     [media]
   );
 
+  // Bulk delete media
+  const bulkDeleteMedia = useCallback(
+    async (mediaIds: string[]): Promise<BulkDeleteResult> => {
+      try {
+        // Optimistically remove from local state
+        setMedia((prev) => prev.filter((m) => !mediaIds.includes(m.id)));
+
+        const result = await mediaService.bulkDeleteMedia(mediaIds);
+
+        // If some failed, add them back
+        if (result.failed.length > 0) {
+          await loadMedia();
+        }
+
+        return result;
+      } catch (error) {
+        handleError(error, 'bulk delete');
+        // Reload to restore state
+        await loadMedia();
+        return {
+          succeeded: [],
+          failed: mediaIds.map((id) => ({ id, error: 'Bulk delete failed' })),
+        };
+      }
+    },
+    [mediaService, loadMedia, handleError]
+  );
+
   // Real-time subscription management
   const subscribe = useCallback(async () => {
     if (!workspaceId || unsubscribeRef.current) return;
@@ -121,8 +173,16 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
               // Only handle updates for this workspace
               if (data.record.WorkspaceRef !== workspaceId) return;
 
+              // Check if the record matches the current directory filter
+              const matchesFilter = (record: Media) => {
+                if (directoryFilter === null) return true;
+                if (directoryFilter === 'root') return !record.DirectoryRef;
+                return record.DirectoryRef === directoryFilter;
+              };
+
               // Handle real-time updates
               if (data.action === 'create') {
+                if (!matchesFilter(data.record)) return;
                 // Fetch with previews
                 try {
                   const mediaWithPreviews =
@@ -143,20 +203,30 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
                   });
                 }
               } else if (data.action === 'update') {
+                // If record no longer matches filter, remove it
+                if (!matchesFilter(data.record)) {
+                  setMedia((prev) =>
+                    prev.filter((m) => m.id !== data.record.id)
+                  );
+                  return;
+                }
                 // Fetch updated media with previews
                 try {
                   const mediaWithPreviews =
                     await mediaService.getMediaWithPreviews(data.record.id);
                   if (mediaWithPreviews) {
-                    setMedia((prev) =>
-                      prev.map((m) =>
-                        m.id === data.record.id ? mediaWithPreviews : m
-                      )
-                    );
+                    setMedia((prev) => {
+                      const exists = prev.some((m) => m.id === data.record.id);
+                      if (exists) {
+                        return prev.map((m) =>
+                          m.id === data.record.id ? mediaWithPreviews : m
+                        );
+                      }
+                      return [mediaWithPreviews, ...prev];
+                    });
                   }
                 } catch (error) {
                   console.error('Failed to fetch media with previews:', error);
-                  // Fall back to updating without previews
                   setMedia((prev) =>
                     prev.map((m) => (m.id === data.record.id ? data.record : m))
                   );
@@ -191,7 +261,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
       console.error('Media subscription error:', error);
       setIsConnected(false);
     }
-  }, [workspaceId, mediaService]);
+  }, [workspaceId, directoryFilter, mediaService]);
 
   const unsubscribe = useCallback(() => {
     if (unsubscribeRef.current) {
@@ -230,10 +300,13 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     media,
     isLoading,
     error,
+    directoryFilter,
 
     // Operations
     getMediaById,
     getMediaByUpload,
+    setDirectoryFilter,
+    bulkDeleteMedia,
 
     // Real-time updates
     isConnected,

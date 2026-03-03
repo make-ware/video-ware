@@ -3,6 +3,7 @@ import Image from 'next/image';
 import type { Media, MediaRelations, Expanded } from '@project/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Film, Clock, Maximize2, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import pb from '@/lib/pocketbase-client';
@@ -16,6 +17,9 @@ interface MediaCardProps<
   onClick?: () => void;
   className?: string;
   compact?: boolean;
+  isSelected?: boolean;
+  showSelectionIndicator?: boolean;
+  onSelectionClick?: (e: React.MouseEvent) => void;
 }
 
 export function MediaCard({
@@ -23,6 +27,9 @@ export function MediaCard({
   onClick,
   className,
   compact = false,
+  isSelected = false,
+  showSelectionIndicator = false,
+  onSelectionClick,
 }: MediaCardProps) {
   const [isHovering, setIsHovering] = useState(false);
 
@@ -94,9 +101,17 @@ export function MediaCard({
       className={cn(
         'overflow-hidden cursor-pointer transition-all hover:shadow-lg',
         'p-0 gap-0', // Remove default Card padding and gap
+        isSelected && 'ring-2 ring-primary shadow-lg',
         className
       )}
-      onClick={onClick}
+      onClick={(e) => {
+        if (onSelectionClick && (e.metaKey || e.ctrlKey || e.shiftKey)) {
+          e.preventDefault();
+          onSelectionClick(e);
+          return;
+        }
+        onClick?.();
+      }}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
@@ -107,6 +122,21 @@ export function MediaCard({
           compact ? 'h-20' : 'aspect-video'
         )}
       >
+        {/* Selection checkbox */}
+        {showSelectionIndicator && (
+          <div
+            className="absolute top-2 left-2 z-10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectionClick?.(e);
+            }}
+          >
+            <Checkbox
+              checked={isSelected}
+              className="bg-background/80 border-background/50"
+            />
+          </div>
+        )}
         {thumbnailUrl ? (
           <>
             {/* Static thumbnail */}

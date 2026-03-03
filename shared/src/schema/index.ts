@@ -1,3 +1,4 @@
+export * from './directory.js';
 export * from './file.js';
 export * from './label-entity.js';
 export * from './label-face.js';

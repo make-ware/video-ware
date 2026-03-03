@@ -70,12 +70,8 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
   const mediaClipMutator = useMemo(() => new MediaClipMutator(pb), []);
 
   // Directory filter
-  const {
-    directories,
-    currentDirectory,
-    breadcrumbs,
-    navigateTo,
-  } = useDirectories(currentWorkspace?.id ?? '');
+  const { directories, currentDirectory, breadcrumbs, navigateTo } =
+    useDirectories(currentWorkspace?.id ?? '');
 
   // The directoryId to pass to the API filter
   const directoryFilterId = currentDirectory?.id ?? undefined;
@@ -243,10 +239,7 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
         </div>
 
         {/* Directory Filter */}
-        <Collapsible
-          open={folderFilterOpen}
-          onOpenChange={setFolderFilterOpen}
-        >
+        <Collapsible open={folderFilterOpen} onOpenChange={setFolderFilterOpen}>
           <CollapsibleTrigger asChild>
             <Button
               variant="ghost"
@@ -259,9 +252,7 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
                 ) : (
                   <Folder className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
-                {currentDirectory
-                  ? currentDirectory.name
-                  : 'All Folders'}
+                {currentDirectory ? currentDirectory.name : 'All Folders'}
               </span>
               <ChevronDown
                 className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${

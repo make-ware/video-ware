@@ -211,6 +211,38 @@ export class MediaService {
   }
 
   /**
+   * Delete multiple media items in bulk
+   * Uses Promise.allSettled for resilience to partial failures
+   */
+  async bulkDeleteMedia(mediaIds: string[]): Promise<{
+    succeeded: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const results = await Promise.allSettled(
+      mediaIds.map((id) => this.mediaMutator.delete(id).then(() => id))
+    );
+
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        succeeded.push(result.value);
+      } else {
+        failed.push({
+          id: mediaIds[index],
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : 'Unknown error',
+        });
+      }
+    });
+
+    return { succeeded, failed };
+  }
+
+  /**
    * Enrich media with preview URLs and clips
    * @param media The media record
    * @returns Media with preview URLs and clips

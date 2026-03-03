@@ -27,9 +27,9 @@ function UploadsPageContent() {
     useUpload();
   const { currentWorkspace } = useWorkspace();
   const { actions } = useUploadQueue();
-  const [selectedDirectoryId, setSelectedDirectoryId] = useState<
-    string | null
-  >(null);
+  const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(
+    null
+  );
 
   // Handle files selected from dropzone
   const handleFilesSelected = useCallback(

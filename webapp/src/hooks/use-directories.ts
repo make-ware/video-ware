@@ -25,14 +25,13 @@ export interface UseDirectoriesReturn {
   refresh(): Promise<void>;
 }
 
-export function useDirectories(
-  workspaceId: string
-): UseDirectoriesReturn {
+export function useDirectories(workspaceId: string): UseDirectoriesReturn {
   const mutator = useMemo(() => new DirectoryMutator(pb), []);
 
   const [directories, setDirectories] = useState<Directory[]>([]);
-  const [currentDirectory, setCurrentDirectory] =
-    useState<Directory | null>(null);
+  const [currentDirectory, setCurrentDirectory] = useState<Directory | null>(
+    null
+  );
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +67,7 @@ export function useDirectories(
           : await mutator.getRootDirectories(workspaceId);
         setDirectories(result.items);
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : 'Failed to load directories'
-        );
+        setError(e instanceof Error ? e.message : 'Failed to load directories');
       } finally {
         setIsLoading(false);
       }
@@ -99,9 +96,7 @@ export function useDirectories(
           setBreadcrumbs(crumbs);
         }
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : 'Failed to navigate'
-        );
+        setError(e instanceof Error ? e.message : 'Failed to navigate');
       }
     },
     [mutator, buildBreadcrumbs]

@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -51,8 +51,13 @@ export function LayerTimelineView() {
     setCurrentTime,
     duration,
     isPlaying,
-    selectedClipId,
     setSelectedClipId,
+    selectedClipIds,
+    toggleClipSelection,
+    selectClipRange,
+    selectAllClips,
+    clearClipSelection,
+    removeSelectedClips,
     selectedTrackId,
     setSelectedTrackId,
     updateClipTimes,
@@ -69,6 +74,8 @@ export function LayerTimelineView() {
   const [trackDeleteDialogOpen, setTrackDeleteDialogOpen] = useState(false);
   const [trackToDelete, setTrackToDelete] = useState<string | null>(null);
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
+  const [clipDeleteDialogOpen, setClipDeleteDialogOpen] = useState(false);
+  const [isDeletingClips, setIsDeletingClips] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackAreaRef = useRef<HTMLDivElement>(null);
@@ -88,11 +95,41 @@ export function LayerTimelineView() {
     return () => observer.disconnect();
   }, []);
 
-  // Listen for Shift key to disable snapping
+  // Listen for Shift key to disable snapping + multi-select keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         setShiftPressed(true);
+      }
+
+      // Skip shortcuts when typing in input/textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Cmd/Ctrl+A: select all clips
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault();
+        selectAllClips();
+      }
+
+      // Escape: clear selection
+      if (e.key === 'Escape') {
+        clearClipSelection();
+      }
+
+      // Delete/Backspace: open delete confirmation
+      if (
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        selectedClipIds.size > 0
+      ) {
+        e.preventDefault();
+        setClipDeleteDialogOpen(true);
       }
     };
 
@@ -109,7 +146,7 @@ export function LayerTimelineView() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [selectAllClips, clearClipSelection, selectedClipIds.size]);
 
   // Ensure minimum duration of 60s for the timeline view
   const displayDuration = Math.max(duration, 60);
@@ -374,6 +411,37 @@ export function LayerTimelineView() {
     }
   }, [trackToDelete, deleteTrack]);
 
+  // Bulk clip delete handler
+  const handleConfirmClipDelete = useCallback(async () => {
+    setIsDeletingClips(true);
+    try {
+      await removeSelectedClips();
+      setClipDeleteDialogOpen(false);
+    } catch (error) {
+      console.error('Failed to delete clips', error);
+      setClipDeleteDialogOpen(false);
+    } finally {
+      setIsDeletingClips(false);
+    }
+  }, [removeSelectedClips]);
+
+  // Clip selection handler with multi-select support
+  const handleClipSelect = useCallback(
+    (clipId: string, e: React.MouseEvent) => {
+      const isMetaKey = e.metaKey || e.ctrlKey;
+      const isShiftKey = e.shiftKey;
+
+      if (isMetaKey) {
+        toggleClipSelection(clipId);
+      } else if (isShiftKey) {
+        selectClipRange(clipId);
+      } else {
+        setSelectedClipId(clipId);
+      }
+    },
+    [toggleClipSelection, selectClipRange, setSelectedClipId]
+  );
+
   // Clip drag and drop handlers
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [_dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(
@@ -451,12 +519,12 @@ export function LayerTimelineView() {
           const trackClips = (timeline?.clips || []).filter(
             (c) => c.TimelineTrackRef === trackId
           );
-          const duration = mediaClipData.end - mediaClipData.start;
+          const clipDur = mediaClipData.end - mediaClipData.start;
           const { snapped } = snapTime(candidateTime, undefined);
           const timelineStart = findNonOverlappingTimelineStart(
             trackClips,
             snapped,
-            duration
+            clipDur
           );
           await addClip(
             mediaClipData.mediaId,
@@ -554,9 +622,9 @@ export function LayerTimelineView() {
 
       // Deselect if clicking on the empty areas of the track
       // (The clip clicks stopPropagation)
-      setSelectedClipId(null);
+      clearClipSelection();
     },
-    [handleTimelineClick, dragState, setSelectedClipId]
+    [handleTimelineClick, dragState, clearClipSelection]
   );
 
   useEffect(() => {
@@ -646,9 +714,11 @@ export function LayerTimelineView() {
 
   // Show empty state if no tracks exist
   const hasNoTracks = sortedTracks.length === 0;
+  const selectionCount = selectedClipIds.size;
 
   return (
     <>
+      {/* Track Delete Dialog */}
       <AlertDialog
         open={trackDeleteDialogOpen}
         onOpenChange={(open) => {
@@ -678,21 +748,67 @@ export function LayerTimelineView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Clip Delete Dialog */}
+      <AlertDialog
+        open={clipDeleteDialogOpen}
+        onOpenChange={setClipDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Clips</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectionCount} clip
+              {selectionCount === 1 ? '' : 's'}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingClips}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmClipDelete}
+              disabled={isDeletingClips}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingClips ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
-        {/* Deselect Button (Visible only when a clip is selected) */}
-        {selectedClipId && (
-          <Button
-            variant="secondary"
-            size="icon"
-            className="absolute top-2 right-2 z-50 h-8 w-8 rounded-full shadow-lg opacity-0 group-hover/timeline:opacity-100 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedClipId(null);
-            }}
-            title="Deselect Clip"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+        {/* Selection toolbar (replaces single deselect button) */}
+        {selectionCount > 0 && (
+          <div className="absolute top-2 right-2 z-50 flex items-center gap-2 opacity-0 group-hover/timeline:opacity-100 transition-opacity">
+            <span className="text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded shadow">
+              {selectionCount} selected
+            </span>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 rounded-full shadow-lg"
+              onClick={(e) => {
+                e.stopPropagation();
+                clearClipSelection();
+              }}
+              title="Clear Selection"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="destructive"
+              size="icon"
+              className="h-8 w-8 rounded-full shadow-lg"
+              onClick={(e) => {
+                e.stopPropagation();
+                setClipDeleteDialogOpen(true);
+              }}
+              title="Delete Selected Clips"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         )}
 
         {/* Timeline Area */}
@@ -796,8 +912,8 @@ export function LayerTimelineView() {
                         totalWidth={totalWidth}
                         pixelsPerSecond={PIXELS_PER_SECOND}
                         isLocked={track.isLocked}
-                        selectedClipId={selectedClipId}
-                        onClipSelect={setSelectedClipId}
+                        selectedClipIds={selectedClipIds}
+                        onClipSelect={handleClipSelect}
                         onClipDragStart={handleClipDragStart}
                         onDragOver={(e) => handleTrackDragOver(track.id, e)}
                         onDrop={(e) => handleTrackDrop(track.id, e)}

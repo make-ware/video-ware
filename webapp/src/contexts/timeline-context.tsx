@@ -6,6 +6,7 @@ import React, {
   useState,
   useCallback,
   useMemo,
+  useRef,
 } from 'react';
 import { TimelineService, type TimelineWithClips } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
@@ -31,9 +32,16 @@ interface TimelineContextType {
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
 
-  // Selected clip state
+  // Selected clip state (backward-compatible single + new multi-select)
   selectedClipId: string | null;
   setSelectedClipId: (clipId: string | null) => void;
+  selectedClipIds: Set<string>;
+  toggleClipSelection: (clipId: string) => void;
+  selectClipRange: (clipId: string) => void;
+  selectAllClips: () => void;
+  clearClipSelection: () => void;
+  isClipSelected: (clipId: string) => boolean;
+  removeSelectedClips: () => Promise<void>;
 
   // Track state
   tracks: TimelineTrackRecord[];
@@ -111,8 +119,27 @@ export function TimelineProvider({
     useState<TimelineWithClips | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(
+    new Set()
+  );
+  const lastSelectedClipRef = useRef<string | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+
+  // Backward-compatible derived single selection
+  const selectedClipId = useMemo(() => {
+    if (selectedClipIds.size === 0) return null;
+    return selectedClipIds.values().next().value ?? null;
+  }, [selectedClipIds]);
+
+  const setSelectedClipId = useCallback((clipId: string | null) => {
+    if (clipId === null) {
+      setSelectedClipIds(new Set());
+      lastSelectedClipRef.current = null;
+    } else {
+      setSelectedClipIds(new Set([clipId]));
+      lastSelectedClipRef.current = clipId;
+    }
+  }, []);
 
   // Playback state
   const [currentTime, setCurrentTime] = useState(0);
@@ -246,6 +273,103 @@ export function TimelineProvider({
       return { ...prev, name };
     });
   }, []);
+
+  // Multi-select methods
+  const toggleClipSelection = useCallback((clipId: string) => {
+    setSelectedClipIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(clipId)) {
+        next.delete(clipId);
+      } else {
+        next.add(clipId);
+      }
+      return next;
+    });
+    lastSelectedClipRef.current = clipId;
+  }, []);
+
+  const selectClipRange = useCallback(
+    (clipId: string) => {
+      if (!timeline || !lastSelectedClipRef.current) {
+        setSelectedClipIds(new Set([clipId]));
+        lastSelectedClipRef.current = clipId;
+        return;
+      }
+
+      const clipIds = timeline.clips.map((c) => c.id);
+      const lastIndex = clipIds.indexOf(lastSelectedClipRef.current);
+      const currentIndex = clipIds.indexOf(clipId);
+
+      if (lastIndex === -1 || currentIndex === -1) {
+        setSelectedClipIds(new Set([clipId]));
+        lastSelectedClipRef.current = clipId;
+        return;
+      }
+
+      const start = Math.min(lastIndex, currentIndex);
+      const end = Math.max(lastIndex, currentIndex);
+      const rangeItems = clipIds.slice(start, end + 1);
+
+      setSelectedClipIds((prev) => {
+        const next = new Set(prev);
+        for (const id of rangeItems) {
+          next.add(id);
+        }
+        return next;
+      });
+    },
+    [timeline]
+  );
+
+  const selectAllClips = useCallback(() => {
+    if (!timeline) return;
+    setSelectedClipIds(new Set(timeline.clips.map((c) => c.id)));
+  }, [timeline]);
+
+  const clearClipSelection = useCallback(() => {
+    setSelectedClipIds(new Set());
+    lastSelectedClipRef.current = null;
+  }, []);
+
+  const isClipSelected = useCallback(
+    (clipId: string) => selectedClipIds.has(clipId),
+    [selectedClipIds]
+  );
+
+  const removeSelectedClips = useCallback(async () => {
+    if (!timeline || selectedClipIds.size === 0) return;
+
+    const clipIdsToRemove = Array.from(selectedClipIds);
+    clearClipSelection();
+
+    setIsLoading(true);
+    clearError();
+
+    try {
+      const result =
+        await timelineService.bulkRemoveClipsFromTimeline(clipIdsToRemove);
+
+      // Reload to get updated state
+      await loadTimeline(timeline.id);
+
+      if (result.failed.length > 0) {
+        throw new Error(`Failed to delete ${result.failed.length} clip(s)`);
+      }
+    } catch (error) {
+      handleError(error, 'remove selected clips');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    timeline,
+    selectedClipIds,
+    timelineService,
+    loadTimeline,
+    clearClipSelection,
+    clearError,
+    handleError,
+  ]);
 
   // Add clip to timeline - places after selected clip or at end of track, never overlapping
   const addClip = useCallback(
@@ -687,6 +811,13 @@ export function TimelineProvider({
     // Selected clip state
     selectedClipId,
     setSelectedClipId,
+    selectedClipIds,
+    toggleClipSelection,
+    selectClipRange,
+    selectAllClips,
+    clearClipSelection,
+    isClipSelected,
+    removeSelectedClips,
 
     // Track state
     tracks,

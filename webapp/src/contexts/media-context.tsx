@@ -26,6 +26,11 @@ interface MediaWithPreviews extends Media {
  */
 type DirectoryFilter = string | null;
 
+interface BulkDeleteResult {
+  succeeded: string[];
+  failed: { id: string; error: string }[];
+}
+
 interface MediaContextType {
   // State
   media: MediaWithPreviews[];
@@ -37,6 +42,7 @@ interface MediaContextType {
   getMediaById: (mediaId: string) => MediaWithPreviews | undefined;
   getMediaByUpload: (uploadId: string) => MediaWithPreviews | undefined;
   setDirectoryFilter: (filter: DirectoryFilter) => void;
+  bulkDeleteMedia: (mediaIds: string[]) => Promise<BulkDeleteResult>;
 
   // Real-time updates
   isConnected: boolean;
@@ -59,8 +65,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [directoryFilter, setDirectoryFilter] =
-    useState<DirectoryFilter>(null);
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilter>(null);
 
   // Refs for cleanup
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -93,11 +98,9 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
       if (directoryFilter === null) {
         result = await mediaService.getMediaByWorkspace(workspaceId);
       } else if (directoryFilter === 'root') {
-        result =
-          await mediaService.getMediaByWorkspaceRoot(workspaceId);
+        result = await mediaService.getMediaByWorkspaceRoot(workspaceId);
       } else {
-        result =
-          await mediaService.getMediaByDirectory(directoryFilter);
+        result = await mediaService.getMediaByDirectory(directoryFilter);
       }
       setMedia(result);
     } catch (error) {
@@ -128,6 +131,34 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     [media]
   );
 
+  // Bulk delete media
+  const bulkDeleteMedia = useCallback(
+    async (mediaIds: string[]): Promise<BulkDeleteResult> => {
+      try {
+        // Optimistically remove from local state
+        setMedia((prev) => prev.filter((m) => !mediaIds.includes(m.id)));
+
+        const result = await mediaService.bulkDeleteMedia(mediaIds);
+
+        // If some failed, add them back
+        if (result.failed.length > 0) {
+          await loadMedia();
+        }
+
+        return result;
+      } catch (error) {
+        handleError(error, 'bulk delete');
+        // Reload to restore state
+        await loadMedia();
+        return {
+          succeeded: [],
+          failed: mediaIds.map((id) => ({ id, error: 'Bulk delete failed' })),
+        };
+      }
+    },
+    [mediaService, loadMedia, handleError]
+  );
+
   // Real-time subscription management
   const subscribe = useCallback(async () => {
     if (!workspaceId || unsubscribeRef.current) return;
@@ -145,8 +176,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
               // Check if the record matches the current directory filter
               const matchesFilter = (record: Media) => {
                 if (directoryFilter === null) return true;
-                if (directoryFilter === 'root')
-                  return !record.DirectoryRef;
+                if (directoryFilter === 'root') return !record.DirectoryRef;
                 return record.DirectoryRef === directoryFilter;
               };
 
@@ -186,14 +216,10 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
                     await mediaService.getMediaWithPreviews(data.record.id);
                   if (mediaWithPreviews) {
                     setMedia((prev) => {
-                      const exists = prev.some(
-                        (m) => m.id === data.record.id
-                      );
+                      const exists = prev.some((m) => m.id === data.record.id);
                       if (exists) {
                         return prev.map((m) =>
-                          m.id === data.record.id
-                            ? mediaWithPreviews
-                            : m
+                          m.id === data.record.id ? mediaWithPreviews : m
                         );
                       }
                       return [mediaWithPreviews, ...prev];
@@ -280,6 +306,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     getMediaById,
     getMediaByUpload,
     setDirectoryFilter,
+    bulkDeleteMedia,
 
     // Real-time updates
     isConnected,

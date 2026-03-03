@@ -11,7 +11,7 @@ export interface ClipBlockProps {
   width: number;
   isSelected: boolean;
   isLocked: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onResizeStart: (
     handle: 'left' | 'right',
     e: React.MouseEvent | React.TouchEvent
@@ -56,7 +56,7 @@ export function ClipBlock({
       onClick={(e) => {
         e.stopPropagation();
         if (!isLocked) {
-          onSelect();
+          onSelect(e);
         }
       }}
       draggable={!isLocked}

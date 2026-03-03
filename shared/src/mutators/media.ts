@@ -76,9 +76,7 @@ export class MediaMutator extends BaseMutator<
   /**
    * Get media in a specific directory
    */
-  async getByDirectory<
-    E extends keyof MediaRelations = keyof MediaRelations,
-  >(
+  async getByDirectory<E extends keyof MediaRelations = keyof MediaRelations>(
     directoryId: string,
     page = 1,
     perPage = 50,
@@ -107,10 +105,7 @@ export class MediaMutator extends BaseMutator<
     return this.getList(
       page,
       perPage,
-      [
-        `WorkspaceRef = "${workspaceId}"`,
-        `DirectoryRef = ""`,
-      ],
+      [`WorkspaceRef = "${workspaceId}"`, `DirectoryRef = ""`],
       undefined,
       expand
     );

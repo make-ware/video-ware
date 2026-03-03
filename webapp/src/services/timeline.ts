@@ -268,6 +268,63 @@ export class TimelineService {
   }
 
   /**
+   * Remove multiple clips from a timeline in bulk
+   * Uses Promise.allSettled for resilience to partial failures,
+   * then reorders remaining clips to fill gaps
+   */
+  async bulkRemoveClipsFromTimeline(clipIds: string[]): Promise<{
+    succeeded: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    if (clipIds.length === 0) return { succeeded: [], failed: [] };
+
+    // Get the timeline ID from the first clip
+    const firstClip = await this.timelineClipMutator.getById(clipIds[0]);
+    if (!firstClip) {
+      throw new Error(`Timeline clip not found: ${clipIds[0]}`);
+    }
+    const timelineId = firstClip.TimelineRef;
+
+    // Delete all clips in parallel
+    const results = await Promise.allSettled(
+      clipIds.map((id) => this.timelineClipMutator.delete(id).then(() => id))
+    );
+
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        succeeded.push(result.value);
+      } else {
+        failed.push({
+          id: clipIds[index],
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : 'Unknown error',
+        });
+      }
+    });
+
+    // Reorder remaining clips to fill gaps
+    if (succeeded.length > 0) {
+      const remainingClips =
+        await this.timelineClipMutator.getByTimeline(timelineId);
+      const reorderedClips = remainingClips.map((c, index) => ({
+        id: c.id,
+        order: index,
+      }));
+
+      if (reorderedClips.length > 0) {
+        await this.timelineClipMutator.reorderClips(timelineId, reorderedClips);
+      }
+    }
+
+    return { succeeded, failed };
+  }
+
+  /**
    * Reorder clips in a timeline
    * @param timelineId Timeline ID
    * @param clipOrders Array of clip IDs with their new order positions

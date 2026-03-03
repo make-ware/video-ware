@@ -1,11 +1,7 @@
 import { RecordService } from 'pocketbase';
 import type { ListResult } from 'pocketbase';
 import { DirectoryInputSchema } from '../schema';
-import type {
-  Directory,
-  DirectoryInput,
-  DirectoryRelations,
-} from '../schema';
+import type { Directory, DirectoryInput, DirectoryRelations } from '../schema';
 import type { Expanded, TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
 
@@ -90,10 +86,7 @@ export class DirectoryMutator extends BaseMutator<
     return this.getList(
       page,
       perPage,
-      [
-        `WorkspaceRef = "${workspaceId}"`,
-        `ParentDirectoryRef = ""`,
-      ],
+      [`WorkspaceRef = "${workspaceId}"`, `ParentDirectoryRef = ""`],
       undefined,
       expand
     );
@@ -112,15 +105,9 @@ export class DirectoryMutator extends BaseMutator<
    */
   async deleteIfEmpty(id: string): Promise<boolean> {
     // Check for child directories
-    const children = await this.getList(
-      1,
-      1,
-      `ParentDirectoryRef = "${id}"`
-    );
+    const children = await this.getList(1, 1, `ParentDirectoryRef = "${id}"`);
     if (children.totalItems > 0) {
-      throw new Error(
-        'Cannot delete directory: it contains child directories'
-      );
+      throw new Error('Cannot delete directory: it contains child directories');
     }
 
     // Check for media in this directory

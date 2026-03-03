@@ -92,13 +92,10 @@ export function DirectorySelector({
     [createDirectory]
   );
 
-  const handleRenameOpen = useCallback(
-    (id: string, currentName: string) => {
-      setRenameTarget({ id, name: currentName });
-      setRenameName(currentName);
-    },
-    []
-  );
+  const handleRenameOpen = useCallback((id: string, currentName: string) => {
+    setRenameTarget({ id, name: currentName });
+    setRenameName(currentName);
+  }, []);
 
   const handleRenameSubmit = useCallback(async () => {
     if (!renameTarget || !renameName.trim()) return;
@@ -106,13 +103,10 @@ export function DirectorySelector({
     setRenameTarget(null);
   }, [renameTarget, renameName, renameDirectory]);
 
-  const handleDeleteOpen = useCallback(
-    (id: string, name: string) => {
-      setDeleteTarget({ id, name });
-      setDeleteError(null);
-    },
-    []
-  );
+  const handleDeleteOpen = useCallback((id: string, name: string) => {
+    setDeleteTarget({ id, name });
+    setDeleteError(null);
+  }, []);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget) return;
@@ -199,16 +193,10 @@ export function DirectorySelector({
             }}
           />
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenameTarget(null)}
-            >
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleRenameSubmit}
-              disabled={!renameName.trim()}
-            >
+            <Button onClick={handleRenameSubmit} disabled={!renameName.trim()}>
               Rename
             </Button>
           </DialogFooter>

@@ -101,9 +101,7 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
       if (options.directoryId === 'root') {
         filters.push(`MediaRef.DirectoryRef = ""`);
       } else {
-        filters.push(
-          `MediaRef.DirectoryRef = "${options.directoryId}"`
-        );
+        filters.push(`MediaRef.DirectoryRef = "${options.directoryId}"`);
       }
     }
 

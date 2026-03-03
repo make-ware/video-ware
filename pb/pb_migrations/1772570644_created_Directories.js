@@ -1,8 +1,11 @@
 /// <reference path="../pb_data/types.d.ts" />
 migrate((app) => {
-  // 1. Create the Directories collection
+  const DIRECTORIES_ID = "pb_directories0001";
+  const WORKSPACES_ID = "pb_6znl9bq7apv0rcg"; // from created_workspaces.js
+
+  // 1. Create the Directories collection (without self-ref; add it after)
   const collection = new Collection({
-    "id": "pb_directories0001",
+    "id": DIRECTORIES_ID,
     "name": "Directories",
     "type": "base",
     "system": false,
@@ -31,18 +34,7 @@ migrate((app) => {
         "id": "rel_dir_workspace",
         "type": "relation",
         "required": true,
-        "collectionId": "pb_workspaces001",
-        "maxSelect": 1,
-        "minSelect": 0,
-        "cascadeDelete": false,
-        "displayFields": null,
-      },
-      {
-        "name": "ParentDirectoryRef",
-        "id": "rel_dir_parent",
-        "type": "relation",
-        "required": false,
-        "collectionId": "pb_directories0001",
+        "collectionId": WORKSPACES_ID,
         "maxSelect": 1,
         "minSelect": 0,
         "cascadeDelete": false,
@@ -60,7 +52,22 @@ migrate((app) => {
 
   app.save(collection);
 
-  // 2. Add DirectoryRef field to the existing Media collection
+  // 2. Add self-referential ParentDirectoryRef (collection must exist first)
+  const dirCollection = app.findCollectionByNameOrId(DIRECTORIES_ID);
+  dirCollection.fields.add(new Field({
+    "name": "ParentDirectoryRef",
+    "id": "rel_dir_parent",
+    "type": "relation",
+    "required": false,
+    "collectionId": DIRECTORIES_ID,
+    "maxSelect": 1,
+    "minSelect": 0,
+    "cascadeDelete": false,
+    "displayFields": null,
+  }));
+  app.save(dirCollection);
+
+  // 3. Add DirectoryRef field to the existing Media collection
   const mediaCollection = app.findCollectionByNameOrId("Media");
   mediaCollection.fields.add(new Field({
     "name": "DirectoryRef",
@@ -76,12 +83,16 @@ migrate((app) => {
 
   return app.save(mediaCollection);
 }, (app) => {
+  const DIRECTORIES_ID = "pb_directories0001";
+
   // Revert: remove DirectoryRef from Media
   const mediaCollection = app.findCollectionByNameOrId("Media");
   mediaCollection.fields.removeById("rel_media_directory");
   app.save(mediaCollection);
 
-  // Revert: delete Directories collection
-  const collection = app.findCollectionByNameOrId("pb_directories0001");
-  return app.delete(collection);
+  // Revert: remove ParentDirectoryRef from Directories, then delete collection
+  const dirCollection = app.findCollectionByNameOrId(DIRECTORIES_ID);
+  dirCollection.fields.removeById("rel_dir_parent");
+  app.save(dirCollection);
+  return app.delete(dirCollection);
 });

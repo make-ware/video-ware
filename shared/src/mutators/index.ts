@@ -7,6 +7,7 @@ export { WorkspaceMutator } from './workspace';
 export { WorkspaceMemberMutator } from './workspace-member';
 export { UploadMutator } from './upload';
 export { FileMutator } from './file';
+export { DirectoryMutator } from './directory';
 export { MediaMutator } from './media';
 export { LabelTrackMutator } from './label-track';
 export { MediaClipMutator, type ActualizableLabel } from './media-clip';

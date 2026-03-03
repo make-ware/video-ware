@@ -7,6 +7,7 @@ import type { Task } from '../schema/task';
 import type { MediaClip } from '../schema/media-clip';
 import type { Upload } from '../schema/upload';
 import type { File } from '../schema/file';
+import type { Directory } from '../schema/directory';
 import type { Media } from '../schema/media';
 import type { Workspace } from '../schema/workspace';
 import type { WorkspaceMember } from '../schema/workspace-member';
@@ -38,6 +39,7 @@ export * from './relations.js';
 
 // Typed PocketBase interface
 export interface TypedPocketBase extends PocketBase {
+  collection(idOrName: 'Directories'): RecordService<Directory>;
   collection(idOrName: 'Files'): RecordService<File>;
   collection(idOrName: 'LabelShots'): RecordService<LabelShot>;
   collection(idOrName: 'LabelSegments'): RecordService<LabelSegment>;

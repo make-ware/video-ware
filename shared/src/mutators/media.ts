@@ -72,4 +72,47 @@ export class MediaMutator extends BaseMutator<
   ): Promise<Expanded<Media, MediaRelations, E> | null> {
     return this.getFirstByFilter(`UploadRef = "${uploadId}"`, expand);
   }
+
+  /**
+   * Get media in a specific directory
+   */
+  async getByDirectory<
+    E extends keyof MediaRelations = keyof MediaRelations,
+  >(
+    directoryId: string,
+    page = 1,
+    perPage = 50,
+    expand?: E | E[]
+  ): Promise<ListResult<Expanded<Media, MediaRelations, E>>> {
+    return this.getList(
+      page,
+      perPage,
+      `DirectoryRef = "${directoryId}"`,
+      undefined,
+      expand
+    );
+  }
+
+  /**
+   * Get media at the workspace root (no directory assigned)
+   */
+  async getByWorkspaceRoot<
+    E extends keyof MediaRelations = keyof MediaRelations,
+  >(
+    workspaceId: string,
+    page = 1,
+    perPage = 50,
+    expand?: E | E[]
+  ): Promise<ListResult<Expanded<Media, MediaRelations, E>>> {
+    return this.getList(
+      page,
+      perPage,
+      [
+        `WorkspaceRef = "${workspaceId}"`,
+        `DirectoryRef = ""`,
+      ],
+      undefined,
+      expand
+    );
+  }
 }

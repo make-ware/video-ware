@@ -11,10 +11,16 @@ import { AlertCircle, Film } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { MediaGallery } from '@/components/media';
+import { DirectoryBrowser } from '@/components/media/directory-browser';
 import type { Media } from '@project/shared';
 
 function MediaPageContent() {
-  const { media, isLoading } = useMedia();
+  const {
+    media,
+    isLoading,
+    directoryFilter,
+    setDirectoryFilter,
+  } = useMedia();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
 
@@ -46,11 +52,21 @@ function MediaPageContent() {
         </div>
       </div>
 
+      {/* Directory Browser */}
+      <div className="mb-4">
+        <DirectoryBrowser
+          workspaceId={currentWorkspace.id}
+          directoryFilter={directoryFilter}
+          onDirectoryFilterChange={setDirectoryFilter}
+        />
+      </div>
+
       {/* Media Gallery */}
       <MediaGallery
         media={media}
         isLoading={isLoading}
         onMediaClick={handleMediaClick}
+        directoryFilter={directoryFilter}
       />
     </div>
   );

@@ -11,7 +11,7 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from '@/components/ui/empty';
-import { Film } from 'lucide-react';
+import { Film, FolderOpen } from 'lucide-react';
 import { MediaCard } from './media-card';
 
 interface MediaGalleryProps {
@@ -19,6 +19,7 @@ interface MediaGalleryProps {
   isLoading?: boolean;
   onMediaClick?: (media: Media) => void;
   className?: string;
+  directoryFilter?: string | null;
 }
 
 export function MediaGallery({
@@ -26,6 +27,7 @@ export function MediaGallery({
   isLoading = false,
   onMediaClick,
   className,
+  directoryFilter,
 }: MediaGalleryProps) {
   if (isLoading) {
     return (
@@ -64,11 +66,21 @@ export function MediaGallery({
           <Empty>
             <EmptyHeader>
               <EmptyMediaIcon variant="icon">
-                <Film className="h-6 w-6" />
+                {directoryFilter ? (
+                  <FolderOpen className="h-6 w-6" />
+                ) : (
+                  <Film className="h-6 w-6" />
+                )}
               </EmptyMediaIcon>
-              <EmptyTitle>No media yet</EmptyTitle>
+              <EmptyTitle>
+                {directoryFilter
+                  ? 'This folder is empty'
+                  : 'No media yet'}
+              </EmptyTitle>
               <EmptyDescription>
-                Upload videos to see them in your media library
+                {directoryFilter
+                  ? 'Upload files to this folder or move existing media here'
+                  : 'Upload videos to see them in your media library'}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useUpload } from '@/hooks/use-upload';
@@ -20,21 +20,29 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Upload as UploadIcon } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { DirectorySelector } from '@/components/uploads/directory-selector';
 
 function UploadsPageContent() {
   const { uploads, uploadProgress, isLoading, retryUpload, cancelUpload } =
     useUpload();
   const { currentWorkspace } = useWorkspace();
   const { actions } = useUploadQueue();
+  const [selectedDirectoryId, setSelectedDirectoryId] = useState<
+    string | null
+  >(null);
 
   // Handle files selected from dropzone
   const handleFilesSelected = useCallback(
     (files: File[]) => {
       if (currentWorkspace) {
-        actions.addFiles(files, currentWorkspace.id);
+        actions.addFiles(
+          files,
+          currentWorkspace.id,
+          selectedDirectoryId ?? undefined
+        );
       }
     },
-    [currentWorkspace, actions]
+    [currentWorkspace, actions, selectedDirectoryId]
   );
 
   if (!currentWorkspace) {
@@ -65,6 +73,13 @@ function UploadsPageContent() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Directory Selector */}
+          <DirectorySelector
+            workspaceId={currentWorkspace.id}
+            selectedDirectoryId={selectedDirectoryId}
+            onDirectoryChange={setSelectedDirectoryId}
+          />
+
           {/* Dropzone */}
           <UploadDropzone
             onFilesSelected={handleFilesSelected}

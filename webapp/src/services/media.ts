@@ -101,6 +101,46 @@ export class MediaService {
   }
 
   /**
+   * Get media in a specific directory with preview assets
+   */
+  async getMediaByDirectory(
+    directoryId: string,
+    page = 1,
+    perPage = 50
+  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+    const result = await this.mediaMutator.getByDirectory(
+      directoryId,
+      page,
+      perPage,
+      ['thumbnailFileRef', 'spriteFileRef']
+    );
+
+    return Promise.all(
+      result.items.map((media) => this.enrichMediaWithPreviews(media))
+    );
+  }
+
+  /**
+   * Get media at the workspace root (no directory assigned)
+   */
+  async getMediaByWorkspaceRoot(
+    workspaceId: string,
+    page = 1,
+    perPage = 50
+  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+    const result = await this.mediaMutator.getByWorkspaceRoot(
+      workspaceId,
+      page,
+      perPage,
+      ['thumbnailFileRef', 'spriteFileRef']
+    );
+
+    return Promise.all(
+      result.items.map((media) => this.enrichMediaWithPreviews(media))
+    );
+  }
+
+  /**
    * Get media by upload ID
    * @param uploadId The upload ID
    * @returns Media with preview URLs or null if not found

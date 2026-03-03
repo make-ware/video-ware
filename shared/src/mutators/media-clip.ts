@@ -28,6 +28,8 @@ export interface GetByWorkspaceOptions {
   type?: string;
   /** Search query to filter by clip label or media name */
   searchQuery?: string;
+  /** Filter clips to only those whose media is in this directory */
+  directoryId?: string;
 }
 
 export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
@@ -92,6 +94,17 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
     // Add type filter if provided
     if (options?.type) {
       filters.push(`type = "${options.type}"`);
+    }
+
+    // Add directory filter if provided (filter via media relation)
+    if (options?.directoryId) {
+      if (options.directoryId === 'root') {
+        filters.push(`MediaRef.DirectoryRef = ""`);
+      } else {
+        filters.push(
+          `MediaRef.DirectoryRef = "${options.directoryId}"`
+        );
+      }
     }
 
     // Add search query filter if provided

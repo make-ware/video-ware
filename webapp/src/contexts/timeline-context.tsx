@@ -41,6 +41,7 @@ interface TimelineContextType {
   selectAllClips: () => void;
   clearClipSelection: () => void;
   isClipSelected: (clipId: string) => boolean;
+  handleClipSelect: (clipId: string, e: React.MouseEvent) => void;
   removeSelectedClips: () => Promise<void>;
 
   // Track state
@@ -334,6 +335,19 @@ export function TimelineProvider({
   const isClipSelected = useCallback(
     (clipId: string) => selectedClipIds.has(clipId),
     [selectedClipIds]
+  );
+
+  const handleClipSelect = useCallback(
+    (clipId: string, e: React.MouseEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        toggleClipSelection(clipId);
+      } else if (e.shiftKey) {
+        selectClipRange(clipId);
+      } else {
+        setSelectedClipId(clipId);
+      }
+    },
+    [toggleClipSelection, selectClipRange, setSelectedClipId]
   );
 
   const removeSelectedClips = useCallback(async () => {
@@ -817,6 +831,7 @@ export function TimelineProvider({
     selectAllClips,
     clearClipSelection,
     isClipSelected,
+    handleClipSelect,
     removeSelectedClips,
 
     // Track state

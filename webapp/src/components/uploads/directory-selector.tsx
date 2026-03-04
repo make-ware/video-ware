@@ -13,20 +13,17 @@ import { DirectoryDialogs } from './directory-dialogs';
 
 interface DirectorySelectorProps {
   workspaceId: string;
-  selectedDirectoryId: string | null;
   onDirectoryChange: (directoryId: string | null) => void;
 }
 
 export function DirectorySelector({
   workspaceId,
-  selectedDirectoryId: _selectedDirectoryId,
   onDirectoryChange,
 }: DirectorySelectorProps) {
   const {
     directories,
     currentDirectory,
     breadcrumbs,
-    isLoading: _isLoading,
     navigateTo,
     createDirectory,
     renameDirectory,

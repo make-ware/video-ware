@@ -123,15 +123,8 @@ function SequenceClipCard({
 }
 
 export function SequenceTimelineView() {
-  const {
-    timeline,
-    setSelectedClipId,
-    isClipSelected,
-    toggleClipSelection,
-    selectClipRange,
-    reorderClips,
-    tracks,
-  } = useTimeline();
+  const { timeline, isClipSelected, handleClipSelect, reorderClips, tracks } =
+    useTimeline();
 
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
@@ -204,19 +197,6 @@ export function SequenceTimelineView() {
   }, [timeline, sortedTracks, tracks, selectedTrackFilter]);
 
   if (!timeline) return null;
-
-  const handleClipSelect = (clipId: string, e: React.MouseEvent) => {
-    const isMetaKey = e.metaKey || e.ctrlKey;
-    const isShiftKey = e.shiftKey;
-
-    if (isMetaKey) {
-      toggleClipSelection(clipId);
-    } else if (isShiftKey) {
-      selectClipRange(clipId);
-    } else {
-      setSelectedClipId(clipId);
-    }
-  };
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedClipId(id);

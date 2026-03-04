@@ -33,6 +33,7 @@ function MediaPageContent() {
   const {
     selectedIds,
     handleClick,
+    toggleItem,
     selectAll,
     clearSelection,
     selectionCount,
@@ -45,17 +46,11 @@ function MediaPageContent() {
   const handleSelectionClick = useCallback(
     (mediaId: string, e: React.MouseEvent) => {
       const action = handleClick(mediaId, e);
-      // For plain clicks with modifier keys, the hook handles it.
-      // For plain clicks without modifiers, we navigate (handled by onClick).
       if (action === 'single') {
-        // Single modifier-less click on checkbox: toggle selection
-        handleClick(mediaId, {
-          ...e,
-          metaKey: true,
-        } as React.MouseEvent);
+        toggleItem(mediaId);
       }
     },
-    [handleClick]
+    [handleClick, toggleItem]
   );
 
   const handleBulkDelete = useCallback(async () => {

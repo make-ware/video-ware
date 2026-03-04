@@ -24,12 +24,12 @@ export function DirectoryListItem({
   onDelete,
 }: DirectoryListItemProps) {
   return (
-    <div className="flex items-center justify-between rounded-md border px-3 py-2 hover:bg-muted/50">
+    <div className="flex items-center justify-between rounded-md border px-3 py-2 group">
       <button
-        className="flex items-center gap-2 text-sm font-medium flex-1 text-left"
+        className="flex items-center gap-2 text-sm font-medium flex-1 text-left cursor-pointer rounded-sm px-1 py-0.5 -mx-1 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 transition-colors"
         onClick={() => onNavigate(directory.id)}
       >
-        <Folder className="h-4 w-4 text-muted-foreground" />
+        <Folder className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
         {directory.name}
       </button>
       <DropdownMenu>

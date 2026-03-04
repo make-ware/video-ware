@@ -56,16 +56,23 @@ const MediaContext = createContext<MediaContextType | undefined>(undefined);
 
 interface MediaProviderProps {
   workspaceId: string;
+  initialDirectoryFilter?: DirectoryFilter;
   children: React.ReactNode;
 }
 
-export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
+export function MediaProvider({
+  workspaceId,
+  initialDirectoryFilter = null,
+  children,
+}: MediaProviderProps) {
   // State
   const [media, setMedia] = useState<MediaWithPreviews[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilter>(null);
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilter>(
+    initialDirectoryFilter
+  );
 
   // Refs for cleanup
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -159,6 +166,10 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     [mediaService, loadMedia, handleError]
   );
 
+  // Ref so subscribe handler always sees the latest filter without being in subscribe's deps
+  const directoryFilterRef = useRef<DirectoryFilter>(null);
+  directoryFilterRef.current = directoryFilter;
+
   // Real-time subscription management
   const subscribe = useCallback(async () => {
     if (!workspaceId || unsubscribeRef.current) return;
@@ -175,9 +186,10 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
 
               // Check if the record matches the current directory filter
               const matchesFilter = (record: Media) => {
-                if (directoryFilter === null) return true;
-                if (directoryFilter === 'root') return !record.DirectoryRef;
-                return record.DirectoryRef === directoryFilter;
+                const filter = directoryFilterRef.current;
+                if (filter === null) return true;
+                if (filter === 'root') return !record.DirectoryRef;
+                return record.DirectoryRef === filter;
               };
 
               // Handle real-time updates
@@ -261,7 +273,7 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
       console.error('Media subscription error:', error);
       setIsConnected(false);
     }
-  }, [workspaceId, directoryFilter, mediaService]);
+  }, [workspaceId, mediaService]);
 
   const unsubscribe = useCallback(() => {
     if (unsubscribeRef.current) {
@@ -271,29 +283,25 @@ export function MediaProvider({ workspaceId, children }: MediaProviderProps) {
     }
   }, []);
 
-  // Initialize media when workspace changes
+  // Reload media when workspace or directory filter changes
   useEffect(() => {
     if (workspaceId) {
       loadMedia();
-      subscribe();
     } else {
-      // Clear media when no workspace
       setMedia([]);
       setIsLoading(false);
-      unsubscribe();
     }
+  }, [workspaceId, loadMedia]);
 
-    return () => {
-      unsubscribe();
-    };
-  }, [workspaceId, loadMedia, subscribe, unsubscribe]);
-
-  // Cleanup on unmount
+  // Manage subscription per workspace (stable — subscribe doesn't depend on directoryFilter)
   useEffect(() => {
+    if (workspaceId) {
+      subscribe();
+    }
     return () => {
       unsubscribe();
     };
-  }, [unsubscribe]);
+  }, [workspaceId, subscribe, unsubscribe]);
 
   const value: MediaContextType = {
     // State

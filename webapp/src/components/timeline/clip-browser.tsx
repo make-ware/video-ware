@@ -19,26 +19,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
-import {
-  Search,
-  Film,
-  AlertCircle,
-  Folder,
-  ChevronDown,
-  FolderOpen,
-} from 'lucide-react';
+import { Search, Film, AlertCircle, Folder, FolderOpen } from 'lucide-react';
 import { ClipBrowserItem } from './clip-browser-item';
 import { ExpandedMediaClip } from '@/types/expanded-types';
 import { CLIP_GRID_CLASS } from './constants';
 
 interface ClipBrowserProps {
   height?: number;
+  directoryFilter?: string | null;
+  onDirectoryFilterChange?: (filter: string | null) => void;
 }
 
 const CLIP_TYPE_OPTIONS = [
@@ -52,7 +42,11 @@ const CLIP_TYPE_OPTIONS = [
   { value: ClipType.RECOMMENDATION, label: 'Recommendation' },
 ];
 
-export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
+export function ClipBrowser({
+  height: _height = 300,
+  directoryFilter = null,
+  onDirectoryFilterChange,
+}: ClipBrowserProps) {
   const { currentWorkspace } = useWorkspace();
   const { addClip } = useTimeline();
   const [clips, setClips] = useState<ExpandedMediaClip[]>([]);
@@ -64,14 +58,31 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
   const [sortBy, setBySort] = useState<
     'recent' | 'duration' | 'name' | 'media_time'
   >('recent');
-  const [folderFilterOpen, setFolderFilterOpen] = useState(false);
-
   // Create mutator instance
   const mediaClipMutator = useMemo(() => new MediaClipMutator(pb), []);
 
   // Directory filter
   const { directories, currentDirectory, breadcrumbs, navigateTo } =
     useDirectories(currentWorkspace?.id ?? '');
+
+  // Sync directory tree to match directoryFilter prop (initial load with ?dir=)
+  useEffect(() => {
+    const currentId = currentDirectory?.id ?? null;
+    if (directoryFilter !== currentId) {
+      navigateTo(directoryFilter);
+    }
+    // Only react to directoryFilter changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directoryFilter]);
+
+  // Navigate and notify parent
+  const handleDirectorySelect = useCallback(
+    (dirId: string | null) => {
+      navigateTo(dirId);
+      onDirectoryFilterChange?.(dirId);
+    },
+    [navigateTo, onDirectoryFilterChange]
+  );
 
   // The directoryId to pass to the API filter
   const directoryFilterId = currentDirectory?.id ?? undefined;
@@ -239,62 +250,43 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
         </div>
 
         {/* Directory Filter */}
-        <Collapsible open={folderFilterOpen} onOpenChange={setFolderFilterOpen}>
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-between h-8 text-xs px-2"
-            >
-              <span className="flex items-center gap-1.5">
-                {currentDirectory ? (
-                  <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <Folder className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-                {currentDirectory ? currentDirectory.name : 'All Folders'}
-              </span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
-                  folderFilterOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2 space-y-2">
+        <div className="space-y-1.5">
+          {breadcrumbs.length > 0 && (
             <DirectoryBreadcrumb
               breadcrumbs={breadcrumbs}
-              onNavigate={(id) => navigateTo(id)}
+              onNavigate={(id) => handleDirectorySelect(id)}
             />
-            {currentDirectory && (
+          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Button
+              variant={currentDirectory === null ? 'default' : 'outline'}
+              size="sm"
+              className="h-6 text-[11px] px-2"
+              onClick={() => handleDirectorySelect(null)}
+            >
+              <Folder className="mr-1 h-3 w-3" />
+              All
+            </Button>
+            {directories.map((dir) => (
               <Button
-                variant="ghost"
+                key={dir.id}
+                variant={
+                  currentDirectory?.id === dir.id ? 'default' : 'outline'
+                }
                 size="sm"
-                className="h-7 text-xs w-full justify-start px-2"
-                onClick={() => navigateTo(null)}
+                className="h-6 text-[11px] px-2"
+                onClick={() => handleDirectorySelect(dir.id)}
               >
-                Show All Folders
+                {currentDirectory?.id === dir.id ? (
+                  <FolderOpen className="mr-1 h-3 w-3" />
+                ) : (
+                  <Folder className="mr-1 h-3 w-3" />
+                )}
+                <span className="truncate max-w-[100px]">{dir.name}</span>
               </Button>
-            )}
-            {directories.length > 0 && (
-              <div className="space-y-0.5 max-h-32 overflow-y-auto">
-                {directories.map((dir) => (
-                  <button
-                    key={dir.id}
-                    className="flex items-center gap-2 text-xs w-full text-left rounded-md px-2 py-1.5 hover:bg-muted/50"
-                    onClick={() => {
-                      navigateTo(dir.id);
-                      setFolderFilterOpen(false);
-                    }}
-                  >
-                    <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{dir.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Content Area with Fluid Grid */}
@@ -336,7 +328,7 @@ export function ClipBrowser({ height: _height = 300 }: ClipBrowserProps) {
                   variant="link"
                   size="sm"
                   className="text-xs mt-1"
-                  onClick={() => navigateTo(null)}
+                  onClick={() => handleDirectorySelect(null)}
                 >
                   Show all folders
                 </Button>

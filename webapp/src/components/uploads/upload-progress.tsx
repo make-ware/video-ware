@@ -28,7 +28,7 @@ export function ChunkedProgressBar({
   return (
     <div className={cn('space-y-2', className)}>
       {/* Chunked progress bar */}
-      <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="relative h-2 bg-gray-100 dark:bg-muted rounded-full overflow-hidden">
         <div className="absolute inset-0 flex gap-[1px]">
           {totalChunks <= 50 ? (
             Array.from({ length: totalChunks }).map((_, index) => {
@@ -43,7 +43,7 @@ export function ChunkedProgressBar({
               return (
                 <div
                   key={index}
-                  className="relative flex-1 bg-gray-200 rounded-sm overflow-hidden"
+                  className="relative flex-1 bg-gray-200 dark:bg-muted/60 rounded-sm overflow-hidden"
                 >
                   <div
                     className={cn(
@@ -58,7 +58,7 @@ export function ChunkedProgressBar({
             })
           ) : (
             // Simplified view for many chunks to save memory
-            <div className="relative flex-1 bg-gray-200 rounded-full overflow-hidden">
+            <div className="relative flex-1 bg-gray-200 dark:bg-muted/60 rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${overallProgress}%` }}
@@ -69,7 +69,7 @@ export function ChunkedProgressBar({
       </div>
 
       {/* Progress text */}
-      <div className="flex items-center justify-between text-xs text-gray-600">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
           Chunk {currentChunk + 1} of {totalChunks}
         </span>
@@ -92,7 +92,7 @@ export function SimpleProgressBar({
     <div className={cn('space-y-2', className)}>
       <Progress value={progress} className="h-2" />
       <div className="flex justify-end">
-        <span className="text-xs font-medium text-gray-600">
+        <span className="text-xs font-medium text-muted-foreground">
           {progress.toFixed(1)}%
         </span>
       </div>

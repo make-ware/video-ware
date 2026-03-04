@@ -22,7 +22,13 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from '@/components/ui/empty';
-import { Film, FolderOpen, Trash2, X } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { DirectorySelector } from '@/components/uploads/directory-selector';
+import { Film, FolderInput, FolderOpen, Trash2, X } from 'lucide-react';
 import { MediaCard } from './media-card';
 import { useState } from 'react';
 
@@ -38,7 +44,10 @@ interface MediaGalleryProps {
   onSelectAll?: () => void;
   onClearSelection?: () => void;
   onBulkDelete?: () => Promise<void>;
+  onBulkMove?: (directoryId: string | null) => Promise<void>;
   isDeleting?: boolean;
+  isMoving?: boolean;
+  workspaceId?: string;
 }
 
 export function MediaGallery({
@@ -52,9 +61,13 @@ export function MediaGallery({
   onSelectAll,
   onClearSelection,
   onBulkDelete,
+  onBulkMove,
   isDeleting = false,
+  isMoving = false,
+  workspaceId,
 }: MediaGalleryProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const selectionCount = selectedIds?.size ?? 0;
   const hasSelection = selectionCount > 0;
 
@@ -135,6 +148,32 @@ export function MediaGallery({
                     <X className="h-4 w-4 mr-1" />
                     Clear
                   </Button>
+                )}
+                {onBulkMove && workspaceId && (
+                  <Popover
+                    open={movePopoverOpen}
+                    onOpenChange={setMovePopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={isMoving}>
+                        <FolderInput className="h-4 w-4 mr-1" />
+                        {isMoving ? 'Moving...' : 'Move'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 p-3" align="end">
+                      <p className="text-xs font-medium mb-2">
+                        Move {selectionCount}{' '}
+                        {selectionCount === 1 ? 'item' : 'items'} to folder
+                      </p>
+                      <DirectorySelector
+                        workspaceId={workspaceId}
+                        onDirectoryChange={async (dirId) => {
+                          await onBulkMove(dirId);
+                          setMovePopoverOpen(false);
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 )}
                 {onBulkDelete && (
                   <Button

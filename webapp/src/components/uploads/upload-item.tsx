@@ -104,15 +104,18 @@ export function UploadItem({
     <div
       className={cn(
         'flex items-start gap-3 p-3 border rounded-lg transition-colors',
-        isFailed && 'border-red-200 bg-red-50/50',
-        isUploading && 'border-blue-200 bg-blue-50/50',
-        isCompleted && 'border-green-200 bg-green-50/50',
+        isFailed &&
+          'border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/30',
+        isUploading &&
+          'border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/30',
+        isCompleted &&
+          'border-green-200 bg-green-50/50 dark:border-green-900/50 dark:bg-green-950/30',
         className
       )}
     >
       {/* File icon (Thumbnails removed for memory efficiency) */}
       <div className="flex-shrink-0">
-        <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400">
+        <div className="w-10 h-10 rounded bg-gray-100 dark:bg-muted flex items-center justify-center text-gray-400 dark:text-muted-foreground">
           {getFileIcon()}
         </div>
       </div>
@@ -123,7 +126,7 @@ export function UploadItem({
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="font-medium truncate text-sm">{item.fileName}</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               {formatBytes(item.fileSize)}
             </p>
           </div>
@@ -146,7 +149,7 @@ export function UploadItem({
             ) : (
               <SimpleProgressBar progress={item.progress.percentage} />
             )}
-            <div className="flex items-center justify-between text-xs text-gray-500">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>
                 {formatBytes(item.progress.loaded)} of{' '}
                 {formatBytes(item.progress.total)}

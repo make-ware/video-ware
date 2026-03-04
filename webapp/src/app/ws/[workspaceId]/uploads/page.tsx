@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useUpload } from '@/hooks/use-upload';
@@ -22,6 +22,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { DirectorySelector } from '@/components/uploads/directory-selector';
 
+const RECENT_UPLOADS_LIMIT = 10;
+
 function UploadsPageContent() {
   const { uploads, uploadProgress, isLoading, retryUpload, cancelUpload } =
     useUpload();
@@ -29,6 +31,11 @@ function UploadsPageContent() {
   const { actions } = useUploadQueue();
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(
     null
+  );
+
+  const recentUploads = useMemo(
+    () => uploads.slice(0, RECENT_UPLOADS_LIMIT),
+    [uploads]
   );
 
   // Handle files selected from dropzone
@@ -103,16 +110,20 @@ function UploadsPageContent() {
         </CardContent>
       </Card>
 
-      {/* Completed Uploads */}
+      {/* Recent Uploads */}
       <div className="mt-4">
         <UploadList
-          uploads={uploads}
+          uploads={recentUploads}
           uploadProgress={uploadProgress}
           isLoading={isLoading}
           onRetry={retryUpload}
           onCancel={cancelUpload}
           title="Recent Uploads"
-          description="View your uploaded files"
+          description={
+            uploads.length > RECENT_UPLOADS_LIMIT
+              ? `Showing ${RECENT_UPLOADS_LIMIT} of ${uploads.length}`
+              : 'View your uploaded files'
+          }
         />
       </div>
 

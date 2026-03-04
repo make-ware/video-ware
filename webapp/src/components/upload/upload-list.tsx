@@ -150,8 +150,10 @@ export function UploadList({
                   key={upload.id}
                   className={cn(
                     'flex items-start gap-3 p-3 border rounded-lg',
-                    upload.status === 'failed' && 'border-red-200 bg-red-50',
-                    isActive && 'border-blue-200 bg-blue-50'
+                    upload.status === 'failed' &&
+                      'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30',
+                    isActive &&
+                      'border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/30'
                   )}
                 >
                   {/* File icon */}
@@ -193,7 +195,7 @@ export function UploadList({
                     {showProgress && (
                       <div className="space-y-1">
                         <Progress value={progress.percentage} className="h-2" />
-                        <div className="flex items-center justify-between text-sm text-gray-600">
+                        <div className="flex items-center justify-between text-sm text-muted-foreground">
                           <span>
                             {formatBytes(progress.bytesUploaded)} /{' '}
                             {formatBytes(progress.totalBytes)}
@@ -205,14 +207,14 @@ export function UploadList({
 
                     {/* Status message for processing */}
                     {isProcessing && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>Processing video...</span>
                       </div>
                     )}
 
                     {/* File size and date */}
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span>{formatBytes(upload.size)}</span>
                       <span>•</span>
                       <span>{formatDate(upload.created)}</span>
@@ -220,9 +222,9 @@ export function UploadList({
 
                     {/* Error message */}
                     {upload.status === 'failed' && upload.errorMessage && (
-                      <div className="flex items-start gap-2 mt-2 p-2 bg-red-100 border border-red-200 rounded">
-                        <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
-                        <p className="text-sm text-red-700">
+                      <div className="flex items-start gap-2 mt-2 p-2 bg-red-100 dark:bg-red-950/50 border border-red-200 dark:border-red-900/50 rounded">
+                        <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-700 dark:text-red-400">
                           {upload.errorMessage}
                         </p>
                       </div>

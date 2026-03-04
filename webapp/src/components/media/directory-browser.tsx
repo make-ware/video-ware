@@ -1,23 +1,22 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
-import { FolderPlus, FolderOpen } from 'lucide-react';
+import { FolderPlus, Folder, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
-import { DirectoryListItem } from '@/components/uploads/directory-list-item';
 import { DirectoryCreateInline } from '@/components/uploads/directory-create-inline';
 import { DirectoryDialogs } from '@/components/uploads/directory-dialogs';
 import { useDirectories } from '@/hooks/use-directories';
 import { useDirectoryCrud } from '@/hooks/use-directory-crud';
 import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia as EmptyMediaIcon,
-  EmptyTitle,
-  EmptyDescription,
-} from '@/components/ui/empty';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { Directory } from '@project/shared';
 
 interface DirectoryBrowserProps {
   workspaceId: string;
@@ -46,44 +45,73 @@ export function DirectoryBrowser({
     deleteDirectory,
   });
 
-  // Sync directory filter when navigation changes
+  // Sync directory tree to match directoryFilter (initial load with ?dir= or back/forward)
   useEffect(() => {
-    onDirectoryFilterChange(currentDirectory?.id ?? null);
-  }, [currentDirectory, onDirectoryFilterChange]);
-
-  // Sync back when directoryFilter is cleared externally
-  useEffect(() => {
-    if (directoryFilter === null && currentDirectory !== null) {
-      navigateTo(null);
+    const currentId = currentDirectory?.id ?? null;
+    if (directoryFilter !== currentId) {
+      navigateTo(directoryFilter);
     }
-  }, [directoryFilter, currentDirectory, navigateTo]);
+    // Only react to directoryFilter changes, not currentDirectory
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directoryFilter]);
 
-  const handleNavigate = useCallback(
-    (directoryId: string | null) => {
+  const handleSelect = useCallback(
+    (directoryId: string) => {
       navigateTo(directoryId);
+      onDirectoryFilterChange(directoryId);
     },
-    [navigateTo]
+    [navigateTo, onDirectoryFilterChange]
   );
 
-  const hasDirectories = directories.length > 0;
-  const isAtRoot = currentDirectory === null;
-  const showEmptyRootHint = isAtRoot && !hasDirectories && !crud.showCreateForm;
+  const handleShowAll = useCallback(() => {
+    navigateTo(null);
+    onDirectoryFilterChange(null);
+  }, [navigateTo, onDirectoryFilterChange]);
 
   return (
     <>
-      <div className="space-y-3">
-        {/* Header with breadcrumb + actions */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <DirectoryBreadcrumb
-              breadcrumbs={breadcrumbs}
-              onNavigate={handleNavigate}
-            />
-          </div>
+      <div className="space-y-2">
+        {/* Breadcrumb navigation (shown when inside a subfolder) */}
+        {breadcrumbs.length > 0 && (
+          <DirectoryBreadcrumb
+            breadcrumbs={breadcrumbs}
+            onNavigate={(id) => {
+              navigateTo(id);
+              onDirectoryFilterChange(id);
+            }}
+          />
+        )}
+
+        {/* Folder list */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Show All chip */}
           <Button
-            variant="outline"
+            variant={directoryFilter === null ? 'default' : 'outline'}
             size="sm"
-            className="h-7 text-xs shrink-0"
+            className="h-7 text-xs"
+            onClick={handleShowAll}
+          >
+            <Folder className="mr-1 h-3 w-3" />
+            All
+          </Button>
+
+          {/* Folder chips */}
+          {directories.map((dir) => (
+            <FolderChip
+              key={dir.id}
+              directory={dir}
+              isSelected={directoryFilter === dir.id}
+              onSelect={handleSelect}
+              onRename={crud.handleRenameOpen}
+              onDelete={crud.handleDeleteOpen}
+            />
+          ))}
+
+          {/* New Folder button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
             onClick={crud.openCreateForm}
           >
             <FolderPlus className="mr-1 h-3 w-3" />
@@ -99,43 +127,70 @@ export function DirectoryBrowser({
             isCreating={crud.isCreating}
           />
         )}
-
-        {/* Folder list */}
-        {hasDirectories && (
-          <ScrollArea className="max-h-48">
-            <div className="space-y-1">
-              {directories.map((dir) => (
-                <DirectoryListItem
-                  key={dir.id}
-                  directory={dir}
-                  onNavigate={(id) => handleNavigate(id)}
-                  onRename={crud.handleRenameOpen}
-                  onDelete={crud.handleDeleteOpen}
-                />
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-
-        {/* Empty state for root with no folders */}
-        {showEmptyRootHint && (
-          <Empty className="py-4">
-            <EmptyHeader>
-              <EmptyMediaIcon variant="icon">
-                <FolderOpen className="h-6 w-6" />
-              </EmptyMediaIcon>
-              <EmptyTitle className="text-base">No folders yet</EmptyTitle>
-              <EmptyDescription>
-                Create folders to organize your media files
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )}
-
-        <Separator />
       </div>
 
       <DirectoryDialogs {...crud} />
     </>
+  );
+}
+
+function FolderChip({
+  directory,
+  isSelected,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  directory: Directory;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string, name: string) => void;
+}) {
+  return (
+    <div className="flex items-center group">
+      <Button
+        variant={isSelected ? 'default' : 'outline'}
+        size="sm"
+        className={cn(
+          'h-7 text-xs rounded-r-none border-r-0',
+          isSelected && 'pr-2'
+        )}
+        onClick={() => onSelect(directory.id)}
+      >
+        {isSelected ? (
+          <FolderOpen className="mr-1 h-3 w-3" />
+        ) : (
+          <Folder className="mr-1 h-3 w-3" />
+        )}
+        {directory.name}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant={isSelected ? 'default' : 'outline'}
+            size="sm"
+            className="h-7 px-1 rounded-l-none"
+          >
+            <MoreHorizontal className="h-3 w-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => onRename(directory.id, directory.name)}
+          >
+            <Pencil className="mr-2 h-4 w-4" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onDelete(directory.id, directory.name)}
+            className="text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }

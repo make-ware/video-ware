@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { TimelinePlayer } from './timeline-player';
 import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
@@ -21,7 +21,7 @@ import {
   X,
   FileCode,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
 import { generateFCPXML } from '@/utils/fcpxml';
 import pb from '@/lib/pocketbase-client';
@@ -32,7 +32,22 @@ export function TimelineEditorLayout() {
     useTimeline();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
+
+  // Directory filter synced to ?dir= query param
+  const directoryFilter = searchParams.get('dir') ?? null;
+
+  const handleDirectoryFilterChange = useCallback(
+    (filter: string | null) => {
+      const url = filter
+        ? `${pathname}?dir=${encodeURIComponent(filter)}`
+        : pathname;
+      window.history.replaceState(null, '', url);
+    },
+    [pathname]
+  );
   const [activeMobilePanel, setActiveMobilePanel] = useState<
     'library' | 'recommendations' | null
   >(null);
@@ -104,7 +119,10 @@ export function TimelineEditorLayout() {
         className="hidden lg:flex"
       >
         <div className="h-full flex flex-col overflow-hidden">
-          <ClipBrowser />
+          <ClipBrowser
+            directoryFilter={directoryFilter}
+            onDirectoryFilterChange={handleDirectoryFilterChange}
+          />
         </div>
       </CollapsiblePanel>
 
@@ -277,7 +295,10 @@ export function TimelineEditorLayout() {
           <div className="flex-1 overflow-hidden">
             {activeMobilePanel === 'library' ? (
               <div className="h-full flex flex-col overflow-hidden">
-                <ClipBrowser />
+                <ClipBrowser
+                  directoryFilter={directoryFilter}
+                  onDirectoryFilterChange={handleDirectoryFilterChange}
+                />
               </div>
             ) : (
               <div className="p-4 h-full overflow-y-auto pb-20">

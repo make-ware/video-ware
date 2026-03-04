@@ -43,6 +43,7 @@ env:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -74,6 +75,7 @@ jobs:
   build-monolith:
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -187,6 +189,7 @@ jobs:
   build-worker:
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -300,6 +303,7 @@ jobs:
   build-webapp:
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -413,6 +417,7 @@ jobs:
   build-pocketbase:
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write

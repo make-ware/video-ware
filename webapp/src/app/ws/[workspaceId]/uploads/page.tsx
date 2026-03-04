@@ -76,7 +76,6 @@ function UploadsPageContent() {
           {/* Directory Selector */}
           <DirectorySelector
             workspaceId={currentWorkspace.id}
-            selectedDirectoryId={selectedDirectoryId}
             onDirectoryChange={setSelectedDirectoryId}
           />
 

@@ -51,12 +51,10 @@ export function LayerTimelineView() {
     setCurrentTime,
     duration,
     isPlaying,
-    setSelectedClipId,
     selectedClipIds,
-    toggleClipSelection,
-    selectClipRange,
     selectAllClips,
     clearClipSelection,
+    handleClipSelect,
     removeSelectedClips,
     selectedTrackId,
     setSelectedTrackId,
@@ -424,23 +422,6 @@ export function LayerTimelineView() {
       setIsDeletingClips(false);
     }
   }, [removeSelectedClips]);
-
-  // Clip selection handler with multi-select support
-  const handleClipSelect = useCallback(
-    (clipId: string, e: React.MouseEvent) => {
-      const isMetaKey = e.metaKey || e.ctrlKey;
-      const isShiftKey = e.shiftKey;
-
-      if (isMetaKey) {
-        toggleClipSelection(clipId);
-      } else if (isShiftKey) {
-        selectClipRange(clipId);
-      } else {
-        setSelectedClipId(clipId);
-      }
-    },
-    [toggleClipSelection, selectClipRange, setSelectedClipId]
-  );
 
   // Clip drag and drop handlers
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);

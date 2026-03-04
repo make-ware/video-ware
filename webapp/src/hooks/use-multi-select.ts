@@ -14,6 +14,7 @@ interface UseMultiSelectOptions {
 interface UseMultiSelectReturn {
   selectedIds: Set<string>;
   handleClick: (id: string, event: React.MouseEvent) => ClickAction;
+  toggleItem: (id: string) => void;
   selectAll: () => void;
   clearSelection: () => void;
   isSelected: (id: string) => boolean;
@@ -40,6 +41,19 @@ export function useMultiSelect({
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     lastSelectedIdRef.current = null;
+  }, []);
+
+  const toggleItem = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    lastSelectedIdRef.current = id;
   }, []);
 
   const handleClick = useCallback(
@@ -90,6 +104,21 @@ export function useMultiSelect({
     [items]
   );
 
+  // Prune selected IDs that are no longer in items (e.g. directory change)
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const itemSet = new Set(items);
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (itemSet.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) return prev;
+      if (next.size === 0) lastSelectedIdRef.current = null;
+      return next;
+    });
+  }, [items]);
+
   // Keyboard shortcuts
   useEffect(() => {
     if (!enableKeyboard) return;
@@ -123,6 +152,7 @@ export function useMultiSelect({
   return {
     selectedIds,
     handleClick,
+    toggleItem,
     selectAll,
     clearSelection,
     isSelected,

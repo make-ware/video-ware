@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.0...video-ware-v0.5.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* improve filters ([633403c](https://github.com/make-ware/video-ware/commit/633403ca3eb42c0f853975e5d8a2ea181e05d0c1))
+* improve filters ([df63093](https://github.com/make-ware/video-ware/commit/df63093c87de89faa2ca635a0116ee249c01a434))
+
 ## [0.5.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.4.0...video-ware-v0.5.0) (2026-03-03)
 
 

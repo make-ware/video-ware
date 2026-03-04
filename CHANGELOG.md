@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.1...video-ware-v0.5.2) (2026-03-04)
+
+
+### Bug Fixes
+
+* update directory browsing ([a4ef780](https://github.com/make-ware/video-ware/commit/a4ef7802b4a7698eea966a5d31c508c7c54b6d99))
+
 ## [0.5.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.0...video-ware-v0.5.1) (2026-03-04)
 
 

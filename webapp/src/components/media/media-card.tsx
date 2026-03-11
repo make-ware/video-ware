@@ -4,7 +4,7 @@ import type { Media, MediaRelations, Expanded } from '@project/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Film, Clock, Maximize2, Music } from 'lucide-react';
+import { Film, Clock, Maximize2, Music, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import pb from '@/lib/pocketbase-client';
 import { MediaType } from '@project/shared';
@@ -18,6 +18,7 @@ interface MediaCardProps<
   className?: string;
   compact?: boolean;
   isSelected?: boolean;
+  isProcessing?: boolean;
   showSelectionIndicator?: boolean;
   onSelectionClick?: (e: React.MouseEvent) => void;
 }
@@ -28,6 +29,7 @@ export function MediaCard({
   className,
   compact = false,
   isSelected = false,
+  isProcessing = false,
   showSelectionIndicator = false,
   onSelectionClick,
 }: MediaCardProps) {
@@ -206,6 +208,16 @@ export function MediaCard({
             {formatDuration(media.duration)}
           </Badge>
         </div>
+
+        {/* Processing indicator */}
+        {isProcessing && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30">
+            <div className="flex items-center gap-1.5 bg-black/70 rounded-full px-2.5 py-1">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+              <span className="text-xs text-white font-medium">Processing</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Media info */}

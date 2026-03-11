@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useMedia } from '@/hooks/use-media';
 import { useMultiSelect } from '@/hooks/use-multi-select';
+import { useProcessingMedia } from '@/hooks/use-processing-media';
 import { MediaProvider } from '@/contexts/media-context';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Film } from 'lucide-react';
@@ -28,6 +29,7 @@ function MediaPageContent() {
     refreshMedia,
   } = useMedia();
   const { currentWorkspace } = useWorkspace();
+  const processingMediaIds = useProcessingMedia(currentWorkspace?.id);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -169,6 +171,7 @@ function MediaPageContent() {
         isLoading={isLoading}
         onMediaClick={handleMediaClick}
         directoryFilter={directoryFilter}
+        processingMediaIds={processingMediaIds}
         selectedIds={selectedIds}
         onSelectionClick={handleSelectionClick}
         onSelectAll={selectAll}

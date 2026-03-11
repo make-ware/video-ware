@@ -38,6 +38,7 @@ interface MediaGalleryProps {
   onMediaClick?: (media: Media) => void;
   className?: string;
   directoryFilter?: string | null;
+  processingMediaIds?: Set<string>;
   // Multi-select props
   selectedIds?: Set<string>;
   onSelectionClick?: (mediaId: string, e: React.MouseEvent) => void;
@@ -56,6 +57,7 @@ export function MediaGallery({
   onMediaClick,
   className,
   directoryFilter,
+  processingMediaIds,
   selectedIds,
   onSelectionClick,
   onSelectAll,
@@ -220,6 +222,7 @@ export function MediaGallery({
                   media={item}
                   onClick={onMediaClick ? () => onMediaClick(item) : undefined}
                   isSelected={selectedIds?.has(item.id) ?? false}
+                  isProcessing={processingMediaIds?.has(item.id) ?? false}
                   showSelectionIndicator={hasSelection}
                   onSelectionClick={
                     onSelectionClick

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.2...video-ware-v0.5.3) (2026-03-11)
+
+
+### Bug Fixes
+
+* limit github actions time ([7cf9de5](https://github.com/make-ware/video-ware/commit/7cf9de527f1ed0922c97705f05b621fe35c03011))
+* media job progress ([7bee1ed](https://github.com/make-ware/video-ware/commit/7bee1edfb962aa64c50bd4632dbf4af4a3013d6e))
+
 ## [0.5.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.1...video-ware-v0.5.2) (2026-03-04)
 
 

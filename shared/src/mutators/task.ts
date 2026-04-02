@@ -113,6 +113,21 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
   }
 
   /**
+   * Get tasks by source ID (media ID, upload ID, or timeline ID)
+   * @param sourceId The source entity ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 100)
+   * @returns List of tasks for the source
+   */
+  async getBySourceId(
+    sourceId: string,
+    page = 1,
+    perPage = 100
+  ): Promise<ListResult<Task>> {
+    return this.getList(page, perPage, `sourceId = "${sourceId}"`);
+  }
+
+  /**
    * Update task progress
    * @param id The task ID
    * @param progress The progress percentage (0-100)

@@ -12,7 +12,15 @@ import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Trash2, GripVertical, Clock, Edit, Eye, Calendar } from 'lucide-react';
+import {
+  Trash2,
+  GripVertical,
+  Clock,
+  Edit,
+  Eye,
+  Calendar,
+  AlertTriangle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { calculateMediaDate, formatMediaDate } from '@/utils/date-utils';
 import { calculateEffectiveDuration, ClipType } from '@project/shared';
@@ -84,6 +92,7 @@ export function TimelineClipItem({
   }, [isComposite, clip.duration, clip.start, clip.end, clip.meta]);
 
   const media = clip.expand?.MediaRef;
+  const mediaMissing = clip.meta?.mediaMissing === true;
 
   // Derive previewTime: use state when hovering, clip.start when not hovering
   const previewTime = isHovering ? previewTimeState : clip.start;
@@ -185,7 +194,14 @@ export function TimelineClipItem({
         </div>
 
         <div className="h-24 bg-muted overflow-hidden relative">
-          {media ? (
+          {mediaMissing ? (
+            <div className="flex items-center justify-center h-full bg-destructive/10">
+              <div className="text-center text-xs text-destructive">
+                <AlertTriangle className="h-6 w-6 mx-auto mb-1" />
+                <div>Media Deleted</div>
+              </div>
+            </div>
+          ) : media ? (
             isComposite && !isSelected && clip.meta?.segments ? (
               <CompositeClipPreview
                 media={media}

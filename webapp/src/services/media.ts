@@ -1,4 +1,5 @@
 import type { TypedPocketBase, Expanded } from '@project/shared/types';
+import type { ListResult, RecordModel } from 'pocketbase';
 import {
   MediaMutator,
   FileMutator,
@@ -6,6 +7,15 @@ import {
   TaskMutator,
   UploadMutator,
   LabelJobMutator,
+  LabelShotMutator,
+  LabelFaceMutator,
+  LabelPersonMutator,
+  LabelObjectMutator,
+  LabelSegmentMutator,
+  LabelSpeechMutator,
+  LabelTrackMutator,
+  MediaRecommendationMutator,
+  TimelineClipMutator,
 } from '@project/shared/mutator';
 import type {
   Media,
@@ -37,21 +47,47 @@ export type MediaWithPreviews<
  * Media service that provides high-level media operations
  * Handles media retrieval with preview assets and metadata
  */
+export interface DeleteMediaResult {
+  success: boolean;
+  mediaId: string;
+  errors: string[];
+}
+
 export class MediaService {
+  private pb: TypedPocketBase;
   private mediaMutator: MediaMutator;
   private fileMutator: FileMutator;
   private mediaClipMutator: MediaClipMutator;
   private taskMutator: TaskMutator;
   private uploadMutator: UploadMutator;
   private labelJobMutator: LabelJobMutator;
+  private labelShotMutator: LabelShotMutator;
+  private labelFaceMutator: LabelFaceMutator;
+  private labelPersonMutator: LabelPersonMutator;
+  private labelObjectMutator: LabelObjectMutator;
+  private labelSegmentMutator: LabelSegmentMutator;
+  private labelSpeechMutator: LabelSpeechMutator;
+  private labelTrackMutator: LabelTrackMutator;
+  private mediaRecommendationMutator: MediaRecommendationMutator;
+  private timelineClipMutator: TimelineClipMutator;
 
   constructor(pb: TypedPocketBase) {
+    this.pb = pb;
     this.mediaMutator = new MediaMutator(pb);
     this.fileMutator = new FileMutator(pb);
     this.mediaClipMutator = new MediaClipMutator(pb);
     this.taskMutator = new TaskMutator(pb);
     this.uploadMutator = new UploadMutator(pb);
     this.labelJobMutator = new LabelJobMutator(pb);
+    this.labelShotMutator = new LabelShotMutator(pb);
+    this.labelFaceMutator = new LabelFaceMutator(pb);
+    this.labelPersonMutator = new LabelPersonMutator(pb);
+    this.labelObjectMutator = new LabelObjectMutator(pb);
+    this.labelSegmentMutator = new LabelSegmentMutator(pb);
+    this.labelSpeechMutator = new LabelSpeechMutator(pb);
+    this.labelTrackMutator = new LabelTrackMutator(pb);
+    this.mediaRecommendationMutator = new MediaRecommendationMutator(pb);
+    this.timelineClipMutator = new TimelineClipMutator(pb);
   }
 
   /**
@@ -211,7 +247,150 @@ export class MediaService {
   }
 
   /**
-   * Delete multiple media items in bulk
+   * Fully delete a media entity and all related records.
+   * Preserves timeline clips but marks them as mediaMissing.
+   */
+  async deleteMedia(mediaId: string): Promise<DeleteMediaResult> {
+    const errors: string[] = [];
+
+    // 1. Fetch media record
+    const media = await this.mediaMutator.getById(mediaId);
+    if (!media) {
+      throw new Error(`Media not found: ${mediaId}`);
+    }
+
+    const { UploadRef: uploadId, WorkspaceRef: workspaceId } = media;
+
+    // 2. Mark timeline clips as mediaMissing (update, don't delete)
+    try {
+      await this.markTimelineClipsAsMissing(mediaId);
+    } catch (error) {
+      errors.push(
+        `Timeline clip update: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 3. Delete all label data in parallel
+    const labelResults = await Promise.allSettled([
+      this.deleteAllRecords(this.labelShotMutator, mediaId),
+      this.deleteAllRecords(this.labelFaceMutator, mediaId),
+      this.deleteAllRecords(this.labelPersonMutator, mediaId),
+      this.deleteAllRecords(this.labelObjectMutator, mediaId),
+      this.deleteAllRecords(this.labelSegmentMutator, mediaId),
+      this.deleteAllRecords(this.labelSpeechMutator, mediaId),
+      this.deleteAllRecords(this.labelTrackMutator, mediaId),
+    ]);
+    labelResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const types = [
+          'shots',
+          'faces',
+          'persons',
+          'objects',
+          'segments',
+          'speech',
+          'tracks',
+        ];
+        errors.push(`Label ${types[i]} delete: ${r.reason}`);
+      }
+    });
+
+    // 4. Delete media clips
+    try {
+      await this.deleteAllRecords(this.mediaClipMutator, mediaId);
+    } catch (error) {
+      errors.push(
+        `Media clips: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 5. Delete media recommendations
+    try {
+      await this.deleteAllRecommendations(mediaId);
+    } catch (error) {
+      errors.push(
+        `Recommendations: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 6. Delete label jobs (query without expand to avoid 400 on stale TaskRef)
+    try {
+      await this.deleteAllLabelJobs(mediaId);
+    } catch (error) {
+      errors.push(
+        `Label jobs: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 7. Delete tasks (by mediaId and uploadId)
+    try {
+      await this.deleteTasksBySourceId(mediaId);
+      if (uploadId) {
+        await this.deleteTasksBySourceId(uploadId);
+      }
+    } catch (error) {
+      errors.push(
+        `Tasks: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 8. Delete file records (collect s3Keys for storage cleanup)
+    const s3Keys: string[] = [];
+    try {
+      const page = 1;
+      while (true) {
+        const files = await this.fileMutator.getByMedia(mediaId, page, 100);
+        if (files.items.length === 0) break;
+        for (const file of files.items) {
+          if (file.s3Key) s3Keys.push(file.s3Key);
+        }
+        await Promise.allSettled(
+          files.items.map((file) => this.fileMutator.delete(file.id))
+        );
+        if (files.items.length < 100) break;
+      }
+    } catch (error) {
+      errors.push(
+        `Files: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 9. Delete upload record
+    if (uploadId) {
+      try {
+        await this.uploadMutator.delete(uploadId);
+      } catch (error) {
+        errors.push(
+          `Upload: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+
+    // 10. Delete media record
+    try {
+      await this.mediaMutator.delete(mediaId);
+    } catch (error) {
+      errors.push(
+        `Media: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    // 11. Fire-and-forget storage cleanup
+    if (uploadId && workspaceId) {
+      this.cleanupStorage(workspaceId, uploadId).catch((error) => {
+        console.error('Storage cleanup failed:', error);
+      });
+    }
+
+    return {
+      success: errors.length === 0,
+      mediaId,
+      errors,
+    };
+  }
+
+  /**
+   * Delete multiple media items in bulk with full cascade
    * Uses Promise.allSettled for resilience to partial failures
    */
   async bulkDeleteMedia(mediaIds: string[]): Promise<{
@@ -219,7 +398,7 @@ export class MediaService {
     failed: { id: string; error: string }[];
   }> {
     const results = await Promise.allSettled(
-      mediaIds.map((id) => this.mediaMutator.delete(id).then(() => id))
+      mediaIds.map((id) => this.deleteMedia(id).then(() => id))
     );
 
     const succeeded: string[] = [];
@@ -240,6 +419,137 @@ export class MediaService {
     });
 
     return { succeeded, failed };
+  }
+
+  /**
+   * Mark all timeline clips referencing this media as mediaMissing
+   */
+  private async markTimelineClipsAsMissing(mediaId: string): Promise<void> {
+    let page = 1;
+    while (true) {
+      const result = await this.timelineClipMutator.getByMedia(
+        mediaId,
+        page,
+        100
+      );
+      if (result.items.length === 0) break;
+      await Promise.allSettled(
+        result.items.map((clip) =>
+          this.timelineClipMutator.update(clip.id, {
+            MediaClipRef: '',
+            meta: { ...clip.meta, mediaMissing: true },
+          })
+        )
+      );
+      if (result.items.length < 100) break;
+      page++;
+    }
+  }
+
+  /**
+   * Paginated fetch-and-delete for any mutator with getByMedia
+   */
+  private async deleteAllRecords(
+    mutator: {
+      getByMedia: (
+        id: string,
+        page?: number,
+        perPage?: number
+      ) => Promise<ListResult<RecordModel>>;
+      delete: (id: string) => Promise<boolean>;
+    },
+    mediaId: string
+  ): Promise<void> {
+    while (true) {
+      // Always fetch page 1 since previous items were deleted
+      const result = await mutator.getByMedia(mediaId, 1, 100);
+      if (result.items.length === 0) break;
+      await Promise.allSettled(
+        result.items.map((item) => mutator.delete(item.id))
+      );
+      if (result.items.length < 100) break;
+    }
+  }
+
+  /**
+   * Delete all label jobs for a media, querying without expand
+   * to avoid 400 errors from stale TaskRef relations
+   */
+  private async deleteAllLabelJobs(mediaId: string): Promise<void> {
+    while (true) {
+      const result = await this.pb
+        .collection('LabelJobs')
+        .getList(1, 100, {
+          filter: `MediaRef = "${mediaId}"`,
+        });
+      if (result.items.length === 0) break;
+      await Promise.allSettled(
+        result.items.map((job) =>
+          this.pb.collection('LabelJobs').delete(job.id)
+        )
+      );
+      if (result.items.length < 100) break;
+    }
+  }
+
+  /**
+   * Paginated fetch-and-delete for media recommendations
+   */
+  private async deleteAllRecommendations(mediaId: string): Promise<void> {
+    while (true) {
+      const result = await this.mediaRecommendationMutator.getByMedia(
+        mediaId,
+        undefined,
+        1,
+        100
+      );
+      if (result.items.length === 0) break;
+      await Promise.allSettled(
+        result.items.map((item) =>
+          this.mediaRecommendationMutator.delete(item.id)
+        )
+      );
+      if (result.items.length < 100) break;
+    }
+  }
+
+  /**
+   * Delete all tasks matching a sourceId
+   */
+  private async deleteTasksBySourceId(sourceId: string): Promise<void> {
+    while (true) {
+      const result = await this.taskMutator.getBySourceId(sourceId, 1, 100);
+      if (result.items.length === 0) break;
+      await Promise.allSettled(
+        result.items.map((task) => this.taskMutator.delete(task.id))
+      );
+      if (result.items.length < 100) break;
+    }
+  }
+
+  /**
+   * Call the storage cleanup API route to delete files from storage
+   */
+  private async cleanupStorage(
+    workspaceId: string,
+    uploadId: string
+  ): Promise<void> {
+    try {
+      const response = await fetch('/api-next/media/delete-storage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, uploadId }),
+      });
+      if (!response.ok) {
+        console.error(
+          'Storage cleanup returned:',
+          response.status,
+          await response.text()
+        );
+      }
+    } catch (error) {
+      console.error('Storage cleanup request failed:', error);
+    }
   }
 
   /**

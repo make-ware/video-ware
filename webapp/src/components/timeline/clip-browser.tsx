@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { MediaClipMutator } from '@project/shared/mutator';
-import { ClipType } from '@project/shared';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useDirectories } from '@/hooks/use-directories';
@@ -22,6 +21,10 @@ import {
 import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
 import { Search, Film, AlertCircle, Folder, FolderOpen } from 'lucide-react';
 import { ClipBrowserItem } from './clip-browser-item';
+import {
+  ClipTypeFilter,
+  clipTypeFilterPredicate,
+} from '@/components/clip/clip-type-filter';
 import { ExpandedMediaClip } from '@/types/expanded-types';
 import { CLIP_GRID_CLASS } from './constants';
 
@@ -30,17 +33,6 @@ interface ClipBrowserProps {
   directoryFilter?: string | null;
   onDirectoryFilterChange?: (filter: string | null) => void;
 }
-
-const CLIP_TYPE_OPTIONS = [
-  { value: 'all', label: 'All Types' },
-  { value: ClipType.USER, label: 'User' },
-  { value: ClipType.RANGE, label: 'Range' },
-  { value: ClipType.SHOT, label: 'Shot' },
-  { value: ClipType.OBJECT, label: 'Object' },
-  { value: ClipType.PERSON, label: 'Person' },
-  { value: ClipType.SPEECH, label: 'Speech' },
-  { value: ClipType.RECOMMENDATION, label: 'Recommendation' },
-];
 
 export function ClipBrowser({
   height: _height = 300,
@@ -105,18 +97,26 @@ export function ClipBrowser({
     setError(null);
 
     try {
+      // For grouped filters (media/clips), fetch all and filter client-side
+      const isGroupedFilter = typeFilter === 'media' || typeFilter === 'clips';
       const result = await mediaClipMutator.getByWorkspace(
         currentWorkspace.id,
         1,
         100,
         {
-          type: typeFilter !== 'all' ? typeFilter : undefined,
+          type:
+            typeFilter !== 'all' && !isGroupedFilter ? typeFilter : undefined,
           searchQuery: debouncedSearchQuery || undefined,
           directoryId: directoryFilterId,
         }
       );
 
-      const items = result.items as ExpandedMediaClip[];
+      let items = result.items as ExpandedMediaClip[];
+
+      if (isGroupedFilter) {
+        const predicate = clipTypeFilterPredicate(typeFilter);
+        items = items.filter((clip) => predicate(clip.type));
+      }
 
       // Client-side sorting
       if (sortBy === 'name') {
@@ -230,18 +230,7 @@ export function ClipBrowser({
           </Select>
         </div>
         <div className="flex items-center justify-between">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[140px] h-8 text-xs">
-              <SelectValue placeholder="All Types" />
-            </SelectTrigger>
-            <SelectContent>
-              {CLIP_TYPE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ClipTypeFilter value={typeFilter} onChange={setTypeFilter} />
           {clips.length > 0 && (
             <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
               {clips.length} clip{clips.length !== 1 ? 's' : ''}

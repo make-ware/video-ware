@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
-import { Pencil, GripVertical } from 'lucide-react';
+import { Pencil, GripVertical, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -43,9 +43,14 @@ function SequenceClipCard({
   isDragged,
 }: SequenceClipCardProps) {
   const [isHovering, setIsHovering] = useState(false);
-  const mediaName = clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
+  const mediaMissing = clip.meta?.mediaMissing === true;
+  const mediaName = mediaMissing
+    ? 'Media Deleted'
+    : clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
   const displayTitle = clip.meta?.title || mediaName;
-  const clipColor = clip.meta?.color || 'bg-blue-600/80';
+  const clipColor = mediaMissing
+    ? 'bg-destructive/60'
+    : clip.meta?.color || 'bg-blue-600/80';
   const media = clip.expand?.MediaRef;
 
   return (
@@ -71,7 +76,11 @@ function SequenceClipCard({
     >
       {/* Background Sprite Animator */}
       <div className="absolute inset-0 z-0">
-        {media ? (
+        {mediaMissing ? (
+          <div className="flex items-center justify-center h-full bg-destructive/10">
+            <AlertTriangle className="h-8 w-8 text-destructive/40" />
+          </div>
+        ) : media ? (
           <SpriteAnimator
             media={media}
             start={clip.start}

@@ -10,8 +10,13 @@ import { InlineClipEditor } from '@/components/clip/inline-clip-editor';
 import { MediaRecommendationsPanel } from '@/components/recommendations/media-recommendations-panel';
 import { MediaRecommendationProvider } from '@/contexts/media-recommendation-context';
 import { useMediaRecommendations } from '@/hooks/use-media-recommendations';
+import { MediaClipPanel } from '@/components/clip/media-clip-panel';
+import { FullLengthClipCard } from '@/components/clip/full-length-clip-card';
+import {
+  ClipTypeFilter,
+  clipTypeFilterPredicate,
+} from '@/components/clip/clip-type-filter';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowLeft,
   RefreshCw,
@@ -24,7 +29,7 @@ import {
   Check,
   Sparkles,
   Info,
-  Captions,
+  Trash2,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
@@ -35,7 +40,19 @@ import { cn } from '@/lib/utils';
 import { MediaClip, MediaRecommendation } from '@project/shared';
 import { ClipType } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { MediaClipMutator } from '@project/shared/mutator';
+import { MediaService } from '@/services/media';
 import pb from '@/lib/pocketbase-client';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/hooks/use-workspace';
@@ -64,8 +81,11 @@ function MediaDetailsPageContentWithRecommendations() {
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [showTranscripts, setShowTranscripts] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaService = useMemo(() => new MediaService(pb), []);
 
   // Get clip ID from URL query parameter
   const clipIdFromUrl = searchParams.get('clip');
@@ -91,16 +111,24 @@ function MediaDetailsPageContentWithRecommendations() {
     [clips, editingClipId]
   );
 
+  const filteredClips = useMemo(() => {
+    const predicate = clipTypeFilterPredicate(typeFilter);
+    return clips.filter((clip) => predicate(clip.type));
+  }, [clips, typeFilter]);
+
+  const handleClearClipSelection = () => {
+    const newSearchParams = new URLSearchParams(searchParams.toString());
+    newSearchParams.delete('clip');
+    router.push(
+      `/ws/${currentWorkspace?.id}/media/${id}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`,
+      { scroll: false }
+    );
+  };
+
   const handleClipSelect = (clip: MediaClip) => {
     // If clicking the same clip, toggle it off (return to full video)
     if (activeClipId === clip.id) {
-      // Remove clip parameter from URL
-      const newSearchParams = new URLSearchParams(searchParams.toString());
-      newSearchParams.delete('clip');
-      router.push(
-        `/ws/${currentWorkspace?.id}/media/${id}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`,
-        { scroll: false }
-      );
+      handleClearClipSelection();
     } else {
       // Update URL with clip parameter
       const newSearchParams = new URLSearchParams(searchParams.toString());
@@ -116,6 +144,30 @@ function MediaDetailsPageContentWithRecommendations() {
 
   const handleBack = () => {
     router.push(`/ws/${currentWorkspace?.id}/media`);
+  };
+
+  const handleDeleteMedia = async () => {
+    if (!media) return;
+    setIsDeleting(true);
+    try {
+      const result = await mediaService.deleteMedia(media.id);
+      if (result.success) {
+        toast.success('Media deleted successfully');
+      } else {
+        toast.success('Media deleted with some errors', {
+          description: result.errors.join(', '),
+        });
+      }
+      router.push(`/ws/${currentWorkspace?.id}/media`);
+    } catch (error) {
+      console.error('Failed to delete media:', error);
+      toast.error('Failed to delete media', {
+        description:
+          error instanceof Error ? error.message : 'An unknown error occurred',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleInlineClipCreated = () => {
@@ -291,17 +343,7 @@ function MediaDetailsPageContentWithRecommendations() {
             variant="outline"
             size="sm"
             className="flex-1 sm:flex-initial"
-            onClick={() => {
-              // Remove clip parameter from URL
-              const newSearchParams = new URLSearchParams(
-                searchParams.toString()
-              );
-              newSearchParams.delete('clip');
-              router.push(
-                `/ws/${currentWorkspace?.id}/media/${id}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`,
-                { scroll: false }
-              );
-            }}
+            onClick={handleClearClipSelection}
             disabled={!activeClipId}
           >
             Reset to Full Video
@@ -317,6 +359,39 @@ function MediaDetailsPageContentWithRecommendations() {
             <Info className="h-4 w-4 mr-2" />
             Details
           </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 sm:flex-initial text-destructive hover:text-destructive"
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Media</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this media and all associated
+                  data including labels, clips, recommendations, and files.
+                  Timeline clips referencing this media will be marked as
+                  missing. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteMedia}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
@@ -488,97 +563,74 @@ function MediaDetailsPageContentWithRecommendations() {
         {/* Sidebar - Clips and Labels */}
         <div className="lg:col-span-1">
           <Card className="lg:h-[calc(100vh-12rem)] lg:min-h-[500px] flex flex-col">
-            <Tabs
-              value={activeTab}
-              onValueChange={handleTabChange}
-              className="flex flex-col h-full"
-            >
-              <CardHeader className="pb-3">
-                <TabsList className="w-full">
-                  <TabsTrigger value="clips" className="flex-1 gap-1.5">
-                    <Scissors className="h-4 w-4" />
-                    Clips
-                  </TabsTrigger>
-                  <TabsTrigger value="transcripts" className="flex-1 gap-1.5">
-                    <Captions className="h-4 w-4" />
-                    Transcripts
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="recommendations"
-                    className="flex-1 gap-1.5"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    Recs
-                  </TabsTrigger>
-                </TabsList>
-              </CardHeader>
-
-              <CardContent className="flex-1 flex flex-col overflow-hidden px-0 pt-0">
-                <TabsContent
-                  value="clips"
-                  className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
-                >
+            <MediaClipPanel
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+              clipCount={filteredClips.length}
+              transcriptCount={transcripts.length}
+              recommendationCount={recommendations.length}
+              clipsContent={
+                <>
                   <div className="mb-3 flex items-center justify-between px-0">
-                    <span className="text-xs sm:text-sm font-normal text-muted-foreground">
-                      {clips.length} found
+                    <ClipTypeFilter
+                      value={typeFilter}
+                      onChange={setTypeFilter}
+                    />
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {filteredClips.length} found
                     </span>
                   </div>
+                  {(typeFilter === 'all' || typeFilter === 'media') && (
+                    <FullLengthClipCard
+                      media={media}
+                      duration={media.duration}
+                      isActive={!activeClipId}
+                      onSelect={handleClearClipSelection}
+                      className="mb-3"
+                    />
+                  )}
                   <ClipList
                     media={media}
-                    clips={clips}
+                    clips={filteredClips}
                     activeClipId={activeClipId}
                     onClipSelect={handleClipSelect}
                     onClipUpdate={handleClipUpdate}
                     onClipDelete={handleClipDelete}
                     onInlineEdit={handleStartEditClip}
                   />
-                </TabsContent>
-
-                <TabsContent
-                  value="transcripts"
-                  className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
+                </>
+              }
+              recommendationsContent={
+                <MediaRecommendationsPanel
+                  recommendations={recommendations}
+                  media={media}
+                  isLoading={isLoadingRecommendations}
+                  onCreateClip={handleCreateClipFromRecommendation}
+                  onPreview={handlePreviewRecommendation}
+                />
+              }
+              transcriptsContent={
+                <TranscriptList
+                  transcripts={transcripts}
+                  mediaId={media.id}
+                  workspaceId={currentWorkspace?.id || ''}
+                  onSeek={handleJumpToTime}
+                  onCreate={createTranscript}
+                  onUpdate={updateTranscript}
+                  onDelete={deleteTranscript}
+                />
+              }
+              transcriptsHeaderContent={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn('h-6 text-xs', showTranscripts && 'bg-muted')}
+                  onClick={() => setShowTranscripts(!showTranscripts)}
                 >
-                  <div className="mb-3 flex items-center justify-between px-0">
-                    <span className="text-xs sm:text-sm font-normal text-muted-foreground">
-                      {transcripts.length} found
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        'h-6 text-xs',
-                        showTranscripts && 'bg-muted'
-                      )}
-                      onClick={() => setShowTranscripts(!showTranscripts)}
-                    >
-                      {showTranscripts ? 'Hide Overlay' : 'Show Overlay'}
-                    </Button>
-                  </div>
-                  <TranscriptList
-                    transcripts={transcripts}
-                    mediaId={media.id}
-                    workspaceId={currentWorkspace?.id || ''}
-                    onSeek={handleJumpToTime}
-                    onCreate={createTranscript}
-                    onUpdate={updateTranscript}
-                    onDelete={deleteTranscript}
-                  />
-                </TabsContent>
-
-                <TabsContent
-                  value="recommendations"
-                  className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
-                >
-                  <MediaRecommendationsPanel
-                    recommendations={recommendations}
-                    media={media}
-                    isLoading={isLoadingRecommendations}
-                    onCreateClip={handleCreateClipFromRecommendation}
-                    onPreview={handlePreviewRecommendation}
-                  />
-                </TabsContent>
-              </CardContent>
-            </Tabs>
+                  {showTranscripts ? 'Hide Overlay' : 'Show Overlay'}
+                </Button>
+              }
+            />
           </Card>
         </div>
       </div>

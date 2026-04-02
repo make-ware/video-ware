@@ -322,6 +322,7 @@ export const TimelineClipMetadataSchema = z.object({
   segments: z
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),
+  mediaMissing: z.boolean().optional(), // set when source media is deleted
 });
 
 // ============================================================================

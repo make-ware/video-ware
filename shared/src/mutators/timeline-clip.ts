@@ -1,4 +1,5 @@
 import { RecordService } from 'pocketbase';
+import type { ListResult } from 'pocketbase';
 import { TimelineClipInputSchema } from '../schema';
 import type { TimelineClip, TimelineClipInput } from '../schema';
 import type { TypedPocketBase } from '../types';
@@ -64,6 +65,21 @@ export class TimelineClipMutator extends BaseMutator<
       return -1;
     }
     return Math.max(...clips.map((c) => c.order));
+  }
+
+  /**
+   * Get timeline clips by media
+   * @param mediaId The media ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 500)
+   * @returns List of timeline clips referencing this media
+   */
+  async getByMedia(
+    mediaId: string,
+    page = 1,
+    perPage = 500
+  ): Promise<ListResult<TimelineClip>> {
+    return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
   }
 
   /**

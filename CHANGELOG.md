@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.2...video-ware-v0.5.3) (2026-04-02)
+
+
+### Bug Fixes
+
+* limit github actions time ([7cf9de5](https://github.com/make-ware/video-ware/commit/7cf9de527f1ed0922c97705f05b621fe35c03011))
+* media job progress ([7bee1ed](https://github.com/make-ware/video-ware/commit/7bee1edfb962aa64c50bd4632dbf4af4a3013d6e))
+* Update clip navigator ([d5e8327](https://github.com/make-ware/video-ware/commit/d5e8327d0cf450e0b6e5de48e008783d93b21674))
+
 ## [0.5.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.1...video-ware-v0.5.2) (2026-03-04)
 
 

@@ -477,11 +477,9 @@ export class MediaService {
    */
   private async deleteAllLabelJobs(mediaId: string): Promise<void> {
     while (true) {
-      const result = await this.pb
-        .collection('LabelJobs')
-        .getList(1, 100, {
-          filter: `MediaRef = "${mediaId}"`,
-        });
+      const result = await this.pb.collection('LabelJobs').getList(1, 100, {
+        filter: `MediaRef = "${mediaId}"`,
+      });
       if (result.items.length === 0) break;
       await Promise.allSettled(
         result.items.map((job) =>

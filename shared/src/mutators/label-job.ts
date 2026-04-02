@@ -23,9 +23,7 @@ export class LabelJobMutator extends BaseMutator<
   async getByMedia(mediaId: string): Promise<LabelJob[]> {
     const filter = `MediaRef = "${mediaId}"`;
     try {
-      const result = await this.getList(1, 50, filter, '-created', [
-        'TaskRef',
-      ]);
+      const result = await this.getList(1, 50, filter, '-created', ['TaskRef']);
       return result.items;
     } catch {
       // Fallback without expand if TaskRef relation is stale/deleted

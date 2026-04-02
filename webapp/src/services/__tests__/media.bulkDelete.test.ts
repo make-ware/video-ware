@@ -103,7 +103,7 @@ describe('MediaService.bulkDeleteMedia', () => {
     expect(result.succeeded).toContain('m1');
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].id).toBe('bad-id');
-    expect(result.failed[0].error).toBe('Not found');
+    expect(result.failed[0].error).toBe('Media not found: bad-id');
   });
 
   it('all IDs fail when mutator throws for all', async () => {

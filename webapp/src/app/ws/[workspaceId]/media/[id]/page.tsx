@@ -5,8 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useMediaDetails } from '@/hooks/use-media-details';
 import { MediaVideoPlayer } from '@/components/video/media-video-player';
 import { ClipList } from '@/components/clip/clip-list';
-import { InlineClipCreator } from '@/components/clip/inline-clip-creator';
-import { InlineClipEditor } from '@/components/clip/inline-clip-editor';
+import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { MediaRecommendationsPanel } from '@/components/recommendations/media-recommendations-panel';
 import { MediaRecommendationProvider } from '@/contexts/media-recommendation-context';
 import { useMediaRecommendations } from '@/hooks/use-media-recommendations';
@@ -25,9 +24,6 @@ import {
   Clock,
   Scissors,
   Eye,
-  X,
-  Check,
-  Sparkles,
   Info,
   Trash2,
 } from 'lucide-react';
@@ -35,7 +31,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TranscriptList } from '@/components/transcripts/transcript-list';
 import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
-import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 import { cn } from '@/lib/utils';
 import { MediaClip, MediaRecommendation } from '@project/shared';
 import { ClipType } from '@project/shared';
@@ -77,12 +72,12 @@ function MediaDetailsPageContentWithRecommendations() {
     deleteTranscript,
     refresh: _refreshTranscripts,
   } = useMediaTranscripts(id);
-  const [isInlineCreateMode, setIsInlineCreateMode] = useState(false);
-  const [editingClipId, setEditingClipId] = useState<string | null>(null);
+  const [clipEditorState, setClipEditorState] = useState<
+    null | { mode: 'create' } | { mode: 'edit-media-clip'; clip: MediaClip }
+  >(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [showTranscripts, setShowTranscripts] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaService = useMemo(() => new MediaService(pb), []);
@@ -103,12 +98,6 @@ function MediaDetailsPageContentWithRecommendations() {
   const activeClip = useMemo(
     () => clips.find((c) => c.id === activeClipId),
     [clips, activeClipId]
-  );
-
-  // Get the clip being edited
-  const editingClip = useMemo(
-    () => clips.find((c) => c.id === editingClipId),
-    [clips, editingClipId]
   );
 
   const filteredClips = useMemo(() => {
@@ -170,44 +159,23 @@ function MediaDetailsPageContentWithRecommendations() {
     }
   };
 
-  const handleInlineClipCreated = () => {
-    // Refresh clips list and exit inline create mode
-    refresh();
-    setIsInlineCreateMode(false);
-  };
-
-  const handleInlineClipUpdated = () => {
-    // Refresh clips list and exit edit mode
-    refresh();
-    setEditingClipId(null);
-  };
-
   const handleClipUpdate = () => {
-    // Refresh clips list
     refresh();
   };
 
   const handleClipDelete = () => {
-    // Refresh clips list
     refresh();
   };
 
-  const handleStartInlineCreate = () => {
-    setIsInlineCreateMode(true);
-    setEditingClipId(null);
+  const handleOpenCreateClip = () => {
+    setClipEditorState({ mode: 'create' });
   };
 
-  const handleCancelInlineCreate = () => {
-    setIsInlineCreateMode(false);
-  };
-
-  const handleStartEditClip = (clipId: string) => {
-    setEditingClipId(clipId);
-    setIsInlineCreateMode(false);
-  };
-
-  const handleCancelEditClip = () => {
-    setEditingClipId(null);
+  const handleOpenEditClip = (clipId: string) => {
+    const clip = clips.find((c) => c.id === clipId);
+    if (clip) {
+      setClipEditorState({ mode: 'edit-media-clip', clip });
+    }
   };
 
   const handleJumpToTime = (timeInSeconds: number) => {
@@ -398,118 +366,60 @@ function MediaDetailsPageContentWithRecommendations() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
         {/* Main Content - Player */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          {/* Inline Clip Creator Mode */}
-          {isInlineCreateMode && media && (
-            <Card className="overflow-hidden">
-              <CardContent className="pt-3 sm:pt-4 px-3 sm:px-6 pb-4 sm:pb-6">
-                <InlineClipCreator
-                  media={media}
-                  onClipCreated={handleInlineClipCreated}
-                  onCancel={handleCancelInlineCreate}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Inline Clip Editor Mode */}
-          {editingClip && media && (
-            <Card className="overflow-hidden">
-              <CardContent className="pt-3 sm:pt-4 px-3 sm:px-6 pb-4 sm:pb-6">
-                <InlineClipEditor
-                  media={media}
-                  clip={editingClip}
-                  onClipUpdated={handleInlineClipUpdated}
-                  onCancel={handleCancelEditClip}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Normal Video Player (when not in inline create/edit mode) */}
-          {!isInlineCreateMode && !editingClip && (
-            <Card className="overflow-hidden">
-              <CardContent className="pt-3 sm:pt-4 px-3 sm:px-6 pb-4 sm:pb-6">
-                <div className="space-y-3 sm:space-y-4">
-                  {/* Header */}
-                  <div className="flex items-center justify-between min-h-[2.5rem]">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Eye className="h-4 w-4 text-primary" />
-                      <span className="hidden sm:inline">Viewing Media</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled
-                        className="hidden sm:flex"
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Cancel
-                      </Button>
-                      <Button size="sm" disabled className="hidden sm:flex">
-                        <Check className="h-4 w-4 mr-1" />
-                        Save
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Video Preview */}
-                  <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
-                    <MediaVideoPlayer
-                      media={media}
-                      clip={activeClip}
-                      autoPlay={false}
-                      className="w-full h-full"
-                      ref={videoRef}
-                    >
-                      {(currentTime) => (
-                        <TranscriptOverlay
-                          transcripts={transcripts}
-                          currentTime={currentTime}
-                          isVisible={showTranscripts}
-                        />
-                      )}
-                    </MediaVideoPlayer>
-                  </div>
-
-                  {/* Create/Edit Clip Button */}
-                  <div className="flex justify-center">
-                    {activeClip ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => handleStartEditClip(activeClip.id)}
-                        className="gap-2 w-full sm:w-auto"
-                        disabled={activeClip.type === ClipType.FULL}
-                      >
-                        <Scissors className="h-4 w-4" />
-                        Edit Clip
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        onClick={handleStartInlineCreate}
-                        className="gap-2 w-full sm:w-auto"
-                      >
-                        <Scissors className="h-4 w-4" />
-                        Create Clip
-                      </Button>
-                    )}
-
-                    {activeClip && activeClip.type === ClipType.COMPOSITE && (
-                      <Button
-                        variant="secondary"
-                        onClick={() => setIsFineTuneOpen(true)}
-                        className="gap-2 w-full sm:w-auto ml-2"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                        Fine-Tune Segments
-                      </Button>
-                    )}
+          <Card className="overflow-hidden">
+            <CardContent className="pt-3 sm:pt-4 px-3 sm:px-6 pb-4 sm:pb-6">
+              <div className="space-y-3 sm:space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between min-h-[2.5rem]">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Eye className="h-4 w-4 text-primary" />
+                    <span className="hidden sm:inline">Viewing Media</span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+
+                {/* Video Preview */}
+                <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+                  <MediaVideoPlayer
+                    media={media}
+                    clip={activeClip}
+                    autoPlay={false}
+                    className="w-full h-full"
+                    ref={videoRef}
+                  >
+                    {(currentTime) => (
+                      <TranscriptOverlay
+                        transcripts={transcripts}
+                        currentTime={currentTime}
+                        isVisible={showTranscripts}
+                      />
+                    )}
+                  </MediaVideoPlayer>
+                </div>
+
+                {/* Create/Edit Clip Buttons */}
+                <div className="flex justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleOpenCreateClip}
+                    className="gap-2 w-full sm:w-auto"
+                  >
+                    <Scissors className="h-4 w-4" />
+                    Create Clip
+                  </Button>
+                  {activeClip && activeClip.type !== ClipType.FULL && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleOpenEditClip(activeClip.id)}
+                      className="gap-2 w-full sm:w-auto"
+                    >
+                      <Scissors className="h-4 w-4" />
+                      Edit Clip
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Metadata Card */}
           <Card className="hidden sm:block">
@@ -596,7 +506,7 @@ function MediaDetailsPageContentWithRecommendations() {
                     onClipSelect={handleClipSelect}
                     onClipUpdate={handleClipUpdate}
                     onClipDelete={handleClipDelete}
-                    onInlineEdit={handleStartEditClip}
+                    onInlineEdit={handleOpenEditClip}
                   />
                 </>
               }
@@ -635,13 +545,36 @@ function MediaDetailsPageContentWithRecommendations() {
         </div>
       </div>
 
-      {activeClip && (
-        <ClipBaseDialog
-          open={isFineTuneOpen}
-          onOpenChange={setIsFineTuneOpen}
-          clip={activeClip as any}
-          initialMode="edit"
-          onClipUpdated={handleClipUpdate}
+      {/* Clip Editor Modal */}
+      {clipEditorState?.mode === 'create' && (
+        <ClipEditorModal
+          key="create"
+          open
+          onOpenChange={(open) => {
+            if (!open) setClipEditorState(null);
+          }}
+          mode="create"
+          media={media}
+          onClipCreated={() => {
+            refresh();
+            setClipEditorState(null);
+          }}
+        />
+      )}
+      {clipEditorState?.mode === 'edit-media-clip' && (
+        <ClipEditorModal
+          key={clipEditorState.clip.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setClipEditorState(null);
+          }}
+          mode="edit-media-clip"
+          media={media}
+          clip={clipEditorState.clip}
+          onClipUpdated={() => {
+            refresh();
+            setClipEditorState(null);
+          }}
         />
       )}
     </div>

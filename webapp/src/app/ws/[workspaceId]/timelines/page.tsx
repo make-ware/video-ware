@@ -125,7 +125,7 @@ function TimelinesPageContent() {
   }
 
   return (
-    <div className="container mx-auto px-4 pb-8 max-w-7xl">
+    <div className="container mx-auto px-4 pt-6 pb-8 max-w-7xl">
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">

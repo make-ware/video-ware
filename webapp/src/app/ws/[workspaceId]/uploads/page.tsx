@@ -20,7 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Upload as UploadIcon } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { DirectorySelector } from '@/components/uploads/directory-selector';
+import { DirectoryBrowser } from '@/components/media/directory-browser';
 
 const RECENT_UPLOADS_LIMIT = 10;
 
@@ -57,7 +57,7 @@ function UploadsPageContent() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-4 sm:py-6 max-w-4xl">
+    <div className="container mx-auto px-4 pt-6 pb-4 sm:pb-6 max-w-4xl">
       {/* Page Header */}
       <div className="mb-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">
@@ -66,6 +66,15 @@ function UploadsPageContent() {
         <p className="text-sm text-muted-foreground">
           Upload and manage your media files
         </p>
+      </div>
+
+      {/* Directory Browser */}
+      <div className="mb-4">
+        <DirectoryBrowser
+          workspaceId={currentWorkspace.id}
+          directoryFilter={selectedDirectoryId}
+          onDirectoryFilterChange={setSelectedDirectoryId}
+        />
       </div>
 
       {/* Combined Upload Card */}
@@ -80,12 +89,6 @@ function UploadsPageContent() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Directory Selector */}
-          <DirectorySelector
-            workspaceId={currentWorkspace.id}
-            onDirectoryChange={setSelectedDirectoryId}
-          />
-
           {/* Dropzone */}
           <UploadDropzone
             onFilesSelected={handleFilesSelected}

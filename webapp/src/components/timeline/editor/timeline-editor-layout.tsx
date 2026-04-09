@@ -108,7 +108,7 @@ export function TimelineEditorLayout() {
   if (!timeline) return null;
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)] overflow-hidden bg-background relative">
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-2.5rem)] overflow-hidden bg-background relative">
       {/* 
           Desktop Sidebar: Assets (Left)
       */}

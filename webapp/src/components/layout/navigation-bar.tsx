@@ -2,20 +2,9 @@
 
 import React from 'react';
 import Link from 'next/link';
-import {
-  Menu,
-  LogOut,
-  Settings,
-  Upload,
-  Film,
-  Activity,
-  Clapperboard,
-  Building2,
-  BarChart,
-} from 'lucide-react';
+import { Menu, LogOut, Building2, Settings } from 'lucide-react';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/use-auth';
-import { useWorkspace } from '@/hooks/use-workspace';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { WorkspaceSelector } from '@/components/workspace';
 import { Button } from '@/components/ui/button';
@@ -35,6 +24,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import { AppMenubar } from '@/components/layout/app-menubar';
 import { ModeToggle } from '@/components/mode-toggle';
 import { cn } from '@/lib/utils';
 
@@ -44,13 +34,8 @@ interface NavigationBarProps {
 
 export function NavigationBar({ className }: NavigationBarProps) {
   const { user, isAuthenticated, logout, isLoading } = useAuth();
-  const { currentWorkspace } = useWorkspace();
   const isMobile = useIsMobile();
 
-  const workspaceId = currentWorkspace?.id;
-  const wsPrefix = workspaceId ? `/ws/${workspaceId}` : '';
-
-  // Helper function to get user initials for avatar fallback
   const getUserInitials = (name?: string, email?: string) => {
     if (name) {
       return name
@@ -70,26 +55,8 @@ export function NavigationBar({ className }: NavigationBarProps) {
     logout();
   };
 
-  // Navigation links for authenticated users
-  // Only show workspace-specific links if a workspace is selected
-  const authenticatedLinks = [
-    ...(workspaceId
-      ? [
-          { href: `${wsPrefix}/uploads`, label: 'Uploads', icon: Upload },
-          { href: `${wsPrefix}/tasks`, label: 'Tasks', icon: Activity },
-          { href: `${wsPrefix}/media`, label: 'Media', icon: Film },
-          {
-            href: `${wsPrefix}/timelines`,
-            label: 'Timelines',
-            icon: Clapperboard,
-          },
-          {
-            href: `${wsPrefix}/metrics`,
-            label: 'Metrics',
-            icon: BarChart,
-          },
-        ]
-      : []),
+  // Mobile navigation links
+  const mobileLinks = [
     { href: '/workspaces', label: 'Workspaces', icon: Building2 },
     { href: '/profile', label: 'Profile', icon: Settings },
   ];
@@ -107,132 +74,88 @@ export function NavigationBar({ className }: NavigationBarProps) {
         className
       )}
     >
-      <div className="container flex h-14 items-center">
+      <div className="container flex h-10 items-center">
         {/* Logo/Brand */}
-        <div className="mr-4 flex pl-4">
-          <Link href="/" className="mr-6 flex items-center space-x-2">
+        <div className="mr-3 flex pl-4">
+          <Link href="/" className="mr-4 flex items-center space-x-1.5">
             <Image
               src="/video-ware.png"
               alt="VideoWare Logo"
               className="text-primary"
-              width={36}
-              height={36}
+              width={24}
+              height={24}
             />
-            <span className="font-bold text-xl">Videoware</span>
+            <span className="font-bold text-sm">Videoware</span>
           </Link>
         </div>
 
-        {/* Desktop Navigation */}
-        <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-          <div className="w-full flex-1 md:w-auto md:flex-none">
-            {/* Workspace Selector for authenticated users */}
-            {isAuthenticated && !isMobile && (
-              <div className="flex items-center">
-                <WorkspaceSelector />
-              </div>
-            )}
-          </div>
+        {/* Desktop Menubar */}
+        {!isMobile && isAuthenticated && (
+          <AppMenubar className="hidden lg:flex" />
+        )}
 
-          {/* Desktop Auth Navigation */}
+        {/* Spacer + Right-side controls */}
+        <div className="flex flex-1 items-center justify-end gap-2">
+          {/* Desktop Auth */}
           {!isMobile && (
-            <nav className="flex items-center gap-2">
-              <ModeToggle />
+            <nav className="flex items-center gap-1">
               {isLoading ? (
-                <div className="h-8 w-20 animate-pulse bg-muted rounded" />
+                <div className="h-7 w-16 animate-pulse bg-muted rounded" />
               ) : isAuthenticated ? (
-                <>
-                  {/* Prominent Upload and Media links - only if workspace selected */}
-                  {workspaceId && (
-                    <>
-                      <Button variant="ghost" asChild>
-                        <Link
-                          href={`${wsPrefix}/uploads`}
-                          className="flex items-center gap-2"
-                        >
-                          <Upload className="h-4 w-4" />
-                          <span>Upload</span>
-                        </Link>
-                      </Button>
-                      <Button variant="ghost" asChild>
-                        <Link
-                          href={`${wsPrefix}/media`}
-                          className="flex items-center gap-2"
-                        >
-                          <Film className="h-4 w-4" />
-                          <span>Media</span>
-                        </Link>
-                      </Button>
-                      <Button variant="ghost" asChild>
-                        <Link
-                          href={`${wsPrefix}/timelines`}
-                          className="flex items-center gap-2"
-                        >
-                          <Clapperboard className="h-4 w-4" />
-                          <span>Timelines</span>
-                        </Link>
-                      </Button>
-                    </>
-                  )}
-                  <div className="flex items-center gap-4">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className="relative h-8 w-8 rounded-full"
-                        >
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage
-                              src={user?.avatar}
-                              alt={user?.name || user?.email}
-                            />
-                            <AvatarFallback>
-                              {getUserInitials(user?.name, user?.email)}
-                            </AvatarFallback>
-                          </Avatar>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        className="w-56"
-                        align="end"
-                        forceMount
-                      >
-                        <DropdownMenuLabel className="font-normal">
-                          <div className="flex flex-col space-y-1">
-                            <p className="text-sm font-medium leading-none">
-                              {user?.name || 'User'}
-                            </p>
-                            <p className="text-xs leading-none text-muted-foreground">
-                              {user?.email}
-                            </p>
-                          </div>
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {authenticatedLinks.map((link) => (
-                          <DropdownMenuItem key={link.href} asChild>
-                            <Link
-                              href={link.href}
-                              className="flex items-center"
-                            >
-                              <link.icon className="mr-2 h-4 w-4" />
-                              <span>{link.label}</span>
-                            </Link>
-                          </DropdownMenuItem>
-                        ))}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={handleLogout}>
-                          <LogOut className="mr-2 h-4 w-4" />
-                          <span>Log out</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="relative h-7 w-7 rounded-full"
+                    >
+                      <Avatar className="h-7 w-7">
+                        <AvatarImage
+                          src={user?.avatar}
+                          alt={user?.name || user?.email}
+                        />
+                        <AvatarFallback className="text-xs">
+                          {getUserInitials(user?.name, user?.email)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56" align="end" forceMount>
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {user?.name || 'User'}
+                        </p>
+                        <p className="text-xs leading-none text-muted-foreground">
+                          {user?.email}
+                        </p>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/profile" className="flex items-center">
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Profile</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/workspaces" className="flex items-center">
+                        <Building2 className="mr-2 h-4 w-4" />
+                        <span>Workspaces</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleLogout}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      <span>Log out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" asChild>
+                  <Button variant="ghost" size="sm" asChild>
                     <Link href="/login">Login</Link>
                   </Button>
-                  <Button asChild>
+                  <Button size="sm" asChild>
                     <Link href="/signup">Sign Up</Link>
                   </Button>
                 </div>
@@ -286,7 +209,7 @@ export function NavigationBar({ className }: NavigationBarProps) {
                       <div className="pb-4 border-b">
                         <WorkspaceSelector />
                       </div>
-                      {authenticatedLinks.map((link) => (
+                      {mobileLinks.map((link) => (
                         <Button
                           key={link.href}
                           variant="ghost"

@@ -12,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ClipEditModal } from './clip-edit-modal';
+import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
+import type { ExpandedTimelineClip } from '@/types/expanded-types';
 import type { TimelineClip } from '@project/shared';
 
 const BLOCK_WIDTH = 160;
@@ -132,10 +133,21 @@ function SequenceClipCard({
 }
 
 export function SequenceTimelineView() {
-  const { timeline, isClipSelected, handleClipSelect, reorderClips, tracks } =
-    useTimeline();
+  const {
+    timeline,
+    isClipSelected,
+    handleClipSelect,
+    reorderClips,
+    tracks,
+    updateClip,
+    removeClip,
+  } = useTimeline();
 
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
+  const editingClip = useMemo(
+    () => timeline?.clips.find((c) => c.id === editingClipId),
+    [timeline, editingClipId]
+  );
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [selectedTrackFilter, setSelectedTrackFilter] =
     useState<string>(ALL_TRACKS_VALUE);
@@ -340,11 +352,24 @@ export function SequenceTimelineView() {
         </div>
       </div>
 
-      <ClipEditModal
-        clipId={editingClipId}
-        open={!!editingClipId}
-        onOpenChange={(open) => !open && setEditingClipId(null)}
-      />
+      {editingClip && (
+        <ClipEditorModal
+          key={editingClipId}
+          open={!!editingClipId}
+          onOpenChange={(open) => {
+            if (!open) setEditingClipId(null);
+          }}
+          mode="edit-timeline-clip"
+          clip={editingClip as ExpandedTimelineClip}
+          onSave={async (updates) => {
+            await updateClip(editingClipId!, updates);
+          }}
+          onDelete={async () => {
+            await removeClip(editingClipId!);
+            setEditingClipId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

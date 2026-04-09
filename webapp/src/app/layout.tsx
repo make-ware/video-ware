@@ -46,7 +46,7 @@ export default function RootLayout({
                   disableTransitionOnChange
                 >
                   <NavigationBar />
-                  <main className="min-h-screen pt-6">{children}</main>
+                  <main className="min-h-screen">{children}</main>
                   <Toaster />
                 </ThemeProvider>
               </UploadQueueProvider>

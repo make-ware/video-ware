@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.3...video-ware-v0.5.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* update menu ([4e5af38](https://github.com/make-ware/video-ware/commit/4e5af38786ac9bdfc7aea375be1195ffa53762f9))
+
 ## [0.5.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.2...video-ware-v0.5.3) (2026-04-02)
 
 

@@ -144,7 +144,7 @@ function MediaPageContent() {
           <div>
             <h1 className="text-4xl font-bold text-foreground mb-2 flex items-center gap-3">
               <Film className="h-8 w-8" />
-              Media Gallery
+              Media
             </h1>
             <p className="text-lg text-muted-foreground">
               Browse and manage your processed media in {currentWorkspace.name}
@@ -165,7 +165,7 @@ function MediaPageContent() {
         />
       </div>
 
-      {/* Media Gallery */}
+      {/* Media */}
       <MediaGallery
         media={media}
         isLoading={isLoading}

@@ -133,7 +133,7 @@ function UploadsPageContent() {
       {/* Quick Action */}
       <div className="mt-4">
         <Link href={`/ws/${currentWorkspace.id}/media`}>
-          <Button className="w-full sm:w-auto">View Media Gallery</Button>
+          <Button className="w-full sm:w-auto">View Media</Button>
         </Link>
       </div>
     </div>

@@ -81,25 +81,25 @@ export function AppMenubar({ className }: AppMenubarProps) {
 
   const shortcuts = hasWorkspace
     ? [
-        {
-          href: `${wsPrefix}/uploads`,
-          label: 'Upload',
-          icon: Upload,
-          match: `${wsPrefix}/uploads`,
-        },
-        {
-          href: `${wsPrefix}/media`,
-          label: 'Media',
-          icon: Film,
-          match: `${wsPrefix}/media`,
-        },
-        {
-          href: `${wsPrefix}/timelines`,
-          label: 'Timelines',
-          icon: Clapperboard,
-          match: `${wsPrefix}/timelines`,
-        },
-      ]
+      {
+        href: `${wsPrefix}/uploads`,
+        label: 'Upload',
+        icon: Upload,
+        match: `${wsPrefix}/uploads`,
+      },
+      {
+        href: `${wsPrefix}/media`,
+        label: 'Media',
+        icon: Film,
+        match: `${wsPrefix}/media`,
+      },
+      {
+        href: `${wsPrefix}/timelines`,
+        label: 'Timelines',
+        icon: Clapperboard,
+        match: `${wsPrefix}/timelines`,
+      },
+    ]
     : [];
 
   const handleSwitchWorkspace = async (id: string) => {
@@ -220,22 +220,6 @@ export function AppMenubar({ className }: AppMenubarProps) {
             <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
           </>
         )}
-
-        {/* File Menu */}
-        <MenubarMenu>
-          <MenubarTrigger
-            className="text-xs font-medium px-2 py-1"
-            disabled={!hasWorkspace}
-          >
-            File
-          </MenubarTrigger>
-          <MenubarContent>
-            <MenubarItem disabled={!isTimelineEditor}>
-              <FileCode className="mr-2 h-4 w-4" />
-              Export FCPXML
-            </MenubarItem>
-          </MenubarContent>
-        </MenubarMenu>
 
         {/* Help Menu */}
         <MenubarMenu>

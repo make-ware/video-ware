@@ -2,10 +2,25 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Menu, LogOut, Building2, Settings } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import {
+  Menu,
+  LogOut,
+  Building2,
+  Settings,
+  Upload,
+  Film,
+  Clapperboard,
+  Activity,
+  BarChart,
+  FileCode,
+  HelpCircle,
+  Info,
+  User,
+} from 'lucide-react';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/use-auth';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { WorkspaceSelector } from '@/components/workspace';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,6 +38,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
+  SheetClose,
 } from '@/components/ui/sheet';
 import { AppMenubar } from '@/components/layout/app-menubar';
 import { ModeToggle } from '@/components/mode-toggle';
@@ -32,9 +48,69 @@ interface NavigationBarProps {
   className?: string;
 }
 
+interface MobileNavLinkProps {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  isActive?: boolean;
+  disabled?: boolean;
+}
+
+function MobileNavLink({
+  href,
+  icon: Icon,
+  label,
+  isActive,
+  disabled,
+}: MobileNavLinkProps) {
+  if (disabled) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground/60 cursor-not-allowed">
+        <Icon className="h-4 w-4" />
+        {label}
+      </div>
+    );
+  }
+  return (
+    <SheetClose asChild>
+      <Link
+        href={href}
+        className={cn(
+          'flex items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors',
+          'hover:bg-accent hover:text-accent-foreground',
+          isActive
+            ? 'bg-accent text-accent-foreground font-medium'
+            : 'text-foreground'
+        )}
+        aria-current={isActive ? 'page' : undefined}
+      >
+        <Icon className="h-4 w-4" />
+        {label}
+      </Link>
+    </SheetClose>
+  );
+}
+
+function MobileSectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
 export function NavigationBar({ className }: NavigationBarProps) {
   const { user, isAuthenticated, logout, isLoading } = useAuth();
-  const isMobile = useIsMobile();
+  const { currentWorkspace } = useWorkspace();
+  const pathname = usePathname();
+
+  const workspaceId = currentWorkspace?.id;
+  const wsPrefix = workspaceId ? `/ws/${workspaceId}` : '';
+  const hasWorkspace = !!workspaceId;
+
+  const isTimelineEditor =
+    /\/ws\/[^/]+\/timelines\/[^/]+/.test(pathname) &&
+    !pathname.endsWith('/timelines');
 
   const getUserInitials = (name?: string, email?: string) => {
     if (name) {
@@ -54,18 +130,6 @@ export function NavigationBar({ className }: NavigationBarProps) {
   const handleLogout = () => {
     logout();
   };
-
-  // Mobile navigation links
-  const mobileLinks = [
-    { href: '/workspaces', label: 'Workspaces', icon: Building2 },
-    { href: '/profile', label: 'Profile', icon: Settings },
-  ];
-
-  // Navigation links for unauthenticated users
-  const unauthenticatedLinks = [
-    { href: '/login', label: 'Login' },
-    { href: '/signup', label: 'Sign Up' },
-  ];
 
   return (
     <header
@@ -90,164 +154,272 @@ export function NavigationBar({ className }: NavigationBarProps) {
         </div>
 
         {/* Desktop Menubar */}
-        {!isMobile && isAuthenticated && (
-          <AppMenubar className="hidden lg:flex" />
-        )}
+        {isAuthenticated && <AppMenubar className="hidden lg:flex" />}
 
         {/* Spacer + Right-side controls */}
         <div className="flex flex-1 items-center justify-end gap-2">
-          {/* Desktop Auth */}
-          {!isMobile && (
-            <nav className="flex items-center gap-1">
-              {isLoading ? (
-                <div className="h-7 w-16 animate-pulse bg-muted rounded" />
-              ) : isAuthenticated ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="relative h-7 w-7 rounded-full"
-                    >
-                      <Avatar className="h-7 w-7">
+          {isLoading ? (
+            <div className="h-7 w-16 animate-pulse bg-muted rounded" />
+          ) : isAuthenticated ? (
+            <>
+              {/* Desktop Avatar */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="relative h-7 w-7 rounded-full hidden lg:inline-flex"
+                  >
+                    <Avatar className="h-7 w-7">
+                      <AvatarImage
+                        src={user?.avatar}
+                        alt={user?.name || user?.email}
+                      />
+                      <AvatarFallback className="text-xs">
+                        {getUserInitials(user?.name, user?.email)}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {user?.name || 'User'}
+                      </p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {user?.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile" className="flex items-center">
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Profile</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/workspaces" className="flex items-center">
+                      <Building2 className="mr-2 h-4 w-4" />
+                      <span>Workspaces</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Mobile/Tablet Hamburger */}
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="px-2 lg:hidden"
+                    aria-label="Open navigation menu"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent
+                  side="right"
+                  className="w-[300px] p-0 flex flex-col"
+                >
+                  <SheetHeader className="px-4 py-3 border-b">
+                    <SheetTitle className="text-base">Navigation</SheetTitle>
+                  </SheetHeader>
+
+                  <div className="flex-1 overflow-y-auto">
+                    {/* User */}
+                    <div className="flex items-center gap-3 px-4 py-3 border-b">
+                      <Avatar className="h-10 w-10">
                         <AvatarImage
                           src={user?.avatar}
                           alt={user?.name || user?.email}
                         />
-                        <AvatarFallback className="text-xs">
+                        <AvatarFallback>
                           {getUserInitials(user?.name, user?.email)}
                         </AvatarFallback>
                       </Avatar>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56" align="end" forceMount>
-                    <DropdownMenuLabel className="font-normal">
-                      <div className="flex flex-col space-y-1">
-                        <p className="text-sm font-medium leading-none">
+                      <div className="flex flex-col min-w-0">
+                        <p className="text-sm font-medium truncate">
                           {user?.name || 'User'}
                         </p>
-                        <p className="text-xs leading-none text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate">
                           {user?.email}
                         </p>
                       </div>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/profile" className="flex items-center">
-                        <Settings className="mr-2 h-4 w-4" />
-                        <span>Profile</span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/workspaces" className="flex items-center">
-                        <Building2 className="mr-2 h-4 w-4" />
-                        <span>Workspaces</span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleLogout}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      <span>Log out</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href="/login">Login</Link>
-                  </Button>
-                  <Button size="sm" asChild>
-                    <Link href="/signup">Sign Up</Link>
-                  </Button>
-                </div>
-              )}
-            </nav>
-          )}
+                    </div>
 
-          {/* Mobile Navigation */}
-          {isMobile && (
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="mr-2 px-0 text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 md:hidden"
-                >
-                  <Menu className="h-5 w-5" />
-                  <span className="sr-only">Toggle Menu</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="pr-0">
-                <SheetHeader>
-                  <SheetTitle>Navigation</SheetTitle>
-                </SheetHeader>
-                <div className="flex flex-col space-y-4 p-4">
-                  <div className="flex items-center justify-between pb-4 border-b">
-                    <span className="font-medium">Theme</span>
-                    <ModeToggle />
-                  </div>
-                  {isAuthenticated ? (
-                    <>
-                      <div className="flex items-center space-x-4 pb-4 border-b">
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage
-                            src={user?.avatar}
-                            alt={user?.name || user?.email}
-                          />
-                          <AvatarFallback>
-                            {getUserInitials(user?.name, user?.email)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex flex-col">
-                          <p className="text-sm font-medium">
-                            {user?.name || 'User'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {user?.email}
-                          </p>
-                        </div>
-                      </div>
-                      {/* Workspace Selector for mobile */}
-                      <div className="pb-4 border-b">
+                    {/* Workspace */}
+                    <div className="px-2 py-2">
+                      <MobileSectionLabel>Workspace</MobileSectionLabel>
+                      <div className="px-3 py-2">
                         <WorkspaceSelector />
                       </div>
-                      {mobileLinks.map((link) => (
-                        <Button
-                          key={link.href}
-                          variant="ghost"
-                          className="justify-start"
-                          asChild
-                        >
-                          <Link href={link.href}>
-                            <link.icon className="mr-2 h-4 w-4" />
-                            {link.label}
-                          </Link>
-                        </Button>
-                      ))}
-                      <Button
-                        variant="ghost"
-                        className="justify-start"
-                        onClick={handleLogout}
-                      >
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Log out
+                    </div>
+
+                    {/* Workspace shortcuts */}
+                    {hasWorkspace && (
+                      <div className="px-2 pb-2 border-t pt-2">
+                        <MobileSectionLabel>Navigate</MobileSectionLabel>
+                        <MobileNavLink
+                          href={`${wsPrefix}/uploads`}
+                          icon={Upload}
+                          label="Upload"
+                          isActive={pathname.startsWith(`${wsPrefix}/uploads`)}
+                        />
+                        <MobileNavLink
+                          href={`${wsPrefix}/media`}
+                          icon={Film}
+                          label="Media"
+                          isActive={pathname.startsWith(`${wsPrefix}/media`)}
+                        />
+                        <MobileNavLink
+                          href={`${wsPrefix}/timelines`}
+                          icon={Clapperboard}
+                          label="Timelines"
+                          isActive={pathname.startsWith(
+                            `${wsPrefix}/timelines`
+                          )}
+                        />
+                      </div>
+                    )}
+
+                    {/* File */}
+                    {hasWorkspace && (
+                      <div className="px-2 pb-2 border-t pt-2">
+                        <MobileSectionLabel>File</MobileSectionLabel>
+                        <MobileNavLink
+                          href="#"
+                          icon={FileCode}
+                          label="Export FCPXML"
+                          disabled={!isTimelineEditor}
+                        />
+                      </div>
+                    )}
+
+                    {/* Settings */}
+                    {hasWorkspace && (
+                      <div className="px-2 pb-2 border-t pt-2">
+                        <MobileSectionLabel>Settings</MobileSectionLabel>
+                        <MobileNavLink
+                          href={`${wsPrefix}/tasks`}
+                          icon={Activity}
+                          label="Tasks"
+                          isActive={pathname.startsWith(`${wsPrefix}/tasks`)}
+                        />
+                        <MobileNavLink
+                          href={`${wsPrefix}/metrics`}
+                          icon={BarChart}
+                          label="Metrics"
+                          isActive={pathname.startsWith(`${wsPrefix}/metrics`)}
+                        />
+                      </div>
+                    )}
+
+                    {/* Help */}
+                    <div className="px-2 pb-2 border-t pt-2">
+                      <MobileSectionLabel>Help</MobileSectionLabel>
+                      <MobileNavLink
+                        href="#"
+                        icon={HelpCircle}
+                        label="Documentation"
+                        disabled
+                      />
+                      <MobileNavLink
+                        href="#"
+                        icon={Info}
+                        label="About VideoWare"
+                        disabled
+                      />
+                    </div>
+
+                    {/* Account */}
+                    <div className="px-2 pb-2 border-t pt-2">
+                      <MobileSectionLabel>Account</MobileSectionLabel>
+                      <MobileNavLink
+                        href="/profile"
+                        icon={User}
+                        label="Profile"
+                        isActive={pathname === '/profile'}
+                      />
+                      <MobileNavLink
+                        href="/workspaces"
+                        icon={Building2}
+                        label="Manage Workspaces"
+                        isActive={pathname === '/workspaces'}
+                      />
+                      <div className="flex items-center justify-between rounded-sm px-3 py-2 text-sm">
+                        <span>Theme</span>
+                        <ModeToggle />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="border-t p-2">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Log out
+                    </Button>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </>
+          ) : (
+            <>
+              <nav className="hidden lg:flex items-center gap-2">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/login">Login</Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href="/signup">Sign Up</Link>
+                </Button>
+              </nav>
+
+              {/* Mobile/Tablet Hamburger (unauth) */}
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="px-2 lg:hidden"
+                    aria-label="Open navigation menu"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[280px]">
+                  <SheetHeader>
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  <div className="flex flex-col gap-1 p-2">
+                    <div className="flex items-center justify-between rounded-sm px-3 py-2 text-sm">
+                      <span>Theme</span>
+                      <ModeToggle />
+                    </div>
+                    <SheetClose asChild>
+                      <Button variant="ghost" className="justify-start" asChild>
+                        <Link href="/login">Login</Link>
                       </Button>
-                    </>
-                  ) : (
-                    <>
-                      {unauthenticatedLinks.map((link) => (
-                        <Button
-                          key={link.href}
-                          variant="ghost"
-                          className="justify-start"
-                          asChild
-                        >
-                          <Link href={link.href}>{link.label}</Link>
-                        </Button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </SheetContent>
-            </Sheet>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Button variant="ghost" className="justify-start" asChild>
+                        <Link href="/signup">Sign Up</Link>
+                      </Button>
+                    </SheetClose>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </>
           )}
         </div>
       </div>

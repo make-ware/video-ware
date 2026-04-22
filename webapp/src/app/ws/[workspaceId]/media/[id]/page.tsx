@@ -4,13 +4,12 @@ import { useMemo, useState, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useMediaDetails } from '@/hooks/use-media-details';
 import { MediaVideoPlayer } from '@/components/video/media-video-player';
-import { ClipList } from '@/components/clip/clip-list';
+import { MediaClipsLibrary } from '@/components/library';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { MediaRecommendationsPanel } from '@/components/recommendations/media-recommendations-panel';
 import { MediaRecommendationProvider } from '@/contexts/media-recommendation-context';
 import { useMediaRecommendations } from '@/hooks/use-media-recommendations';
 import { MediaClipPanel } from '@/components/clip/media-clip-panel';
-import { FullLengthClipCard } from '@/components/clip/full-length-clip-card';
 import {
   ClipTypeFilter,
   clipTypeFilterPredicate,
@@ -490,19 +489,14 @@ function MediaDetailsPageContentWithRecommendations() {
                       {filteredClips.length} found
                     </span>
                   </div>
-                  {(typeFilter === 'all' || typeFilter === 'media') && (
-                    <FullLengthClipCard
-                      media={media}
-                      duration={media.duration}
-                      isActive={!activeClipId}
-                      onSelect={handleClearClipSelection}
-                      className="mb-3"
-                    />
-                  )}
-                  <ClipList
+                  <MediaClipsLibrary
                     media={media}
                     clips={filteredClips}
                     activeClipId={activeClipId}
+                    showFullLengthCard={
+                      typeFilter === 'all' || typeFilter === 'media'
+                    }
+                    onFullLengthSelect={handleClearClipSelection}
                     onClipSelect={handleClipSelect}
                     onClipUpdate={handleClipUpdate}
                     onClipDelete={handleClipDelete}

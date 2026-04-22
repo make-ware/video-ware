@@ -34,7 +34,10 @@ import { ProcessingProvider } from '@project/shared';
  * Media with preview assets
  */
 export type MediaWithPreviews<
-  E extends keyof MediaRelations = 'thumbnailFileRef' | 'spriteFileRef',
+  E extends keyof MediaRelations =
+    | 'thumbnailFileRef'
+    | 'spriteFileRef'
+    | 'UploadRef',
 > = Expanded<Media, MediaRelations, E> & {
   thumbnailUrl?: string;
   spriteUrl?: string;
@@ -97,10 +100,13 @@ export class MediaService {
    */
   async getMediaWithPreviews(
     mediaId: string
-  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'> | null> {
+  ): Promise<MediaWithPreviews<
+    'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'
+  > | null> {
     const media = await this.mediaMutator.getById(mediaId, [
       'thumbnailFileRef',
       'spriteFileRef',
+      'UploadRef',
     ]);
     if (!media) {
       return null;
@@ -120,12 +126,14 @@ export class MediaService {
     workspaceId: string,
     page = 1,
     perPage = 50
-  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+  ): Promise<
+    MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'>[]
+  > {
     const result = await this.mediaMutator.getByWorkspace(
       workspaceId,
       page,
       perPage,
-      ['thumbnailFileRef', 'spriteFileRef']
+      ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
 
     // Enrich each media item with preview URLs
@@ -143,12 +151,14 @@ export class MediaService {
     directoryId: string,
     page = 1,
     perPage = 50
-  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+  ): Promise<
+    MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'>[]
+  > {
     const result = await this.mediaMutator.getByDirectory(
       directoryId,
       page,
       perPage,
-      ['thumbnailFileRef', 'spriteFileRef']
+      ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
 
     return Promise.all(
@@ -163,12 +173,14 @@ export class MediaService {
     workspaceId: string,
     page = 1,
     perPage = 50
-  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'>[]> {
+  ): Promise<
+    MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'>[]
+  > {
     const result = await this.mediaMutator.getByWorkspaceRoot(
       workspaceId,
       page,
       perPage,
-      ['thumbnailFileRef', 'spriteFileRef']
+      ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
 
     return Promise.all(
@@ -183,10 +195,13 @@ export class MediaService {
    */
   async getMediaByUpload(
     uploadId: string
-  ): Promise<MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef'> | null> {
+  ): Promise<MediaWithPreviews<
+    'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'
+  > | null> {
     const media = await this.mediaMutator.getByUpload(uploadId, [
       'thumbnailFileRef',
       'spriteFileRef',
+      'UploadRef',
     ]);
     if (!media) {
       return null;

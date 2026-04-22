@@ -4,7 +4,7 @@ import React, { useCallback, useState } from 'react';
 import { TimelinePlayer } from './timeline-player';
 import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
-import { ClipBrowser } from '@/components/timeline/clip-browser';
+import { WorkspaceLibrary } from '@/components/library';
 import { TimelineRecommendationsPanelWrapper } from './timeline-recommendations-wrapper';
 import { RenderDialog } from './render-dialog';
 import { useTimeline } from '@/hooks/use-timeline';
@@ -119,7 +119,7 @@ export function TimelineEditorLayout() {
         className="hidden lg:flex"
       >
         <div className="h-full flex flex-col overflow-hidden">
-          <ClipBrowser
+          <WorkspaceLibrary
             directoryFilter={directoryFilter}
             onDirectoryFilterChange={handleDirectoryFilterChange}
           />
@@ -295,7 +295,7 @@ export function TimelineEditorLayout() {
           <div className="flex-1 overflow-hidden">
             {activeMobilePanel === 'library' ? (
               <div className="h-full flex flex-col overflow-hidden">
-                <ClipBrowser
+                <WorkspaceLibrary
                   directoryFilter={directoryFilter}
                   onDirectoryFilterChange={handleDirectoryFilterChange}
                 />

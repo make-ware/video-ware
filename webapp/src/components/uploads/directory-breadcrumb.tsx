@@ -33,7 +33,7 @@ export function DirectoryBreadcrumb({
                 onNavigate(null);
               }}
             >
-              Root
+              All
             </BreadcrumbLink>
           )}
         </BreadcrumbItem>

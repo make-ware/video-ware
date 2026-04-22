@@ -446,25 +446,35 @@ export function LayerTimelineView() {
     []
   );
 
-  const parseMediaClipDragData = useCallback((e: React.DragEvent) => {
+  const parseLibraryDragData = useCallback((e: React.DragEvent) => {
     try {
       const json = e.dataTransfer.getData('application/json');
-      if (json) {
-        const data = JSON.parse(json);
-        if (
-          data?.type === 'media-clip' &&
-          data.mediaId &&
-          data.start != null &&
-          data.end != null
-        ) {
-          return data as {
-            type: 'media-clip';
-            clipId?: string;
-            mediaId: string;
-            start: number;
-            end: number;
-          };
-        }
+      if (!json) return null;
+      const data = JSON.parse(json);
+      if (
+        data?.type === 'media-clip' &&
+        data.mediaId &&
+        data.start != null &&
+        data.end != null
+      ) {
+        return data as {
+          type: 'media-clip';
+          clipId?: string;
+          mediaId: string;
+          start: number;
+          end: number;
+        };
+      }
+      if (
+        data?.type === 'media-full' &&
+        data.mediaId &&
+        typeof data.duration === 'number'
+      ) {
+        return data as {
+          type: 'media-full';
+          mediaId: string;
+          duration: number;
+        };
       }
     } catch {
       /* ignore */
@@ -493,25 +503,30 @@ export function LayerTimelineView() {
       const x = e.clientX - rect.left;
       const candidateTime = Math.max(0, x / PIXELS_PER_SECOND);
 
-      // Handle media-clip drop from clip browser
-      const mediaClipData = parseMediaClipDragData(e);
-      if (mediaClipData) {
+      // Handle drop from library (either a media clip or a full-length media)
+      const dragData = parseLibraryDragData(e);
+      if (dragData) {
         try {
           const trackClips = (timeline?.clips || []).filter(
             (c) => c.TimelineTrackRef === trackId
           );
-          const clipDur = mediaClipData.end - mediaClipData.start;
+          const start = dragData.type === 'media-clip' ? dragData.start : 0;
+          const end =
+            dragData.type === 'media-clip' ? dragData.end : dragData.duration;
+          const clipDur = end - start;
           const { snapped } = snapTime(candidateTime, undefined);
           const timelineStart = findNonOverlappingTimelineStart(
             trackClips,
             snapped,
             clipDur
           );
+          const mediaClipId =
+            dragData.type === 'media-clip' ? dragData.clipId : undefined;
           await addClip(
-            mediaClipData.mediaId,
-            mediaClipData.start,
-            mediaClipData.end,
-            mediaClipData.clipId,
+            dragData.mediaId,
+            start,
+            end,
+            mediaClipId,
             trackId,
             timelineStart
           );
@@ -573,7 +588,7 @@ export function LayerTimelineView() {
       updateClipPosition,
       moveClipToTrack,
       addClip,
-      parseMediaClipDragData,
+      parseLibraryDragData,
       clearGuides,
     ]
   );

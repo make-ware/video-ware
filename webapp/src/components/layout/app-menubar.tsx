@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useWorkspace } from '@/hooks/use-workspace';
@@ -11,7 +12,6 @@ import {
   MenubarLabel,
   MenubarMenu,
   MenubarSeparator,
-  MenubarShortcut,
   MenubarSub,
   MenubarSubContent,
   MenubarSubTrigger,
@@ -36,7 +36,6 @@ import {
   Activity,
   BarChart,
   Building2,
-  User,
   Settings,
   Sun,
   Moon,
@@ -44,6 +43,8 @@ import {
   HelpCircle,
   Info,
   Check,
+  Film,
+  Clapperboard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -77,6 +78,29 @@ export function AppMenubar({ className }: AppMenubarProps) {
     !pathname.endsWith('/timelines');
 
   const hasWorkspace = !!workspaceId;
+
+  const shortcuts = hasWorkspace
+    ? [
+        {
+          href: `${wsPrefix}/uploads`,
+          label: 'Upload',
+          icon: Upload,
+          match: `${wsPrefix}/uploads`,
+        },
+        {
+          href: `${wsPrefix}/media`,
+          label: 'Media',
+          icon: Film,
+          match: `${wsPrefix}/media`,
+        },
+        {
+          href: `${wsPrefix}/timelines`,
+          label: 'Timelines',
+          icon: Clapperboard,
+          match: `${wsPrefix}/timelines`,
+        },
+      ]
+    : [];
 
   const handleSwitchWorkspace = async (id: string) => {
     try {
@@ -168,6 +192,35 @@ export function AppMenubar({ className }: AppMenubarProps) {
           </MenubarContent>
         </MenubarMenu>
 
+        {/* Workspace shortcuts */}
+        {shortcuts.length > 0 && (
+          <>
+            <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
+            {shortcuts.map((shortcut) => {
+              const isActive = pathname.startsWith(shortcut.match);
+              const Icon = shortcut.icon;
+              return (
+                <Link
+                  key={shortcut.href}
+                  href={shortcut.href}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-medium transition-colors outline-none select-none',
+                    'hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground',
+                    isActive
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-foreground/80'
+                  )}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {shortcut.label}
+                </Link>
+              );
+            })}
+            <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
+          </>
+        )}
+
         {/* File Menu */}
         <MenubarMenu>
           <MenubarTrigger
@@ -177,17 +230,6 @@ export function AppMenubar({ className }: AppMenubarProps) {
             File
           </MenubarTrigger>
           <MenubarContent>
-            <MenubarItem onClick={() => router.push(`${wsPrefix}/timelines`)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Timeline
-              <MenubarShortcut>Cmd+N</MenubarShortcut>
-            </MenubarItem>
-            <MenubarItem onClick={() => router.push(`${wsPrefix}/uploads`)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Import Media
-              <MenubarShortcut>Cmd+I</MenubarShortcut>
-            </MenubarItem>
-            <MenubarSeparator />
             <MenubarItem disabled={!isTimelineEditor}>
               <FileCode className="mr-2 h-4 w-4" />
               Export FCPXML
@@ -228,17 +270,6 @@ export function AppMenubar({ className }: AppMenubarProps) {
             <MenubarItem onClick={() => router.push(`${wsPrefix}/metrics`)}>
               <BarChart className="mr-2 h-4 w-4" />
               Metrics
-            </MenubarItem>
-            <MenubarSeparator />
-            <MenubarItem onClick={() => router.push('/profile')}>
-              <User className="mr-2 h-4 w-4" />
-              Profile
-            </MenubarItem>
-            <MenubarItem
-              onClick={() => router.push(`/workspaces/${workspaceId}`)}
-            >
-              <Settings className="mr-2 h-4 w-4" />
-              Workspace Settings
             </MenubarItem>
             <MenubarSeparator />
             <MenubarSub>

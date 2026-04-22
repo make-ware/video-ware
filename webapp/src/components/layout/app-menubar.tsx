@@ -32,7 +32,6 @@ import { Button } from '@/components/ui/button';
 import {
   Plus,
   Upload,
-  FileCode,
   Activity,
   BarChart,
   Building2,
@@ -73,33 +72,29 @@ export function AppMenubar({ className }: AppMenubarProps) {
   const workspaceId = currentWorkspace?.id;
   const wsPrefix = workspaceId ? `/ws/${workspaceId}` : '';
 
-  const isTimelineEditor =
-    /\/ws\/[^/]+\/timelines\/[^/]+/.test(pathname) &&
-    !pathname.endsWith('/timelines');
-
   const hasWorkspace = !!workspaceId;
 
   const shortcuts = hasWorkspace
     ? [
-      {
-        href: `${wsPrefix}/uploads`,
-        label: 'Upload',
-        icon: Upload,
-        match: `${wsPrefix}/uploads`,
-      },
-      {
-        href: `${wsPrefix}/media`,
-        label: 'Media',
-        icon: Film,
-        match: `${wsPrefix}/media`,
-      },
-      {
-        href: `${wsPrefix}/timelines`,
-        label: 'Timelines',
-        icon: Clapperboard,
-        match: `${wsPrefix}/timelines`,
-      },
-    ]
+        {
+          href: `${wsPrefix}/uploads`,
+          label: 'Upload',
+          icon: Upload,
+          match: `${wsPrefix}/uploads`,
+        },
+        {
+          href: `${wsPrefix}/media`,
+          label: 'Media',
+          icon: Film,
+          match: `${wsPrefix}/media`,
+        },
+        {
+          href: `${wsPrefix}/timelines`,
+          label: 'Timelines',
+          icon: Clapperboard,
+          match: `${wsPrefix}/timelines`,
+        },
+      ]
     : [];
 
   const handleSwitchWorkspace = async (id: string) => {

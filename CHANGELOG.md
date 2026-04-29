@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.4...video-ware-v0.6.0) (2026-04-29)
+
+
+### Features
+
+* add orientation to timelines ([0463cf9](https://github.com/make-ware/video-ware/commit/0463cf9b1ed49b1193f8c0bc44cf23fe63258616))
+
 ## [0.5.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.3...video-ware-v0.5.4) (2026-04-22)
 
 

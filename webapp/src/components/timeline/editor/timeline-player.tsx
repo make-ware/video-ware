@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { Media } from '@project/shared';
+import { TimelineOrientation, type Media } from '@project/shared';
 
 export function TimelinePlayer() {
   const {
@@ -173,9 +173,17 @@ export function TimelinePlayer() {
 
   if (!timeline) return null;
 
+  const isPortrait = timeline.orientation === TimelineOrientation.PORTRAIT;
+  const aspectClass = isPortrait ? 'aspect-[9/16]' : 'aspect-video';
+  const wrapperWidthClass = isPortrait ? 'max-w-xs' : 'max-w-4xl';
+
   return (
-    <div className="flex flex-col gap-2 lg:gap-4 w-full max-w-4xl mx-auto">
-      <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-2xl border border-white/10 group">
+    <div
+      className={`flex flex-col gap-2 lg:gap-4 w-full ${wrapperWidthClass} mx-auto`}
+    >
+      <div
+        className={`relative ${aspectClass} bg-black rounded-lg overflow-hidden shadow-2xl border border-white/10 group`}
+      >
         {videoSrc ? (
           <video
             ref={videoRef}

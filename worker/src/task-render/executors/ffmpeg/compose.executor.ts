@@ -133,9 +133,24 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     };
 
     // Calculate output dimensions
-    const [targetWidth, targetHeight] = outputSettings.resolution
+    let [targetWidth, targetHeight] = outputSettings.resolution
       .split('x')
       .map(Number);
+
+    // Normalize dimensions to match requested orientation. Sources mismatched
+    // with the timeline canvas are letterboxed (force_original_aspect_ratio
+    // below), so we never stretch — we just rotate the canvas.
+    if (
+      outputSettings.orientation === 'portrait' &&
+      targetWidth > targetHeight
+    ) {
+      [targetWidth, targetHeight] = [targetHeight, targetWidth];
+    } else if (
+      outputSettings.orientation === 'landscape' &&
+      targetHeight > targetWidth
+    ) {
+      [targetWidth, targetHeight] = [targetHeight, targetWidth];
+    }
 
     // Helper to format color
     const formatColor = (hex: string | undefined) => {

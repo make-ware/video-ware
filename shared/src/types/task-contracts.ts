@@ -3,6 +3,7 @@ import type {
   RecommendationStrategy,
   RecommendationTargetMode,
   LabelType,
+  TimelineOrientation,
 } from '../enums.js';
 
 // ============================================================================
@@ -234,6 +235,8 @@ export interface RenderTimelineConfig {
   format: string;
   /** Output resolution (e.g., '1920x1080') */
   resolution: string;
+  /** Output orientation; when set, target dimensions are normalized to match */
+  orientation?: TimelineOrientation;
   /** Whether to include captions (text tracks) in the output */
   includeCaptions?: boolean;
   /** Whether to include transitions in the output */

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FFmpegComposeExecutor } from './compose.executor';
 import { FFmpegService } from '../../../shared/services/ffmpeg.service';
-import type { TimelineTrack } from '@project/shared';
+import { TimelineOrientation, type TimelineTrack } from '@project/shared';
 
 describe('FFmpegComposeExecutor', () => {
   let executor: FFmpegComposeExecutor;
@@ -658,6 +658,84 @@ describe('FFmpegComposeExecutor', () => {
 
     expect(filterComplex).toContain('scale=200:200');
     expect(filterComplex).toContain('overlay=x=50:y=50');
+  });
+
+  it('should swap dimensions when orientation=portrait and resolution is landscape', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg1',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 0, duration: 5, sourceStart: 0 },
+          },
+        ],
+      },
+    ];
+
+    const clipMediaMap = {
+      asset1: {
+        media: { id: 'asset1' },
+        filePath: '/tmp/landscape.mp4',
+      } as any,
+    };
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+      orientation: TimelineOrientation.PORTRAIT,
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+    const sIndex = args.indexOf('-s');
+
+    expect(args[sIndex + 1]).toBe('1080x1920');
+    expect(filterComplex).toContain('color=c=black:s=1080x1920');
+    // Letterboxing preserves aspect ratio — never stretches
+    expect(filterComplex).toContain(
+      'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920'
+    );
+  });
+
+  it('should keep dimensions when orientation matches resolution', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg1',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 0, duration: 5, sourceStart: 0 },
+          },
+        ],
+      },
+    ];
+
+    const clipMediaMap = {
+      asset1: { media: { id: 'asset1' }, filePath: '/tmp/source.mp4' } as any,
+    };
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+      orientation: TimelineOrientation.LANDSCAPE,
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const sIndex = args.indexOf('-s');
+    expect(args[sIndex + 1]).toBe('1920x1080');
   });
 
   it('should skip audio filters for media without audio streams', async () => {

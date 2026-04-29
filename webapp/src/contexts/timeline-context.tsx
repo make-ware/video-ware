@@ -13,6 +13,7 @@ import pb from '@/lib/pocketbase-client';
 import { useAuth } from '@/hooks/use-auth';
 import {
   RenderFlowConfig,
+  TimelineOrientation,
   TimelineTrackRecord,
   TimelineTrackRecordInput,
 } from '@project/shared';
@@ -54,6 +55,9 @@ interface TimelineContextType {
   saveTimeline: () => Promise<void>;
   revertChanges: () => Promise<void>;
   updateTimelineName: (name: string) => void;
+  updateTimelineOrientation: (
+    orientation: TimelineOrientation
+  ) => Promise<void>;
 
   // Clip operations
   addClip: (
@@ -274,6 +278,27 @@ export function TimelineProvider({
       return { ...prev, name };
     });
   }, []);
+
+  // Update timeline orientation (persists immediately — view/export setting,
+  // not part of the clip-edit save flow)
+  const updateTimelineOrientation = useCallback(
+    async (orientation: TimelineOrientation) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setTimeline((prev) => (prev ? { ...prev, orientation } : prev));
+      setOriginalTimeline((prev) => (prev ? { ...prev, orientation } : prev));
+
+      try {
+        await timelineService.updateTimeline(timeline.id, { orientation });
+      } catch (error) {
+        handleError(error, 'update orientation');
+        throw error;
+      }
+    },
+    [timeline, timelineService, handleError]
+  );
 
   // Multi-select methods
   const toggleClipSelection = useCallback((clipId: string) => {
@@ -844,6 +869,7 @@ export function TimelineProvider({
     saveTimeline,
     revertChanges,
     updateTimelineName,
+    updateTimelineOrientation,
 
     // Clip operations
     addClip,

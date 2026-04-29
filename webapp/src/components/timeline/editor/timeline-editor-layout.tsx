@@ -20,16 +20,24 @@ import {
   Sparkles,
   X,
   FileCode,
+  Monitor,
+  Smartphone,
 } from 'lucide-react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
+import { TimelineOrientation } from '@project/shared';
 import { generateFCPXML } from '@/utils/fcpxml';
 import pb from '@/lib/pocketbase-client';
 import { toast } from 'sonner';
 
 export function TimelineEditorLayout() {
-  const { timeline, hasUnsavedChanges, saveTimeline, isLoading } =
-    useTimeline();
+  const {
+    timeline,
+    hasUnsavedChanges,
+    saveTimeline,
+    isLoading,
+    updateTimelineOrientation,
+  } = useTimeline();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
@@ -150,6 +158,48 @@ export function TimelineEditorLayout() {
           </div>
 
           <div className="flex items-center gap-2">
+            <div
+              className="hidden sm:inline-flex items-center rounded-md border bg-background"
+              role="group"
+              aria-label="Timeline orientation"
+            >
+              <Button
+                variant={
+                  timeline.orientation !== TimelineOrientation.PORTRAIT
+                    ? 'default'
+                    : 'ghost'
+                }
+                size="sm"
+                onClick={() =>
+                  updateTimelineOrientation(TimelineOrientation.LANDSCAPE)
+                }
+                className="h-8 rounded-r-none px-2"
+                title="Landscape (16:9)"
+                aria-pressed={
+                  timeline.orientation !== TimelineOrientation.PORTRAIT
+                }
+              >
+                <Monitor className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={
+                  timeline.orientation === TimelineOrientation.PORTRAIT
+                    ? 'default'
+                    : 'ghost'
+                }
+                size="sm"
+                onClick={() =>
+                  updateTimelineOrientation(TimelineOrientation.PORTRAIT)
+                }
+                className="h-8 rounded-l-none px-2"
+                title="Portrait (9:16)"
+                aria-pressed={
+                  timeline.orientation === TimelineOrientation.PORTRAIT
+                }
+              >
+                <Smartphone className="h-4 w-4" />
+              </Button>
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -217,7 +267,13 @@ export function TimelineEditorLayout() {
         {/* Player Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-auto p-1 lg:p-8 flex items-center justify-center min-h-0 bg-black/5">
-            <div className="w-full max-w-4xl max-h-full aspect-video">
+            <div
+              className={`w-full max-h-full ${
+                timeline.orientation === TimelineOrientation.PORTRAIT
+                  ? 'max-w-xs aspect-[9/16]'
+                  : 'max-w-4xl aspect-video'
+              }`}
+            >
               <TimelinePlayer />
             </div>
           </div>

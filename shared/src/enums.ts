@@ -149,6 +149,11 @@ export enum WorkspaceRole {
   VIEWER = 'viewer',
 }
 
+export enum TimelineOrientation {
+  LANDSCAPE = 'landscape',
+  PORTRAIT = 'portrait',
+}
+
 export const VIDEO_COLLECTIONS = {
   WORKSPACES: 'workspaces',
   WORKSPACE_MEMBERS: 'workspace_members',

@@ -4,10 +4,12 @@ import {
   NumberField,
   RelationField,
   JSONField,
+  SingleSelectField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
 import { z } from 'zod';
 import { TimelineMetadataSchema } from '../types/metadata';
+import { TimelineOrientation } from '../enums';
 
 // Zod schema for EditListEntry validation (types are in types/video-ware.ts)
 export const TimeOffsetSchema = z.object({
@@ -25,6 +27,10 @@ export const TimelineSchema = z
     UserRef: RelationField({ collection: 'Users' }).optional(),
     version: NumberField().default(1).optional(),
     processor: TextField().optional(),
+    orientation: SingleSelectField([
+      TimelineOrientation.LANDSCAPE,
+      TimelineOrientation.PORTRAIT,
+    ]).optional(),
   })
   .extend(baseSchema);
 
@@ -37,6 +43,10 @@ export const TimelineInputSchema = z.object({
   UserRef: z.string().optional(),
   version: z.number().default(1).optional(),
   processor: z.string().optional(),
+  orientation: z
+    .enum([TimelineOrientation.LANDSCAPE, TimelineOrientation.PORTRAIT])
+    .default(TimelineOrientation.LANDSCAPE)
+    .optional(),
 });
 
 // Define the collection with workspace-scoped permissions

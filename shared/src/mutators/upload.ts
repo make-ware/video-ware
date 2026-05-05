@@ -235,11 +235,11 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
 
     const defaultLabels: LabelsFlowConfig = {
       confidenceThreshold: 0.5,
-      detectObjects: !isAudio,
-      detectLabels: !isAudio,
-      detectFaces: !isAudio,
-      detectPersons: !isAudio,
-      detectSpeech: true,
+      detectObjects: false,
+      detectLabels: false,
+      detectFaces: false,
+      detectPersons: false,
+      detectSpeech: false,
     };
 
     const payload: ProcessUploadPayload = {

@@ -58,7 +58,7 @@ export function WorkspaceLibrary({
   // Clips tab state
   const [clipSearch, setClipSearch] = useState('');
   const [clipSort, setClipSort] = useState<LibrarySortBy>('recent');
-  const [clipTypeFilter, setClipTypeFilter] = useState('all');
+  const [clipTypeFilter, setClipTypeFilter] = useState('user');
 
   // Media tab state
   const [mediaSearch, setMediaSearch] = useState('');

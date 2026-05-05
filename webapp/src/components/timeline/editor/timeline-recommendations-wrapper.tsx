@@ -270,6 +270,25 @@ export function TimelineRecommendationsPanelWrapper() {
     }
   };
 
+  const hasContent =
+    isLoading || timelineRecs.length > 0 || selectedRecs.length > 0;
+
+  if (!hasContent) {
+    return (
+      <AlertDialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Error</AlertDialogTitle>
+            <AlertDialogDescription>{errorMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
   return (
     <>
       <AlertDialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>

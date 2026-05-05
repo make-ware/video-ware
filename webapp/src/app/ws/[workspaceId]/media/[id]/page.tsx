@@ -398,7 +398,7 @@ function MediaDetailsPageContentWithRecommendations() {
                 {/* Create/Edit Clip Buttons */}
                 <div className="flex justify-center gap-2">
                   <Button
-                    variant="outline"
+                    variant="default"
                     onClick={handleOpenCreateClip}
                     className="gap-2 w-full sm:w-auto"
                   >

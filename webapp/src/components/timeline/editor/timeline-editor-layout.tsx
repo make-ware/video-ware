@@ -8,6 +8,7 @@ import { WorkspaceLibrary } from '@/components/library';
 import { TimelineRecommendationsPanelWrapper } from './timeline-recommendations-wrapper';
 import { RenderDialog } from './render-dialog';
 import { useTimeline } from '@/hooks/use-timeline';
+import { useTimelineRecommendations } from '@/hooks/use-timeline-recommendations';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,6 +40,10 @@ export function TimelineEditorLayout() {
     updateTimelineOrientation,
   } = useTimeline();
   const { currentWorkspace } = useWorkspace();
+  const { recommendations, isLoading: isLoadingRecommendations } =
+    useTimelineRecommendations();
+  const hasRecommendationsContent =
+    recommendations.length > 0 || isLoadingRecommendations;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -317,12 +322,17 @@ export function TimelineEditorLayout() {
         </div>
       </div>
 
-      {/* Desktop Sidebar: Recommendations (Right) */}
+      {/*
+        Desktop Sidebar: Recommendations (Right).
+        Always mounted so the wrapper's auto-generation effects can fire,
+        but visually hidden (display: none) when empty so the timeline
+        canvas reclaims the space.
+      */}
       <CollapsiblePanel
         side="right"
         title="Recommendations"
         width="w-[420px]"
-        className="hidden lg:flex"
+        className={hasRecommendationsContent ? 'hidden lg:flex' : 'hidden'}
       >
         <div className="h-full overflow-hidden flex flex-col">
           <div className="p-4 flex-1 overflow-y-auto">

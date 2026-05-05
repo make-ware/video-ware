@@ -29,9 +29,11 @@ export function MediaClipPanel({
   defaultTab = 'clips',
   clipCount: _clipCount,
   transcriptCount,
+  recommendationCount,
   transcriptsHeaderContent,
   className,
 }: MediaClipPanelProps) {
+  const showRecommendationsTab = (recommendationCount ?? 0) > 0;
   return (
     <Tabs
       value={activeTab}
@@ -45,10 +47,12 @@ export function MediaClipPanel({
             <Scissors className="h-4 w-4" />
             Clips
           </TabsTrigger>
-          <TabsTrigger value="recommendations" className="flex-1 gap-1.5">
-            <Sparkles className="h-4 w-4" />
-            Recs
-          </TabsTrigger>
+          {showRecommendationsTab && (
+            <TabsTrigger value="recommendations" className="flex-1 gap-1.5">
+              <Sparkles className="h-4 w-4" />
+              Recs
+            </TabsTrigger>
+          )}
           <TabsTrigger value="transcripts" className="flex-1 gap-1.5">
             <Captions className="h-4 w-4" />
             Transcripts
@@ -64,12 +68,14 @@ export function MediaClipPanel({
           {clipsContent}
         </TabsContent>
 
-        <TabsContent
-          value="recommendations"
-          className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
-        >
-          {recommendationsContent}
-        </TabsContent>
+        {showRecommendationsTab && (
+          <TabsContent
+            value="recommendations"
+            className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
+          >
+            {recommendationsContent}
+          </TabsContent>
+        )}
 
         <TabsContent
           value="transcripts"

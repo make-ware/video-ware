@@ -12,6 +12,7 @@ import {
 export const CLIP_TYPE_OPTIONS = [
   { value: 'all', label: 'All Types' },
   { value: 'media', label: 'Media' },
+  { value: 'user', label: 'My Clips' },
   { value: 'clips', label: 'Clips' },
   { value: ClipType.OBJECT, label: 'Object' },
   { value: ClipType.FACE, label: 'Face' },
@@ -40,6 +41,7 @@ export function clipTypeFilterPredicate(
 ): (type: string) => boolean {
   if (filterValue === 'all') return () => true;
   if (filterValue === 'media') return (type) => MEDIA_TYPES.has(type);
+  if (filterValue === 'user') return (type) => type === ClipType.USER;
   if (filterValue === 'clips') return (type) => CLIP_TYPES.has(type);
   return (type) => type === filterValue;
 }

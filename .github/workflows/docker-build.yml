@@ -41,9 +41,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  setup:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -61,7 +61,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        id: buildx
         with:
           platforms: linux/amd64,linux/arm64
 
@@ -72,458 +71,116 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-  build-monolith:
-    needs: setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare tags for metadata
-        id: tags
+      - name: Compute tag patterns
+        id: tag-patterns
         run: |
           if [ -n "${{ inputs.version }}" ]; then
-            # Extract version components for release-please triggered builds
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)
             MINOR=$(echo $VERSION | cut -d. -f2)
-            PATCH=$(echo $VERSION | cut -d. -f3)
-            
-            # Build tags string with explicit version
             {
               echo "type=raw,value=${VERSION}"
               echo "type=raw,value=${MAJOR}.${MINOR}"
               echo "type=raw,value=${MAJOR}"
               echo "type=raw,value=latest"
               echo "type=sha,prefix=sha-"
-            } > /tmp/tags.txt
+            } > /tmp/tag-patterns.txt
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual builds - only sha tag for testing
-            echo "type=sha,prefix=sha-" > /tmp/tags.txt
+            echo "type=sha,prefix=sha-" > /tmp/tag-patterns.txt
           else
-            # Use semver pattern for tag push or release events
             {
               echo "type=semver,pattern={{version}}"
               echo "type=semver,pattern={{major}}.{{minor}}"
               echo "type=semver,pattern={{major}}"
               echo "type=raw,value=latest"
               echo "type=sha,prefix=sha-"
-            } > /tmp/tags.txt
+            } > /tmp/tag-patterns.txt
           fi
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/tags.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "patterns<<EOF"
+            cat /tmp/tag-patterns.txt
+            echo EOF
+          } >> $GITHUB_OUTPUT
 
-      - name: Extract metadata (tags, labels)
-        id: meta
+      - name: Metadata - monolith
+        id: meta-monolith
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.tag-patterns.outputs.patterns }}
           labels: |
             org.opencontainers.image.title=Videoware Monolithic Container
             org.opencontainers.image.description=Monolithic Docker container with PocketBase, Next.js, and Background Worker
             org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: monolith
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/Dockerfile
-          target: monolith
-          builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            POCKETBASE_VERSION=0.35.0
-
-      - name: Generate build summary
-        run: |
-          echo "## Docker Build Summary (monolith)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tags" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-  build-worker:
-    needs: setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare tags for metadata
-        id: tags-worker
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            # Extract version components for release-please triggered builds
-            VERSION="${{ inputs.version }}"
-            MAJOR=$(echo $VERSION | cut -d. -f1)
-            MINOR=$(echo $VERSION | cut -d. -f2)
-            PATCH=$(echo $VERSION | cut -d. -f3)
-            
-            # Build tags string with explicit version
-            {
-              echo "type=raw,value=${VERSION}"
-              echo "type=raw,value=${MAJOR}.${MINOR}"
-              echo "type=raw,value=${MAJOR}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-worker.txt
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual builds - only sha tag for testing
-            echo "type=sha,prefix=sha-" > /tmp/tags-worker.txt
-          else
-            # Use semver pattern for tag push or release events
-            {
-              echo "type=semver,pattern={{version}}"
-              echo "type=semver,pattern={{major}}.{{minor}}"
-              echo "type=semver,pattern={{major}}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-worker.txt
-          fi
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/tags-worker.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Extract metadata (tags, labels)
-        id: meta
+      - name: Metadata - worker
+        id: meta-worker
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
-          tags: ${{ steps.tags-worker.outputs.tags }}
+          tags: ${{ steps.tag-patterns.outputs.patterns }}
           labels: |
             org.opencontainers.image.title=Videoware Worker Container
             org.opencontainers.image.description=Worker service container (NestJS + FFmpeg)
             org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: worker
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/Dockerfile
-          target: worker
-          builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            POCKETBASE_VERSION=0.35.0
-
-      - name: Generate build summary
-        run: |
-          echo "## Docker Build Summary (worker)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.IMAGE_NAME }}-worker" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tags" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-  build-webapp:
-    needs: setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare tags for metadata
-        id: tags-webapp
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            # Extract version components for release-please triggered builds
-            VERSION="${{ inputs.version }}"
-            MAJOR=$(echo $VERSION | cut -d. -f1)
-            MINOR=$(echo $VERSION | cut -d. -f2)
-            PATCH=$(echo $VERSION | cut -d. -f3)
-            
-            # Build tags string with explicit version
-            {
-              echo "type=raw,value=${VERSION}"
-              echo "type=raw,value=${MAJOR}.${MINOR}"
-              echo "type=raw,value=${MAJOR}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-webapp.txt
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual builds - only sha tag for testing
-            echo "type=sha,prefix=sha-" > /tmp/tags-webapp.txt
-          else
-            # Use semver pattern for tag push or release events
-            {
-              echo "type=semver,pattern={{version}}"
-              echo "type=semver,pattern={{major}}.{{minor}}"
-              echo "type=semver,pattern={{major}}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-webapp.txt
-          fi
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/tags-webapp.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Extract metadata (tags, labels)
-        id: meta
+      - name: Metadata - webapp
+        id: meta-webapp
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
-          tags: ${{ steps.tags-webapp.outputs.tags }}
+          tags: ${{ steps.tag-patterns.outputs.patterns }}
           labels: |
             org.opencontainers.image.title=Videoware Webapp Container
             org.opencontainers.image.description=Webapp container (Next.js)
             org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: webapp
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/Dockerfile
-          target: webapp
-          builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            POCKETBASE_VERSION=0.35.0
-
-      - name: Generate build summary
-        run: |
-          echo "## Docker Build Summary (webapp)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.IMAGE_NAME }}-webapp" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tags" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-  build-pocketbase:
-    needs: setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare tags for metadata
-        id: tags-pocketbase
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            # Extract version components for release-please triggered builds
-            VERSION="${{ inputs.version }}"
-            MAJOR=$(echo $VERSION | cut -d. -f1)
-            MINOR=$(echo $VERSION | cut -d. -f2)
-            PATCH=$(echo $VERSION | cut -d. -f3)
-            
-            # Build tags string with explicit version
-            {
-              echo "type=raw,value=${VERSION}"
-              echo "type=raw,value=${MAJOR}.${MINOR}"
-              echo "type=raw,value=${MAJOR}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-pocketbase.txt
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual builds - only sha tag for testing
-            echo "type=sha,prefix=sha-" > /tmp/tags-pocketbase.txt
-          else
-            # Use semver pattern for tag push or release events
-            {
-              echo "type=semver,pattern={{version}}"
-              echo "type=semver,pattern={{major}}.{{minor}}"
-              echo "type=semver,pattern={{major}}"
-              echo "type=raw,value=latest"
-              echo "type=sha,prefix=sha-"
-            } > /tmp/tags-pocketbase.txt
-          fi
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/tags-pocketbase.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Extract metadata (tags, labels)
-        id: meta
+      - name: Metadata - pocketbase
+        id: meta-pocketbase
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
-          tags: ${{ steps.tags-pocketbase.outputs.tags }}
+          tags: ${{ steps.tag-patterns.outputs.patterns }}
           labels: |
             org.opencontainers.image.title=Videoware PocketBase Container
             org.opencontainers.image.description=PocketBase container with custom hooks and migrations
             org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: pocketbase
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v6
+      - name: Build and push all targets
+        uses: docker/bake-action@v5
         with:
-          context: .
-          file: ./docker/Dockerfile
-          target: pocketbase
-          builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64,linux/arm64
+          files: |
+            ./docker/docker-bake.hcl
+            cwd://${{ steps.meta-monolith.outputs.bake-file }}
+            cwd://${{ steps.meta-worker.outputs.bake-file }}
+            cwd://${{ steps.meta-webapp.outputs.bake-file }}
+            cwd://${{ steps.meta-pocketbase.outputs.bake-file }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            POCKETBASE_VERSION=0.35.0
 
       - name: Generate build summary
         run: |
-          echo "## Docker Build Summary (pocketbase)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.IMAGE_NAME }}-pocketbase" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tags" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Docker Build Summary"
+            echo ""
+            echo "All four images built in a single buildx invocation; the shared"
+            echo "\`deps\` and \`builder\` stages run only once."
+            echo ""
+            echo "### Images"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` (monolith)"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker\`"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp\`"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase\`"
+            echo ""
+            echo "### Platforms"
+            echo "- linux/amd64"
+            echo "- linux/arm64"
+            echo ""
+            echo "### Tags"
+            echo '```'
+            echo "${{ steps.meta-monolith.outputs.tags }}"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY

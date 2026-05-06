@@ -18,7 +18,7 @@ async function bootstrap() {
     processorsConfig.validateConfiguration();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    Logger.error(
+    Logger.warn(
       `Processor configuration validation failed: ${errorMessage}`,
       'Bootstrap'
     );

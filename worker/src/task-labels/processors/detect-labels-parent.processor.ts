@@ -399,10 +399,7 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Step ${stepType} failed: ${errorMessage}`,
-        error instanceof Error ? error.stack : undefined
-      );
+      this.logger.warn(`Step ${stepType} failed: ${errorMessage}`);
 
       // Create failed result
       const result: StepResult = {

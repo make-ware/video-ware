@@ -66,12 +66,12 @@ export default () => {
       enableGoogleSpeech: process.env.ENABLE_GOOGLE_SPEECH === 'true',
 
       // GCVI Processor enablement
-      enableLabelDetection: process.env.ENABLE_LABEL_DETECTION !== 'false',
-      enableObjectTracking: process.env.ENABLE_OBJECT_TRACKING !== 'false',
-      enableFaceDetection: process.env.ENABLE_FACE_DETECTION !== 'false',
-      enablePersonDetection: process.env.ENABLE_PERSON_DETECTION !== 'false',
+      enableLabelDetection: process.env.ENABLE_LABEL_DETECTION === 'true',
+      enableObjectTracking: process.env.ENABLE_OBJECT_TRACKING === 'true',
+      enableFaceDetection: process.env.ENABLE_FACE_DETECTION === 'true',
+      enablePersonDetection: process.env.ENABLE_PERSON_DETECTION === 'true',
       enableSpeechTranscription:
-        process.env.ENABLE_SPEECH_TRANSCRIPTION !== 'false',
+        process.env.ENABLE_SPEECH_TRANSCRIPTION === 'true',
     },
 
     watcher: {

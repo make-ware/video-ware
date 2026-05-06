@@ -31,7 +31,7 @@ export class ProcessorsConfigService implements OnModuleInit {
    */
   get enableLabelDetection(): boolean {
     return (
-      this.configService.get<string>('ENABLE_LABEL_DETECTION', 'true') ===
+      this.configService.get<string>('ENABLE_LABEL_DETECTION', 'false') ===
       'true'
     );
   }
@@ -75,7 +75,7 @@ export class ProcessorsConfigService implements OnModuleInit {
    */
   get enableSpeechTranscription(): boolean {
     return (
-      this.configService.get<string>('ENABLE_SPEECH_TRANSCRIPTION', 'true') ===
+      this.configService.get<string>('ENABLE_SPEECH_TRANSCRIPTION', 'false') ===
       'true'
     );
   }

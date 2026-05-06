@@ -316,11 +316,11 @@ export abstract class BaseFlowProcessor extends BaseProcessor {
   @OnWorkerEvent('failed')
   async onFailed(job: Job | undefined, error: Error) {
     if (!job) {
-      this.logger.error(`Job failed: ${error.message}`);
+      this.logger.warn(`Job failed: ${error.message}`);
       return;
     }
 
-    this.logger.error(`Job ${job.id} (${job.name}) failed: ${error.message}`);
+    this.logger.warn(`Job ${job.id} (${job.name}) failed: ${error.message}`);
 
     if (job.name === 'parent') {
       await this.handleParentFailed(job as Job<ParentJobData>, error);

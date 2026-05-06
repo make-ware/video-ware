@@ -107,7 +107,7 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      this.logger.error(
+      this.logger.warn(
         `Failed to upload to GCS for media ${input.mediaId}: ${errorMessage}`
       );
       throw new Error(`GCS upload failed: ${errorMessage}`);

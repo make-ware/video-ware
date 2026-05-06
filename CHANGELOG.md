@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.1...video-ware-v0.6.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* handle no gcs config ([005c944](https://github.com/make-ware/video-ware/commit/005c944b23b46753a519f24ce5f7f3a65961efa7))
+
 ## [0.6.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.0...video-ware-v0.6.1) (2026-05-06)
 
 

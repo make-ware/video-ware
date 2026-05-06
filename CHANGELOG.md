@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.0...video-ware-v0.6.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* default no labeling ([16916dc](https://github.com/make-ware/video-ware/commit/16916dce764be10e1fe196fb30f9e37ed9172906))
+* preview aspect ratio ([8c151d1](https://github.com/make-ware/video-ware/commit/8c151d192f1a45d7e1b76c81d6eb14e174ed238c))
+
 ## [0.6.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.5.4...video-ware-v0.6.0) (2026-04-29)
 
 

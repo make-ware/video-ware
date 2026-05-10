@@ -1,19 +1,40 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { TaskProvider } from '@/contexts/task-context';
 import { useTasks } from '@/hooks/use-tasks';
 import { TaskMonitor } from '@/components/task';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
 import { AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { TaskType } from '@project/shared';
 
+const PAGE_SIZE = 10;
+
+function getPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
 function TasksPageContent() {
   const { tasks, isLoading: tasksLoading } = useTasks();
   const { currentWorkspace } = useWorkspace();
+  const [page, setPage] = useState(1);
 
   // Filter tasks to only show create_labels, transcode, and render_timeline
   const filteredTasks = useMemo(() => {
@@ -28,9 +49,23 @@ function TasksPageContent() {
     });
   }, [tasks]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
+
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pageTasks = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredTasks.slice(start, start + PAGE_SIZE);
+  }, [filteredTasks, currentPage]);
+
+  const pageNumbers = getPageNumbers(currentPage, totalPages);
+  const showStartEllipsis = pageNumbers[0] > 1;
+  const showEndEllipsis = pageNumbers[pageNumbers.length - 1] < totalPages;
+
   if (!currentWorkspace) {
     return null;
   }
+
+  const goTo = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -44,7 +79,106 @@ function TasksPageContent() {
         </p>
       </div>
 
-      <TaskMonitor tasks={filteredTasks} isLoading={tasksLoading} />
+      <TaskMonitor
+        tasks={pageTasks}
+        totalCount={filteredTasks.length}
+        isLoading={tasksLoading}
+      />
+
+      {totalPages > 1 && (
+        <Pagination className="mt-6">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                aria-disabled={currentPage === 1}
+                className={
+                  currentPage === 1
+                    ? 'pointer-events-none opacity-50'
+                    : undefined
+                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  goTo(currentPage - 1);
+                }}
+              />
+            </PaginationItem>
+
+            {showStartEllipsis && (
+              <>
+                <PaginationItem>
+                  <PaginationLink
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      goTo(1);
+                    }}
+                  >
+                    1
+                  </PaginationLink>
+                </PaginationItem>
+                {pageNumbers[0] > 2 && (
+                  <PaginationItem>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                )}
+              </>
+            )}
+
+            {pageNumbers.map((p) => (
+              <PaginationItem key={p}>
+                <PaginationLink
+                  href="#"
+                  isActive={p === currentPage}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    goTo(p);
+                  }}
+                >
+                  {p}
+                </PaginationLink>
+              </PaginationItem>
+            ))}
+
+            {showEndEllipsis && (
+              <>
+                {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && (
+                  <PaginationItem>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                )}
+                <PaginationItem>
+                  <PaginationLink
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      goTo(totalPages);
+                    }}
+                  >
+                    {totalPages}
+                  </PaginationLink>
+                </PaginationItem>
+              </>
+            )}
+
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                aria-disabled={currentPage === totalPages}
+                className={
+                  currentPage === totalPages
+                    ? 'pointer-events-none opacity-50'
+                    : undefined
+                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  goTo(currentPage + 1);
+                }}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      )}
     </div>
   );
 }

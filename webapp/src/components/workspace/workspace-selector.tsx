@@ -154,19 +154,15 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
     currentWorkspace,
     workspaces,
     isLoading,
-    switchWorkspace,
     createWorkspace,
     hasWorkspaces,
   } = useWorkspace();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
-  const handleWorkspaceChange = async (workspaceId: string) => {
-    try {
-      await switchWorkspace(workspaceId);
-    } catch (error) {
-      console.error('Failed to switch workspace:', error);
-    }
+  const handleWorkspaceChange = (workspaceId: string) => {
+    // Hard reload so all per-workspace data (media list, contexts, subscriptions) refetches cleanly.
+    window.location.assign(`/ws/${workspaceId}/media`);
   };
 
   if (isLoading) {

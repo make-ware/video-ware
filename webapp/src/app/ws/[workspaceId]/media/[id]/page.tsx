@@ -72,7 +72,9 @@ function MediaDetailsPageContentWithRecommendations() {
     refresh: _refreshTranscripts,
   } = useMediaTranscripts(id);
   const [clipEditorState, setClipEditorState] = useState<
-    null | { mode: 'create' } | { mode: 'edit-media-clip'; clip: MediaClip }
+    | null
+    | { mode: 'create'; playhead?: number }
+    | { mode: 'edit-media-clip'; clip: MediaClip; playhead?: number }
   >(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [showTranscripts, setShowTranscripts] = useState(true);
@@ -167,13 +169,19 @@ function MediaDetailsPageContentWithRecommendations() {
   };
 
   const handleOpenCreateClip = () => {
-    setClipEditorState({ mode: 'create' });
+    const video = videoRef.current;
+    const playhead = video?.currentTime;
+    video?.pause();
+    setClipEditorState({ mode: 'create', playhead });
   };
 
   const handleOpenEditClip = (clipId: string) => {
     const clip = clips.find((c) => c.id === clipId);
     if (clip) {
-      setClipEditorState({ mode: 'edit-media-clip', clip });
+      const video = videoRef.current;
+      const playhead = video?.currentTime;
+      video?.pause();
+      setClipEditorState({ mode: 'edit-media-clip', clip, playhead });
     }
   };
 
@@ -549,9 +557,9 @@ function MediaDetailsPageContentWithRecommendations() {
           }}
           mode="create"
           media={media}
+          initialPlayhead={clipEditorState.playhead}
           onClipCreated={() => {
             refresh();
-            setClipEditorState(null);
           }}
         />
       )}
@@ -565,6 +573,7 @@ function MediaDetailsPageContentWithRecommendations() {
           mode="edit-media-clip"
           media={media}
           clip={clipEditorState.clip}
+          initialPlayhead={clipEditorState.playhead}
           onClipUpdated={() => {
             refresh();
             setClipEditorState(null);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useUpload } from '@/hooks/use-upload';
@@ -19,7 +19,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Upload as UploadIcon } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
 import { DirectoryBrowser } from '@/components/media/directory-browser';
 
 const RECENT_UPLOADS_LIMIT = 10;
@@ -128,13 +127,6 @@ function UploadsPageContent() {
               : 'View your uploaded files'
           }
         />
-      </div>
-
-      {/* Quick Action */}
-      <div className="mt-4">
-        <Link href={`/ws/${currentWorkspace.id}/media`}>
-          <Button className="w-full sm:w-auto">View Media</Button>
-        </Link>
       </div>
     </div>
   );

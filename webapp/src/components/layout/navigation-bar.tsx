@@ -138,9 +138,9 @@ export function NavigationBar({ className }: NavigationBarProps) {
         className
       )}
     >
-      <div className="container flex h-10 items-center">
+      <div className="flex h-10 w-full items-center px-4">
         {/* Logo/Brand */}
-        <div className="mr-3 flex pl-4">
+        <div className="mr-3 flex">
           <Link href="/" className="mr-4 flex items-center space-x-1.5">
             <Image
               src="/video-ware.png"

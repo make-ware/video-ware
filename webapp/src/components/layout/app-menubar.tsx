@@ -57,7 +57,6 @@ export function AppMenubar({ className }: AppMenubarProps) {
   const {
     currentWorkspace,
     workspaces,
-    switchWorkspace,
     createWorkspace,
     isLoading: workspaceLoading,
   } = useWorkspace();
@@ -97,13 +96,9 @@ export function AppMenubar({ className }: AppMenubarProps) {
       ]
     : [];
 
-  const handleSwitchWorkspace = async (id: string) => {
-    try {
-      await switchWorkspace(id);
-      router.push(`/ws/${id}/media`);
-    } catch (error) {
-      console.error('Failed to switch workspace:', error);
-    }
+  const handleSwitchWorkspace = (id: string) => {
+    // Hard reload so all per-workspace data (media list, contexts, subscriptions) refetches cleanly.
+    window.location.assign(`/ws/${id}/media`);
   };
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {

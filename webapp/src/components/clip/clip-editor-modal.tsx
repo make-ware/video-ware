@@ -34,6 +34,8 @@ import {
   Trash2,
   Palette,
   Type,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { TrimHandles } from '@/components/video/trim-handles';
@@ -87,6 +89,7 @@ const PRESET_COLORS = [
 interface ClipEditorModalBase {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialPlayhead?: number;
 }
 
 interface ClipEditorCreateProps extends ClipEditorModalBase {
@@ -134,8 +137,13 @@ function getMedia(
 
 function getInitialTimes(props: ClipEditorModalProps) {
   if (props.mode === 'create') {
+    const playhead = props.initialPlayhead;
+    const start =
+      playhead !== undefined && playhead >= 0 && playhead < props.media.duration
+        ? playhead
+        : 0;
     return {
-      start: 0,
+      start,
       end: props.media.duration,
     };
   }
@@ -187,6 +195,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     initialSegments,
     isComposite,
     minDuration: mode === 'create' ? 0 : 0.5,
+    initialPlayhead: props.initialPlayhead,
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -223,6 +232,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
         }
         const mutator = new MediaClipMutator(pb);
         const duration = calculateDuration(editor.startTime, editor.endTime);
+        const createdEnd = editor.endTime;
         const newClip = await mutator.create({
           WorkspaceRef: currentWorkspace.id,
           MediaRef: createProps.media.id,
@@ -242,7 +252,11 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
             newClip.id
           );
         }
-        onOpenChange(false);
+        // Stay open and re-cue for the next clip starting where this one ended.
+        const nextStart = Math.min(createdEnd, editor.mediaDuration);
+        editor.setStartTime(nextStart);
+        editor.setEndTime(editor.mediaDuration);
+        editor.handleScrub(nextStart);
       } else if (mode === 'edit-media-clip') {
         const editProps = props as ClipEditorEditMediaClipProps;
         const mutator = new MediaClipMutator(pb);
@@ -399,7 +413,10 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
       </AlertDialog>
 
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl" showCloseButton={false}>
+        <DialogContent
+          className="max-w-[95vw] w-[95vw] sm:max-w-[95vw]"
+          showCloseButton={false}
+        >
           <DialogHeader>
             <div className="flex items-center justify-between">
               <DialogTitle className="flex items-center gap-2">
@@ -492,9 +509,28 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                   />
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        Start Time
-                      </Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Start Time
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            editor.setStartTime(editor.currentVideoTime)
+                          }
+                          disabled={
+                            editor.currentVideoTime < 0 ||
+                            editor.currentVideoTime >= editor.endTime
+                          }
+                          title="Set start at playhead"
+                        >
+                          <LogIn className="h-3.5 w-3.5 mr-1" />
+                          Start at playhead
+                        </Button>
+                      </div>
                       <TimeInput
                         min={0}
                         max={editor.endTime}
@@ -506,9 +542,28 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        End Time
-                      </Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs text-muted-foreground">
+                          End Time
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            editor.setEndTime(editor.currentVideoTime)
+                          }
+                          disabled={
+                            editor.currentVideoTime <= editor.startTime ||
+                            editor.currentVideoTime > editor.mediaDuration
+                          }
+                          title="Set end at playhead"
+                        >
+                          <LogOut className="h-3.5 w-3.5 mr-1" />
+                          End at playhead
+                        </Button>
+                      </div>
                       <TimeInput
                         min={editor.startTime}
                         max={editor.mediaDuration}

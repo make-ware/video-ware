@@ -16,6 +16,7 @@ interface UseClipEditorOptions {
   initialSegments?: Segment[];
   isComposite?: boolean;
   minDuration?: number;
+  initialPlayhead?: number;
 }
 
 export function useClipEditor({
@@ -25,11 +26,14 @@ export function useClipEditor({
   initialSegments,
   isComposite = false,
   minDuration = DEFAULT_MIN_DURATION,
+  initialPlayhead,
 }: UseClipEditorOptions) {
   const [startTime, setStartTime] = useState(initialStart);
   const [endTime, setEndTime] = useState(initialEnd);
   const [segments, setSegments] = useState<Segment[]>(initialSegments ?? []);
-  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  const [currentVideoTime, setCurrentVideoTime] = useState(
+    initialPlayhead ?? 0
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { src, poster } = useVideoSource(media ?? undefined);
@@ -80,6 +84,28 @@ export function useClipEditor({
     video.addEventListener('timeupdate', handleTimeUpdate);
     return () => video.removeEventListener('timeupdate', handleTimeUpdate);
   }, []);
+
+  // Seek to initialPlayhead once metadata is available
+  useEffect(() => {
+    if (initialPlayhead === undefined) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const seek = () => {
+      try {
+        video.currentTime = initialPlayhead;
+      } catch {
+        // seeking can fail if metadata isn't loaded yet
+      }
+    };
+
+    if (video.readyState >= 1) {
+      seek();
+    } else {
+      video.addEventListener('loadedmetadata', seek, { once: true });
+      return () => video.removeEventListener('loadedmetadata', seek);
+    }
+  }, [initialPlayhead]);
 
   const handleTrimChange = useCallback((start: number, end: number) => {
     setStartTime(start);

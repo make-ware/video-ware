@@ -30,12 +30,14 @@ import { TaskDetailsModal } from './task-details-modal';
 
 interface TaskMonitorProps {
   tasks: Task[];
+  totalCount?: number;
   isLoading?: boolean;
   className?: string;
 }
 
 export function TaskMonitor({
   tasks,
+  totalCount,
   isLoading = false,
   className,
 }: TaskMonitorProps) {
@@ -173,7 +175,7 @@ export function TaskMonitor({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <span>Background Tasks</span>
-            <Badge variant="secondary">{tasks.length}</Badge>
+            <Badge variant="secondary">{totalCount ?? tasks.length}</Badge>
           </CardTitle>
         </div>
       </CardHeader>

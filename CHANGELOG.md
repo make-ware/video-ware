@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.2...video-ware-v0.6.3) (2026-05-11)
+
+
+### Bug Fixes
+
+* clip modal layout ([914dbc0](https://github.com/make-ware/video-ware/commit/914dbc031e523ea1722cf22ad8110090a5913dab))
+
 ## [0.6.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.1...video-ware-v0.6.2) (2026-05-10)
 
 

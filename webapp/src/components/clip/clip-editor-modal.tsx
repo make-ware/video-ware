@@ -461,7 +461,13 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           <ScrollArea className="max-h-[80vh]">
             <div className="space-y-4 p-1">
               {/* Video Preview */}
-              <div className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm">
+              <div
+                className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm mx-auto w-full"
+                style={{
+                  maxHeight: '50vh',
+                  maxWidth: 'calc(50vh * 16 / 9)',
+                }}
+              >
                 {editor.src ? (
                   <VideoPlayerUI
                     src={editor.src}

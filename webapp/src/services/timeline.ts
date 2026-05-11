@@ -132,19 +132,11 @@ export class TimelineService {
   }
 
   /**
-   * Delete timeline and all associated clips
+   * Delete timeline. PocketBase cascades the deletion to TimelineClips,
+   * TimelineTracks, TimelineRenders, and TimelineRecommendations.
    * @param id Timeline ID
    */
   async deleteTimeline(id: string): Promise<void> {
-    // Get all timeline clips
-    const clips = await this.timelineClipMutator.getByTimeline(id);
-
-    // Delete all timeline clips
-    await Promise.all(
-      clips.map((clip) => this.timelineClipMutator.delete(clip.id))
-    );
-
-    // Delete the timeline
     await this.timelineMutator.delete(id);
   }
 

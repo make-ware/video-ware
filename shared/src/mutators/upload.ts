@@ -141,7 +141,12 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
 
     // Detect media type from extension
     const isAudio = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(upload.name);
-    const mediaType = isAudio ? MediaType.AUDIO : MediaType.VIDEO;
+    const isImage = /\.(jpe?g|png|gif|webp)$/i.test(upload.name);
+    const mediaType = isImage
+      ? MediaType.IMAGE
+      : isAudio
+        ? MediaType.AUDIO
+        : MediaType.VIDEO;
 
     if (!media) {
       // Initialize dummy media data for validation
@@ -200,13 +205,21 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
       provider: ProcessingProvider.FFMPEG,
       sprite: isAudio
         ? undefined
-        : {
-            fps: 1,
-            cols: 10,
-            rows: 10,
-            tileWidth: 320,
-            tileHeight: 180,
-          },
+        : isImage
+          ? {
+              fps: 1,
+              cols: 1,
+              rows: 1,
+              tileWidth: 320,
+              tileHeight: 180,
+            }
+          : {
+              fps: 1,
+              cols: 10,
+              rows: 10,
+              tileWidth: 320,
+              tileHeight: 180,
+            },
       thumbnail: isAudio
         ? undefined
         : {
@@ -214,21 +227,22 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
             width: 640,
             height: 360,
           },
-      filmstrip: isAudio
-        ? undefined
-        : {
-            cols: 100,
-            rows: 1,
-            tileWidth: 320,
-            tileHeight: 180,
-          },
+      filmstrip:
+        isAudio || isImage
+          ? undefined
+          : {
+              cols: 100,
+              rows: 1,
+              tileWidth: 320,
+              tileHeight: 180,
+            },
       transcode: {
-        enabled: !isAudio,
+        enabled: !isAudio && !isImage,
         codec: 'h265',
         resolution: '720p',
       },
       audio: {
-        enabled: true,
+        enabled: !isImage,
         bitrate: '128k',
       },
     };
@@ -263,8 +277,8 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
       payload
     );
 
-    // Enqueue Detect Labels Task (Parallel)
-    if (upload.externalPath) {
+    // Enqueue Detect Labels Task (Parallel) — skip for images (no temporal content)
+    if (upload.externalPath && !isImage) {
       const labelsPayload: DetectLabelsPayload = {
         mediaId: media.id,
         fileRef: upload.externalPath,

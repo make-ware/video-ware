@@ -49,13 +49,10 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       throw new Error(`Media not found for upload ${input.uploadId}`);
     }
 
-    // Skip processing for images and audio
-    if (
-      mediaData.mediaType === MediaType.IMAGE ||
-      mediaData.mediaType === MediaType.AUDIO
-    ) {
+    // Skip processing for audio (images get a single-tile sprite below)
+    if (mediaData.mediaType === MediaType.AUDIO) {
       this.logger.log(
-        `Skipping sprite generation for ${mediaData.mediaType} media: ${mediaData.id}`
+        `Skipping sprite generation for audio media: ${mediaData.id}`
       );
       // Return empty result
       return { spritePath: '', spriteFileId: '' };
@@ -71,17 +68,15 @@ export class SpriteStepProcessor extends BaseStepProcessor<
 
     // Use probe output from input
     const duration = mediaData.duration;
+    const isImage = mediaData.mediaType === MediaType.IMAGE;
 
-    // The user wants a 10x10 spritesheet (100 frames) covering the whole video
-    // Variable fps (1 or less)
-    const cols = 10;
-    const rows = 10;
-
-    // Calculate fps to get 100 frames over the duration, capped at 1 fps
-    const fps = Math.min(1, 100 / duration);
+    // Images get a single tile; videos get a 10x10 spritesheet (100 frames max)
+    const cols = isImage ? 1 : 10;
+    const rows = isImage ? 1 : 10;
+    const fps = isImage ? 1 : Math.min(1, 100 / duration);
 
     this.logger.log(
-      `Generating sprite sheet: ${cols}x${rows} at ${fps.toFixed(4)} fps for ${duration}s video`
+      `Generating sprite sheet: ${cols}x${rows} at ${fps.toFixed(4)} fps for ${duration}s ${mediaData.mediaType}`
     );
 
     // Create enhanced config with source dimensions and calculated grid

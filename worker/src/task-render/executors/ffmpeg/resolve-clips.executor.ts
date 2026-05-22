@@ -167,7 +167,12 @@ export class FFmpegResolveClipsExecutor implements IPrepareExecutor {
             (f.endsWith('.mp4') ||
               f.endsWith('.mov') ||
               f.endsWith('.avi') ||
-              f.endsWith('.mkv'))
+              f.endsWith('.mkv') ||
+              f.endsWith('.jpg') ||
+              f.endsWith('.jpeg') ||
+              f.endsWith('.png') ||
+              f.endsWith('.gif') ||
+              f.endsWith('.webp'))
         );
         if (originalFile) {
           return path.join(altPath, originalFile);

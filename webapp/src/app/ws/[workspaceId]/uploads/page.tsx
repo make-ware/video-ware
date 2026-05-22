@@ -20,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Upload as UploadIcon } from 'lucide-react';
 import Link from 'next/link';
 import { DirectoryBrowser } from '@/components/media/directory-browser';
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
 const RECENT_UPLOADS_LIMIT = 10;
 
@@ -91,20 +92,8 @@ function UploadsPageContent() {
           {/* Dropzone */}
           <UploadDropzone
             onFilesSelected={handleFilesSelected}
-            accept={[
-              'video/mp4',
-              'video/webm',
-              'video/quicktime',
-              'video/x-msvideo',
-              'video/x-matroska',
-              'audio/mpeg',
-              'audio/wav',
-              'audio/x-m4a',
-              'audio/aac',
-              'audio/ogg',
-              'audio/flac',
-            ]}
-            maxSize={24 * 1024 * 1024 * 1024} // 24GB (chunked upload)
+            accept={ALLOWED_UPLOAD_TYPES}
+            maxSize={MAX_UPLOAD_SIZE}
           />
 
           {/* Upload Queue */}

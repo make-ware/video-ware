@@ -12,6 +12,7 @@ import {
 } from '@project/shared';
 import type { Upload, Task, UploadInput } from '@project/shared';
 import type { UploadProgress } from '@/types/upload-manager';
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
 /**
  * File validation result
@@ -37,18 +38,8 @@ export interface UploadServiceConfig {
  * Default configuration
  */
 const DEFAULT_CONFIG: Omit<Required<UploadServiceConfig>, 'storageConfig'> = {
-  allowedTypes: [
-    'video/mp4',
-    'video/webm',
-    'video/quicktime',
-    'audio/mpeg',
-    'audio/wav',
-    'audio/x-m4a',
-    'audio/aac',
-    'audio/ogg',
-    'audio/flac',
-  ],
-  maxSize: 24 * 1024 * 1024 * 1024, // 24GB
+  allowedTypes: [...ALLOWED_UPLOAD_TYPES],
+  maxSize: MAX_UPLOAD_SIZE,
   defaultProvider: ProcessingProvider.FFMPEG,
 };
 

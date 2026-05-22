@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, FileVideo, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
 interface FileUploaderProps {
   onFileSelect: (file: File) => Promise<void>;
@@ -13,18 +14,8 @@ interface FileUploaderProps {
   className?: string;
 }
 
-const ALLOWED_TYPES = [
-  'video/mp4',
-  'video/webm',
-  'video/quicktime',
-  'audio/mpeg',
-  'audio/wav',
-  'audio/x-m4a',
-  'audio/aac',
-  'audio/ogg',
-  'audio/flac',
-];
-const MAX_SIZE = 8 * 1024 * 1024 * 1024; // 8GB
+const ALLOWED_TYPES = [...ALLOWED_UPLOAD_TYPES];
+const MAX_SIZE = MAX_UPLOAD_SIZE;
 
 export function FileUploader({
   onFileSelect,

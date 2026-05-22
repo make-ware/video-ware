@@ -292,7 +292,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
         if (targetW || targetH) {
           scaleFilter = `,scale=${targetW || -1}:${targetH || -1}`;
-        } else if (seg.type === 'video') {
+        } else if (seg.type === 'video' || seg.type === 'image') {
           scaleFilter = `,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`;
         }
 

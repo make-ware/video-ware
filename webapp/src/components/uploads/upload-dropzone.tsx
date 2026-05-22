@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, FileVideo, FileImage, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
 interface UploadDropzoneProps {
   onFilesSelected: (files: File[]) => void;
@@ -27,27 +28,8 @@ interface UploadDropzoneProps {
   className?: string;
 }
 
-// Default accepted types (video and image files)
-const DEFAULT_ACCEPT = [
-  'video/mp4',
-  'video/webm',
-  'video/quicktime',
-  'video/x-msvideo',
-  'video/x-matroska',
-  'audio/mpeg',
-  'audio/wav',
-  'audio/x-m4a',
-  'audio/aac',
-  'audio/ogg',
-  'audio/flac',
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-];
-
-// Default max size: 10GB
-const DEFAULT_MAX_SIZE = 10 * 1024 * 1024 * 1024;
+const DEFAULT_ACCEPT = [...ALLOWED_UPLOAD_TYPES];
+const DEFAULT_MAX_SIZE = MAX_UPLOAD_SIZE;
 
 export function UploadDropzone({
   onFilesSelected,

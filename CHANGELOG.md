@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.3...video-ware-v0.6.4) (2026-05-22)
+
+
+### Bug Fixes
+
+* add image uploads ([34d3a21](https://github.com/make-ware/video-ware/commit/34d3a2104669af046072d6724e15b649d9233e3c))
+* fix missing mime types ([9420384](https://github.com/make-ware/video-ware/commit/942038408d470d48c92d504b4b5d8698f2bdf5cb))
+
 ## [0.6.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.2...video-ware-v0.6.3) (2026-05-11)
 
 

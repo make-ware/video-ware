@@ -73,7 +73,7 @@ export class SpriteStepProcessor extends BaseStepProcessor<
     // Images get a single tile; videos get a 10x10 spritesheet (100 frames max)
     const cols = isImage ? 1 : 10;
     const rows = isImage ? 1 : 10;
-    const fps = isImage ? 1 : Math.min(1, 100 / duration);
+    const fps = isImage ? 0 : Math.min(1, 100 / duration);
 
     this.logger.log(
       `Generating sprite sheet: ${cols}x${rows} at ${fps.toFixed(4)} fps for ${duration}s ${mediaData.mediaType}`

@@ -83,11 +83,13 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
     );
 
     // Generate thumbnail
+    const effectiveDuration =
+      mediaData.mediaType === MediaType.IMAGE ? 0 : mediaData.duration;
     await this.thumbnailExecutor.execute(
       filePath,
       thumbnailPath,
       enhancedConfig,
-      mediaData.duration
+      effectiveDuration
     );
 
     // Create File record

@@ -199,8 +199,7 @@ export class FFmpegService {
 
       const args = [
         '-y', // Overwrite output file
-        '-ss',
-        timestamp.toString(), // Seek to timestamp
+        ...(timestamp > 0 ? ['-ss', timestamp.toString()] : []),
         '-i',
         inputPath, // Input file
         '-vframes',
@@ -270,7 +269,9 @@ export class FFmpegService {
         '-i',
         inputPath, // Input file (no quotes needed with spawn)
         '-vf',
-        `fps=${fps},scale=${tileWidth}:${tileHeight},tile=${cols}x${rows}`, // Video filter
+        fps > 0
+          ? `fps=${fps},scale=${tileWidth}:${tileHeight},tile=${cols}x${rows}`
+          : `scale=${tileWidth}:${tileHeight},tile=${cols}x${rows}`, // Skip fps filter for static images
         '-frames:v',
         '1', // Tile filter produces a single output frame containing all tiles
         '-q:v',

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.4...video-ware-v0.6.5) (2026-05-25)
+
+
+### Bug Fixes
+
+* image processing ([6122923](https://github.com/make-ware/video-ware/commit/61229234f9304d67a4940d417cfe1411f4d67291))
+
 ## [0.6.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.3...video-ware-v0.6.4) (2026-05-22)
 
 

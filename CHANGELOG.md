@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.0...video-ware-v0.7.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* missing s3 env vars ([57c1004](https://github.com/make-ware/video-ware/commit/57c10041bf72885c125eea53919670960bfe96a3))
+
 ## [0.7.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.5...video-ware-v0.7.0) (2026-06-09)
 
 

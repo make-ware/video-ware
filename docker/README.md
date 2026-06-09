@@ -201,19 +201,27 @@ Each release produces multiple tags for version pinning:
 
 #### S3 Storage Configuration (Optional)
 
+Required when `STORAGE_TYPE=s3`. Note the **`STORAGE_S3_`** prefix — the worker reads these names (see [`worker/src/config/configuration.ts`](../blob/main/worker/src/config/configuration.ts)), **not** the bare `S3_*` names. Bucket and region are mandatory; missing access key or secret causes the worker to throw `S3 storage configuration is incomplete`.
+
 | Variable | Description |
 |----------|-------------|
-| `S3_ENDPOINT` | S3-compatible storage endpoint URL |
-| `S3_ACCESS_KEY` | S3 access key ID |
-| `S3_SECRET_KEY` | S3 secret access key |
-| `S3_BUCKET` | S3 bucket name |
-| `S3_REGION` | S3 region (default: `us-east-1`) |
+| `STORAGE_S3_BUCKET` | S3 bucket name (**required**) |
+| `STORAGE_S3_REGION` | S3 region (**required**; e.g. `us-east-1`, or `garage` for Garage) |
+| `STORAGE_S3_ACCESS_KEY_ID` | S3 access key ID (**required**) |
+| `STORAGE_S3_SECRET_ACCESS_KEY` | S3 secret access key (**required**) |
+| `STORAGE_S3_ENDPOINT` | S3-compatible endpoint URL (defaults to `https://s3.<region>.amazonaws.com`) |
+| `STORAGE_S3_FORCE_PATH_STYLE` | `true` to use path-style addressing (required for Garage/MinIO-style stores; default `false`) |
 
 #### Application URLs
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NEXT_PUBLIC_POCKETBASE_URL` | `http://localhost:8090` | Public URL for PocketBase (used by browser) |
+
+> [!IMPORTANT]
+> **`NEXT_PUBLIC_*` is build-time only.** Next.js inlines any `NEXT_PUBLIC_`-prefixed variable into the browser bundle at `docker build` time (see the `ARG`/`ENV NEXT_PUBLIC_POCKETBASE_URL` step in the `builder` stage of the Dockerfile). Setting `NEXT_PUBLIC_POCKETBASE_URL` at **runtime** (via `-e`, `envFrom`, `config.env`, etc.) does **not** change what the browser uses — only the SSR/server-side reads and the worker pick up the runtime value. To change the client value, pass it as `--build-arg NEXT_PUBLIC_POCKETBASE_URL=...` when building the image.
+>
+> This is currently harmless for the default same-origin gateway deployment: the image bakes `"/"`, and the gateway proxies `/api` + `/_/` to PocketBase on the same origin, so the relative URL resolves correctly regardless of the runtime value. It only becomes a problem if you serve PocketBase from a **separate hostname**, in which case you must rebuild the image with the correct build-arg.
 
 ### Example: Monolithic Container with Full Configuration
 

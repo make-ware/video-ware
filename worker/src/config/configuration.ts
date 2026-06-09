@@ -82,6 +82,10 @@ export default () => {
       localPath: process.env.WORKER_DATA_DIR,
       s3Bucket: process.env.STORAGE_S3_BUCKET,
       s3Region: process.env.STORAGE_S3_REGION,
+      s3Endpoint: process.env.STORAGE_S3_ENDPOINT,
+      s3AccessKeyId: process.env.STORAGE_S3_ACCESS_KEY_ID,
+      s3SecretAccessKey: process.env.STORAGE_S3_SECRET_ACCESS_KEY,
+      s3ForcePathStyle: process.env.STORAGE_S3_FORCE_PATH_STYLE === 'true',
     },
 
     processors: {

@@ -90,10 +90,9 @@ jobs:
             </details>
             
             ### Documentation
-            
-            - [Docker README](docker/README.md) - Full deployment documentation
-            - [Environment Variables](docker/README.md#environment-variables) - Configuration reference
-            - [Security Scanning](docker/README.md#security-scanning) - Vulnerability scanning details
+
+            - [Docker README](https://github.com/${owner}/${repo}/blob/${tagName}/docker/README.md) - Full deployment documentation
+            - [Environment Variables](https://github.com/${owner}/${repo}/blob/${tagName}/docker/README.md#configuration) - Configuration reference
             `;
             
             await github.rest.repos.updateRelease({

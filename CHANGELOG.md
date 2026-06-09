@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.5...video-ware-v0.7.0) (2026-06-09)
+
+
+### Features
+
+* add tanstack query ([02db3a7](https://github.com/make-ware/video-ware/commit/02db3a72e217b9547439496a92ae197f6a3e24d2))
+* Remove Recommendation & Add TanStack Query ([3ed7769](https://github.com/make-ware/video-ware/commit/3ed776922dda36abcc060116a2d48ba70a3d4355))
+* remove recommendations ([c99fa6e](https://github.com/make-ware/video-ware/commit/c99fa6e4bca21efe89837cdfc4cfbc58dbea280f))
+* update deps ([accbfab](https://github.com/make-ware/video-ware/commit/accbfabeb6da81d0defeb19f765260bbcc9c49a8))
+
+
+### Bug Fixes
+
+* address PR feedback ([b1283d7](https://github.com/make-ware/video-ware/commit/b1283d7b7292f3ee51e8a51f961baa68dd29bf53))
+* clean up test stderr ([05b4701](https://github.com/make-ware/video-ware/commit/05b4701656bf6ede7a6770fee4048642125fb9ec))
+* create h264 proxies ([ad01684](https://github.com/make-ware/video-ware/commit/ad01684804767f48ad1e5d659634fd1a2e939ebf))
+* improve s3 workflow ([957c05c](https://github.com/make-ware/video-ware/commit/957c05cd7eaf42eda3468e926197d82ab20c1a75))
+* update tsconfig ([fa8cd2a](https://github.com/make-ware/video-ware/commit/fa8cd2a1eeb9ed2c77801942c424414512fe7cc0))
+
 ## [0.6.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.6.4...video-ware-v0.6.5) (2026-05-25)
 
 

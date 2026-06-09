@@ -54,7 +54,11 @@ export function useVideoSource<
   const needsFetch = needsProxy || needsThumbnail || needsAudio;
 
   const query = useQuery({
-    queryKey: qk.videoSource(media?.id ?? ''),
+    queryKey: qk.videoSource(media?.id ?? '', {
+      proxyRef,
+      thumbnailRef,
+      audioRef,
+    }),
     enabled: !!media && needsFetch,
     queryFn: async () => {
       const [proxy, thumbnail, audio] = await Promise.all([

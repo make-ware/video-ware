@@ -34,5 +34,15 @@ export const qk = {
     sprite: (id: string) => ['files', 'sprite', id] as const,
     filmstrip: (mediaId: string) => ['files', 'filmstrip', mediaId] as const,
   },
-  videoSource: (mediaId: string) => ['video-source', mediaId] as const,
+  videoSource: (
+    mediaId: string,
+    refs?: { proxyRef?: string; thumbnailRef?: string; audioRef?: string }
+  ) =>
+    [
+      'video-source',
+      mediaId,
+      refs?.proxyRef ?? '',
+      refs?.thumbnailRef ?? '',
+      refs?.audioRef ?? '',
+    ] as const,
 } as const;

@@ -70,7 +70,7 @@ export function useMediaTranscripts(mediaId: string) {
   return {
     transcripts: (query.data ?? []) as LabelSpeech[],
     isLoading: query.isLoading,
-    error: query.error as Error | null,
+    error: query.error,
     refresh: async () => {
       await invalidate();
     },

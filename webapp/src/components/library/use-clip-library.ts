@@ -25,7 +25,7 @@ interface UseClipLibraryReturn {
   items: LibraryItem[];
   isLoading: boolean;
   error: string | null;
-  reload: () => void;
+  reload: () => Promise<unknown>;
 }
 
 export function useClipLibrary({
@@ -114,9 +114,7 @@ export function useClipLibrary({
         ? query.error.message
         : 'Failed to load library items'
       : null,
-    reload: () => {
-      query.refetch();
-    },
+    reload: () => query.refetch(),
   };
 }
 

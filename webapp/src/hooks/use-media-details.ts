@@ -75,7 +75,7 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
     clips: query.data?.clips ?? [],
     hasActiveLabelTask: query.data?.hasActiveLabelTask ?? false,
     isLoading: query.isLoading,
-    error: query.error as Error | null,
+    error: query.error,
     refresh: async () => {
       await queryClient.invalidateQueries({
         queryKey: qk.media.detail(mediaId),

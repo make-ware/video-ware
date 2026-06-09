@@ -16,18 +16,21 @@ export class ProcessorsConfigService implements OnModuleInit {
    */
   onModuleInit() {
     const enabled = this.getEnabledProcessors();
-    this.logger.log(`Enabled GCVI processors: ${enabled.join(', ')}`);
 
     if (enabled.length === 0) {
-      this.logger.warn(
-        'No GCVI processors are enabled. Label detection will not run.'
+      // Disabled is the default; keep startup quiet (single debug line).
+      this.logger.debug(
+        'No GCVI processors enabled (ENABLE_* unset/false); label detection disabled.'
       );
+      return;
     }
+
+    this.logger.log(`Enabled GCVI processors: ${enabled.join(', ')}`);
   }
 
   /**
    * Check if Label Detection processor is enabled
-   * @returns true if enabled (default: true)
+   * @returns true if ENABLE_LABEL_DETECTION === 'true' (default: false / disabled)
    */
   get enableLabelDetection(): boolean {
     return (
@@ -71,7 +74,7 @@ export class ProcessorsConfigService implements OnModuleInit {
 
   /**
    * Check if Speech Transcription processor is enabled
-   * @returns true if enabled (default: true)
+   * @returns true if ENABLE_SPEECH_TRANSCRIPTION === 'true' (default: false / disabled)
    */
   get enableSpeechTranscription(): boolean {
     return (

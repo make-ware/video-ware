@@ -833,67 +833,108 @@ export function TimelineProvider({
     }
   }, [timelineId, loadTimeline]);
 
-  const value: TimelineContextType = {
-    // State
-    timeline,
-    isLoading,
-    error,
-    hasUnsavedChanges,
+  const value = useMemo<TimelineContextType>(
+    () => ({
+      // State
+      timeline,
+      isLoading,
+      error,
+      hasUnsavedChanges,
 
-    // Playback state
-    currentTime,
-    isPlaying,
-    duration,
-    setCurrentTime,
-    setIsPlaying,
+      // Playback state
+      currentTime,
+      isPlaying,
+      duration,
+      setCurrentTime,
+      setIsPlaying,
 
-    // Selected clip state
-    selectedClipId,
-    setSelectedClipId,
-    selectedClipIds,
-    toggleClipSelection,
-    selectClipRange,
-    selectAllClips,
-    clearClipSelection,
-    isClipSelected,
-    handleClipSelect,
-    removeSelectedClips,
+      // Selected clip state
+      selectedClipId,
+      setSelectedClipId,
+      selectedClipIds,
+      toggleClipSelection,
+      selectClipRange,
+      selectAllClips,
+      clearClipSelection,
+      isClipSelected,
+      handleClipSelect,
+      removeSelectedClips,
 
-    // Track state
-    tracks,
-    selectedTrackId,
-    setSelectedTrackId,
+      // Track state
+      tracks,
+      selectedTrackId,
+      setSelectedTrackId,
 
-    // Timeline operations
-    loadTimeline,
-    saveTimeline,
-    revertChanges,
-    updateTimelineName,
-    updateTimelineOrientation,
+      // Timeline operations
+      loadTimeline,
+      saveTimeline,
+      revertChanges,
+      updateTimelineName,
+      updateTimelineOrientation,
 
-    // Clip operations
-    addClip,
-    removeClip,
-    reorderClips,
-    updateClipTimes,
-    updateClip,
+      // Clip operations
+      addClip,
+      removeClip,
+      reorderClips,
+      updateClipTimes,
+      updateClip,
 
-    // Track operations
-    createTrack,
-    updateTrack,
-    deleteTrack,
+      // Track operations
+      createTrack,
+      updateTrack,
+      deleteTrack,
 
-    // Clip positioning operations
-    moveClipToTrack,
-    updateClipPosition,
+      // Clip positioning operations
+      moveClipToTrack,
+      updateClipPosition,
 
-    // Render operations
-    createRenderTask,
+      // Render operations
+      createRenderTask,
 
-    // Utility
-    clearError,
-    refreshTimeline,
-  };
+      // Utility
+      clearError,
+      refreshTimeline,
+    }),
+    [
+      timeline,
+      isLoading,
+      error,
+      hasUnsavedChanges,
+      currentTime,
+      isPlaying,
+      duration,
+      selectedClipId,
+      setSelectedClipId,
+      selectedClipIds,
+      toggleClipSelection,
+      selectClipRange,
+      selectAllClips,
+      clearClipSelection,
+      isClipSelected,
+      handleClipSelect,
+      removeSelectedClips,
+      tracks,
+      selectedTrackId,
+      loadTimeline,
+      saveTimeline,
+      revertChanges,
+      updateTimelineName,
+      updateTimelineOrientation,
+      addClip,
+      removeClip,
+      reorderClips,
+      updateClipTimes,
+      updateClip,
+      createTrack,
+      updateTrack,
+      deleteTrack,
+      moveClipToTrack,
+      updateClipPosition,
+      createRenderTask,
+      clearError,
+      refreshTimeline,
+    ]
+  );
 
   return (
     <TimelineContext.Provider value={value}>

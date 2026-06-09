@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Directory } from '@project/shared';
 import { DirectoryMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
 
 interface Breadcrumb {
   id: string;
@@ -27,14 +29,27 @@ export interface UseDirectoriesReturn {
 
 export function useDirectories(workspaceId: string): UseDirectoriesReturn {
   const mutator = useMemo(() => new DirectoryMutator(pb), []);
+  const queryClient = useQueryClient();
 
-  const [directories, setDirectories] = useState<Directory[]>([]);
+  // Navigation is pure UI state — it drives the query key below.
   const [currentDirectory, setCurrentDirectory] = useState<Directory | null>(
     null
   );
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [navError, setNavError] = useState<string | null>(null);
+
+  const parentId = currentDirectory?.id ?? null;
+  const queryKey = qk.directories.children(workspaceId, parentId);
+
+  const query = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const result = currentDirectory
+        ? await mutator.getChildren(currentDirectory.id)
+        : await mutator.getRootDirectories(workspaceId);
+      return result.items;
+    },
+  });
 
   const buildBreadcrumbs = useCallback(
     async (directory: Directory | null): Promise<Breadcrumb[]> => {
@@ -57,29 +72,6 @@ export function useDirectories(workspaceId: string): UseDirectoriesReturn {
     [mutator]
   );
 
-  const fetchDirectories = useCallback(
-    async (dir: Directory | null) => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = dir
-          ? await mutator.getChildren(dir.id)
-          : await mutator.getRootDirectories(workspaceId);
-        setDirectories(result.items);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load directories');
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [mutator, workspaceId]
-  );
-
-  // Fetch on mount and when currentDirectory changes
-  useEffect(() => {
-    fetchDirectories(currentDirectory);
-  }, [currentDirectory, fetchDirectories]);
-
   const navigateTo = useCallback(
     async (directoryId: string | null) => {
       if (directoryId === null) {
@@ -96,7 +88,7 @@ export function useDirectories(workspaceId: string): UseDirectoriesReturn {
           setBreadcrumbs(crumbs);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to navigate');
+        setNavError(e instanceof Error ? e.message : 'Failed to navigate');
       }
     },
     [mutator, buildBreadcrumbs]
@@ -112,50 +104,55 @@ export function useDirectories(workspaceId: string): UseDirectoriesReturn {
     }
   }, [currentDirectory, navigateTo]);
 
-  const createDirectory = useCallback(
-    async (name: string): Promise<Directory> => {
-      const dir = await mutator.create({
+  const invalidate = useCallback(
+    () => queryClient.invalidateQueries({ queryKey }),
+    [queryClient, queryKey]
+  );
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) =>
+      mutator.create({
         name,
         WorkspaceRef: workspaceId,
         ParentDirectoryRef: currentDirectory?.id,
-      });
-      await fetchDirectories(currentDirectory);
-      return dir;
-    },
-    [mutator, workspaceId, currentDirectory, fetchDirectories]
-  );
+      }),
+    onSuccess: invalidate,
+  });
 
-  const renameDirectory = useCallback(
-    async (id: string, name: string): Promise<void> => {
-      await mutator.rename(id, name);
-      await fetchDirectories(currentDirectory);
-    },
-    [mutator, currentDirectory, fetchDirectories]
-  );
+  const renameMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      mutator.rename(id, name),
+    onSuccess: invalidate,
+  });
 
-  const deleteDirectory = useCallback(
-    async (id: string): Promise<void> => {
-      await mutator.deleteIfEmpty(id);
-      await fetchDirectories(currentDirectory);
-    },
-    [mutator, currentDirectory, fetchDirectories]
-  );
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => mutator.deleteIfEmpty(id),
+    onSuccess: invalidate,
+  });
 
-  const refresh = useCallback(async () => {
-    await fetchDirectories(currentDirectory);
-  }, [currentDirectory, fetchDirectories]);
+  const error = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : 'Failed to load directories'
+    : navError;
 
   return {
-    directories,
+    directories: query.data ?? [],
     currentDirectory,
     breadcrumbs,
-    isLoading,
+    isLoading: query.isLoading,
     error,
     navigateTo,
     navigateUp,
-    createDirectory,
-    renameDirectory,
-    deleteDirectory,
-    refresh,
+    createDirectory: (name: string) => createMutation.mutateAsync(name),
+    renameDirectory: async (id: string, name: string) => {
+      await renameMutation.mutateAsync({ id, name });
+    },
+    deleteDirectory: async (id: string) => {
+      await deleteMutation.mutateAsync(id);
+    },
+    refresh: async () => {
+      await invalidate();
+    },
   };
 }

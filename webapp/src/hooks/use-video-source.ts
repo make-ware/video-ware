@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type {
   Media,
   MediaRelations,
@@ -7,6 +8,7 @@ import type {
   File,
 } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
 
 export interface VideoSource {
   src: string;
@@ -25,82 +27,54 @@ export function useVideoSource<
   media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
   clip?: MediaClip
 ): VideoSource {
-  const proxyFileFromExpand =
+  const proxyFromExpand =
     media && 'expand' in media && media.expand && 'proxyFileRef' in media.expand
       ? (media.expand.proxyFileRef as File | undefined)
       : undefined;
-  const thumbnailFileFromExpand =
+  const thumbnailFromExpand =
     media &&
     'expand' in media &&
     media.expand &&
     'thumbnailFileRef' in media.expand
       ? (media.expand.thumbnailFileRef as File | undefined)
       : undefined;
-  const audioFileFromExpand =
+  const audioFromExpand =
     media && 'expand' in media && media.expand && 'audioFileRef' in media.expand
       ? (media.expand.audioFileRef as File | undefined)
       : undefined;
 
-  const [proxyFile, setProxyFile] = useState<File | null>(
-    proxyFileFromExpand ?? null
-  );
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(
-    thumbnailFileFromExpand ?? null
-  );
-  const [audioFile, setAudioFile] = useState<File | null>(
-    audioFileFromExpand ?? null
-  );
-  const [isLoading, setIsLoading] = useState(false);
+  const proxyRef = media?.proxyFileRef;
+  const thumbnailRef = media?.thumbnailFileRef;
+  const audioRef = media?.audioFileRef;
 
-  useEffect(() => {
-    const currentMedia = media;
-    if (!currentMedia) return;
+  // Only fetch the files we don't already have via expand.
+  const needsProxy = !proxyFromExpand && !!proxyRef;
+  const needsThumbnail = !thumbnailFromExpand && !!thumbnailRef;
+  const needsAudio = !audioFromExpand && !!audioRef;
+  const needsFetch = needsProxy || needsThumbnail || needsAudio;
 
-    type MediaParam = NonNullable<typeof media>;
-    async function fetchFiles(m: MediaParam) {
-      const needsProxy = !proxyFile && !!m.proxyFileRef;
-      const needsThumbnail = !thumbnailFile && !!m.thumbnailFileRef;
-      const needsAudio = !audioFile && !!m.audioFileRef;
+  const query = useQuery({
+    queryKey: qk.videoSource(media?.id ?? ''),
+    enabled: !!media && needsFetch,
+    queryFn: async () => {
+      const [proxy, thumbnail, audio] = await Promise.all([
+        needsProxy
+          ? pb.collection('Files').getOne<File>(proxyRef!)
+          : Promise.resolve(null),
+        needsThumbnail
+          ? pb.collection('Files').getOne<File>(thumbnailRef!)
+          : Promise.resolve(null),
+        needsAudio
+          ? pb.collection('Files').getOne<File>(audioRef!)
+          : Promise.resolve(null),
+      ]);
+      return { proxy, thumbnail, audio };
+    },
+  });
 
-      if (!needsProxy && !needsThumbnail && !needsAudio) return;
-
-      setIsLoading(true);
-      try {
-        if (needsProxy) {
-          const file = await pb
-            .collection('Files')
-            .getOne<File>(m.proxyFileRef!);
-          setProxyFile(file);
-        }
-        if (needsThumbnail) {
-          const file = await pb
-            .collection('Files')
-            .getOne<File>(m.thumbnailFileRef!);
-          setThumbnailFile(file);
-        }
-        if (needsAudio) {
-          const file = await pb
-            .collection('Files')
-            .getOne<File>(m.audioFileRef!);
-          setAudioFile(file);
-        }
-      } catch (error) {
-        console.error('Failed to fetch media files:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchFiles(currentMedia);
-  }, [
-    media,
-    media?.proxyFileRef,
-    media?.thumbnailFileRef,
-    media?.audioFileRef,
-    proxyFile,
-    thumbnailFile,
-    audioFile,
-  ]);
+  const proxyFile = proxyFromExpand ?? query.data?.proxy ?? null;
+  const thumbnailFile = thumbnailFromExpand ?? query.data?.thumbnail ?? null;
+  const audioFile = audioFromExpand ?? query.data?.audio ?? null;
 
   const src = useMemo(() => {
     // Prefer proxy (video), then audio
@@ -131,21 +105,11 @@ export function useVideoSource<
     }
   }, [thumbnailFile]);
 
-  if (!media) {
-    return {
-      src: '',
-      poster: '',
-      startTime: clip?.start ?? 0,
-      endTime: clip?.end,
-      isLoading: false,
-    };
-  }
-
   return {
     src,
     poster,
     startTime: clip?.start ?? 0,
     endTime: clip?.end,
-    isLoading,
+    isLoading: query.isLoading,
   };
 }

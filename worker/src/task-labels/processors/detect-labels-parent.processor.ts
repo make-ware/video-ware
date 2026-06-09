@@ -3,7 +3,10 @@ import { Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '../../queue/queue.constants';
-import { DetectLabelsStepType } from '../../queue/types/step.types';
+import {
+  DetectLabelsStepType,
+  type StepType,
+} from '../../queue/types/step.types';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { ProcessorsConfigService } from '../../config/processors.config';
 import {
@@ -95,6 +98,16 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
    */
   protected async processParentJob(job: Job<ParentJobData>): Promise<void> {
     const { taskId, stepResults } = job.data;
+
+    // Label detection is fully disabled when no GCVI processors are enabled
+    // (all ENABLE_* vars unset or 'false', which is the default). Complete the
+    // task as a no-op without aggregating results or emitting noisy logs.
+    if (!this.processorsConfigService.hasEnabledProcessors) {
+      this.logger.debug(
+        `Label detection disabled (no GCVI processors enabled); skipping task ${taskId}`
+      );
+      return;
+    }
 
     this.logger.log(`Processing parent job for task ${taskId}`);
 
@@ -317,6 +330,22 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     const { stepType, input, parentJobId } = job.data;
     const startedAt = new Date();
 
+    // Skip steps whose processor is disabled via ENABLE_* env vars. This is the
+    // hard gate: a disabled step never reaches its step processor, so no GCVI
+    // API call, DB write, or step-processor log is emitted. The parent
+    // aggregation ignores disabled processors, so a no-op completed result is
+    // safe and keeps the child job (and overall task) green.
+    if (!this.isStepEnabled(stepType)) {
+      this.logger.debug(`Step ${stepType} is disabled, skipping`);
+      return {
+        stepType,
+        status: 'completed',
+        output: { skipped: true, reason: 'processor disabled' },
+        startedAt: startedAt.toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+    }
+
     this.logger.log(`Processing step ${stepType} for job ${job.id}`);
 
     // Check if this step has already been completed in a previous attempt
@@ -430,6 +459,32 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
 
       // For processing steps, re-throw to let BullMQ handle retry logic
       throw error;
+    }
+  }
+
+  /**
+   * Determine whether a step should run based on the ENABLE_* env vars.
+   * All GCVI processors are disabled by default; UPLOAD_TO_GCS only runs when
+   * at least one of them is enabled (it has no purpose otherwise).
+   */
+  private isStepEnabled(stepType: StepType): boolean {
+    const cfg = this.processorsConfigService;
+    switch (stepType) {
+      case DetectLabelsStepType.UPLOAD_TO_GCS:
+        return cfg.hasEnabledProcessors;
+      case DetectLabelsStepType.LABEL_DETECTION:
+        return cfg.enableLabelDetection;
+      case DetectLabelsStepType.OBJECT_TRACKING:
+        return cfg.enableObjectTracking;
+      case DetectLabelsStepType.FACE_DETECTION:
+        return cfg.enableFaceDetection;
+      case DetectLabelsStepType.PERSON_DETECTION:
+        return cfg.enablePersonDetection;
+      case DetectLabelsStepType.SPEECH_TRANSCRIPTION:
+        return cfg.enableSpeechTranscription;
+      default:
+        // Non-label step types are unaffected by these flags.
+        return true;
     }
   }
 }

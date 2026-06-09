@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import pb from '@/lib/pocketbase-client';
 import type {
   Media,
@@ -7,6 +7,7 @@ import type {
   Expanded,
 } from '@project/shared';
 import { MediaMutator } from '@project/shared/mutator';
+import { qk } from '@/lib/query-keys';
 import { useAuth } from './use-auth';
 
 type MediaWithExpands = Expanded<
@@ -30,23 +31,16 @@ interface UseMediaDetailsResult {
 }
 
 export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
-  const [media, setMedia] = useState<MediaWithExpands | null>(null);
-  const [clips, setClips] = useState<MediaClip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasActiveLabelTask, setHasActiveLabelTask] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
   const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
 
-  const fetchData = useCallback(async () => {
-    if (!mediaId || !isAuthenticated) return;
-
-    try {
-      setIsLoading(true);
-      setError(null);
-
+  const query = useQuery({
+    queryKey: qk.media.detail(mediaId),
+    enabled: !!mediaId && isAuthenticated,
+    queryFn: async () => {
       // Fetch media details using mutator with expand
       const mediaMutator = new MediaMutator(pb);
-      const mediaRecord = await mediaMutator.getById(mediaId, [
+      const media = await mediaMutator.getById(mediaId, [
         'thumbnailFileRef',
         'spriteFileRef',
         'proxyFileRef',
@@ -63,34 +57,29 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
           sort: 'start',
         });
 
-      setMedia(mediaRecord);
-      setClips(clipsList.items);
-
       // Fetch active label detection tasks
       const activeTasks = await pb.collection('Tasks').getList(1, 1, {
         filter: `sourceId = "${mediaId}" && type = "detect_labels" && (status = "queued" || status = "running")`,
       });
-      setHasActiveLabelTask(activeTasks.totalItems > 0);
-    } catch (err) {
-      console.error('Error fetching media details:', err);
-      setError(
-        err instanceof Error ? err : new Error('Failed to fetch media details')
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [mediaId, isAuthenticated]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+      return {
+        media,
+        clips: clipsList.items,
+        hasActiveLabelTask: activeTasks.totalItems > 0,
+      };
+    },
+  });
 
   return {
-    media,
-    clips,
-    isLoading,
-    error,
-    hasActiveLabelTask,
-    refresh: fetchData,
+    media: query.data?.media ?? null,
+    clips: query.data?.clips ?? [],
+    hasActiveLabelTask: query.data?.hasActiveLabelTask ?? false,
+    isLoading: query.isLoading,
+    error: query.error as Error | null,
+    refresh: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: qk.media.detail(mediaId),
+      });
+    },
   };
 }

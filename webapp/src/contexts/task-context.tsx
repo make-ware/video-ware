@@ -254,26 +254,41 @@ export function TaskProvider({ workspaceId, children }: TaskProviderProps) {
     };
   }, [unsubscribe]);
 
-  const value: TaskContextType = {
-    // State
-    tasks,
-    isLoading,
-    error,
+  const value = useMemo<TaskContextType>(
+    () => ({
+      // State
+      tasks,
+      isLoading,
+      error,
 
-    // Operations
-    getTaskById,
-    getTasksByUpload,
-    getTaskProgress,
-    retryTask,
-    cancelTask,
+      // Operations
+      getTaskById,
+      getTasksByUpload,
+      getTaskProgress,
+      retryTask,
+      cancelTask,
 
-    // Real-time updates
-    isConnected,
+      // Real-time updates
+      isConnected,
 
-    // Utility methods
-    refreshTasks,
-    clearError,
-  };
+      // Utility methods
+      refreshTasks,
+      clearError,
+    }),
+    [
+      tasks,
+      isLoading,
+      error,
+      getTaskById,
+      getTasksByUpload,
+      getTaskProgress,
+      retryTask,
+      cancelTask,
+      isConnected,
+      refreshTasks,
+      clearError,
+    ]
+  );
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;
 }

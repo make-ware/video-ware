@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import typescript from "@typescript-eslint/eslint-plugin";
 import typescriptParser from "@typescript-eslint/parser";
 import reactHooks from "eslint-plugin-react-hooks";
+import react from "eslint-plugin-react";
 
 export default [
   // Global ignores
@@ -69,7 +70,13 @@ export default [
   {
     files: ["webapp/**/*.{jsx,tsx}", "app/**/*.{jsx,tsx}"],
     plugins: {
-      "react-hooks": reactHooks
+      "react-hooks": reactHooks,
+      react: react
+    },
+    settings: {
+      react: {
+        version: "detect"
+      }
     },
     languageOptions: {
       globals: {
@@ -78,11 +85,17 @@ export default [
       }
     },
     rules: {
+      // Compiler-aware Rules of React (eslint-plugin-react-hooks v7
+      // recommended-latest): adds mutation-during-render and related checks
+      // the older two-rule config skipped.
+      ...reactHooks.configs["recommended-latest"].rules,
       "react/react-in-jsx-scope": "off", // Not needed in Next.js 13+
       "react/no-unescaped-entities": "off",
-      // React Hooks rules
-      "react-hooks/rules-of-hooks": "error", // Checks rules of Hooks
-      "react-hooks/exhaustive-deps": "warn" // Checks effect dependencies
+      // Missing-dependency bugs should fail CI, not ship as warnings.
+      "react-hooks/exhaustive-deps": "error",
+      // Inline-constructed context provider values re-render every consumer on
+      // every provider render — flag them so they get memoized.
+      "react/jsx-no-constructed-context-values": "error"
     }
   },
 

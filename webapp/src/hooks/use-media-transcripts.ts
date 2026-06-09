@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   LabelSpeech,
   LabelSpeechInput,
@@ -6,87 +6,85 @@ import {
 } from '@project/shared';
 import { LabelSpeechMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
 import { useAuth } from './use-auth';
 import { toast } from 'sonner';
 
 export function useMediaTranscripts(mediaId: string) {
-  const [transcripts, setTranscripts] = useState<LabelSpeech[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
   const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
 
-  const fetchTranscripts = useCallback(async () => {
-    if (!mediaId || !isAuthenticated) return;
+  const queryKey = qk.transcripts.byMedia(mediaId);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey });
 
-    try {
-      setIsLoading(true);
-      setError(null);
+  const query = useQuery({
+    queryKey,
+    enabled: !!mediaId && isAuthenticated,
+    queryFn: async () => {
       const mutator = new LabelSpeechMutator(pb);
       // Fetching up to 500 items for now.
       const result = await mutator.getByMedia(mediaId, 1, 500);
       // Sort by start time
-      const items = result.items.sort((a, b) => a.start - b.start);
-      setTranscripts(items);
-    } catch (err) {
-      console.error('Error fetching transcripts:', err);
-      setError(
-        err instanceof Error ? err : new Error('Failed to fetch transcripts')
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [mediaId, isAuthenticated]);
+      return result.items.sort((a, b) => a.start - b.start);
+    },
+  });
 
-  useEffect(() => {
-    fetchTranscripts();
-  }, [fetchTranscripts]);
-
-  const createTranscript = async (input: LabelSpeechInput) => {
-    try {
-      const mutator = new LabelSpeechMutator(pb);
-      await mutator.create(input);
+  const createMutation = useMutation({
+    mutationFn: (input: LabelSpeechInput) =>
+      new LabelSpeechMutator(pb).create(input),
+    onSuccess: () => {
       toast.success('Transcript added');
-      fetchTranscripts();
-    } catch (err) {
+      invalidate();
+    },
+    onError: (err) => {
       console.error('Failed to create transcript:', err);
       toast.error('Failed to create transcript');
-      throw err;
-    }
-  };
+    },
+  });
 
-  const updateTranscript = async (id: string, input: LabelSpeechUpdate) => {
-    try {
-      const mutator = new LabelSpeechMutator(pb);
-      await mutator.update(id, input);
+  const updateMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: LabelSpeechUpdate }) =>
+      new LabelSpeechMutator(pb).update(id, input),
+    onSuccess: () => {
       toast.success('Transcript updated');
-      fetchTranscripts();
-    } catch (err) {
+      invalidate();
+    },
+    onError: (err) => {
       console.error('Failed to update transcript:', err);
       toast.error('Failed to update transcript');
-      throw err;
-    }
-  };
+    },
+  });
 
-  const deleteTranscript = async (id: string) => {
-    try {
-      const mutator = new LabelSpeechMutator(pb);
-      await mutator.delete(id);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => new LabelSpeechMutator(pb).delete(id),
+    onSuccess: () => {
       toast.success('Transcript deleted');
-      fetchTranscripts();
-    } catch (err) {
+      invalidate();
+    },
+    onError: (err) => {
       console.error('Failed to delete transcript:', err);
       toast.error('Failed to delete transcript');
-      throw err;
-    }
-  };
+    },
+  });
 
   return {
-    transcripts,
-    isLoading,
-    error,
-    refresh: fetchTranscripts,
-    createTranscript,
-    updateTranscript,
-    deleteTranscript,
+    transcripts: (query.data ?? []) as LabelSpeech[],
+    isLoading: query.isLoading,
+    error: query.error as Error | null,
+    refresh: async () => {
+      await invalidate();
+    },
+    createTranscript: async (input: LabelSpeechInput): Promise<void> => {
+      await createMutation.mutateAsync(input);
+    },
+    updateTranscript: async (
+      id: string,
+      input: LabelSpeechUpdate
+    ): Promise<void> => {
+      await updateMutation.mutateAsync({ id, input });
+    },
+    deleteTranscript: async (id: string): Promise<void> => {
+      await deleteMutation.mutateAsync(id);
+    },
   };
 }

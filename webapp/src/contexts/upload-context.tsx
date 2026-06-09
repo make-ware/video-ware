@@ -355,26 +355,41 @@ export function UploadProvider({ workspaceId, children }: UploadProviderProps) {
     };
   }, [unsubscribe]);
 
-  const value: UploadContextType = {
-    // State
-    uploads,
-    isLoading,
-    error,
-    uploadProgress,
+  const value = useMemo<UploadContextType>(
+    () => ({
+      // State
+      uploads,
+      isLoading,
+      error,
+      uploadProgress,
 
-    // Operations
-    uploadFile,
-    retryUpload,
-    cancelUpload,
+      // Operations
+      uploadFile,
+      retryUpload,
+      cancelUpload,
 
-    // Real-time updates
-    isConnected,
+      // Real-time updates
+      isConnected,
 
-    // Utility methods
-    refreshUploads,
-    clearError,
-    getUploadProgress,
-  };
+      // Utility methods
+      refreshUploads,
+      clearError,
+      getUploadProgress,
+    }),
+    [
+      uploads,
+      isLoading,
+      error,
+      uploadProgress,
+      uploadFile,
+      retryUpload,
+      cancelUpload,
+      isConnected,
+      refreshUploads,
+      clearError,
+      getUploadProgress,
+    ]
+  );
 
   return (
     <UploadContext.Provider value={value}>{children}</UploadContext.Provider>

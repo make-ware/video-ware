@@ -191,18 +191,32 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     );
   }, [currentWorkspace, workspaces]);
 
-  const value: WorkspaceContextType = {
-    currentWorkspace,
-    workspaces,
-    isLoading,
-    error,
-    switchWorkspace,
-    createWorkspace,
-    refreshWorkspaces,
-    clearError,
-    hasWorkspaces,
-    currentMembership,
-  };
+  const value = useMemo<WorkspaceContextType>(
+    () => ({
+      currentWorkspace,
+      workspaces,
+      isLoading,
+      error,
+      switchWorkspace,
+      createWorkspace,
+      refreshWorkspaces,
+      clearError,
+      hasWorkspaces,
+      currentMembership,
+    }),
+    [
+      currentWorkspace,
+      workspaces,
+      isLoading,
+      error,
+      switchWorkspace,
+      createWorkspace,
+      refreshWorkspaces,
+      clearError,
+      hasWorkspaces,
+      currentMembership,
+    ]
+  );
 
   return (
     <WorkspaceContext.Provider value={value}>

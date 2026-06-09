@@ -64,7 +64,10 @@ Thumbs.db
 
 dist/
 
-#AI 
+# TypeScript incremental build cache (must never be committed — it desyncs from gitignored dist/)
+*.tsbuildinfo
+
+#AI
 .kiro/
 .cursor/
 

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { Media, MediaRelations, Expanded, File } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
 
 export interface SpriteConfig {
   cols: number; // Fixed at 10
@@ -19,36 +20,18 @@ export function useSpriteData<E extends keyof MediaRelations = 'spriteFileRef'>(
       ? (media.expand.spriteFileRef as File | undefined)
       : undefined;
 
-  const [spriteFile, setSpriteFile] = useState<File | null>(
-    initialSpriteFile ?? spriteFileFromExpand ?? null
-  );
-  const [isLoading, setIsLoading] = useState(
-    !spriteFile && !!media.spriteFileRef
-  );
+  // Prefer a sprite file we already have (passed in or expanded); only fetch
+  // when neither is available and a ref exists.
+  const preloaded = initialSpriteFile ?? spriteFileFromExpand ?? null;
+  const spriteFileRef = media.spriteFileRef;
 
-  useEffect(() => {
-    async function fetchSpriteFile() {
-      // If we already have the sprite file from expand, don't fetch it again
-      if (spriteFile || !media.spriteFileRef) {
-        if (isLoading) setIsLoading(false);
-        return;
-      }
+  const query = useQuery({
+    queryKey: qk.files.sprite(spriteFileRef ?? ''),
+    enabled: !preloaded && !!spriteFileRef,
+    queryFn: () => pb.collection('Files').getOne<File>(spriteFileRef!),
+  });
 
-      setIsLoading(true);
-      try {
-        const file = await pb
-          .collection('Files')
-          .getOne<File>(media.spriteFileRef);
-        setSpriteFile(file);
-      } catch (error) {
-        console.error('Failed to fetch sprite file:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchSpriteFile();
-  }, [media.spriteFileRef, spriteFile, isLoading]);
+  const spriteFile = preloaded ?? query.data ?? null;
 
   const config: SpriteConfig = spriteFile?.meta?.spriteConfig || {
     cols: 10,
@@ -64,6 +47,6 @@ export function useSpriteData<E extends keyof MediaRelations = 'spriteFileRef'>(
     spriteFile,
     url,
     config,
-    isLoading,
+    isLoading: query.isLoading,
   };
 }

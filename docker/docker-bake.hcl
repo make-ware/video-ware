@@ -10,6 +10,18 @@ variable "NEXT_PUBLIC_POCKETBASE_URL" {
   default = "/"
 }
 
+# Comma-separated platform list. CI overrides this with a single native
+# platform per runner (e.g. "linux/amd64") so nothing is built under QEMU.
+variable "PLATFORM" {
+  default = "linux/amd64,linux/arm64"
+}
+
+# GitHub Actions cache scope. CI sets a per-architecture scope so the two
+# native runners don't clobber each other's cache.
+variable "CACHE_SCOPE" {
+  default = "videoware"
+}
+
 group "default" {
   targets = ["monolith", "worker", "webapp", "pocketbase"]
 }
@@ -17,13 +29,13 @@ group "default" {
 target "_common" {
   context    = "."
   dockerfile = "docker/Dockerfile"
-  platforms  = ["linux/amd64", "linux/arm64"]
+  platforms  = split(",", "${PLATFORM}")
   args = {
     POCKETBASE_VERSION         = "${POCKETBASE_VERSION}"
     NEXT_PUBLIC_POCKETBASE_URL = "${NEXT_PUBLIC_POCKETBASE_URL}"
   }
-  cache-from = ["type=gha,scope=videoware"]
-  cache-to   = ["type=gha,mode=max,scope=videoware"]
+  cache-from = ["type=gha,scope=${CACHE_SCOPE}"]
+  cache-to   = ["type=gha,mode=max,scope=${CACHE_SCOPE}"]
 }
 
 target "monolith" {

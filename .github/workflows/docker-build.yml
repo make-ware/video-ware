@@ -41,9 +41,24 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Build each architecture natively (no QEMU) and push by digest.
+  # amd64 runs on ubuntu-latest, arm64 on the free public-repo arm runner.
+  # The two jobs run in parallel; each builds all four targets once.
+  # ---------------------------------------------------------------------------
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -54,15 +69,126 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
         with:
-          platforms: linux/amd64,linux/arm64
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Labels (and annotations) baked into each per-arch image. Tags are
+      # applied later on the merged manifest, so they are irrelevant here.
+      - name: Metadata - monolith
+        id: meta-monolith
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.title=Videoware Monolithic Container
+            org.opencontainers.image.description=Monolithic Docker container with PocketBase, Next.js, and Background Worker
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: monolith
+
+      - name: Metadata - worker
+        id: meta-worker
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
+          labels: |
+            org.opencontainers.image.title=Videoware Worker Container
+            org.opencontainers.image.description=Worker service container (NestJS + FFmpeg)
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: worker
+
+      - name: Metadata - webapp
+        id: meta-webapp
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
+          labels: |
+            org.opencontainers.image.title=Videoware Webapp Container
+            org.opencontainers.image.description=Webapp container (Next.js)
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: webapp
+
+      - name: Metadata - pocketbase
+        id: meta-pocketbase
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
+          labels: |
+            org.opencontainers.image.title=Videoware PocketBase Container
+            org.opencontainers.image.description=PocketBase container with custom hooks and migrations
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+          bake-target: pocketbase
+
+      - name: Build and push by digest
+        id: bake
+        uses: docker/bake-action@v5
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          CACHE_SCOPE: videoware-${{ matrix.arch }}
+        with:
+          files: |
+            ./docker/docker-bake.hcl
+            cwd://${{ steps.meta-monolith.outputs.bake-file }}
+            cwd://${{ steps.meta-worker.outputs.bake-file }}
+            cwd://${{ steps.meta-webapp.outputs.bake-file }}
+            cwd://${{ steps.meta-pocketbase.outputs.bake-file }}
+          set: |
+            *.tags=
+            monolith.output=type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+            worker.output=type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker,push-by-digest=true,name-canonical=true,push=true
+            webapp.output=type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp,push-by-digest=true,name-canonical=true,push=true
+            pocketbase.output=type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digests
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          metadata='${{ steps.bake.outputs.metadata }}'
+          for target in monolith worker webapp pocketbase; do
+            digest=$(echo "$metadata" | jq -r ".\"${target}\".\"containerimage.digest\"")
+            if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+              echo "::error::Missing digest for target ${target}"
+              exit 1
+            fi
+            mkdir -p "/tmp/digests/${target}"
+            touch "/tmp/digests/${target}/${digest#sha256:}"
+          done
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Combine the per-arch digests into one multi-arch manifest per image and
+  # apply the release tags. Cheap and fast — no building happens here.
+  # ---------------------------------------------------------------------------
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -108,11 +234,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: ${{ steps.tag-patterns.outputs.patterns }}
-          labels: |
-            org.opencontainers.image.title=Videoware Monolithic Container
-            org.opencontainers.image.description=Monolithic Docker container with PocketBase, Next.js, and Background Worker
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-          bake-target: monolith
 
       - name: Metadata - worker
         id: meta-worker
@@ -120,11 +241,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
           tags: ${{ steps.tag-patterns.outputs.patterns }}
-          labels: |
-            org.opencontainers.image.title=Videoware Worker Container
-            org.opencontainers.image.description=Worker service container (NestJS + FFmpeg)
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-          bake-target: worker
 
       - name: Metadata - webapp
         id: meta-webapp
@@ -132,11 +248,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
           tags: ${{ steps.tag-patterns.outputs.patterns }}
-          labels: |
-            org.opencontainers.image.title=Videoware Webapp Container
-            org.opencontainers.image.description=Webapp container (Next.js)
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-          bake-target: webapp
 
       - name: Metadata - pocketbase
         id: meta-pocketbase
@@ -144,40 +255,68 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
           tags: ${{ steps.tag-patterns.outputs.patterns }}
-          labels: |
-            org.opencontainers.image.title=Videoware PocketBase Container
-            org.opencontainers.image.description=PocketBase container with custom hooks and migrations
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-          bake-target: pocketbase
 
-      - name: Build and push all targets
-        uses: docker/bake-action@v5
-        with:
-          files: |
-            ./docker/docker-bake.hcl
-            cwd://${{ steps.meta-monolith.outputs.bake-file }}
-            cwd://${{ steps.meta-worker.outputs.bake-file }}
-            cwd://${{ steps.meta-webapp.outputs.bake-file }}
-            cwd://${{ steps.meta-pocketbase.outputs.bake-file }}
-          push: true
+      - name: Create and push multi-arch manifests
+        run: |
+          set -euo pipefail
+
+          push_manifest() {
+            local image="$1" tags="$2" annotations="$3" dir="$4"
+            local args=()
+
+            while IFS= read -r tag; do
+              [ -n "$tag" ] && args+=("-t" "$tag")
+            done <<< "$tags"
+
+            while IFS= read -r ann; do
+              [ -n "$ann" ] && args+=("--annotation" "$ann")
+            done <<< "$annotations"
+
+            local sources=()
+            for f in "$dir"/*; do
+              sources+=("${image}@sha256:$(basename "$f")")
+            done
+
+            echo "Creating manifest for ${image} from ${#sources[@]} digest(s)"
+            docker buildx imagetools create "${args[@]}" "${sources[@]}"
+            docker buildx imagetools inspect "$(echo "$tags" | head -n1)"
+          }
+
+          push_manifest "$IMG_MONOLITH"   "$TAGS_MONOLITH"   "$ANN_MONOLITH"   /tmp/digests/monolith
+          push_manifest "$IMG_WORKER"     "$TAGS_WORKER"     "$ANN_WORKER"     /tmp/digests/worker
+          push_manifest "$IMG_WEBAPP"     "$TAGS_WEBAPP"     "$ANN_WEBAPP"     /tmp/digests/webapp
+          push_manifest "$IMG_POCKETBASE" "$TAGS_POCKETBASE" "$ANN_POCKETBASE" /tmp/digests/pocketbase
+        env:
+          IMG_MONOLITH: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAGS_MONOLITH: ${{ steps.meta-monolith.outputs.tags }}
+          ANN_MONOLITH: ${{ steps.meta-monolith.outputs.annotations }}
+          IMG_WORKER: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
+          TAGS_WORKER: ${{ steps.meta-worker.outputs.tags }}
+          ANN_WORKER: ${{ steps.meta-worker.outputs.annotations }}
+          IMG_WEBAPP: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
+          TAGS_WEBAPP: ${{ steps.meta-webapp.outputs.tags }}
+          ANN_WEBAPP: ${{ steps.meta-webapp.outputs.annotations }}
+          IMG_POCKETBASE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
+          TAGS_POCKETBASE: ${{ steps.meta-pocketbase.outputs.tags }}
+          ANN_POCKETBASE: ${{ steps.meta-pocketbase.outputs.annotations }}
 
       - name: Generate build summary
         run: |
           {
             echo "## Docker Build Summary"
             echo ""
-            echo "All four images built in a single buildx invocation; the shared"
-            echo "\`deps\` and \`builder\` stages run only once."
+            echo "Each architecture was built natively in parallel (no QEMU):"
+            echo "- \`linux/amd64\` on \`ubuntu-latest\`"
+            echo "- \`linux/arm64\` on \`ubuntu-24.04-arm\`"
+            echo ""
+            echo "Per-arch images were pushed by digest, then merged into one"
+            echo "multi-arch manifest per image."
             echo ""
             echo "### Images"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` (monolith)"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker\`"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp\`"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase\`"
-            echo ""
-            echo "### Platforms"
-            echo "- linux/amd64"
-            echo "- linux/arm64"
             echo ""
             echo "### Tags"
             echo '```'

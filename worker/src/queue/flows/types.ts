@@ -3,11 +3,7 @@
  * Shared across all flow builders
  */
 
-import type {
-  RenderStepType,
-  DetectLabelsStepType,
-  RecommendationStepType,
-} from '../types/step.types';
+import type { RenderStepType, DetectLabelsStepType } from '../types/step.types';
 import type { ParentJobData } from '../types/job.types';
 import type {
   TaskTranscodeInput,
@@ -95,37 +91,12 @@ export interface LabelsFlowDefinition {
 }
 
 export interface LabelsChildJobDefinition {
-  name: DetectLabelsStepType | RecommendationStepType;
+  name: DetectLabelsStepType;
   queueName: string;
   data: {
     taskId: string;
     workspaceId: string;
-    stepType: DetectLabelsStepType | RecommendationStepType;
-    parentJobId: string;
-    input: unknown;
-  };
-  opts?: ChildJobOpts;
-  children?: (ChildJobDependency | FlowDefinition)[];
-}
-
-// ============================================================================
-// Recommendations Flow Types
-// ============================================================================
-
-export interface RecommendationsFlowDefinition {
-  name: string;
-  queueName: string;
-  data: ParentJobData;
-  children: (RecommendationsChildJobDefinition | FlowDefinition)[];
-}
-
-export interface RecommendationsChildJobDefinition {
-  name: RecommendationStepType;
-  queueName: string;
-  data: {
-    taskId: string;
-    workspaceId: string;
-    stepType: RecommendationStepType;
+    stepType: DetectLabelsStepType;
     parentJobId: string;
     input: unknown;
   };
@@ -140,5 +111,4 @@ export interface RecommendationsChildJobDefinition {
 export type FlowDefinition =
   | TranscodeFlowDefinition
   | RenderFlowDefinition
-  | LabelsFlowDefinition
-  | RecommendationsFlowDefinition;
+  | LabelsFlowDefinition;

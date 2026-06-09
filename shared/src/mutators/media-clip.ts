@@ -8,7 +8,6 @@ import type {
   LabelPerson,
   LabelObject,
   LabelFace,
-  MediaRecommendation,
 } from '../schema';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
@@ -204,59 +203,5 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
 
     // Create and return the clip
     return await this.create(clipInput);
-  }
-
-  /**
-   * Create a MediaClip from a MediaRecommendation
-   * @param recommendation The source media recommendation
-   * @param processor The processor version to set on the clip
-   * @returns The created MediaClip
-   */
-  async createFromRecommendation(
-    recommendation: MediaRecommendation,
-    processor: string
-  ): Promise<MediaClip> {
-    const duration = recommendation.end - recommendation.start;
-
-    // Create the MediaClip input
-    const clipInput: MediaClipInput = {
-      WorkspaceRef: recommendation.WorkspaceRef,
-      MediaRef: recommendation.MediaRef,
-      type: ClipType.RECOMMENDATION,
-      start: recommendation.start,
-      end: recommendation.end,
-      duration,
-      version: recommendation.version || 1,
-      processor: processor,
-      clipData: {
-        sourceId: recommendation.id,
-        sourceType: 'recommendation',
-        labelType: recommendation.labelType,
-        strategy: recommendation.strategy,
-        score: recommendation.score,
-        rank: recommendation.rank,
-      },
-    };
-
-    // Create the clip
-    const clip = await this.create(clipInput);
-
-    // Update the recommendation to append this clip to MediaClipsRef
-    // Using the + modifier to append to the relation array
-    try {
-      await this.pb
-        .collection('MediaRecommendations')
-        .update(recommendation.id, {
-          'MediaClipsRef+': clip.id,
-        } as Record<string, unknown>);
-    } catch (error) {
-      // Log error but don't fail the clip creation
-      console.error(
-        `Failed to update recommendation ${recommendation.id} with clip ${clip.id}:`,
-        error
-      );
-    }
-
-    return clip;
   }
 }

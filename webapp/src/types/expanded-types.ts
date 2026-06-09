@@ -2,7 +2,6 @@ import type {
   Media,
   MediaClip,
   TimelineClip,
-  TimelineRecommendation,
   Upload,
   File,
 } from '@project/shared';
@@ -30,16 +29,5 @@ export interface ExpandedTimelineClip extends Omit<TimelineClip, 'expand'> {
   expand?: {
     MediaRef?: ExpandedMedia;
     MediaClipRef?: ExpandedMediaClip;
-  };
-}
-
-// Expanded TimelineRecommendation
-export interface ExpandedTimelineRecommendation extends Omit<
-  TimelineRecommendation,
-  'expand'
-> {
-  expand?: {
-    MediaClipRef?: ExpandedMediaClip;
-    TimelineClipsRef?: ExpandedTimelineClip[];
   };
 }

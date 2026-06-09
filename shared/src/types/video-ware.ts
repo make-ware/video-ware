@@ -159,27 +159,6 @@ export type TimelineRecord = {
   updated: string;
 };
 
-export type ClipRecommendationRecord = {
-  id: string;
-  workspaceRef: string;
-  mediaRef: string;
-  timelineRef?: string;
-  seedClipRef?: string;
-  MediaClipRef: string;
-  score: number;
-  rank: number;
-  reason: string;
-  reasonData?: Record<string, unknown>;
-  strategy?: string;
-  queryHash: string;
-  expiresAt: string;
-  acceptedAt?: string;
-  dismissedAt?: string;
-  createdBy?: string;
-  created: string;
-  updated: string;
-};
-
 // ============================================================================
 // Google detection response fragments (stored in labelData)
 // ============================================================================

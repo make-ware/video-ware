@@ -88,7 +88,6 @@ export enum ClipType {
   PERSON = 'person',
   FACE = 'face',
   SPEECH = 'speech',
-  RECOMMENDATION = 'recommendation',
   COMPOSITE = 'composite',
 }
 
@@ -100,21 +99,6 @@ export enum LabelType {
   FACE = 'face',
   SEGMENT = 'segment',
   TEXT = 'text',
-}
-
-export enum RecommendationStrategy {
-  SAME_ENTITY = 'same_entity',
-  ADJACENT_SHOT = 'adjacent_shot',
-  TEMPORAL_NEARBY = 'temporal_nearby',
-  CONFIDENCE_DURATION = 'confidence_duration',
-  DIALOG_CLUSTER = 'dialog_cluster',
-  OBJECT_POSITION_MATCHER = 'object_position_matcher',
-  ACTIVITY_STRATEGY = 'activity_strategy',
-}
-
-export enum RecommendationTargetMode {
-  APPEND = 'append',
-  REPLACE = 'replace',
 }
 
 export enum TaskStatus {
@@ -129,8 +113,6 @@ export enum TaskType {
   PROCESS_UPLOAD = 'process_upload',
   DERIVE_CLIPS = 'derive_clips',
   DETECT_LABELS = 'detect_labels',
-  GENERATE_TIMELINE_RECOMMENDATIONS = 'generate_timeline_recommendations',
-  GENERATE_MEDIA_RECOMMENDATIONS = 'generate_media_recommendations',
   RENDER_TIMELINE = 'render_timeline',
   FULL_INGEST = 'full_ingest',
 }
@@ -164,7 +146,6 @@ export const VIDEO_COLLECTIONS = {
   MEDIA_LABELS: 'media_labels',
   TASKS: 'tasks',
   TIMELINES: 'timelines',
-  CLIP_RECOMMENDATIONS: 'clip_recommendations',
 } as const;
 
 export type VideoCollectionName =

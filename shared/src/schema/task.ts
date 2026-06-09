@@ -50,8 +50,6 @@ export const TaskInputSchema = z.object({
     TaskType.PROCESS_UPLOAD,
     TaskType.DERIVE_CLIPS,
     TaskType.DETECT_LABELS,
-    TaskType.GENERATE_TIMELINE_RECOMMENDATIONS,
-    TaskType.GENERATE_MEDIA_RECOMMENDATIONS,
     TaskType.RENDER_TIMELINE,
   ]),
   status: z

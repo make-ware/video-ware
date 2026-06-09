@@ -17,7 +17,6 @@ export const CLIP_TYPE_OPTIONS = [
   { value: ClipType.OBJECT, label: 'Object' },
   { value: ClipType.FACE, label: 'Face' },
   { value: ClipType.SPEECH, label: 'Speech' },
-  { value: ClipType.RECOMMENDATION, label: 'Recommendations' },
 ];
 
 const MEDIA_TYPES = new Set<string>([ClipType.FULL]);

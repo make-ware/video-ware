@@ -1,10 +1,4 @@
-import type {
-  ProcessingProvider,
-  RecommendationStrategy,
-  RecommendationTargetMode,
-  LabelType,
-  TimelineOrientation,
-} from '../enums.js';
+import type { ProcessingProvider, TimelineOrientation } from '../enums.js';
 
 // ============================================================================
 // Task Payload and Result Contracts
@@ -324,83 +318,6 @@ export interface RenderTimelineResult {
   fileId: string;
   /** Version of the processor used */
   processorVersion: string;
-}
-
-// ============================================================================
-// Recommendation Task Payloads and Results
-// ============================================================================
-
-/**
- * Payload for generate_timeline_recommendations task
- */
-export interface GenerateTimelineRecommendationsPayload {
-  /** ID of the Workspace */
-  workspaceId: string;
-  /** ID of the Timeline record */
-  timelineId: string;
-  /** Optional ID of the seed clip to use for recommendations */
-  seedClipId?: string;
-  /** Target mode: append or replace existing recommendations */
-  targetMode: RecommendationTargetMode;
-  /** Array of recommendation strategies to use */
-  strategies: RecommendationStrategy[];
-  /** Optional weights for each strategy */
-  strategyWeights?: Record<RecommendationStrategy, number>;
-  /** Optional search parameters to filter recommendations */
-  searchParams?: {
-    labelTypes?: LabelType[];
-    minConfidence?: number;
-    durationRange?: { min: number; max: number };
-    timeWindow?: number; // seconds for temporal_nearby
-  };
-  /** Maximum number of results to generate (default: 20) */
-  maxResults?: number;
-}
-
-/**
- * Result from generate_timeline_recommendations task
- */
-export interface GenerateTimelineRecommendationsResult {
-  /** Number of recommendations generated */
-  generated: number;
-  /** Number of recommendations pruned (old ones removed) */
-  pruned: number;
-  /** Query hash for deduplication */
-  queryHash: string;
-}
-
-/**
- * Payload for generate_media_recommendations task
- */
-export interface GenerateMediaRecommendationsPayload {
-  /** ID of the Workspace */
-  workspaceId: string;
-  /** ID of the Media record */
-  mediaId: string;
-  /** Array of recommendation strategies to use */
-  strategies: RecommendationStrategy[];
-  /** Optional weights for each strategy */
-  strategyWeights?: Record<RecommendationStrategy, number>;
-  /** Optional filter parameters */
-  filterParams?: {
-    labelTypes?: LabelType[];
-    minConfidence?: number;
-    durationRange?: { min: number; max: number };
-  };
-  /** Maximum number of results to generate (default: 20) */
-  maxResults?: number;
-}
-
-/**
- * Result from generate_media_recommendations task
- */
-export interface GenerateMediaRecommendationsResult {
-  /** Number of recommendations generated */
-  generated: number;
-  /** Number of recommendations pruned (old ones removed) */
-  pruned: number;
-  /** Query hash for deduplication */
-  queryHash: string;
 }
 
 /**

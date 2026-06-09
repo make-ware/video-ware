@@ -10,6 +10,12 @@ permissions:
   pull-requests: write
   packages: write
 
+# Force bundled JS actions (release-please-action, github-script) to run on
+# Node.js 24, since their current releases still ship Node.js 20 which is
+# being deprecated on GitHub Actions runners.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release-please:
     runs-on: ubuntu-latest

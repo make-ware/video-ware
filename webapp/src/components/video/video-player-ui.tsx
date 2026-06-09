@@ -27,6 +27,11 @@ export interface VideoPlayerUIProps {
   /** Controls browser buffering behavior for better scrubbing UX. */
   preload?: HTMLVideoElement['preload'];
   className?: string;
+  /**
+   * Visual rendered behind the (frameless) video element. Used for audio-only
+   * media, which has no video track to display.
+   */
+  placeholder?: React.ReactNode;
   onTimeUpdate?: (time: number) => void;
   children?: React.ReactNode | ((currentTime: number) => React.ReactNode);
 }
@@ -42,6 +47,7 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
       seekOnStartTimeChange = true,
       preload = 'metadata',
       className,
+      placeholder,
       onTimeUpdate,
       children,
     },
@@ -232,12 +238,21 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
           className
         )}
       >
+        {placeholder && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            {placeholder}
+          </div>
+        )}
+
         <video
           ref={videoRef}
           src={src}
           poster={poster}
           preload={preload}
-          className="w-full h-full object-contain"
+          className={cn(
+            'w-full h-full object-contain',
+            placeholder && 'bg-transparent'
+          )}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onPlay={() => setIsPlaying(true)}

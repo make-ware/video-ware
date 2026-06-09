@@ -275,9 +275,13 @@ RUN mkdir -p /data/pb_data /data/storage && \
     chown -R nextjs:nodejs /data && \
     chmod -R 775 /data
 
+# Entrypoint that seeds/updates the superuser before serving so split-pod
+# deployments boot without manual admin creation.
+COPY --chown=nextjs:nodejs docker/pocketbase-entrypoint.sh /app/pocketbase-entrypoint.sh
+RUN chmod +x /app/pocketbase-entrypoint.sh
 
 USER nextjs
 EXPOSE 8090
 
-CMD ["./pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/data/pb_data", "--migrationsDir=/app/pb/pb_migrations", "--hooksDir=/app/pb/pb_hooks"]
+CMD ["/app/pocketbase-entrypoint.sh"]
 

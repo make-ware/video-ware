@@ -27,6 +27,10 @@ services:
 
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Seed/update the superuser on startup so the worker can authenticate
+      # without manual admin creation.
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090/api/health"]
       interval: 10s

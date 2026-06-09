@@ -90,24 +90,56 @@ export class PocketBaseService implements OnModuleInit {
     )) as TypedPocketBase;
     this.pb.autoCancellation(false);
 
-    try {
-      // Use type assertion to access _superusers collection for admin auth
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (this.pb as any)
-        .collection('_superusers')
-        .authWithPassword(email, password, {
-          autoRefreshThreshold: 30 * 60, // 30 minutes
-        });
+    // On a fresh deploy PocketBase may not be reachable yet, or the superuser
+    // may not be seeded yet, when the worker boots. Retry with exponential
+    // backoff instead of throwing on the first failure (which would crash-loop
+    // the pod).
+    const maxRetries =
+      this.configService.get<number>('pocketbase.connectMaxRetries') ?? 30;
+    const baseDelayMs =
+      this.configService.get<number>('pocketbase.connectRetryDelayMs') ?? 2000;
+    const maxDelayMs =
+      this.configService.get<number>('pocketbase.connectRetryMaxDelayMs') ??
+      15000;
 
-      this.logger.log(`Connected to PocketBase at ${url}`);
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      attempt++;
+      try {
+        // Use type assertion to access _superusers collection for admin auth
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (this.pb as any)
+          .collection('_superusers')
+          .authWithPassword(email, password, {
+            autoRefreshThreshold: 30 * 60, // 30 minutes
+          });
 
-      // Initialize all mutators
-      this.initializeMutators();
-    } catch (error) {
-      this.logger.error(
-        `Failed to connect to PocketBase: ${error instanceof Error ? error.message : String(error)}`
-      );
-      throw error;
+        this.logger.log(`Connected to PocketBase at ${url}`);
+
+        // Initialize all mutators
+        this.initializeMutators();
+        return;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+
+        if (attempt >= maxRetries) {
+          this.logger.error(
+            `Failed to connect to PocketBase at ${url} after ${attempt} attempt(s): ${message}`
+          );
+          throw error;
+        }
+
+        const delayMs = Math.min(
+          baseDelayMs * 2 ** (attempt - 1),
+          maxDelayMs
+        );
+        this.logger.warn(
+          `PocketBase not ready (attempt ${attempt}/${maxRetries}): ${message}. Retrying in ${delayMs}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
   }
 

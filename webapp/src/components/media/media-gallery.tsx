@@ -30,6 +30,7 @@ import {
 import { DirectorySelector } from '@/components/uploads/directory-selector';
 import { Film, FolderInput, FolderOpen, Trash2, X } from 'lucide-react';
 import { MediaCard } from './media-card';
+import { MediaTypeIcon, getMediaTypeLabel } from './media-type-icon';
 import { useState } from 'react';
 
 interface MediaGalleryProps {
@@ -38,6 +39,7 @@ interface MediaGalleryProps {
   onMediaClick?: (media: Media) => void;
   className?: string;
   directoryFilter?: string | null;
+  mediaTypeFilter?: string;
   processingMediaIds?: Set<string>;
   // Multi-select props
   selectedIds?: Set<string>;
@@ -57,6 +59,7 @@ export function MediaGallery({
   onMediaClick,
   className,
   directoryFilter,
+  mediaTypeFilter,
   processingMediaIds,
   selectedIds,
   onSelectionClick,
@@ -72,6 +75,8 @@ export function MediaGallery({
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const selectionCount = selectedIds?.size ?? 0;
   const hasSelection = selectionCount > 0;
+  const typeFilterActive = !!mediaTypeFilter && mediaTypeFilter !== 'all';
+  const typeFilterLabel = getMediaTypeLabel(mediaTypeFilter);
 
   const handleConfirmDelete = async () => {
     if (onBulkDelete) {
@@ -198,19 +203,30 @@ export function MediaGallery({
             <Empty>
               <EmptyHeader>
                 <EmptyMediaIcon variant="icon">
-                  {directoryFilter ? (
+                  {typeFilterActive ? (
+                    <MediaTypeIcon
+                      mediaType={mediaTypeFilter}
+                      className="h-6 w-6"
+                    />
+                  ) : directoryFilter ? (
                     <FolderOpen className="h-6 w-6" />
                   ) : (
                     <Film className="h-6 w-6" />
                   )}
                 </EmptyMediaIcon>
                 <EmptyTitle>
-                  {directoryFilter ? 'This folder is empty' : 'No media yet'}
+                  {typeFilterActive
+                    ? `No ${typeFilterLabel.toLowerCase()} here`
+                    : directoryFilter
+                      ? 'This folder is empty'
+                      : 'No media yet'}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {directoryFilter
-                    ? 'Upload files to this folder or move existing media here'
-                    : 'Upload videos to see them in your media library'}
+                  {typeFilterActive
+                    ? 'Try a different media type or upload more files'
+                    : directoryFilter
+                      ? 'Upload files to this folder or move existing media here'
+                      : 'Upload videos to see them in your media library'}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>

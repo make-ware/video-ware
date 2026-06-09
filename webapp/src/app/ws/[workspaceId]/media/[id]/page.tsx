@@ -16,13 +16,17 @@ import {
   ArrowLeft,
   RefreshCw,
   Calendar,
-  FileVideo,
   Clock,
   Scissors,
   Eye,
   Info,
   Trash2,
 } from 'lucide-react';
+import {
+  MediaTypeBadge,
+  MediaTypeIcon,
+  getMediaTypeLabel,
+} from '@/components/media';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TranscriptList } from '@/components/transcripts/transcript-list';
@@ -229,6 +233,18 @@ function MediaDetailsPageContent() {
     );
   }
 
+  const mediaData = (media.mediaData ?? {}) as Record<string, unknown>;
+  const audioData = mediaData.audio as Record<string, unknown> | undefined;
+  const isAudio = media.mediaType === 'audio';
+  const isImage = media.mediaType === 'image';
+
+  const formatChannels = (channels?: number): string => {
+    if (channels === 1) return 'Mono';
+    if (channels === 2) return 'Stereo';
+    if (typeof channels === 'number') return `${channels} ch`;
+    return 'N/A';
+  };
+
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-7xl">
       {/* Header */}
@@ -243,18 +259,26 @@ function MediaDetailsPageContent() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2 truncate">
-              {media.expand?.UploadRef?.name || 'Untitled Media'}
+            <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">
+              <span className="truncate">
+                {media.expand?.UploadRef?.name || 'Untitled Media'}
+              </span>
+              <MediaTypeBadge
+                mediaType={media.mediaType}
+                className="shrink-0 bg-secondary text-secondary-foreground"
+              />
             </h1>
             <div className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2 sm:gap-4 mt-1">
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
                 {new Date(media.created).toLocaleDateString()}
               </span>
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {media.duration.toFixed(1)}s
-              </span>
+              {media.duration > 0 && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {media.duration.toFixed(1)}s
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -326,7 +350,9 @@ function MediaDetailsPageContent() {
                 <div className="flex items-center justify-between min-h-[2.5rem]">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Eye className="h-4 w-4 text-primary" />
-                    <span className="hidden sm:inline">Viewing Media</span>
+                    <span className="hidden sm:inline">
+                      Viewing {getMediaTypeLabel(media.mediaType)}
+                    </span>
                   </div>
                 </div>
 
@@ -378,7 +404,7 @@ function MediaDetailsPageContent() {
           <Card className="hidden sm:block">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <FileVideo className="h-5 w-5" />
+                <MediaTypeIcon mediaType={media.mediaType} className="h-5 w-5" />
                 File Details
               </CardTitle>
             </CardHeader>
@@ -389,36 +415,69 @@ function MediaDetailsPageContent() {
                   {media.mediaType || 'N/A'}
                 </span>
               </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">
-                  Dimensions
-                </span>
-                <span className="font-medium">
-                  {
-                    (media.mediaData as Record<string, unknown>)
-                      ?.width as number
-                  }{' '}
-                  x{' '}
-                  {
-                    (media.mediaData as Record<string, unknown>)
-                      ?.height as number
-                  }
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Codec</span>
-                <span className="font-medium">
-                  {((media.mediaData as Record<string, unknown>)
-                    ?.codec as string) || 'N/A'}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">FPS</span>
-                <span className="font-medium">
-                  {((media.mediaData as Record<string, unknown>)
-                    ?.fps as number) || 'N/A'}
-                </span>
-              </div>
+
+              {isAudio ? (
+                <>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">
+                      Codec
+                    </span>
+                    <span className="font-medium">
+                      {(audioData?.codec as string) ||
+                        (mediaData.codec as string) ||
+                        'N/A'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">
+                      Sample Rate
+                    </span>
+                    <span className="font-medium">
+                      {audioData?.sampleRate
+                        ? `${audioData.sampleRate} Hz`
+                        : 'N/A'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">
+                      Channels
+                    </span>
+                    <span className="font-medium">
+                      {formatChannels(audioData?.channels as number | undefined)}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">
+                      Dimensions
+                    </span>
+                    <span className="font-medium">
+                      {(mediaData.width as number) ?? '—'} x{' '}
+                      {(mediaData.height as number) ?? '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block mb-1">
+                      Codec
+                    </span>
+                    <span className="font-medium">
+                      {(mediaData.codec as string) || 'N/A'}
+                    </span>
+                  </div>
+                  {!isImage && (
+                    <div>
+                      <span className="text-muted-foreground block mb-1">
+                        FPS
+                      </span>
+                      <span className="font-medium">
+                        {(mediaData.fps as number) || 'N/A'}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

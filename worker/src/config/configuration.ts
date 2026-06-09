@@ -75,6 +75,22 @@ export default () => {
       url: process.env.POCKETBASE_URL,
       adminEmail: process.env.POCKETBASE_ADMIN_EMAIL,
       adminPassword: process.env.POCKETBASE_ADMIN_PASSWORD,
+      // Startup auth retry: PocketBase may not be reachable yet (or the
+      // superuser may not be seeded yet) when the worker boots, especially on
+      // a fresh k8s deploy. Retry with exponential backoff instead of
+      // crash-looping the pod.
+      connectMaxRetries: parseInt(
+        process.env.POCKETBASE_CONNECT_MAX_RETRIES || '30',
+        10
+      ),
+      connectRetryDelayMs: parseInt(
+        process.env.POCKETBASE_CONNECT_RETRY_DELAY_MS || '2000',
+        10
+      ),
+      connectRetryMaxDelayMs: parseInt(
+        process.env.POCKETBASE_CONNECT_RETRY_MAX_DELAY_MS || '15000',
+        10
+      ),
     },
 
     storage: {

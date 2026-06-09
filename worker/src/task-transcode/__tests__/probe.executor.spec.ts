@@ -145,6 +145,56 @@ describe('Probe Step Storage Integration', () => {
       expect(ffmpegService.probe).toHaveBeenCalledWith(resolvedPath);
     });
 
+    it('should probe audio-only files without throwing', async () => {
+      // Arrange: ffprobe reports a single audio stream, no video
+      (ffmpegService.probe as Mock).mockResolvedValueOnce({
+        format: {
+          duration: 110.05,
+          size: 1760000,
+          bit_rate: 128000,
+          format_name: 'mp3',
+          tags: {},
+        },
+        streams: [
+          {
+            codec_type: 'audio',
+            codec_name: 'mp3',
+            channels: 2,
+            sample_rate: '44100',
+            bit_rate: '128000',
+          },
+        ],
+      });
+
+      // Act
+      const { probeOutput } = await probeExecutor.execute('/tmp/song.mp3');
+
+      // Assert: no video block, audio populated, zeroed dimensions
+      expect(probeOutput.video).toBeUndefined();
+      expect(probeOutput.width).toBe(0);
+      expect(probeOutput.height).toBe(0);
+      expect(probeOutput.fps).toBe(0);
+      expect(probeOutput.duration).toBeCloseTo(110.05);
+      expect(probeOutput.codec).toBe('mp3');
+      expect(probeOutput.audio).toEqual({
+        codec: 'mp3',
+        channels: 2,
+        sampleRate: '44100',
+        bitrate: 128000,
+      });
+    });
+
+    it('should throw when no audio or video stream is present', async () => {
+      (ffmpegService.probe as Mock).mockResolvedValueOnce({
+        format: { duration: 0, tags: {} },
+        streams: [],
+      });
+
+      await expect(probeExecutor.execute('/tmp/empty.bin')).rejects.toThrow(
+        'No video or audio stream found in input file'
+      );
+    });
+
     it('should handle S3 storage configuration (Download to Temp)', async () => {
       // Arrange: Config is S3
       (configService.get as Mock).mockImplementation((key, defaultVal) => {

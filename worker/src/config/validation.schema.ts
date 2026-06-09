@@ -41,6 +41,9 @@ export const validationSchema = Joi.object({
     'string.min': 'POCKETBASE_ADMIN_PASSWORD must be at least 8 characters',
     'any.required': 'POCKETBASE_ADMIN_PASSWORD is required',
   }),
+  POCKETBASE_CONNECT_MAX_RETRIES: Joi.string().optional(),
+  POCKETBASE_CONNECT_RETRY_DELAY_MS: Joi.string().optional(),
+  POCKETBASE_CONNECT_RETRY_MAX_DELAY_MS: Joi.string().optional(),
 
   // Worker concurrency configuration
   WORKER_CONCURRENCY: Joi.string().optional(),

@@ -12,7 +12,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Film } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { MediaGallery } from '@/components/media';
+import {
+  MediaGallery,
+  MediaTypeFilter,
+  mediaTypeFilterPredicate,
+} from '@/components/media';
 import { DirectoryBrowser } from '@/components/media/directory-browser';
 import type { Media } from '@project/shared';
 import { MediaMutator } from '@project/shared/mutator';
@@ -35,13 +39,32 @@ function MediaPageContent() {
   const searchParams = useSearchParams();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<string>(
+    searchParams.get('type') ?? 'all'
+  );
   const mediaMutator = useMemo(() => new MediaMutator(pb), []);
 
-  // Sync URL → context when browser navigates back/forward
+  // Build a URL that preserves both the directory and media-type filters
+  const buildMediaUrl = useCallback(
+    (dir: string | null, type: string) => {
+      const params = new URLSearchParams();
+      if (dir) params.set('dir', dir);
+      if (type && type !== 'all') params.set('type', type);
+      const qs = params.toString();
+      return qs ? `${pathname}?${qs}` : pathname;
+    },
+    [pathname]
+  );
+
+  // Sync URL → state when browser navigates back/forward
   useEffect(() => {
     const dirParam = searchParams.get('dir');
     if (dirParam !== directoryFilter) {
       setDirectoryFilter(dirParam);
+    }
+    const typeParam = searchParams.get('type') ?? 'all';
+    if (typeParam !== mediaTypeFilter) {
+      setMediaTypeFilter(typeParam);
     }
   }, [searchParams, setDirectoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -49,15 +72,32 @@ function MediaPageContent() {
   const handleDirectoryFilterChange = useCallback(
     (filter: string | null) => {
       setDirectoryFilter(filter);
-      const url = filter
-        ? `${pathname}?dir=${encodeURIComponent(filter)}`
-        : pathname;
-      window.history.replaceState(null, '', url);
+      window.history.replaceState(null, '', buildMediaUrl(filter, mediaTypeFilter));
     },
-    [setDirectoryFilter, pathname]
+    [setDirectoryFilter, buildMediaUrl, mediaTypeFilter]
   );
 
-  const mediaIds = useMemo(() => media.map((m) => m.id), [media]);
+  const handleMediaTypeFilterChange = useCallback(
+    (type: string) => {
+      setMediaTypeFilter(type);
+      window.history.replaceState(
+        null,
+        '',
+        buildMediaUrl(directoryFilter, type)
+      );
+    },
+    [buildMediaUrl, directoryFilter]
+  );
+
+  const filteredMedia = useMemo(() => {
+    const predicate = mediaTypeFilterPredicate(mediaTypeFilter);
+    return media.filter((m) => predicate(m.mediaType));
+  }, [media, mediaTypeFilter]);
+
+  const mediaIds = useMemo(
+    () => filteredMedia.map((m) => m.id),
+    [filteredMedia]
+  );
 
   const {
     selectedIds,
@@ -156,21 +196,28 @@ function MediaPageContent() {
         </div>
       </div>
 
-      {/* Directory Browser */}
-      <div className="mb-4">
-        <DirectoryBrowser
-          workspaceId={currentWorkspace.id}
-          directoryFilter={directoryFilter}
-          onDirectoryFilterChange={handleDirectoryFilterChange}
+      {/* Filters: directory browser + media type */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <DirectoryBrowser
+            workspaceId={currentWorkspace.id}
+            directoryFilter={directoryFilter}
+            onDirectoryFilterChange={handleDirectoryFilterChange}
+          />
+        </div>
+        <MediaTypeFilter
+          value={mediaTypeFilter}
+          onChange={handleMediaTypeFilterChange}
         />
       </div>
 
       {/* Media */}
       <MediaGallery
-        media={media}
+        media={filteredMedia}
         isLoading={isLoading}
         onMediaClick={handleMediaClick}
         directoryFilter={directoryFilter}
+        mediaTypeFilter={mediaTypeFilter}
         processingMediaIds={processingMediaIds}
         selectedIds={selectedIds}
         onSelectionClick={handleSelectionClick}

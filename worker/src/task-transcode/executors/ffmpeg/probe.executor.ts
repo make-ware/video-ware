@@ -70,49 +70,76 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
     const videoStream = result.streams.find((s) => s.codec_type === 'video');
     const audioStream = result.streams.find((s) => s.codec_type === 'audio');
 
-    if (!videoStream) {
-      throw new Error('No video stream found in input file');
+    if (!videoStream && !audioStream) {
+      throw new Error('No video or audio stream found in input file');
     }
 
-    const width = videoStream.width || 0;
-    const height = videoStream.height || 0;
-    const rotation = this.extractRotation(videoStream);
-    const { displayWidth, displayHeight } = this.getDisplayDimensions(
-      width,
-      height,
-      rotation
-    );
+    // Common container-level fields, shared by video and audio-only inputs.
+    const duration = parseFloat(String(result.format.duration || 0));
+    const bitrate = result.format.bit_rate
+      ? parseInt(String(result.format.bit_rate))
+      : undefined;
+    const format = result.format.format_name || 'unknown';
+    const size = result.format.size
+      ? parseInt(String(result.format.size))
+      : undefined;
 
-    const probeOutput: ProbeOutput = {
-      duration: parseFloat(String(result.format.duration || 0)),
-      width,
-      height,
-      displayWidth,
-      displayHeight,
-      rotation,
-      codec: videoStream.codec_name || 'unknown',
-      fps: this.parseFps(
-        videoStream.r_frame_rate || videoStream.avg_frame_rate
-      ),
-      bitrate: result.format.bit_rate
-        ? parseInt(String(result.format.bit_rate))
-        : undefined,
-      format: result.format.format_name || 'unknown',
-      size: result.format.size
-        ? parseInt(String(result.format.size))
-        : undefined,
-      video: {
-        codec: videoStream.codec_name || 'unknown',
-        profile: videoStream.profile || undefined,
+    let probeOutput: ProbeOutput;
+
+    if (videoStream) {
+      const width = videoStream.width || 0;
+      const height = videoStream.height || 0;
+      const rotation = this.extractRotation(videoStream);
+      const { displayWidth, displayHeight } = this.getDisplayDimensions(
         width,
         height,
-        aspectRatio: videoStream.display_aspect_ratio || undefined,
-        pixFmt: videoStream.pix_fmt || undefined,
-        level: videoStream.level?.toString() || undefined,
-        colorSpace: videoStream.color_space || undefined,
+        rotation
+      );
+
+      probeOutput = {
+        duration,
+        width,
+        height,
+        displayWidth,
+        displayHeight,
         rotation,
-      },
-    };
+        codec: videoStream.codec_name || 'unknown',
+        fps: this.parseFps(
+          videoStream.r_frame_rate || videoStream.avg_frame_rate
+        ),
+        bitrate,
+        format,
+        size,
+        video: {
+          codec: videoStream.codec_name || 'unknown',
+          profile: videoStream.profile || undefined,
+          width,
+          height,
+          aspectRatio: videoStream.display_aspect_ratio || undefined,
+          pixFmt: videoStream.pix_fmt || undefined,
+          level: videoStream.level?.toString() || undefined,
+          colorSpace: videoStream.color_space || undefined,
+          rotation,
+        },
+      };
+    } else {
+      // Audio-only input (e.g. mp3, wav): no video stream. Leave the `video`
+      // block undefined so downstream code (ProbeStepProcessor) classifies it
+      // as MediaType.AUDIO.
+      probeOutput = {
+        duration,
+        width: 0,
+        height: 0,
+        displayWidth: 0,
+        displayHeight: 0,
+        rotation: 0,
+        codec: audioStream?.codec_name || 'unknown',
+        fps: 0,
+        bitrate,
+        format,
+        size,
+      };
+    }
 
     if (audioStream) {
       probeOutput.audio = {

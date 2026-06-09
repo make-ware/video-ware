@@ -4,11 +4,12 @@ import type { Media, MediaRelations, Expanded } from '@project/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Film, Clock, Maximize2, Music, Loader2 } from 'lucide-react';
+import { Clock, Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import pb from '@/lib/pocketbase-client';
 import { MediaType } from '@project/shared';
 import { SpriteAnimator } from '../sprite/sprite-animator';
+import { MediaTypeBadge, MediaTypeIcon } from './media-type-icon';
 
 interface MediaCardProps<
   E extends keyof MediaRelations = keyof MediaRelations,
@@ -89,6 +90,7 @@ export function MediaCard({
 
   const thumbnailUrl = getThumbnailUrl();
   const dimensions = getDimensions();
+  const isAudio = media.mediaType === MediaType.AUDIO;
 
   // Get title from upload name (check both possible expand paths)
   const uploadName =
@@ -139,6 +141,21 @@ export function MediaCard({
             />
           </div>
         )}
+
+        {/* Media type indicator */}
+        <div
+          className={cn(
+            'absolute z-10',
+            compact ? 'top-1 right-1' : 'top-2 right-2'
+          )}
+        >
+          <MediaTypeBadge
+            mediaType={media.mediaType}
+            iconOnly={compact}
+            className={compact ? 'text-[10px]' : 'text-xs'}
+          />
+        </div>
+
         {thumbnailUrl ? (
           <>
             {/* Static thumbnail */}
@@ -171,43 +188,44 @@ export function MediaCard({
             )}
           </>
         ) : (
-          <div className="flex items-center justify-center h-full">
-            {media.mediaType === MediaType.AUDIO ? (
-              <Music
-                className={cn(
-                  compact ? 'h-6 w-6' : 'h-12 w-12',
-                  'text-muted-foreground'
-                )}
-              />
-            ) : (
-              <Film
-                className={cn(
-                  compact ? 'h-6 w-6' : 'h-12 w-12',
-                  'text-muted-foreground'
-                )}
-              />
+          <div
+            className={cn(
+              'flex items-center justify-center h-full',
+              isAudio
+                ? 'bg-gradient-to-br from-primary/15 to-primary/5'
+                : 'bg-muted'
             )}
+          >
+            <MediaTypeIcon
+              mediaType={media.mediaType}
+              className={cn(
+                compact ? 'h-6 w-6' : 'h-12 w-12',
+                isAudio ? 'text-primary/70' : 'text-muted-foreground'
+              )}
+            />
           </div>
         )}
 
-        {/* Duration badge */}
-        <div
-          className={cn(
-            'absolute',
-            compact ? 'bottom-1 right-1' : 'bottom-2 right-2'
-          )}
-        >
-          <Badge
-            variant="secondary"
+        {/* Duration badge (videos/audio only — images have no duration) */}
+        {media.duration > 0 && (
+          <div
             className={cn(
-              'bg-black/80 text-white',
-              compact && 'text-[10px] px-1 py-0'
+              'absolute',
+              compact ? 'bottom-1 right-1' : 'bottom-2 right-2'
             )}
           >
-            {!compact && <Clock className="h-3 w-3 mr-1" />}
-            {formatDuration(media.duration)}
-          </Badge>
-        </div>
+            <Badge
+              variant="secondary"
+              className={cn(
+                'bg-black/80 text-white',
+                compact && 'text-[10px] px-1 py-0'
+              )}
+            >
+              {!compact && <Clock className="h-3 w-3 mr-1" />}
+              {formatDuration(media.duration)}
+            </Badge>
+          </div>
+        )}
 
         {/* Processing indicator */}
         {isProcessing && (
@@ -238,7 +256,8 @@ export function MediaCard({
         {/* Media type and dimensions badges */}
         {!compact && (
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs capitalize gap-1">
+              <MediaTypeIcon mediaType={media.mediaType} className="h-3 w-3" />
               {media.mediaType}
             </Badge>
             {dimensions.width && dimensions.height && (

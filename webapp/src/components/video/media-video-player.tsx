@@ -1,12 +1,14 @@
 'use client';
 
 import React, { forwardRef } from 'react';
-import type {
-  Media,
-  MediaRelations,
-  Expanded,
-  MediaClip,
+import {
+  MediaType,
+  type Media,
+  type MediaRelations,
+  type Expanded,
+  type MediaClip,
 } from '@project/shared';
+import { Music } from 'lucide-react';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { VideoPlayerUI } from './video-player-ui';
 
@@ -33,6 +35,13 @@ export const MediaVideoPlayer = forwardRef<
       media,
       clip
     );
+
+    const isAudio = media.mediaType === MediaType.AUDIO;
+    const audioPlaceholder = isAudio ? (
+      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 via-background to-primary/10">
+        <Music className="h-16 w-16 text-primary/60" />
+      </div>
+    ) : undefined;
 
     if (isLoading) {
       return (
@@ -63,6 +72,7 @@ export const MediaVideoPlayer = forwardRef<
         endTime={endTime}
         autoPlay={autoPlay}
         className={className}
+        placeholder={audioPlaceholder}
         onTimeUpdate={onTimeUpdate}
       >
         {children}

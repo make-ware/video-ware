@@ -17,7 +17,6 @@ export * from './timeline.js';
 export * from './timeline-track.js';
 export * from './upload.js';
 export * from './user.js';
-export * from './watched-file.js';
 export * from './workspace-member.js';
 export * from './workspace.js';
 export * from './usage-events.js';

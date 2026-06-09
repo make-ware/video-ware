@@ -72,7 +72,11 @@ function MediaPageContent() {
   const handleDirectoryFilterChange = useCallback(
     (filter: string | null) => {
       setDirectoryFilter(filter);
-      window.history.replaceState(null, '', buildMediaUrl(filter, mediaTypeFilter));
+      window.history.replaceState(
+        null,
+        '',
+        buildMediaUrl(filter, mediaTypeFilter)
+      );
     },
     [setDirectoryFilter, buildMediaUrl, mediaTypeFilter]
   );

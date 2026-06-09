@@ -32,7 +32,6 @@ import {
   TimelineRenderMutator,
   UploadMutator,
   UserMutator,
-  WatchedFileMutator,
   WorkspaceMutator,
 } from '@project/shared';
 import { PocketBaseClientService } from './pocketbase-client.service';
@@ -55,7 +54,6 @@ export class PocketBaseService implements OnModuleInit {
   public timelineRenderMutator!: TimelineRenderMutator;
   public uploadMutator!: UploadMutator;
   public userMutator!: UserMutator;
-  public watchedFileMutator!: WatchedFileMutator;
   public workspaceMutator!: WorkspaceMutator;
   public labelTrackMutator!: LabelTrackMutator;
   public labelFaceMutator!: LabelFaceMutator;
@@ -103,7 +101,7 @@ export class PocketBaseService implements OnModuleInit {
       15000;
 
     let attempt = 0;
-    // eslint-disable-next-line no-constant-condition
+
     while (true) {
       attempt++;
       try {
@@ -121,8 +119,7 @@ export class PocketBaseService implements OnModuleInit {
         this.initializeMutators();
         return;
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
 
         if (attempt >= maxRetries) {
           this.logger.error(
@@ -131,10 +128,7 @@ export class PocketBaseService implements OnModuleInit {
           throw error;
         }
 
-        const delayMs = Math.min(
-          baseDelayMs * 2 ** (attempt - 1),
-          maxDelayMs
-        );
+        const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
         this.logger.warn(
           `PocketBase not ready (attempt ${attempt}/${maxRetries}): ${message}. Retrying in ${delayMs}ms...`
         );
@@ -162,7 +156,6 @@ export class PocketBaseService implements OnModuleInit {
     this.timelineRenderMutator = new TimelineRenderMutator(this.pb);
     this.uploadMutator = new UploadMutator(this.pb);
     this.userMutator = new UserMutator(this.pb);
-    this.watchedFileMutator = new WatchedFileMutator(this.pb);
     this.workspaceMutator = new WorkspaceMutator(this.pb);
 
     this.logger.log('All mutators initialized successfully');

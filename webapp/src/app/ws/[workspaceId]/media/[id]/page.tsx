@@ -404,7 +404,10 @@ function MediaDetailsPageContent() {
           <Card className="hidden sm:block">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <MediaTypeIcon mediaType={media.mediaType} className="h-5 w-5" />
+                <MediaTypeIcon
+                  mediaType={media.mediaType}
+                  className="h-5 w-5"
+                />
                 File Details
               </CardTitle>
             </CardHeader>
@@ -443,7 +446,9 @@ function MediaDetailsPageContent() {
                       Channels
                     </span>
                     <span className="font-medium">
-                      {formatChannels(audioData?.channels as number | undefined)}
+                      {formatChannels(
+                        audioData?.channels as number | undefined
+                      )}
                     </span>
                   </div>
                 </>

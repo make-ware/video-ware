@@ -41,10 +41,6 @@ export const validationSchema = Joi.object({
     'string.min': 'POCKETBASE_ADMIN_PASSWORD must be at least 8 characters',
     'any.required': 'POCKETBASE_ADMIN_PASSWORD is required',
   }),
-  POCKETBASE_CONNECT_MAX_RETRIES: Joi.string().optional(),
-  POCKETBASE_CONNECT_RETRY_DELAY_MS: Joi.string().optional(),
-  POCKETBASE_CONNECT_RETRY_MAX_DELAY_MS: Joi.string().optional(),
-
   // Worker concurrency configuration
   WORKER_CONCURRENCY: Joi.string().optional(),
   WORKER_CONCURRENCY_TRANSCODE: Joi.string().optional(),
@@ -72,11 +68,6 @@ export const validationSchema = Joi.object({
   ENABLE_FACE_DETECTION: Joi.string().optional(),
   ENABLE_PERSON_DETECTION: Joi.string().optional(),
   ENABLE_SPEECH_TRANSCRIPTION: Joi.string().optional(),
-
-  // S3 Watcher configuration
-  ENABLE_S3_WATCHER: Joi.string().optional(),
-  S3_WATCHER_POLL_INTERVAL: Joi.string().optional(),
-  S3_WATCHER_PATHS: Joi.string().optional(),
 
   // Google Cloud configuration
   GOOGLE_PROJECT_ID: Joi.string().optional(),

@@ -388,11 +388,12 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # Storage Configuration
-S3_ENDPOINT=your-s3-endpoint
-S3_ACCESS_KEY_ID=your-access-key
-S3_SECRET_ACCESS_KEY=your-secret-key
-S3_BUCKET=your-bucket-name
-S3_REGION=us-east-1
+STORAGE_TYPE=s3
+STORAGE_S3_ENDPOINT=your-s3-endpoint
+STORAGE_S3_ACCESS_KEY_ID=your-access-key
+STORAGE_S3_SECRET_ACCESS_KEY=your-secret-key
+STORAGE_S3_BUCKET=your-bucket-name
+STORAGE_S3_REGION=us-east-1
 
 # Google Cloud Configuration (optional)
 GOOGLE_PROJECT_ID=your-gcp-project-id

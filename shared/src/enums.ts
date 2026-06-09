@@ -41,14 +41,6 @@ export enum StorageBackendType {
   S3 = 's3',
 }
 
-export enum WatchedFileStatus {
-  PENDING = 'pending',
-  PROCESSING = 'processing',
-  COMPLETED = 'completed',
-  FAILED = 'failed',
-  SKIPPED = 'skipped',
-}
-
 export enum FileStatus {
   PENDING = 'pending',
   AVAILABLE = 'available',

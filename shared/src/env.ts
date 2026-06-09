@@ -51,11 +51,12 @@ export const envSchema = z.object({
   // ===========================================
   // S3 Storage Configuration (Optional)
   // ===========================================
-  S3_ENDPOINT: z.string().optional(),
-  S3_ACCESS_KEY: z.string().optional(),
-  S3_SECRET_KEY: z.string().optional(),
-  S3_BUCKET: z.string().optional(),
-  S3_REGION: z.string().default('us-east-1'),
+  STORAGE_S3_ENDPOINT: z.string().optional(),
+  STORAGE_S3_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  STORAGE_S3_BUCKET: z.string().optional(),
+  STORAGE_S3_REGION: z.string().default('us-east-1'),
+  STORAGE_S3_FORCE_PATH_STYLE: z.string().optional(),
 
   // ===========================================
   // Monitoring & Behavior

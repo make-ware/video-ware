@@ -79,18 +79,9 @@ export default () => {
       // superuser may not be seeded yet) when the worker boots, especially on
       // a fresh k8s deploy. Retry with exponential backoff instead of
       // crash-looping the pod.
-      connectMaxRetries: parseInt(
-        process.env.POCKETBASE_CONNECT_MAX_RETRIES || '30',
-        10
-      ),
-      connectRetryDelayMs: parseInt(
-        process.env.POCKETBASE_CONNECT_RETRY_DELAY_MS || '2000',
-        10
-      ),
-      connectRetryMaxDelayMs: parseInt(
-        process.env.POCKETBASE_CONNECT_RETRY_MAX_DELAY_MS || '15000',
-        10
-      ),
+      connectMaxRetries: 30,
+      connectRetryDelayMs: 2000,
+      connectRetryMaxDelayMs: 15000,
     },
 
     storage: {
@@ -118,15 +109,6 @@ export default () => {
       enablePersonDetection: process.env.ENABLE_PERSON_DETECTION === 'true',
       enableSpeechTranscription:
         process.env.ENABLE_SPEECH_TRANSCRIPTION === 'true',
-    },
-
-    watcher: {
-      enabled: process.env.ENABLE_S3_WATCHER === 'true',
-      pollInterval: parseInt(
-        process.env.S3_WATCHER_POLL_INTERVAL || '60000',
-        10
-      ),
-      watchPaths: process.env.S3_WATCHER_PATHS?.split(',') || [],
     },
 
     google: {

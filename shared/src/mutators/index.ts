@@ -19,7 +19,6 @@ export { LabelShotMutator } from './label-shot';
 export { LabelObjectMutator } from './label-objects';
 export { LabelPersonMutator } from './label-person';
 export { TaskMutator } from './task';
-export { WatchedFileMutator } from './watched-file';
 
 // Timeline and clip mutators
 export { TimelineMutator } from './timeline';

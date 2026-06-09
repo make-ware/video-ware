@@ -14,7 +14,6 @@ import type { WorkspaceMember } from '../schema/workspace-member';
 import type { Timeline } from '../schema/timeline';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
-import type { WatchedFile } from '../schema/watched-file';
 import type { LabelEntity } from '../schema/label-entity';
 import { LabelTrack } from '../schema/label-track';
 import { LabelSpeech } from '../schema/label-speech';
@@ -55,7 +54,6 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'Timelines'): RecordService<Timeline>;
   collection(idOrName: 'Uploads'): RecordService<Upload>;
   collection(idOrName: 'Users'): RecordService<User>;
-  collection(idOrName: 'WatchedFiles'): RecordService<WatchedFile>;
   collection(idOrName: 'WorkspaceMembers'): RecordService<WorkspaceMember>;
   collection(idOrName: 'Workspaces'): RecordService<Workspace>;
   collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;

@@ -69,17 +69,6 @@ export interface UploadProgress {
 }
 
 /**
- * Configuration for S3 directory watcher
- */
-export interface WatcherConfig {
-  enabled: boolean;
-  prefix: string;
-  workspaceId: string;
-  intervalSeconds: number;
-  reprocessModified: boolean;
-}
-
-/**
  * Storage backend interface - all storage implementations must implement this
  */
 export interface StorageBackend {

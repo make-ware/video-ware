@@ -38,7 +38,6 @@ export const MediaClipInputSchema = z.object({
     ClipType.PERSON,
     ClipType.FACE,
     ClipType.SPEECH,
-    ClipType.RECOMMENDATION,
     ClipType.COMPOSITE,
   ]),
   start: NumberField({ min: 0 }),

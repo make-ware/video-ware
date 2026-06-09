@@ -1,9 +1,5 @@
 import { TranscodeStepType } from '@project/shared';
-import {
-  RenderStepType,
-  DetectLabelsStepType,
-  RecommendationStepType,
-} from '../types/step.types';
+import { RenderStepType, DetectLabelsStepType } from '../types/step.types';
 
 /**
  * Job options configuration for each step type
@@ -43,10 +39,6 @@ export const STEP_JOB_OPTIONS: Record<string, StepJobOptions> = {
 
   // Detect Labels steps
   [DetectLabelsStepType.UPLOAD_TO_GCS]: DEFAULT_OPTIONS,
-
-  // Recommendation steps
-  [RecommendationStepType.GENERATE_MEDIA_RECOMMENDATIONS]: DEFAULT_OPTIONS,
-  [RecommendationStepType.GENERATE_TIMELINE_RECOMMENDATIONS]: DEFAULT_OPTIONS,
 };
 
 /**

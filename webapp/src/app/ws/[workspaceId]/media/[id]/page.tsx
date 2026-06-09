@@ -6,9 +6,6 @@ import { useMediaDetails } from '@/hooks/use-media-details';
 import { MediaVideoPlayer } from '@/components/video/media-video-player';
 import { MediaClipsLibrary } from '@/components/library';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
-import { MediaRecommendationsPanel } from '@/components/recommendations/media-recommendations-panel';
-import { MediaRecommendationProvider } from '@/contexts/media-recommendation-context';
-import { useMediaRecommendations } from '@/hooks/use-media-recommendations';
 import { MediaClipPanel } from '@/components/clip/media-clip-panel';
 import {
   ClipTypeFilter,
@@ -31,7 +28,7 @@ import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TranscriptList } from '@/components/transcripts/transcript-list';
 import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
 import { cn } from '@/lib/utils';
-import { MediaClip, MediaRecommendation } from '@project/shared';
+import { MediaClip } from '@project/shared';
 import { ClipType } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import {
@@ -45,24 +42,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { MediaClipMutator } from '@project/shared/mutator';
 import { MediaService } from '@/services/media';
 import pb from '@/lib/pocketbase-client';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/hooks/use-workspace';
 
-function MediaDetailsPageContentWithRecommendations() {
+function MediaDetailsPageContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   const id = params.id as string;
   const { media, clips, isLoading, error, refresh } = useMediaDetails(id);
   const { currentWorkspace } = useWorkspace();
-  const {
-    recommendations,
-    isLoading: isLoadingRecommendations,
-    generateRecommendations,
-  } = useMediaRecommendations();
   const {
     transcripts,
     isLoading: _isLoadingTranscripts,
@@ -207,53 +198,8 @@ function MediaDetailsPageContentWithRecommendations() {
     );
   };
 
-  const handleCreateClipFromRecommendation = async (
-    recommendation: MediaRecommendation
-  ) => {
-    if (!media || !currentWorkspace) {
-      toast.error('Media or workspace not available');
-      return;
-    }
-
-    try {
-      const clipMutator = new MediaClipMutator(pb);
-      await clipMutator.createFromRecommendation(
-        recommendation,
-        'recommendation'
-      );
-
-      toast.success('Clip created from recommendation');
-      refresh(); // Refresh clips list
-    } catch (error) {
-      console.error('Failed to create clip from recommendation:', error);
-      toast.error('Failed to create clip', {
-        description:
-          error instanceof Error ? error.message : 'An unknown error occurred',
-      });
-    }
-  };
-
-  const handlePreviewRecommendation = (recommendation: MediaRecommendation) => {
-    // Jump to the start time of the recommendation
-    handleJumpToTime(recommendation.start);
-
-    // Optionally, set the time range in the video player by updating URL with a clip
-    // For now, just jumping to the start time
-  };
-
-  // Handle tab change - generate recommendations when recommendations tab becomes active
-  const handleTabChange = async (value: string) => {
+  const handleTabChange = (value: string) => {
     setActiveTab(value);
-
-    // If switching to recommendations tab and no recommendations exist, generate them
-    if (
-      value === 'recommendations' &&
-      (!recommendations || recommendations.length === 0)
-    ) {
-      if (media && currentWorkspace) {
-        await generateRecommendations(media.id, currentWorkspace.id);
-      }
-    }
   };
 
   if (isLoading && !media) {
@@ -351,9 +297,9 @@ function MediaDetailsPageContentWithRecommendations() {
                 <AlertDialogTitle>Delete Media</AlertDialogTitle>
                 <AlertDialogDescription>
                   This will permanently delete this media and all associated
-                  data including labels, clips, recommendations, and files.
-                  Timeline clips referencing this media will be marked as
-                  missing. This action cannot be undone.
+                  data including labels, clips, and files. Timeline clips
+                  referencing this media will be marked as missing. This action
+                  cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -485,7 +431,6 @@ function MediaDetailsPageContentWithRecommendations() {
               onTabChange={handleTabChange}
               clipCount={filteredClips.length}
               transcriptCount={transcripts.length}
-              recommendationCount={recommendations.length}
               clipsContent={
                 <>
                   <div className="mb-3 flex items-center justify-between px-0">
@@ -511,15 +456,6 @@ function MediaDetailsPageContentWithRecommendations() {
                     onInlineEdit={handleOpenEditClip}
                   />
                 </>
-              }
-              recommendationsContent={
-                <MediaRecommendationsPanel
-                  recommendations={recommendations}
-                  media={media}
-                  isLoading={isLoadingRecommendations}
-                  onCreateClip={handleCreateClipFromRecommendation}
-                  onPreview={handlePreviewRecommendation}
-                />
               }
               transcriptsContent={
                 <TranscriptList
@@ -585,12 +521,5 @@ function MediaDetailsPageContentWithRecommendations() {
 }
 
 export default function MediaDetailsPage() {
-  const params = useParams();
-  const id = params.id as string;
-
-  return (
-    <MediaRecommendationProvider mediaId={id}>
-      <MediaDetailsPageContentWithRecommendations />
-    </MediaRecommendationProvider>
-  );
+  return <MediaDetailsPageContent />;
 }

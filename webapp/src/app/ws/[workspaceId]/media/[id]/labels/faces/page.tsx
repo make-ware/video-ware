@@ -54,7 +54,7 @@ export default function LabelFacesPage() {
         LabelType.FACE,
         'inspector'
       );
-      toast.success('Clip created and recommended');
+      toast.success('Clip created');
     } catch (err) {
       console.error(err);
       toast.error('Failed to create clip');

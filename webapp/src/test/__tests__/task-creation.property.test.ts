@@ -250,8 +250,6 @@ describe('Task Creation Property Tests', () => {
       const wrongTypes = [
         TaskType.DERIVE_CLIPS,
         TaskType.DETECT_LABELS,
-        TaskType.GENERATE_MEDIA_RECOMMENDATIONS,
-        TaskType.GENERATE_TIMELINE_RECOMMENDATIONS,
         TaskType.RENDER_TIMELINE,
       ];
 

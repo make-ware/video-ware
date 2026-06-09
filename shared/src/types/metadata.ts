@@ -175,49 +175,6 @@ export const TaskPayloadSchema = z.union([
     outputSettings: RenderTimelineConfigSchema,
     provider: z.string().optional(),
   }),
-  // GenerateTimelineRecommendationsPayload
-  z.object({
-    workspaceId: z.string(),
-    timelineId: z.string(),
-    seedClipId: z.string().optional(),
-    targetMode: z.string(),
-    strategies: z.array(z.string()),
-    strategyWeights: z.record(z.string(), z.number()).optional(),
-    searchParams: z
-      .object({
-        labelTypes: z.array(z.string()).optional(),
-        minConfidence: z.number().optional(),
-        durationRange: z
-          .object({
-            min: z.number(),
-            max: z.number(),
-          })
-          .optional(),
-        timeWindow: z.number().optional(),
-      })
-      .optional(),
-    maxResults: z.number().optional(),
-  }),
-  // GenerateMediaRecommendationsPayload
-  z.object({
-    workspaceId: z.string(),
-    mediaId: z.string(),
-    strategies: z.array(z.string()),
-    strategyWeights: z.record(z.string(), z.number()).optional(),
-    filterParams: z
-      .object({
-        labelTypes: z.array(z.string()).optional(),
-        minConfidence: z.number().optional(),
-        durationRange: z
-          .object({
-            min: z.number(),
-            max: z.number(),
-          })
-          .optional(),
-      })
-      .optional(),
-    maxResults: z.number().optional(),
-  }),
   // Generic fallback for unknown task types
   z.record(z.string(), z.unknown()),
 ]);
@@ -248,18 +205,6 @@ export const TaskResultSchema = z.union([
     mediaId: z.string(),
     fileId: z.string(),
     processorVersion: z.string(),
-  }),
-  // GenerateTimelineRecommendationsResult
-  z.object({
-    generated: z.number(),
-    pruned: z.number(),
-    queryHash: z.string(),
-  }),
-  // GenerateMediaRecommendationsResult
-  z.object({
-    generated: z.number(),
-    pruned: z.number(),
-    queryHash: z.string(),
   }),
   // Generic fallback for unknown task types
   z.record(z.string(), z.unknown()),

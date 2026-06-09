@@ -3,7 +3,6 @@
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { TimelineProvider } from '@/contexts/timeline-context';
-import { TimelineRecommendationProvider } from '@/contexts/timeline-recommendation-context';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { useParams } from 'next/navigation';
@@ -17,9 +16,7 @@ function TimelineEditorPageContent() {
 
   return (
     <TimelineProvider timelineId={timelineId}>
-      <TimelineRecommendationProvider timelineId={timelineId}>
-        <TimelineEditorLayout />
-      </TimelineRecommendationProvider>
+      <TimelineEditorLayout />
     </TimelineProvider>
   );
 }

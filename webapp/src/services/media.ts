@@ -14,7 +14,6 @@ import {
   LabelSegmentMutator,
   LabelSpeechMutator,
   LabelTrackMutator,
-  MediaRecommendationMutator,
   TimelineClipMutator,
 } from '@project/shared/mutator';
 import type {
@@ -71,7 +70,6 @@ export class MediaService {
   private labelSegmentMutator: LabelSegmentMutator;
   private labelSpeechMutator: LabelSpeechMutator;
   private labelTrackMutator: LabelTrackMutator;
-  private mediaRecommendationMutator: MediaRecommendationMutator;
   private timelineClipMutator: TimelineClipMutator;
 
   constructor(pb: TypedPocketBase) {
@@ -89,7 +87,6 @@ export class MediaService {
     this.labelSegmentMutator = new LabelSegmentMutator(pb);
     this.labelSpeechMutator = new LabelSpeechMutator(pb);
     this.labelTrackMutator = new LabelTrackMutator(pb);
-    this.mediaRecommendationMutator = new MediaRecommendationMutator(pb);
     this.timelineClipMutator = new TimelineClipMutator(pb);
   }
 
@@ -319,16 +316,7 @@ export class MediaService {
       );
     }
 
-    // 5. Delete media recommendations
-    try {
-      await this.deleteAllRecommendations(mediaId);
-    } catch (error) {
-      errors.push(
-        `Recommendations: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
-
-    // 6. Delete label jobs (query without expand to avoid 400 on stale TaskRef)
+    // 5. Delete label jobs (query without expand to avoid 400 on stale TaskRef)
     try {
       await this.deleteAllLabelJobs(mediaId);
     } catch (error) {
@@ -499,27 +487,6 @@ export class MediaService {
       await Promise.allSettled(
         result.items.map((job) =>
           this.pb.collection('LabelJobs').delete(job.id)
-        )
-      );
-      if (result.items.length < 100) break;
-    }
-  }
-
-  /**
-   * Paginated fetch-and-delete for media recommendations
-   */
-  private async deleteAllRecommendations(mediaId: string): Promise<void> {
-    while (true) {
-      const result = await this.mediaRecommendationMutator.getByMedia(
-        mediaId,
-        undefined,
-        1,
-        100
-      );
-      if (result.items.length === 0) break;
-      await Promise.allSettled(
-        result.items.map((item) =>
-          this.mediaRecommendationMutator.delete(item.id)
         )
       );
       if (result.items.length < 100) break;

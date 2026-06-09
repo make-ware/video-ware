@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
+import { QueryProvider } from '@/contexts/query-provider';
 import { PocketBaseProvider } from '@/contexts/pocketbase-context';
 import { AuthProvider } from '@/contexts/auth-context';
 import { WorkspaceProvider } from '@/contexts/workspace-context';
@@ -35,24 +36,26 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <PocketBaseProvider>
-          <AuthProvider>
-            <WorkspaceProvider>
-              <UploadQueueProvider>
-                <ThemeProvider
-                  attribute="class"
-                  defaultTheme="system"
-                  enableSystem
-                  disableTransitionOnChange
-                >
-                  <NavigationBar />
-                  <main className="min-h-screen">{children}</main>
-                  <Toaster />
-                </ThemeProvider>
-              </UploadQueueProvider>
-            </WorkspaceProvider>
-          </AuthProvider>
-        </PocketBaseProvider>
+        <QueryProvider>
+          <PocketBaseProvider>
+            <AuthProvider>
+              <WorkspaceProvider>
+                <UploadQueueProvider>
+                  <ThemeProvider
+                    attribute="class"
+                    defaultTheme="system"
+                    enableSystem
+                    disableTransitionOnChange
+                  >
+                    <NavigationBar />
+                    <main className="min-h-screen">{children}</main>
+                    <Toaster />
+                  </ThemeProvider>
+                </UploadQueueProvider>
+              </WorkspaceProvider>
+            </AuthProvider>
+          </PocketBaseProvider>
+        </QueryProvider>
       </body>
     </html>
   );

@@ -133,7 +133,7 @@ export class TimelineService {
 
   /**
    * Delete timeline. PocketBase cascades the deletion to TimelineClips,
-   * TimelineTracks, TimelineRenders, and TimelineRecommendations.
+   * TimelineTracks, and TimelineRenders.
    * @param id Timeline ID
    */
   async deleteTimeline(id: string): Promise<void> {

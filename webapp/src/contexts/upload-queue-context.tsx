@@ -16,6 +16,7 @@ import React, {
   useReducer,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -41,7 +42,6 @@ import type { ChunkProgress } from '@/services/chunked-upload';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import pb from '@/lib/pocketbase-client';
-import { useMemo } from 'react';
 
 // Action types for the reducer
 type QueueAction =
@@ -502,86 +502,115 @@ export function UploadQueueProvider({
     saveQueueState(state);
   }, [state]);
 
-  // Actions
-  const actions: UploadManagerActions = {
-    addFiles: useCallback(
-      (files: File[], workspaceId: string, directoryId?: string) => {
-        dispatch({
-          type: 'ADD_FILES',
-          payload: { files, workspaceId, directoryId },
-        });
-      },
-      []
-    ),
-
-    pauseUpload: useCallback((id: string) => {
-      dispatch({ type: 'PAUSE_UPLOAD', payload: { id } });
-    }, []),
-
-    resumeUpload: useCallback((id: string) => {
-      dispatch({ type: 'RESUME_UPLOAD', payload: { id } });
-    }, []),
-
-    cancelUpload: useCallback((id: string) => {
-      // Abort active upload if any
-      const activeUpload = activeUploadsRef.current.get(id);
-      if (activeUpload) {
-        activeUpload.abort();
-        activeUploadsRef.current.delete(id);
-      }
-
-      dispatch({ type: 'CANCEL_UPLOAD', payload: { id } });
-      uploadStartTimes.current.delete(id);
-    }, []),
-
-    retryUpload: useCallback((id: string) => {
-      dispatch({ type: 'RETRY_UPLOAD', payload: { id } });
-    }, []),
-
-    pauseAll: useCallback(() => {
-      dispatch({ type: 'PAUSE_ALL' });
-    }, []),
-
-    resumeAll: useCallback(() => {
-      dispatch({ type: 'RESUME_ALL' });
-    }, []),
-
-    cancelAll: useCallback(() => {
-      // Abort all active uploads
-      activeUploadsRef.current.forEach((upload) => {
-        upload.abort();
+  // Actions — each callback is individually stable; the wrapping object is
+  // memoized so its identity doesn't change every render (which would churn
+  // every UploadQueue consumer via the context value).
+  const addFiles = useCallback(
+    (files: File[], workspaceId: string, directoryId?: string) => {
+      dispatch({
+        type: 'ADD_FILES',
+        payload: { files, workspaceId, directoryId },
       });
-      activeUploadsRef.current.clear();
+    },
+    []
+  );
 
-      dispatch({ type: 'CANCEL_ALL' });
-      uploadStartTimes.current.clear();
-    }, []),
+  const pauseUpload = useCallback((id: string) => {
+    dispatch({ type: 'PAUSE_UPLOAD', payload: { id } });
+  }, []);
 
-    removeUpload: useCallback((id: string) => {
-      // Abort active upload if any
-      const activeUpload = activeUploadsRef.current.get(id);
-      if (activeUpload) {
-        activeUpload.abort();
-        activeUploadsRef.current.delete(id);
-      }
-      uploadStartTimes.current.delete(id);
-      setChunkProgress((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(id);
-        return newMap;
-      });
+  const resumeUpload = useCallback((id: string) => {
+    dispatch({ type: 'RESUME_UPLOAD', payload: { id } });
+  }, []);
 
-      dispatch({ type: 'REMOVE_UPLOAD', payload: { id } });
-    }, []),
+  const cancelUpload = useCallback((id: string) => {
+    // Abort active upload if any
+    const activeUpload = activeUploadsRef.current.get(id);
+    if (activeUpload) {
+      activeUpload.abort();
+      activeUploadsRef.current.delete(id);
+    }
 
-    clearCompleted: useCallback(() => {
-      dispatch({ type: 'CLEAR_COMPLETED' });
-    }, []),
+    dispatch({ type: 'CANCEL_UPLOAD', payload: { id } });
+    uploadStartTimes.current.delete(id);
+  }, []);
 
-    setMaxConcurrent: useCallback((count: number) => {
-      dispatch({ type: 'SET_MAX_CONCURRENT', payload: { count } });
-    }, []),
-  };
+  const retryUpload = useCallback((id: string) => {
+    dispatch({ type: 'RETRY_UPLOAD', payload: { id } });
+  }, []);
+
+  const pauseAll = useCallback(() => {
+    dispatch({ type: 'PAUSE_ALL' });
+  }, []);
+
+  const resumeAll = useCallback(() => {
+    dispatch({ type: 'RESUME_ALL' });
+  }, []);
+
+  const cancelAll = useCallback(() => {
+    // Abort all active uploads
+    activeUploadsRef.current.forEach((upload) => {
+      upload.abort();
+    });
+    activeUploadsRef.current.clear();
+
+    dispatch({ type: 'CANCEL_ALL' });
+    uploadStartTimes.current.clear();
+  }, []);
+
+  const removeUpload = useCallback((id: string) => {
+    // Abort active upload if any
+    const activeUpload = activeUploadsRef.current.get(id);
+    if (activeUpload) {
+      activeUpload.abort();
+      activeUploadsRef.current.delete(id);
+    }
+    uploadStartTimes.current.delete(id);
+    setChunkProgress((prev) => {
+      const newMap = new Map(prev);
+      newMap.delete(id);
+      return newMap;
+    });
+
+    dispatch({ type: 'REMOVE_UPLOAD', payload: { id } });
+  }, []);
+
+  const clearCompleted = useCallback(() => {
+    dispatch({ type: 'CLEAR_COMPLETED' });
+  }, []);
+
+  const setMaxConcurrent = useCallback((count: number) => {
+    dispatch({ type: 'SET_MAX_CONCURRENT', payload: { count } });
+  }, []);
+
+  const actions = useMemo<UploadManagerActions>(
+    () => ({
+      addFiles,
+      pauseUpload,
+      resumeUpload,
+      cancelUpload,
+      retryUpload,
+      pauseAll,
+      resumeAll,
+      cancelAll,
+      removeUpload,
+      clearCompleted,
+      setMaxConcurrent,
+    }),
+    [
+      addFiles,
+      pauseUpload,
+      resumeUpload,
+      cancelUpload,
+      retryUpload,
+      pauseAll,
+      resumeAll,
+      cancelAll,
+      removeUpload,
+      clearCompleted,
+      setMaxConcurrent,
+    ]
+  );
 
   // Queue processor - automatically start uploads when slots are available
   useEffect(() => {
@@ -707,11 +736,14 @@ export function UploadQueueProvider({
     uploadService,
   ]);
 
-  const value: UploadQueueContextType = {
-    state,
-    actions,
-    chunkProgress,
-  };
+  const value = useMemo<UploadQueueContextType>(
+    () => ({
+      state,
+      actions,
+      chunkProgress,
+    }),
+    [state, actions, chunkProgress]
+  );
 
   return (
     <UploadQueueContext.Provider value={value}>

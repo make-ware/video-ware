@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { MediaClipMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
 import { MediaService, type MediaWithPreviews } from '@/services/media';
 import { clipTypeFilterPredicate } from '@/components/clip/clip-type-filter';
 import type { ExpandedMediaClip } from '@/types/expanded-types';
@@ -23,7 +25,7 @@ interface UseClipLibraryReturn {
   items: LibraryItem[];
   isLoading: boolean;
   error: string | null;
-  reload: () => void;
+  reload: () => Promise<unknown>;
 }
 
 export function useClipLibrary({
@@ -35,9 +37,6 @@ export function useClipLibrary({
   const mediaClipMutator = useMemo(() => new MediaClipMutator(pb), []);
   const mediaService = useMemo(() => new MediaService(pb), []);
 
-  const [items, setItems] = useState<LibraryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState(searchQuery);
 
   useEffect(() => {
@@ -45,28 +44,38 @@ export function useClipLibrary({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const load = useCallback(async () => {
-    if (!source) {
-      setItems([]);
-      return;
-    }
+  const sourceKind = source?.kind ?? null;
+  const sourceWorkspaceId = source?.workspaceId ?? null;
+  const sourceDirectoryId = source?.directoryId;
 
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      if (source.kind === 'workspace-clips') {
+  const query = useQuery({
+    // Every input that changes the result set lives in the key; TanStack
+    // compares keys by value, so a fresh literal each render is fine.
+    queryKey: qk.clips.library({
+      kind: sourceKind ?? '',
+      workspaceId: sourceWorkspaceId ?? '',
+      directoryId: sourceDirectoryId,
+      typeFilter,
+      sortBy,
+      search: debouncedQuery,
+    }),
+    enabled: !!sourceKind && !!sourceWorkspaceId,
+    // Keep the previous list visible while the next (e.g. debounced) query
+    // resolves, avoiding a flicker to empty while typing.
+    placeholderData: (prev) => prev,
+    queryFn: async (): Promise<LibraryItem[]> => {
+      if (sourceKind === 'workspace-clips') {
         const isGroupedFilter =
           typeFilter === 'media' || typeFilter === 'clips';
         const result = await mediaClipMutator.getByWorkspace(
-          source.workspaceId,
+          sourceWorkspaceId!,
           1,
           100,
           {
             type:
               typeFilter !== 'all' && !isGroupedFilter ? typeFilter : undefined,
             searchQuery: debouncedQuery || undefined,
-            directoryId: source.directoryId,
+            directoryId: sourceDirectoryId,
           }
         );
 
@@ -79,45 +88,34 @@ export function useClipLibrary({
 
         clips = sortClips(clips, sortBy);
 
-        setItems(
-          clips.map((clip) => ({ kind: 'clip', id: clip.id, clip }) as const)
-        );
-      } else {
-        const mediaList = source.directoryId
-          ? await mediaService.getMediaByDirectory(source.directoryId, 1, 100)
-          : await mediaService.getMediaByWorkspace(source.workspaceId, 1, 100);
-
-        let filtered = filterMedia(mediaList, debouncedQuery);
-        filtered = sortMedia(filtered, sortBy);
-
-        setItems(
-          filtered.map(
-            (media) => ({ kind: 'media', id: media.id, media }) as const
-          )
+        return clips.map(
+          (clip) => ({ kind: 'clip', id: clip.id, clip }) as const
         );
       }
-    } catch (err) {
-      console.error('Failed to load library items:', err);
-      setError(
-        err instanceof Error ? err.message : 'Failed to load library items'
+
+      const mediaList = sourceDirectoryId
+        ? await mediaService.getMediaByDirectory(sourceDirectoryId, 1, 100)
+        : await mediaService.getMediaByWorkspace(sourceWorkspaceId!, 1, 100);
+
+      let filtered = filterMedia(mediaList, debouncedQuery);
+      filtered = sortMedia(filtered, sortBy);
+
+      return filtered.map(
+        (media) => ({ kind: 'media', id: media.id, media }) as const
       );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    source,
-    mediaClipMutator,
-    mediaService,
-    debouncedQuery,
-    typeFilter,
-    sortBy,
-  ]);
+    },
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { items, isLoading, error, reload: load };
+  return {
+    items: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error
+      ? query.error instanceof Error
+        ? query.error.message
+        : 'Failed to load library items'
+      : null,
+    reload: () => query.refetch(),
+  };
 }
 
 function sortClips(

@@ -26,12 +26,10 @@ import {
   LabelPersonMutator,
   MediaClipMutator,
   MediaMutator,
-  MediaRecommendationMutator,
   TaskMutator,
   TimelineClipMutator,
   TimelineMutator,
   TimelineRenderMutator,
-  TimelineRecommendationMutator,
   UploadMutator,
   UserMutator,
   WatchedFileMutator,
@@ -55,8 +53,6 @@ export class PocketBaseService implements OnModuleInit {
   public timelineClipMutator!: TimelineClipMutator;
   public timelineMutator!: TimelineMutator;
   public timelineRenderMutator!: TimelineRenderMutator;
-  public mediaRecommendationMutator!: MediaRecommendationMutator;
-  public timelineRecommendationMutator!: TimelineRecommendationMutator;
   public uploadMutator!: UploadMutator;
   public userMutator!: UserMutator;
   public watchedFileMutator!: WatchedFileMutator;
@@ -126,10 +122,6 @@ export class PocketBaseService implements OnModuleInit {
     this.labelShotMutator = new LabelShotMutator(this.pb);
     this.labelObjectMutator = new LabelObjectMutator(this.pb);
     this.labelPersonMutator = new LabelPersonMutator(this.pb);
-    this.mediaRecommendationMutator = new MediaRecommendationMutator(this.pb);
-    this.timelineRecommendationMutator = new TimelineRecommendationMutator(
-      this.pb
-    );
     this.mediaClipMutator = new MediaClipMutator(this.pb);
     this.mediaMutator = new MediaMutator(this.pb);
     this.taskMutator = new TaskMutator(this.pb);

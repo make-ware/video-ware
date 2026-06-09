@@ -303,26 +303,40 @@ export function MediaProvider({
     };
   }, [workspaceId, subscribe, unsubscribe]);
 
-  const value: MediaContextType = {
-    // State
-    media,
-    isLoading,
-    error,
-    directoryFilter,
+  const value = useMemo<MediaContextType>(
+    () => ({
+      // State
+      media,
+      isLoading,
+      error,
+      directoryFilter,
 
-    // Operations
-    getMediaById,
-    getMediaByUpload,
-    setDirectoryFilter,
-    bulkDeleteMedia,
+      // Operations
+      getMediaById,
+      getMediaByUpload,
+      setDirectoryFilter,
+      bulkDeleteMedia,
 
-    // Real-time updates
-    isConnected,
+      // Real-time updates
+      isConnected,
 
-    // Utility methods
-    refreshMedia,
-    clearError,
-  };
+      // Utility methods
+      refreshMedia,
+      clearError,
+    }),
+    [
+      media,
+      isLoading,
+      error,
+      directoryFilter,
+      getMediaById,
+      getMediaByUpload,
+      bulkDeleteMedia,
+      isConnected,
+      refreshMedia,
+      clearError,
+    ]
+  );
 
   return (
     <MediaContext.Provider value={value}>{children}</MediaContext.Provider>

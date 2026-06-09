@@ -5,10 +5,8 @@ import { TimelinePlayer } from './timeline-player';
 import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
 import { WorkspaceLibrary } from '@/components/library';
-import { TimelineRecommendationsPanelWrapper } from './timeline-recommendations-wrapper';
 import { RenderDialog } from './render-dialog';
 import { useTimeline } from '@/hooks/use-timeline';
-import { useTimelineRecommendations } from '@/hooks/use-timeline-recommendations';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +16,6 @@ import {
   Download,
   Play,
   Library,
-  Sparkles,
   X,
   FileCode,
   Monitor,
@@ -40,10 +37,6 @@ export function TimelineEditorLayout() {
     updateTimelineOrientation,
   } = useTimeline();
   const { currentWorkspace } = useWorkspace();
-  const { recommendations, isLoading: isLoadingRecommendations } =
-    useTimelineRecommendations();
-  const hasRecommendationsContent =
-    recommendations.length > 0 || isLoadingRecommendations;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -61,9 +54,9 @@ export function TimelineEditorLayout() {
     },
     [pathname]
   );
-  const [activeMobilePanel, setActiveMobilePanel] = useState<
-    'library' | 'recommendations' | null
-  >(null);
+  const [activeMobilePanel, setActiveMobilePanel] = useState<'library' | null>(
+    null
+  );
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExportFCPXML = async () => {
@@ -303,52 +296,15 @@ export function TimelineEditorLayout() {
             <Library className="h-4 w-4" />
             Library
           </Button>
-          <Button
-            variant={
-              activeMobilePanel === 'recommendations' ? 'default' : 'ghost'
-            }
-            className="flex-1 gap-2 h-10"
-            onClick={() =>
-              setActiveMobilePanel(
-                activeMobilePanel === 'recommendations'
-                  ? null
-                  : 'recommendations'
-              )
-            }
-          >
-            <Sparkles className="h-4 w-4" />
-            Recs
-          </Button>
         </div>
       </div>
-
-      {/*
-        Desktop Sidebar: Recommendations (Right).
-        Always mounted so the wrapper's auto-generation effects can fire,
-        but visually hidden (display: none) when empty so the timeline
-        canvas reclaims the space.
-      */}
-      <CollapsiblePanel
-        side="right"
-        title="Recommendations"
-        width="w-[420px]"
-        className={hasRecommendationsContent ? 'hidden lg:flex' : 'hidden'}
-      >
-        <div className="h-full overflow-hidden flex flex-col">
-          <div className="p-4 flex-1 overflow-y-auto">
-            <TimelineRecommendationsPanelWrapper />
-          </div>
-        </div>
-      </CollapsiblePanel>
 
       {/* Mobile Overlay Panels */}
       {activeMobilePanel && (
         <div className="lg:hidden fixed inset-0 z-50 bg-background flex flex-col pt-14 animate-in slide-in-from-bottom duration-300">
           <div className="h-14 border-b flex items-center justify-between px-4 shrink-0 bg-background">
             <h3 className="font-semibold uppercase tracking-wider text-xs">
-              {activeMobilePanel === 'library'
-                ? 'Clips Library'
-                : 'Smart Recommendations'}
+              Clips Library
             </h3>
             <Button
               variant="ghost"
@@ -359,18 +315,12 @@ export function TimelineEditorLayout() {
             </Button>
           </div>
           <div className="flex-1 overflow-hidden">
-            {activeMobilePanel === 'library' ? (
-              <div className="h-full flex flex-col overflow-hidden">
-                <WorkspaceLibrary
-                  directoryFilter={directoryFilter}
-                  onDirectoryFilterChange={handleDirectoryFilterChange}
-                />
-              </div>
-            ) : (
-              <div className="p-4 h-full overflow-y-auto pb-20">
-                <TimelineRecommendationsPanelWrapper />
-              </div>
-            )}
+            <div className="h-full flex flex-col overflow-hidden">
+              <WorkspaceLibrary
+                directoryFilter={directoryFilter}
+                onDirectoryFilterChange={handleDirectoryFilterChange}
+              />
+            </div>
           </div>
         </div>
       )}

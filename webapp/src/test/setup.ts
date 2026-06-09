@@ -1,4 +1,4 @@
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeAll, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import { expect } from 'vitest';
@@ -6,6 +6,32 @@ import React from 'react';
 
 // Extend Vitest's expect with jest-dom matchers
 expect.extend(matchers);
+
+// Silence all stderr output (console.error/warn and direct writes) so the
+// test console isn't flooded with logs from code under test.
+beforeAll(() => {
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+// No test exercises real network behavior, but some code paths fire `fetch`
+// (e.g. storage cleanup) without awaiting it. Left unmocked, happy-dom keeps
+// those requests in-flight and aborts them on window teardown, flooding the
+// console with AbortError noise. Stub fetch with an immediately-resolving
+// response so nothing is ever left pending.
+beforeAll(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+    )
+  );
+});
 
 // Mock environment variables
 process.env.NEXT_PUBLIC_POCKETBASE_URL = 'http://localhost:8090';

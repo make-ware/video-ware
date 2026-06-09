@@ -22,6 +22,36 @@ import type {
   S3StorageConfig,
 } from './types';
 
+interface MultipartUploadState {
+  uploadId: string;
+  parts: Array<{ PartNumber: number; ETag: string }>;
+  updatedAt: number;
+}
+
+/**
+ * Multipart upload state, keyed by file path.
+ *
+ * This is module-level (process-global) rather than per-instance on purpose:
+ * the chunked-upload route creates a fresh S3StorageBackend on every request,
+ * so a per-instance map would be empty for every chunk after the first. Keeping
+ * it at module scope lets the multipart upload survive across the separate
+ * requests that carry each chunk — the same single-process assumption the local
+ * backend already relies on (it appends to a shared file on disk).
+ */
+const multipartUploads: Map<string, MultipartUploadState> = new Map();
+
+// Drop multipart state that has been abandoned (client gave up between chunks)
+// so the map can't grow unbounded.
+const MULTIPART_STATE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function pruneStaleMultipartUploads(now: number): void {
+  for (const [key, state] of multipartUploads) {
+    if (now - state.updatedAt > MULTIPART_STATE_TTL_MS) {
+      multipartUploads.delete(key);
+    }
+  }
+}
+
 /**
  * S3-compatible storage backend implementation
  * Supports AWS S3, MinIO, Backblaze B2, Cloudflare R2, etc.
@@ -30,11 +60,6 @@ export class S3StorageBackend implements StorageBackend {
   readonly type = StorageBackendType.S3;
   private readonly client: S3Client;
   private readonly bucket: string;
-  // Track multipart uploads by file path
-  private readonly multipartUploads: Map<
-    string,
-    { uploadId: string; parts: Array<{ PartNumber: number; ETag: string }> }
-  > = new Map();
 
   constructor(config: S3StorageConfig) {
     this.bucket = config.bucket;
@@ -47,6 +72,13 @@ export class S3StorageBackend implements StorageBackend {
         secretAccessKey: config.secretAccessKey,
       },
       forcePathStyle: config.forcePathStyle ?? false,
+      // Disable the SDK's default data-integrity checksums (enabled by default
+      // since aws-sdk-js v3.729). Otherwise UploadPart attaches an
+      // x-amz-checksum-crc32 that CompleteMultipartUpload must echo back; since
+      // we complete with PartNumber + ETag only, S3-compatible stores such as
+      // Garage reject it as "Parts do not match uploaded parts".
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 
@@ -169,19 +201,27 @@ export class S3StorageBackend implements StorageBackend {
       // Convert ReadableStream to Buffer
       const reader = chunk.getReader();
       const chunks: Uint8Array[] = [];
-      let totalLength = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value);
-        totalLength += value.length;
       }
 
       const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
 
+      const now = Date.now();
+      pruneStaleMultipartUploads(now);
+
       // Initialize multipart upload on first chunk
       if (isFirstChunk) {
+        // A retried first chunk would orphan the prior multipart upload; abort
+        // it first so Garage doesn't accumulate dangling incomplete uploads.
+        const existing = multipartUploads.get(filePath);
+        if (existing) {
+          await this.abortMultipartUpload(filePath, existing.uploadId);
+        }
+
         const createResult = await this.client.send(
           new CreateMultipartUploadCommand({
             Bucket: this.bucket,
@@ -193,13 +233,14 @@ export class S3StorageBackend implements StorageBackend {
           throw new Error('Failed to create multipart upload');
         }
 
-        this.multipartUploads.set(filePath, {
+        multipartUploads.set(filePath, {
           uploadId: createResult.UploadId,
           parts: [],
+          updatedAt: now,
         });
       }
 
-      const uploadData = this.multipartUploads.get(filePath);
+      const uploadData = multipartUploads.get(filePath);
       if (!uploadData) {
         throw new Error('Multipart upload not initialized');
       }
@@ -220,11 +261,21 @@ export class S3StorageBackend implements StorageBackend {
         throw new Error(`Failed to upload part ${partNumber}`);
       }
 
-      // Store part info
-      uploadData.parts.push({
-        PartNumber: partNumber,
-        ETag: uploadPartResult.ETag,
-      });
+      // Record the part. Upsert by PartNumber: a retried chunk re-uploads the
+      // same part number, and a duplicate entry would itself break completion
+      // with "Parts do not match uploaded parts".
+      const existingPart = uploadData.parts.find(
+        (p) => p.PartNumber === partNumber
+      );
+      if (existingPart) {
+        existingPart.ETag = uploadPartResult.ETag;
+      } else {
+        uploadData.parts.push({
+          PartNumber: partNumber,
+          ETag: uploadPartResult.ETag,
+        });
+      }
+      uploadData.updatedAt = now;
 
       // Complete multipart upload on last chunk
       if (isLastChunk) {
@@ -243,7 +294,7 @@ export class S3StorageBackend implements StorageBackend {
         );
 
         // Clean up tracking
-        this.multipartUploads.delete(filePath);
+        multipartUploads.delete(filePath);
 
         // Get object metadata
         const headResult = await this.client.send(
@@ -253,8 +304,6 @@ export class S3StorageBackend implements StorageBackend {
           })
         );
 
-        console.log(totalLength);
-
         return {
           path: filePath,
           size: headResult.ContentLength || 0,
@@ -263,29 +312,41 @@ export class S3StorageBackend implements StorageBackend {
         };
       }
     } catch (error) {
-      // Abort multipart upload on error
-      const uploadData = this.multipartUploads.get(filePath);
-      if (uploadData) {
-        try {
-          await this.client.send(
-            new AbortMultipartUploadCommand({
-              Bucket: this.bucket,
-              Key: filePath,
-              UploadId: uploadData.uploadId,
-            })
-          );
-        } catch (abortError) {
-          console.error('Failed to abort multipart upload:', abortError);
-        }
-        this.multipartUploads.delete(filePath);
-      }
-
+      // Deliberately do NOT abort/delete the multipart upload here: the client
+      // retries a failed chunk (same chunkIndex) up to a few times, and those
+      // retries depend on the multipart state surviving. Aborting on the first
+      // transient error would make the retry fail with "Multipart upload not
+      // initialized". Abandoned uploads are reclaimed by pruneStaleMultipartUploads
+      // (local map) and by aborting any leftover upload when a first chunk for the
+      // same path is re-sent; orphaned server-side uploads should be swept by a
+      // bucket lifecycle policy.
       throw new Error(
         `Failed to upload chunk ${chunkIndex + 1}/${totalChunks} to S3 at ${filePath}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
     }
+  }
+
+  /**
+   * Abort an in-progress multipart upload and drop its tracked state.
+   */
+  private async abortMultipartUpload(
+    filePath: string,
+    uploadId: string
+  ): Promise<void> {
+    try {
+      await this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: filePath,
+          UploadId: uploadId,
+        })
+      );
+    } catch (abortError) {
+      console.error('Failed to abort multipart upload:', abortError);
+    }
+    multipartUploads.delete(filePath);
   }
 
   /**

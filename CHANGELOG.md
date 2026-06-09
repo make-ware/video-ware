@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.2...video-ware-v0.7.3) (2026-06-09)
+
+
+### Bug Fixes
+
+* bug in multipart uploads for s3 ([b328d6a](https://github.com/make-ware/video-ware/commit/b328d6a08d174c09057a2ae765e3a2347a705b06))
+
 ## [0.7.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.1...video-ware-v0.7.2) (2026-06-09)
 
 

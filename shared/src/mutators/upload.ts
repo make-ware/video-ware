@@ -238,7 +238,11 @@ export class UploadMutator extends BaseMutator<Upload, UploadInput> {
             },
       transcode: {
         enabled: !isAudio && !isImage,
-        codec: 'h265',
+        // Proxy is the web-playable preview; H.264 has universal browser
+        // support, whereas H.265/HEVC fails to decode in most browsers
+        // (NotSupportedError on play()). Keep in sync with the regenerate
+        // path in webapp/src/services/media.ts.
+        codec: 'h264',
         resolution: '720p',
       },
       audio: {

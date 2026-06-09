@@ -179,6 +179,12 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # imagetools assembles an image index from pre-built per-arch digests, so
+    # annotations must target the index level. The metadata-action default is
+    # `manifest`, which imagetools rejects with "manifest annotations are not
+    # supported yet" when creating a manifest list.
+    env:
+      DOCKER_METADATA_ANNOTATIONS_LEVELS: index
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.1...video-ware-v0.7.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* add audio processing ([f6024fe](https://github.com/make-ware/video-ware/commit/f6024fe8104c82199e7dcf181e796833462f3c5a))
+* bad migration ([8f23f8d](https://github.com/make-ware/video-ware/commit/8f23f8d811f9f2fc19f8a61a1679b611e502123a))
+* improve docker build speed ([81d1d38](https://github.com/make-ware/video-ware/commit/81d1d3880f7eb6b62a8effc752d58ff7614a4d87))
+* remove file watch and reduce env vars ([2108764](https://github.com/make-ware/video-ware/commit/2108764f069a7ddc9bc89c35fa90bf1c35a1cb6c))
+
 ## [0.7.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.0...video-ware-v0.7.1) (2026-06-09)
 
 

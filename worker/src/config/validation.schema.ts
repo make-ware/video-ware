@@ -42,11 +42,20 @@ export const validationSchema = Joi.object({
     'any.required': 'POCKETBASE_ADMIN_PASSWORD is required',
   }),
 
+  // Worker concurrency configuration
+  WORKER_CONCURRENCY: Joi.string().optional(),
+  WORKER_CONCURRENCY_TRANSCODE: Joi.string().optional(),
+  WORKER_CONCURRENCY_RENDER: Joi.string().optional(),
+  WORKER_CONCURRENCY_LABELS: Joi.string().optional(),
+  WORKER_CONCURRENCY_INTELLIGENCE: Joi.string().optional(),
+  WORKER_LOCK_DURATION_MS: Joi.string().optional(),
+
   // Storage configuration
   STORAGE_TYPE: Joi.string().valid('local', 's3').optional(),
   WORKER_DATA_DIR: Joi.string().optional(),
   STORAGE_S3_BUCKET: Joi.string().optional(),
   STORAGE_S3_REGION: Joi.string().optional(),
+  ENABLE_S3_MIGRATION: Joi.string().optional(),
 
   // Processor configuration
   ENABLE_FFMPEG: Joi.string().optional(),

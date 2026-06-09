@@ -82,43 +82,46 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
       this.storageService
     );
 
-    // Generate thumbnail
-    const effectiveDuration =
-      mediaData.mediaType === MediaType.IMAGE ? 0 : mediaData.duration;
-    await this.thumbnailExecutor.execute(
-      filePath,
-      thumbnailPath,
-      enhancedConfig,
-      effectiveDuration
-    );
+    try {
+      // Generate thumbnail
+      const effectiveDuration =
+        mediaData.mediaType === MediaType.IMAGE ? 0 : mediaData.duration;
+      await this.thumbnailExecutor.execute(
+        filePath,
+        thumbnailPath,
+        enhancedConfig,
+        effectiveDuration
+      );
 
-    // Create File record
-    const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.THUMBNAIL}/${fileName}`;
+      // Create File record
+      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.THUMBNAIL}/${fileName}`;
 
-    const thumbnailFile = await this.pocketbaseService.uploadFile({
-      localFilePath: thumbnailPath,
-      fileName,
-      fileType: FileType.THUMBNAIL,
-      fileSource: FileSource.POCKETBASE,
-      storageKey,
-      workspaceRef: upload.WorkspaceRef,
-      uploadRef: input.uploadId,
-      mimeType: 'image/jpeg',
-    });
-
-    // Clean up local file if using S3
-    await this.storageService.cleanup(thumbnailPath);
-
-    // Update Media record
-    const media = await this.pocketbaseService.findMediaByUpload(
-      input.uploadId
-    );
-    if (media) {
-      await this.pocketbaseService.updateMedia(media.id, {
-        thumbnailFileRef: thumbnailFile.id,
+      const thumbnailFile = await this.pocketbaseService.uploadFile({
+        localFilePath: thumbnailPath,
+        fileName,
+        fileType: FileType.THUMBNAIL,
+        fileSource: FileSource.POCKETBASE,
+        storageKey,
+        workspaceRef: upload.WorkspaceRef,
+        uploadRef: input.uploadId,
+        mimeType: 'image/jpeg',
       });
-    }
 
-    return { thumbnailPath, thumbnailFileId: thumbnailFile.id };
+      // Update Media record
+      const media = await this.pocketbaseService.findMediaByUpload(
+        input.uploadId
+      );
+      if (media) {
+        await this.pocketbaseService.updateMedia(media.id, {
+          thumbnailFileRef: thumbnailFile.id,
+        });
+      }
+
+      return { thumbnailPath, thumbnailFileId: thumbnailFile.id };
+    } finally {
+      // Clean up local output file if using S3 (no-op in local mode), on
+      // both success and failure so a stateless pod never accumulates disk.
+      await this.storageService.cleanup(thumbnailPath);
+    }
   }
 }

@@ -77,39 +77,42 @@ export class AudioStepProcessor extends BaseStepProcessor<
       this.storageService
     );
 
-    // Execute audio extraction
-    await this.audioExecutor.execute(filePath, audioPath, {
-      format,
-      bitrate: input.bitrate || '192k',
-      channels: input.channels || 2, // Default to stereo
-      sampleRate: input.sampleRate || 48000,
-    });
-
-    // Create File record
-    const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.AUDIO}/${fileName}`;
-
-    const audioFile = await this.pocketbaseService.uploadFile({
-      localFilePath: audioPath,
-      fileName,
-      fileType: FileType.AUDIO,
-      fileSource: FileSource.POCKETBASE,
-      storageKey,
-      workspaceRef: upload.WorkspaceRef,
-      uploadRef: input.uploadId,
-      mimeType: this.getMimeType(format),
-    });
-
-    // Clean up local file if using S3
-    await this.storageService.cleanup(audioPath);
-
-    // Update Media record
-    if (media) {
-      await this.pocketbaseService.updateMedia(media.id, {
-        audioFileRef: audioFile.id,
+    try {
+      // Execute audio extraction
+      await this.audioExecutor.execute(filePath, audioPath, {
+        format,
+        bitrate: input.bitrate || '192k',
+        channels: input.channels || 2, // Default to stereo
+        sampleRate: input.sampleRate || 48000,
       });
-    }
 
-    return { audioPath, audioFileId: audioFile.id };
+      // Create File record
+      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.AUDIO}/${fileName}`;
+
+      const audioFile = await this.pocketbaseService.uploadFile({
+        localFilePath: audioPath,
+        fileName,
+        fileType: FileType.AUDIO,
+        fileSource: FileSource.POCKETBASE,
+        storageKey,
+        workspaceRef: upload.WorkspaceRef,
+        uploadRef: input.uploadId,
+        mimeType: this.getMimeType(format),
+      });
+
+      // Update Media record
+      if (media) {
+        await this.pocketbaseService.updateMedia(media.id, {
+          audioFileRef: audioFile.id,
+        });
+      }
+
+      return { audioPath, audioFileId: audioFile.id };
+    } finally {
+      // Clean up local output file if using S3 (no-op in local mode), on
+      // both success and failure so a stateless pod never accumulates disk.
+      await this.storageService.cleanup(audioPath);
+    }
   }
 
   private getMimeType(format: string): string {

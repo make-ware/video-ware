@@ -98,46 +98,49 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       this.storageService
     );
 
-    // Generate sprite
-    await this.spriteExecutor.execute(filePath, spritePath, enhancedConfig);
+    try {
+      // Generate sprite
+      await this.spriteExecutor.execute(filePath, spritePath, enhancedConfig);
 
-    // Create File record with sprite configuration in meta
-    const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.SPRITE}/${fileName}`;
+      // Create File record with sprite configuration in meta
+      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.SPRITE}/${fileName}`;
 
-    const spriteFile = await this.pocketbaseService.uploadFile({
-      localFilePath: spritePath,
-      fileName,
-      fileType: FileType.SPRITE,
-      fileSource: FileSource.POCKETBASE,
-      storageKey,
-      workspaceRef: upload.WorkspaceRef,
-      uploadRef: input.uploadId,
-      mimeType: 'image/jpeg',
-      meta: {
+      const spriteFile = await this.pocketbaseService.uploadFile({
+        localFilePath: spritePath,
+        fileName,
+        fileType: FileType.SPRITE,
+        fileSource: FileSource.POCKETBASE,
+        storageKey,
+        workspaceRef: upload.WorkspaceRef,
+        uploadRef: input.uploadId,
         mimeType: 'image/jpeg',
-        spriteConfig: {
-          cols: enhancedConfig.cols,
-          rows: enhancedConfig.rows,
-          fps: enhancedConfig.fps,
-          tileWidth: enhancedConfig.tileWidth,
-          tileHeight: enhancedConfig.tileHeight,
+        meta: {
+          mimeType: 'image/jpeg',
+          spriteConfig: {
+            cols: enhancedConfig.cols,
+            rows: enhancedConfig.rows,
+            fps: enhancedConfig.fps,
+            tileWidth: enhancedConfig.tileWidth,
+            tileHeight: enhancedConfig.tileHeight,
+          },
         },
-      },
-    });
-
-    // Clean up local file if using S3
-    await this.storageService.cleanup(spritePath);
-
-    // Update Media record
-    const media = await this.pocketbaseService.findMediaByUpload(
-      input.uploadId
-    );
-    if (media) {
-      await this.pocketbaseService.updateMedia(media.id, {
-        spriteFileRef: spriteFile.id,
       });
-    }
 
-    return { spritePath, spriteFileId: spriteFile.id };
+      // Update Media record
+      const media = await this.pocketbaseService.findMediaByUpload(
+        input.uploadId
+      );
+      if (media) {
+        await this.pocketbaseService.updateMedia(media.id, {
+          spriteFileRef: spriteFile.id,
+        });
+      }
+
+      return { spritePath, spriteFileId: spriteFile.id };
+    } finally {
+      // Clean up local output file if using S3 (no-op in local mode), on
+      // both success and failure so a stateless pod never accumulates disk.
+      await this.storageService.cleanup(spritePath);
+    }
   }
 }

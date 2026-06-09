@@ -47,7 +47,16 @@ services:
       - STORAGE_TYPE=${STORAGE_TYPE:-local}
       # Point to the shared volume where PocketBase stores files
       - WORKER_DATA_DIR=/data/storage
+      # One-time local->S3 migration scan; keep off for stateless S3 pods.
+      - ENABLE_S3_MIGRATION=${ENABLE_S3_MIGRATION:-false}
 
+      # Per-queue BullMQ worker concurrency (set WORKER_CONCURRENCY for all,
+      # or override per queue). Increase to process more jobs per pod.
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-}
+      - WORKER_CONCURRENCY_TRANSCODE=${WORKER_CONCURRENCY_TRANSCODE:-3}
+      - WORKER_CONCURRENCY_RENDER=${WORKER_CONCURRENCY_RENDER:-2}
+      - WORKER_CONCURRENCY_LABELS=${WORKER_CONCURRENCY_LABELS:-5}
+      - WORKER_LOCK_DURATION_MS=${WORKER_LOCK_DURATION_MS:-60000}
 
       # Google Cloud Config
       - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}

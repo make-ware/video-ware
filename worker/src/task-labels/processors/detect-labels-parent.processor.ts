@@ -37,6 +37,7 @@ import type {
   StepResult,
 } from '../../queue/types/job.types';
 import { BaseFlowProcessor } from '@/queue/processors';
+import { queueWorkerOptions } from '../../queue/worker-options';
 
 /**
  * Parent processor for detect_labels tasks
@@ -54,9 +55,10 @@ import { BaseFlowProcessor } from '@/queue/processors';
  * - Each processor processes and writes its own data independently
  * - Task succeeds if at least one enabled processor succeeds
  */
-@Processor(QUEUE_NAMES.LABELS)
+@Processor(QUEUE_NAMES.LABELS, queueWorkerOptions())
 export class DetectLabelsParentProcessor extends BaseFlowProcessor {
   protected readonly logger = new Logger(DetectLabelsParentProcessor.name);
+  protected readonly concurrencyConfigKey = 'concurrency.labels';
   protected readonly pocketbaseService: PocketBaseService;
 
   constructor(

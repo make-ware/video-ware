@@ -121,40 +121,43 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
       );
       if (i === 0) firstFilmstripPath = filmstripPath;
 
-      await this.spriteExecutor.execute(
-        filePath,
-        filmstripPath,
-        enhancedConfig,
-        startTime
-      );
+      try {
+        await this.spriteExecutor.execute(
+          filePath,
+          filmstripPath,
+          enhancedConfig,
+          startTime
+        );
 
-      // Create File record
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.FILMSTRIP}/${fileName}`;
+        // Create File record
+        const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.FILMSTRIP}/${fileName}`;
 
-      const filmstripFile = await this.pocketbaseService.uploadFile({
-        localFilePath: filmstripPath,
-        fileName,
-        fileType: FileType.FILMSTRIP,
-        fileSource: FileSource.POCKETBASE,
-        storageKey,
-        workspaceRef: upload.WorkspaceRef,
-        uploadRef: input.uploadId,
-        mimeType: 'image/jpeg',
-        meta: {
+        const filmstripFile = await this.pocketbaseService.uploadFile({
+          localFilePath: filmstripPath,
+          fileName,
+          fileType: FileType.FILMSTRIP,
+          fileSource: FileSource.POCKETBASE,
+          storageKey,
+          workspaceRef: upload.WorkspaceRef,
+          uploadRef: input.uploadId,
           mimeType: 'image/jpeg',
-          filmstripConfig: {
-            cols: enhancedConfig.cols,
-            rows: enhancedConfig.rows,
-            tileWidth: enhancedConfig.tileWidth,
-            tileHeight: enhancedConfig.tileHeight,
+          meta: {
+            mimeType: 'image/jpeg',
+            filmstripConfig: {
+              cols: enhancedConfig.cols,
+              rows: enhancedConfig.rows,
+              tileWidth: enhancedConfig.tileWidth,
+              tileHeight: enhancedConfig.tileHeight,
+            },
           },
-        },
-      });
+        });
 
-      // Clean up local file if using S3
-      await this.storageService.cleanup(filmstripPath);
-
-      filmstripFileIds.push(filmstripFile.id);
+        filmstripFileIds.push(filmstripFile.id);
+      } finally {
+        // Clean up local output file if using S3 (no-op in local mode), on
+        // both success and failure so a stateless pod never accumulates disk.
+        await this.storageService.cleanup(filmstripPath);
+      }
     }
 
     // Update Media record with the first filmstrip as primary

@@ -1,7 +1,10 @@
 import { OnWorkerEvent } from '@nestjs/bullmq';
+import { Inject, OnApplicationBootstrap } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bullmq';
 import { TaskStatus } from '@project/shared';
 import { BaseProcessor } from './base.processor';
+import { StorageService } from '../../shared/services/storage.service';
 import type {
   ParentJobData,
   StepJobData,
@@ -33,7 +36,80 @@ export type {
  * - processStepJob: Process individual steps
  * - getQueue: Return the queue instance
  */
-export abstract class BaseFlowProcessor extends BaseProcessor {
+export abstract class BaseFlowProcessor
+  extends BaseProcessor
+  implements OnApplicationBootstrap
+{
+  @Inject(ConfigService)
+  protected readonly configService!: ConfigService;
+
+  @Inject(StorageService)
+  protected readonly storage!: StorageService;
+
+  /**
+   * ConfigService key holding this queue's worker concurrency
+   * (e.g. 'concurrency.transcode'). Subclasses set this so all flow
+   * processors share a single concurrency-application mechanism.
+   */
+  protected abstract readonly concurrencyConfigKey: string;
+
+  /**
+   * Apply the configured concurrency once the BullMQ worker exists.
+   * @nestjs/bullmq creates workers during the registrar's onModuleInit, so
+   * `this.worker` is guaranteed to be available by onApplicationBootstrap.
+   */
+  onApplicationBootstrap(): void {
+    const concurrency = this.configService.get<number>(
+      this.concurrencyConfigKey,
+      1
+    );
+
+    if (this.worker) {
+      this.worker.concurrency = concurrency;
+      this.logger.log(
+        `Worker concurrency for ${this.concurrencyConfigKey} set to ${concurrency}`
+      );
+    } else {
+      this.logger.warn(
+        `Worker not available; could not set concurrency for ${this.concurrencyConfigKey}`
+      );
+    }
+  }
+
+  /**
+   * Remove local working artifacts for a finished task. Runs on BOTH parent
+   * success and failure so a stateless (S3) pod never accumulates disk; it is
+   * the only safe place to clean inputs shared by parallel sibling steps.
+   * All underlying cleanup methods are no-ops/guarded in local mode, where
+   * outputs and working dirs live under durable storage.
+   */
+  protected async cleanupTaskArtifacts(
+    parentData: ParentJobData,
+    stepResults: Record<string, StepResult>
+  ): Promise<void> {
+    try {
+      // Source media downloaded for transcode steps lives at
+      // <tmp>/worker-temp/<uploadId> and is shared by all transcode steps.
+      if (parentData.uploadId) {
+        await this.storage.cleanupTemp(parentData.uploadId);
+      }
+      await this.cleanupExtraArtifacts(parentData, stepResults);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to clean up task artifacts for ${parentData.taskId}: ${this.formatError(error)}`
+      );
+    }
+  }
+
+  /**
+   * Hook for subclasses to clean additional task-scoped working dirs (e.g. the
+   * render working directory and per-clip temp downloads). Default: no-op.
+   */
+  protected async cleanupExtraArtifacts(
+    _parentData: ParentJobData,
+    _stepResults: Record<string, StepResult>
+  ): Promise<void> {}
+
   /**
    * Get the queue instance for accessing child jobs
    */
@@ -238,6 +314,8 @@ export abstract class BaseFlowProcessor extends BaseProcessor {
     this.logger.log(
       `Task ${parentData.taskId} completed successfully: ${taskResult.completedSteps.length} steps completed, ${taskResult.failedSteps.length} steps failed`
     );
+
+    await this.cleanupTaskArtifacts(parentData, finalStepResults);
   }
 
   /**
@@ -404,6 +482,8 @@ export abstract class BaseFlowProcessor extends BaseProcessor {
     this.logger.error(
       `Task ${parentData.taskId} failed: ${taskResult.failedSteps.length} steps failed`
     );
+
+    await this.cleanupTaskArtifacts(parentData, finalStepResults);
   }
 
   /**

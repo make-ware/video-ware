@@ -19,15 +19,17 @@ import type {
   StepResult,
 } from '../../queue/types/job.types';
 import { BaseFlowProcessor } from '@/queue/processors';
+import { queueWorkerOptions } from '../../queue/worker-options';
 
 /**
  * Parent processor for render tasks
  * Orchestrates child step processors and aggregates results
  */
-@Processor(QUEUE_NAMES.RENDER)
+@Processor(QUEUE_NAMES.RENDER, queueWorkerOptions())
 export class RenderParentProcessor extends BaseFlowProcessor {
   protected readonly logger = new Logger(RenderParentProcessor.name);
   protected readonly pocketbaseService: PocketBaseService;
+  protected readonly concurrencyConfigKey = 'concurrency.render';
 
   constructor(
     @InjectQueue(QUEUE_NAMES.RENDER)
@@ -46,6 +48,34 @@ export class RenderParentProcessor extends BaseFlowProcessor {
    */
   protected getQueue(): Queue {
     return this.renderQueue;
+  }
+
+  /**
+   * Clean up render-specific working artifacts once the task is done (S3 mode
+   * only). Removes the deterministic render directory (symlinks + output) and
+   * the per-clip source downloads in worker-temp that PREPARE resolved.
+   */
+  protected async cleanupExtraArtifacts(
+    parentData: ParentJobData,
+    stepResults: Record<string, StepResult>
+  ): Promise<void> {
+    await this.storage.cleanupRenderDir(
+      parentData.workspaceId,
+      parentData.taskId
+    );
+
+    const prepareResult = stepResults[RenderStepType.PREPARE];
+    const clipMediaMap = (
+      prepareResult?.output as
+        | { clipMediaMap?: Record<string, unknown> }
+        | undefined
+    )?.clipMediaMap;
+
+    if (clipMediaMap) {
+      for (const mediaId of Object.keys(clipMediaMap)) {
+        await this.storage.cleanupTemp(mediaId);
+      }
+    }
   }
 
   /**

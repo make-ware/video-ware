@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { RenderProcessor } from './render.processor';
 import { RenderService } from './render.service';
 import { SharedModule } from '../shared/shared.module';
 import { QueueModule } from '../queue/queue.module';
@@ -16,9 +15,6 @@ import { FFmpegResolveClipsExecutor, FFmpegComposeExecutor } from './executors';
   providers: [
     // Service
     RenderService,
-
-    // Legacy processor (can be removed once fully migrated)
-    RenderProcessor,
 
     // Executors (strategy implementations)
     FFmpegResolveClipsExecutor,

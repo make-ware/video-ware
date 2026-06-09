@@ -36,6 +36,20 @@ function parseRedisUrl(url?: string): {
   }
 }
 
+/**
+ * Resolve a BullMQ worker concurrency value, falling back to a per-queue env
+ * var, then the global WORKER_CONCURRENCY, then the provided default.
+ */
+function parseConcurrency(
+  queueEnvVar: string | undefined,
+  fallback: number
+): number {
+  const raw = queueEnvVar ?? process.env.WORKER_CONCURRENCY;
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export default () => {
   const redisConfig = parseRedisUrl(process.env.REDIS_URL);
 
@@ -44,6 +58,18 @@ export default () => {
     bullBoardPort: parseInt(process.env.BULL_BOARD_PORT || '3002', 10),
 
     redis: redisConfig,
+
+    // Per-queue BullMQ worker concurrency.
+    // CPU-bound ffmpeg queues default low; IO/API-bound queues default higher.
+    concurrency: {
+      transcode: parseConcurrency(process.env.WORKER_CONCURRENCY_TRANSCODE, 3),
+      render: parseConcurrency(process.env.WORKER_CONCURRENCY_RENDER, 2),
+      labels: parseConcurrency(process.env.WORKER_CONCURRENCY_LABELS, 5),
+      intelligence: parseConcurrency(
+        process.env.WORKER_CONCURRENCY_INTELLIGENCE,
+        5
+      ),
+    },
 
     pocketbase: {
       url: process.env.POCKETBASE_URL,

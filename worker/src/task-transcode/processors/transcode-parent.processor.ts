@@ -27,15 +27,17 @@ import type {
   StepResult,
 } from '../../queue/types/job.types';
 import { BaseFlowProcessor } from '@/queue/processors';
+import { queueWorkerOptions } from '../../queue/worker-options';
 
 /**
  * Parent processor for transcode tasks
  * Orchestrates independent step processors that write directly to the database
  */
-@Processor(QUEUE_NAMES.TRANSCODE)
+@Processor(QUEUE_NAMES.TRANSCODE, queueWorkerOptions())
 export class TranscodeParentProcessor extends BaseFlowProcessor {
   protected readonly logger = new Logger(TranscodeParentProcessor.name);
   protected readonly pocketbaseService: PocketBaseService;
+  protected readonly concurrencyConfigKey = 'concurrency.transcode';
 
   constructor(
     @InjectQueue(QUEUE_NAMES.TRANSCODE)

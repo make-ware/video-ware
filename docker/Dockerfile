@@ -195,6 +195,17 @@ FROM runner-base AS worker
 ENV LOG_LEVEL=warn
 ENV REDIS_URL=""
 
+# Per-queue BullMQ worker concurrency. Override per queue with
+# WORKER_CONCURRENCY_{TRANSCODE,RENDER,LABELS,INTELLIGENCE} or set a single
+# WORKER_CONCURRENCY for all. CPU-bound ffmpeg queues are kept low by default.
+ENV WORKER_CONCURRENCY_TRANSCODE=3
+ENV WORKER_CONCURRENCY_RENDER=2
+ENV WORKER_CONCURRENCY_LABELS=5
+# Lock duration (ms) so long ffmpeg jobs are not marked "stalled" mid-run.
+ENV WORKER_LOCK_DURATION_MS=60000
+# One-time local->S3 migration scan; keep off for stateless S3 pods.
+ENV ENABLE_S3_MIGRATION=false
+
 # Install ffmpeg and curl
 RUN apk add --no-cache ffmpeg curl && \
     rm -rf /var/cache/apk/*

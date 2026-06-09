@@ -83,11 +83,15 @@ describe('StorageService Migration', () => {
     // Manual instantiation to avoid DI issues
     service = new StorageService(configService);
 
+    // Migration is opt-in via ENABLE_S3_MIGRATION
+    process.env.ENABLE_S3_MIGRATION = 'true';
+
     // Mock fs.existsSync
     vi.mocked(fs.existsSync).mockReturnValue(true);
   });
 
   afterEach(() => {
+    delete process.env.ENABLE_S3_MIGRATION;
     vi.restoreAllMocks();
   });
 
@@ -118,5 +122,15 @@ describe('StorageService Migration', () => {
     // Should have checked existence for both
     expect(mockBackend.exists).toHaveBeenCalledWith('test-file.txt');
     expect(mockBackend.exists).toHaveBeenCalledWith('already-exists.txt');
+  });
+
+  it('should skip migration when ENABLE_S3_MIGRATION is not set', async () => {
+    delete process.env.ENABLE_S3_MIGRATION;
+
+    await service.onModuleInit();
+
+    // Backend is still created, but no migration scan/upload happens
+    expect(createStorageBackendMock).toHaveBeenCalled();
+    expect(mockBackend.upload).not.toHaveBeenCalled();
   });
 });

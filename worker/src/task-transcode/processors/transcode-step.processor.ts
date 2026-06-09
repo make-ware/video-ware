@@ -110,56 +110,59 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       this.storageService
     );
 
-    // Execute transcode
-    const startTime = Date.now();
-    await executor.execute(filePath, proxyPath, executorConfig);
-    const durationSec = (Date.now() - startTime) / 1000;
+    try {
+      // Execute transcode
+      const startTime = Date.now();
+      await executor.execute(filePath, proxyPath, executorConfig);
+      const durationSec = (Date.now() - startTime) / 1000;
 
-    // Log usage event
-    await this.pocketbaseService.logUsageEvent({
-      WorkspaceRef: upload.WorkspaceRef,
-      type:
-        input.provider === ProcessingProvider.GOOGLE_TRANSCODER
-          ? 'GOOGLE_TRANSCODER'
-          : 'FFMPEG_COMPUTE',
-      subtype: 'TRANSCODE',
-      value: durationSec,
-      unit: 'SECONDS',
-      metadata: {
-        uploadId: input.uploadId,
-        resolution: input.config.resolution,
-        codec: input.config.codec,
-      },
-    });
-
-    // Create File record
-    const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.PROXY}/${fileName}`;
-
-    const proxyFile = await this.pocketbaseService.uploadFile({
-      localFilePath: proxyPath,
-      fileName,
-      fileType: FileType.PROXY,
-      fileSource: FileSource.POCKETBASE,
-      storageKey,
-      workspaceRef: upload.WorkspaceRef,
-      uploadRef: input.uploadId,
-      mimeType: 'video/mp4',
-    });
-
-    // Clean up local file if using S3
-    await this.storageService.cleanup(proxyPath);
-
-    // Update Media record
-    const media = await this.pocketbaseService.findMediaByUpload(
-      input.uploadId
-    );
-    if (media) {
-      await this.pocketbaseService.updateMedia(media.id, {
-        proxyFileRef: proxyFile.id,
+      // Log usage event
+      await this.pocketbaseService.logUsageEvent({
+        WorkspaceRef: upload.WorkspaceRef,
+        type:
+          input.provider === ProcessingProvider.GOOGLE_TRANSCODER
+            ? 'GOOGLE_TRANSCODER'
+            : 'FFMPEG_COMPUTE',
+        subtype: 'TRANSCODE',
+        value: durationSec,
+        unit: 'SECONDS',
+        metadata: {
+          uploadId: input.uploadId,
+          resolution: input.config.resolution,
+          codec: input.config.codec,
+        },
       });
-    }
 
-    return { proxyPath, proxyFileId: proxyFile.id };
+      // Create File record
+      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.PROXY}/${fileName}`;
+
+      const proxyFile = await this.pocketbaseService.uploadFile({
+        localFilePath: proxyPath,
+        fileName,
+        fileType: FileType.PROXY,
+        fileSource: FileSource.POCKETBASE,
+        storageKey,
+        workspaceRef: upload.WorkspaceRef,
+        uploadRef: input.uploadId,
+        mimeType: 'video/mp4',
+      });
+
+      // Update Media record
+      const media = await this.pocketbaseService.findMediaByUpload(
+        input.uploadId
+      );
+      if (media) {
+        await this.pocketbaseService.updateMedia(media.id, {
+          proxyFileRef: proxyFile.id,
+        });
+      }
+
+      return { proxyPath, proxyFileId: proxyFile.id };
+    } finally {
+      // Clean up local output file if using S3 (no-op in local mode), on
+      // both success and failure so a stateless pod never accumulates disk.
+      await this.storageService.cleanup(proxyPath);
+    }
   }
 
   private selectExecutor(provider: ProcessingProvider): ITranscodeExecutor {

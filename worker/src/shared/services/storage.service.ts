@@ -115,8 +115,14 @@ export class StorageService implements OnModuleInit {
       this.backend = await createStorageBackend(config);
       this.logger.log(`Initialized storage backend: ${storageType}`);
 
-      // If S3 is enabled, check if we need to migrate from local storage
-      if (storageType === StorageBackendType.S3) {
+      // If S3 is enabled AND migration is explicitly opted into, migrate any
+      // files that still live on local disk. This is off by default: stateless
+      // S3 worker pods should not scan a (usually empty) local dir on every
+      // boot. Operators set ENABLE_S3_MIGRATION=true for a one-time migration.
+      if (
+        storageType === StorageBackendType.S3 &&
+        process.env.ENABLE_S3_MIGRATION === 'true'
+      ) {
         await this.migrateLocalToS3();
       }
     } catch (error) {
@@ -495,6 +501,31 @@ export class StorageService implements OnModuleInit {
         error instanceof Error ? error.message : String(error);
       this.logger.warn(
         `Failed to cleanup temp directory for ${recordId}: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Clean up the deterministic render working directory for a task.
+   * Only removes files when using the S3 backend; in local mode the render
+   * directory lives under durable storage and is preserved.
+   */
+  async cleanupRenderDir(workspaceId: string, taskId: string): Promise<void> {
+    if (this.backend.type !== StorageBackendType.S3) {
+      return;
+    }
+
+    try {
+      const renderDir = this.getRenderDir(workspaceId, taskId);
+      if (fs.existsSync(renderDir)) {
+        await fs.promises.rm(renderDir, { recursive: true, force: true });
+        this.logger.log(`Cleaned up render directory: ${renderDir}`);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to cleanup render directory for ${taskId}: ${errorMessage}`
       );
     }
   }

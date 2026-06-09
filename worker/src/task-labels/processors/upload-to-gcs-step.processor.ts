@@ -96,9 +96,6 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
 
       this.logger.log(`Successfully uploaded to GCS: ${gcsUri}`);
 
-      // Clean up local file if using S3 (cleanupTemp deletes the temp directory for the mediaId)
-      await this.storageService.cleanupTemp(input.mediaId);
-
       return {
         gcsUri,
         uploaded: true,
@@ -111,6 +108,12 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
         `Failed to upload to GCS for media ${input.mediaId}: ${errorMessage}`
       );
       throw new Error(`GCS upload failed: ${errorMessage}`);
+    } finally {
+      // Clean up the temp download for this media (no-op in local mode and
+      // when nothing was downloaded). Safe here because the downstream
+      // detection steps read from the GCS URI, not the local temp file.
+      // Runs on success AND failure so a stateless pod never leaks disk.
+      await this.storageService.cleanupTemp(input.mediaId);
     }
   }
 

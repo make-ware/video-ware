@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { TimelinePlayer } from './timeline-player';
 import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
@@ -27,6 +27,18 @@ import { TimelineOrientation } from '@project/shared';
 import { generateFCPXML } from '@/utils/fcpxml';
 import pb from '@/lib/pocketbase-client';
 import { toast } from 'sonner';
+
+const TIMELINE_HEIGHT_KEY = 'timeline-editor:timeline-height';
+const DEFAULT_TIMELINE_HEIGHT = 320;
+const MIN_TIMELINE_HEIGHT = 180;
+
+function clampTimelineHeight(height: number) {
+  const max =
+    typeof window !== 'undefined'
+      ? Math.round(window.innerHeight * 0.7)
+      : DEFAULT_TIMELINE_HEIGHT;
+  return Math.min(Math.max(height, MIN_TIMELINE_HEIGHT), max);
+}
 
 export function TimelineEditorLayout() {
   const {
@@ -58,6 +70,47 @@ export function TimelineEditorLayout() {
     null
   );
   const [isExporting, setIsExporting] = useState(false);
+
+  // Resizable split between player and timeline. Height persists per browser.
+  const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(TIMELINE_HEIGHT_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!Number.isNaN(parsed)) {
+        setTimelineHeight(clampTimelineHeight(parsed));
+      }
+    }
+  }, []);
+
+  const handleSplitterPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startHeight = timelineHeight;
+
+      const onMove = (ev: PointerEvent) => {
+        setTimelineHeight(
+          clampTimelineHeight(startHeight + (startY - ev.clientY))
+        );
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        setTimelineHeight((height) => {
+          window.localStorage.setItem(TIMELINE_HEIGHT_KEY, String(height));
+          return height;
+        });
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [timelineHeight]
+  );
 
   const handleExportFCPXML = async () => {
     if (!timeline) return;
@@ -264,20 +317,34 @@ export function TimelineEditorLayout() {
 
         {/* Player Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto p-1 lg:p-8 flex items-center justify-center min-h-0 bg-black/5">
+          <div className="flex-1 overflow-auto p-2 lg:p-4 flex items-center justify-center min-h-0 bg-black/5">
             <div
               className={`w-full max-h-full ${
                 timeline.orientation === TimelineOrientation.PORTRAIT
                   ? 'max-w-xs aspect-[9/16]'
-                  : 'max-w-4xl aspect-video'
+                  : 'max-w-5xl aspect-video'
               }`}
             >
               <TimelinePlayer />
             </div>
           </div>
 
-          {/* Timeline Area (Increased height for multi-track support) */}
-          <div className="h-[420px] lg:h-[480px] border-t bg-background p-3 lg:p-4 shrink-0 z-10 overflow-hidden">
+          {/* Splitter: drag to trade space between preview and timeline */}
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize timeline panel"
+            className="h-2.5 shrink-0 border-t bg-background cursor-row-resize touch-none flex items-center justify-center group/splitter hover:bg-muted/60 transition-colors z-10"
+            onPointerDown={handleSplitterPointerDown}
+          >
+            <div className="w-10 h-1 rounded-full bg-muted-foreground/30 group-hover/splitter:bg-muted-foreground/60 transition-colors" />
+          </div>
+
+          {/* Timeline Area (resizable via splitter above) */}
+          <div
+            className="border-t bg-background p-2 lg:p-3 shrink-0 z-10 overflow-hidden"
+            style={{ height: timelineHeight }}
+          >
             <TimelineView />
           </div>
         </div>

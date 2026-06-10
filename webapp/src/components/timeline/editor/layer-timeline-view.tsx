@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -31,17 +31,33 @@ import { findNonOverlappingTimelineStart } from './clip-placement';
 const PIXELS_PER_SECOND = 20;
 const MIN_CLIP_DURATION = 0.5;
 const TRACK_HEADER_WIDTH = 200; // pixels
+const TRACK_HEADER_WIDTH_COLLAPSED = 48; // pixels
+const RULER_HEIGHT = 32; // h-8
+const TRACK_HEIGHT = 64; // h-16
+const DRAG_ACTIVATION_PX = 4; // pointer travel before a press becomes a drag
 
 interface DragState {
   clipId: string;
   sourceTrackId: string;
   handle: 'left' | 'right' | 'move';
+  /** Move drags only activate after the pointer travels DRAG_ACTIVATION_PX */
+  active: boolean;
   initialX: number;
+  initialY: number;
   currentX: number;
   initialStart: number;
   initialEnd: number;
   initialTimelineStart?: number;
+  /** Timeline-relative pixel position of the clip at drag start */
+  initialLeft: number;
   mediaDuration: number;
+  /** Live drag preview, updated as the pointer moves (already snapped) */
+  targetTrackId: string;
+  previewLeft: number;
+  previewWidth: number;
+  previewTimelineStart: number;
+  previewStart: number;
+  previewEnd: number;
 }
 
 export function LayerTimelineView() {
@@ -80,6 +96,14 @@ export function LayerTimelineView() {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [shiftPressed, setShiftPressed] = useState(false);
+  const [headersCollapsed, setHeadersCollapsed] = useState(false);
+
+  // Start with compact track headers on small screens
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      setHeadersCollapsed(true);
+    }
+  }, []);
 
   // Track container width for centering playhead
   useEffect(() => {
@@ -92,6 +116,15 @@ export function LayerTimelineView() {
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  // Initialize snap engine
+  const { snapTime, activeGuides, clearGuides } = useSnap({
+    clips: timeline?.clips || [],
+    currentTime,
+    pixelsPerSecond: PIXELS_PER_SECOND,
+    threshold: 8,
+    enabled: !shiftPressed,
+  });
 
   // Listen for Shift key to disable snapping + multi-select keyboard shortcuts
   useEffect(() => {
@@ -116,9 +149,10 @@ export function LayerTimelineView() {
         selectAllClips();
       }
 
-      // Escape: clear selection
+      // Escape: clear selection (and any stale snap guides)
       if (e.key === 'Escape') {
         clearClipSelection();
+        clearGuides();
       }
 
       // Delete/Backspace: open delete confirmation
@@ -144,7 +178,7 @@ export function LayerTimelineView() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectAllClips, clearClipSelection, selectedClipIds.size]);
+  }, [selectAllClips, clearClipSelection, clearGuides, selectedClipIds.size]);
 
   // Ensure minimum duration of 60s for the timeline view
   const displayDuration = Math.max(duration, 60);
@@ -176,51 +210,50 @@ export function LayerTimelineView() {
     return map;
   }, [timeline?.clips]);
 
-  // Initialize snap engine
-  const { snapTime, activeGuides, clearGuides } = useSnap({
-    clips: timeline?.clips || [],
-    currentTime,
-    pixelsPerSecond: PIXELS_PER_SECOND,
-    threshold: 8,
-    enabled: !shiftPressed,
-  });
+  // Build the shared initial drag state for both resize and move drags
+  const buildDragState = useCallback(
+    (
+      clip: TimelineClip,
+      left: number,
+      handle: DragState['handle'],
+      e: React.MouseEvent | React.TouchEvent
+    ): DragState => {
+      const point = 'touches' in e ? e.touches[0] : e;
+      const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
+      const trackId = clip.TimelineTrackRef || '';
 
-  // Helper to get clip display times (taking drag into account)
-  const _getClipTimes = useCallback(
-    (clip: TimelineClip) => {
-      if (dragState && dragState.clipId === clip.id) {
-        const deltaPixels = dragState.currentX - dragState.initialX;
-        const deltaTime = deltaPixels / PIXELS_PER_SECOND;
-
-        let newStart = clip.start;
-        let newEnd = clip.end;
-
-        if (dragState.handle === 'left') {
-          // Adjust start: clamp between 0 and (end - min_duration)
-          newStart = Math.min(
-            Math.max(0, dragState.initialStart + deltaTime),
-            dragState.initialEnd - MIN_CLIP_DURATION
-          );
-        } else if (dragState.handle === 'right') {
-          // Adjust end: clamp between (start + min_duration) and media_duration
-          newEnd = Math.max(
-            Math.min(dragState.mediaDuration, dragState.initialEnd + deltaTime),
-            dragState.initialStart + MIN_CLIP_DURATION
-          );
-        }
-        return { start: newStart, end: newEnd };
-      }
-      return { start: clip.start, end: clip.end };
+      return {
+        clipId: clip.id,
+        sourceTrackId: trackId,
+        handle,
+        // Resize drags engage immediately; move drags wait for pointer travel
+        // so plain clicks still select the clip.
+        active: handle !== 'move',
+        initialX: point.clientX,
+        initialY: point.clientY,
+        currentX: point.clientX,
+        initialStart: clip.start,
+        initialEnd: clip.end,
+        initialTimelineStart: clip.timelineStart,
+        initialLeft: left,
+        mediaDuration,
+        targetTrackId: trackId,
+        previewLeft: left,
+        previewWidth: (clip.end - clip.start) * PIXELS_PER_SECOND,
+        previewTimelineStart: left / PIXELS_PER_SECOND,
+        previewStart: clip.start,
+        previewEnd: clip.end,
+      };
     },
-    [dragState]
+    []
   );
 
-  // Handle Drag Start for Resizing
-  const _handleResizeStart = useCallback(
+  const handleResizeStart = useCallback(
     (
-      e: React.MouseEvent | React.TouchEvent,
       clip: TimelineClip,
-      handle: 'left' | 'right'
+      left: number,
+      handle: 'left' | 'right',
+      e: React.MouseEvent | React.TouchEvent
     ) => {
       e.stopPropagation();
       // Prevent default to stop scrolling while dragging handles
@@ -229,87 +262,205 @@ export function LayerTimelineView() {
       }
       setIsScrubbing(false);
 
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-
-      const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
-      const trackId = clip.TimelineTrackRef || '';
-
-      const state: DragState = {
-        clipId: clip.id,
-        sourceTrackId: trackId,
-        handle,
-        initialX: clientX,
-        currentX: clientX,
-        initialStart: clip.start,
-        initialEnd: clip.end,
-        initialTimelineStart: clip.timelineStart,
-        mediaDuration,
-      };
-
+      const state = buildDragState(clip, left, handle, e);
       setDragState(state);
       dragInfoRef.current = state;
     },
-    [setIsScrubbing, setDragState]
+    [buildDragState]
   );
 
-  // Global mouse handlers for resize drag
+  const handleMoveStart = useCallback(
+    (
+      clip: TimelineClip,
+      left: number,
+      e: React.MouseEvent | React.TouchEvent
+    ) => {
+      // Stop the track-area scrub handler; don't preventDefault so a plain
+      // click still fires the clip's onClick selection.
+      e.stopPropagation();
+
+      const state = buildDragState(clip, left, 'move', e);
+      setDragState(state);
+      dragInfoRef.current = state;
+    },
+    [buildDragState]
+  );
+
+  // Global pointer handlers for clip drags (move + resize) with live
+  // snapping, cross-track targeting, and preview state for ghost rendering.
   useEffect(() => {
     if (!dragState) return;
 
     const onMove = (e: MouseEvent | TouchEvent) => {
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      setDragState((prev) => (prev ? { ...prev, currentX: clientX } : null));
-    };
-
-    const onUp = async (e: MouseEvent | TouchEvent) => {
       const info = dragInfoRef.current;
+      if (!info) return;
 
-      if (info) {
-        const clientX =
-          'changedTouches' in e
-            ? e.changedTouches[0].clientX
-            : (e as MouseEvent).clientX;
-        const deltaPixels = clientX - info.initialX;
-        const deltaTime = deltaPixels / PIXELS_PER_SECOND;
+      const point = 'touches' in e ? e.touches[0] : (e as MouseEvent);
+      const { clientX, clientY } = point;
+      const next: DragState = { ...info, currentX: clientX };
 
-        let finalStart = info.initialStart;
-        let finalEnd = info.initialEnd;
-
-        if (info.handle === 'left') {
-          const candidateStart = Math.min(
-            Math.max(0, info.initialStart + deltaTime),
-            info.initialEnd - MIN_CLIP_DURATION
-          );
-
-          // Apply snapping
-          const { snapped } = snapTime(candidateStart, info.clipId);
-          finalStart = snapped;
-        } else if (info.handle === 'right') {
-          const candidateEnd = Math.max(
-            Math.min(info.mediaDuration, info.initialEnd + deltaTime),
-            info.initialStart + MIN_CLIP_DURATION
-          );
-
-          // Apply snapping
-          const { snapped } = snapTime(candidateEnd, info.clipId);
-          finalEnd = snapped;
-        }
-
-        try {
-          if (
-            finalStart !== info.initialStart ||
-            finalEnd !== info.initialEnd
-          ) {
-            await updateClipTimes(info.clipId, finalStart, finalEnd);
-          }
-        } catch (error) {
-          console.error('Failed to update clip times', error);
+      if (!next.active) {
+        const travel = Math.hypot(
+          clientX - info.initialX,
+          clientY - info.initialY
+        );
+        if (travel >= DRAG_ACTIVATION_PX) {
+          next.active = true;
         }
       }
 
+      if (next.active) {
+        // Stop touch scrolling while a drag is in flight
+        if (e.cancelable) e.preventDefault();
+
+        const deltaTime = (clientX - next.initialX) / PIXELS_PER_SECOND;
+        const initialLeftTime = next.initialLeft / PIXELS_PER_SECOND;
+
+        if (next.handle === 'move') {
+          const clipDuration = next.initialEnd - next.initialStart;
+          let leftTime = Math.max(0, initialLeftTime + deltaTime);
+
+          // Snap whichever clip edge is closest to a target: try the leading
+          // edge first, then the trailing edge.
+          const startSnap = snapTime(leftTime, next.clipId);
+          if (startSnap.guide) {
+            leftTime = startSnap.snapped;
+          } else {
+            const endSnap = snapTime(leftTime + clipDuration, next.clipId);
+            if (endSnap.guide) {
+              leftTime = Math.max(0, endSnap.snapped - clipDuration);
+            }
+          }
+
+          next.previewTimelineStart = leftTime;
+          next.previewLeft = leftTime * PIXELS_PER_SECOND;
+          next.previewWidth = clipDuration * PIXELS_PER_SECOND;
+
+          // Vertical position decides the target track
+          const el = document.elementFromPoint(clientX, clientY);
+          const laneTrackId = el
+            ?.closest('[data-track-id]')
+            ?.getAttribute('data-track-id');
+          if (laneTrackId) {
+            next.targetTrackId = laneTrackId;
+          }
+        } else if (next.handle === 'left') {
+          // Trim the in-point; the left edge follows the pointer
+          const clampStart = (value: number) =>
+            Math.min(
+              Math.max(0, next.initialStart - initialLeftTime, value),
+              next.initialEnd - MIN_CLIP_DURATION
+            );
+
+          let newStart = clampStart(next.initialStart + deltaTime);
+          let edgeTime = initialLeftTime + (newStart - next.initialStart);
+          const snap = snapTime(edgeTime, next.clipId);
+          if (snap.guide) {
+            newStart = clampStart(
+              next.initialStart + (snap.snapped - initialLeftTime)
+            );
+            edgeTime = initialLeftTime + (newStart - next.initialStart);
+          }
+
+          next.previewStart = newStart;
+          next.previewLeft = edgeTime * PIXELS_PER_SECOND;
+          next.previewWidth = (next.initialEnd - newStart) * PIXELS_PER_SECOND;
+        } else {
+          // Trim the out-point; the right edge follows the pointer
+          const clampEnd = (value: number) =>
+            Math.max(
+              Math.min(next.mediaDuration, value),
+              next.initialStart + MIN_CLIP_DURATION
+            );
+
+          let newEnd = clampEnd(next.initialEnd + deltaTime);
+          const edgeTime = initialLeftTime + (newEnd - next.initialStart);
+          const snap = snapTime(edgeTime, next.clipId);
+          if (snap.guide) {
+            newEnd = clampEnd(
+              next.initialStart + (snap.snapped - initialLeftTime)
+            );
+          }
+
+          next.previewEnd = newEnd;
+          next.previewLeft = next.initialLeft;
+          next.previewWidth = (newEnd - next.initialStart) * PIXELS_PER_SECOND;
+        }
+      }
+
+      setDragState(next);
+      dragInfoRef.current = next;
+    };
+
+    const onUp = async () => {
+      const info = dragInfoRef.current;
       setDragState(null);
       dragInfoRef.current = null;
       clearGuides();
+
+      // A press that never travelled is a click; selection handles it.
+      if (!info || !info.active) return;
+
+      try {
+        if (info.handle === 'move') {
+          const targetTrack = timeline?.tracks.find(
+            (t) => t.id === info.targetTrackId
+          );
+          if (!targetTrack || targetTrack.isLocked) return;
+
+          const clipDuration = info.initialEnd - info.initialStart;
+          const trackClips = (timeline?.clips || []).filter(
+            (c) => c.TimelineTrackRef === info.targetTrackId
+          );
+          const timelineStart = findNonOverlappingTimelineStart(
+            trackClips,
+            info.previewTimelineStart,
+            clipDuration,
+            info.clipId
+          );
+
+          if (info.targetTrackId === info.sourceTrackId) {
+            const previousStart =
+              info.initialTimelineStart ?? info.initialLeft / PIXELS_PER_SECOND;
+            if (Math.abs(timelineStart - previousStart) > 0.001) {
+              await updateClipPosition(info.clipId, timelineStart);
+            }
+          } else {
+            await moveClipToTrack(
+              info.clipId,
+              info.targetTrackId,
+              timelineStart
+            );
+          }
+        } else {
+          const finalStart = info.previewStart;
+          const finalEnd = info.previewEnd;
+          if (
+            finalStart === info.initialStart &&
+            finalEnd === info.initialEnd
+          ) {
+            return;
+          }
+
+          await updateClipTimes(info.clipId, finalStart, finalEnd);
+
+          // Keep the right edge anchored when trimming the in-point of an
+          // absolutely-positioned clip.
+          if (info.handle === 'left' && info.initialTimelineStart != null) {
+            const newTimelineStart = Math.max(
+              0,
+              info.initialTimelineStart + (finalStart - info.initialStart)
+            );
+            if (
+              Math.abs(newTimelineStart - info.initialTimelineStart) > 0.001
+            ) {
+              await updateClipPosition(info.clipId, newTimelineStart);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to apply clip drag', error);
+      }
     };
 
     window.addEventListener('mousemove', onMove);
@@ -322,7 +473,16 @@ export function LayerTimelineView() {
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onUp);
     };
-  }, [dragState, updateClipTimes, snapTime, clearGuides]);
+  }, [
+    dragState,
+    timeline?.clips,
+    timeline?.tracks,
+    updateClipTimes,
+    updateClipPosition,
+    moveClipToTrack,
+    snapTime,
+    clearGuides,
+  ]);
 
   // Track management handlers
   const handleCreateTrack = useCallback(async () => {
@@ -423,27 +583,21 @@ export function LayerTimelineView() {
     }
   }, [removeSelectedClips]);
 
-  // Clip drag and drop handlers
-  const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
-  const [_dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(
-    null
-  );
-
-  const handleClipDragStart = useCallback(
-    (clipId: string, e: React.DragEvent) => {
-      setDraggedClipId(clipId);
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', clipId);
-    },
-    []
-  );
-
+  // Drag and drop from the media library (HTML5 drag events)
   const handleTrackDragOver = useCallback(
     (trackId: string, e: React.DragEvent) => {
       e.preventDefault();
-      setDragTargetTrackId(trackId);
+      // Live snap guides while dragging library items over the timeline
+      if (trackAreaRef.current) {
+        const rect = trackAreaRef.current.getBoundingClientRect();
+        const candidate = Math.max(
+          0,
+          (e.clientX - rect.left) / PIXELS_PER_SECOND
+        );
+        snapTime(candidate, undefined);
+      }
     },
-    []
+    [snapTime]
   );
 
   const parseLibraryDragData = useCallback((e: React.DragEvent) => {
@@ -487,15 +641,8 @@ export function LayerTimelineView() {
       e.preventDefault();
 
       const track = sortedTracks.find((t) => t.id === trackId);
-      if (!track || track.isLocked) {
-        setDraggedClipId(null);
-        setDragTargetTrackId(null);
-        return;
-      }
-
-      if (!trackAreaRef.current) {
-        setDraggedClipId(null);
-        setDragTargetTrackId(null);
+      if (!track || track.isLocked || !trackAreaRef.current) {
+        clearGuides();
         return;
       }
 
@@ -503,90 +650,47 @@ export function LayerTimelineView() {
       const x = e.clientX - rect.left;
       const candidateTime = Math.max(0, x / PIXELS_PER_SECOND);
 
-      // Handle drop from library (either a media clip or a full-length media)
+      // Drop from library (either a media clip or a full-length media)
       const dragData = parseLibraryDragData(e);
-      if (dragData) {
-        try {
-          const trackClips = (timeline?.clips || []).filter(
-            (c) => c.TimelineTrackRef === trackId
-          );
-          const start = dragData.type === 'media-clip' ? dragData.start : 0;
-          const end =
-            dragData.type === 'media-clip' ? dragData.end : dragData.duration;
-          const clipDur = end - start;
-          const { snapped } = snapTime(candidateTime, undefined);
-          const timelineStart = findNonOverlappingTimelineStart(
-            trackClips,
-            snapped,
-            clipDur
-          );
-          const mediaClipId =
-            dragData.type === 'media-clip' ? dragData.clipId : undefined;
-          await addClip(
-            dragData.mediaId,
-            start,
-            end,
-            mediaClipId,
-            trackId,
-            timelineStart
-          );
-        } catch (error) {
-          console.error('Failed to add clip from drop', error);
-        } finally {
-          setDragTargetTrackId(null);
-          clearGuides();
-        }
+      if (!dragData) {
+        clearGuides();
         return;
       }
-
-      // Handle existing clip move
-      if (!draggedClipId) {
-        setDragTargetTrackId(null);
-        return;
-      }
-
-      const clip = timeline?.clips.find((c) => c.id === draggedClipId);
-      if (!clip) {
-        setDraggedClipId(null);
-        setDragTargetTrackId(null);
-        return;
-      }
-
-      const clipDuration = clip.end - clip.start;
-      const { snapped: snappedTime } = snapTime(candidateTime, draggedClipId);
-      const trackClips = (timeline?.clips || []).filter(
-        (c) => c.TimelineTrackRef === trackId
-      );
-      const timelineStart = findNonOverlappingTimelineStart(
-        trackClips,
-        snappedTime,
-        clipDuration,
-        draggedClipId
-      );
 
       try {
-        const sourceTrackId = clip.TimelineTrackRef;
-
-        if (sourceTrackId === trackId) {
-          await updateClipPosition(draggedClipId, timelineStart);
-        } else {
-          await moveClipToTrack(draggedClipId, trackId, timelineStart);
-        }
+        const trackClips = (timeline?.clips || []).filter(
+          (c) => c.TimelineTrackRef === trackId
+        );
+        const start = dragData.type === 'media-clip' ? dragData.start : 0;
+        const end =
+          dragData.type === 'media-clip' ? dragData.end : dragData.duration;
+        const clipDur = end - start;
+        const { snapped } = snapTime(candidateTime, undefined);
+        const timelineStart = findNonOverlappingTimelineStart(
+          trackClips,
+          snapped,
+          clipDur
+        );
+        const mediaClipId =
+          dragData.type === 'media-clip' ? dragData.clipId : undefined;
+        await addClip(
+          dragData.mediaId,
+          start,
+          end,
+          mediaClipId,
+          trackId,
+          timelineStart
+        );
       } catch (error) {
-        console.error('Failed to move clip', error);
+        console.error('Failed to add clip from drop', error);
       } finally {
-        setDraggedClipId(null);
-        setDragTargetTrackId(null);
         clearGuides();
       }
     },
     [
-      draggedClipId,
       sortedTracks,
       timeline?.clips,
       snapTime,
-      updateClipPosition,
-      moveClipToTrack,
       addClip,
       parseLibraryDragData,
       clearGuides,
@@ -811,14 +915,42 @@ export function LayerTimelineView() {
         <div className="flex flex-1 overflow-hidden">
           {/* Track Headers Sidebar */}
           <div
-            className="flex-shrink-0 border-r bg-muted/20"
-            style={{ width: TRACK_HEADER_WIDTH }}
+            className="flex-shrink-0 border-r bg-muted/20 transition-[width] duration-200"
+            style={{
+              width: headersCollapsed
+                ? TRACK_HEADER_WIDTH_COLLAPSED
+                : TRACK_HEADER_WIDTH,
+            }}
           >
-            {/* Ruler Header Spacer */}
-            <div className="h-8 border-b bg-muted/30 flex items-center justify-center">
-              <span className="text-xs text-muted-foreground font-medium">
-                Tracks
-              </span>
+            {/* Ruler Header Spacer + collapse toggle */}
+            <div
+              className={cn(
+                'h-8 border-b bg-muted/30 flex items-center',
+                headersCollapsed ? 'justify-center' : 'justify-between px-2'
+              )}
+            >
+              {!headersCollapsed && (
+                <span className="text-xs text-muted-foreground font-medium">
+                  Tracks
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground"
+                onClick={() => setHeadersCollapsed(!headersCollapsed)}
+                title={
+                  headersCollapsed
+                    ? 'Expand track headers'
+                    : 'Collapse track headers'
+                }
+              >
+                {headersCollapsed ? (
+                  <PanelLeftOpen className="h-3.5 w-3.5" />
+                ) : (
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                )}
+              </Button>
             </div>
 
             {/* Track Headers */}
@@ -826,45 +958,49 @@ export function LayerTimelineView() {
               className="overflow-y-auto"
               style={{ maxHeight: 'calc(100% - 2rem)' }}
             >
-              {hasNoTracks ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  No tracks yet. Create one to get started.
-                </div>
-              ) : (
-                sortedTracks.map((track) => (
-                  <TrackHeader
-                    key={track.id}
-                    track={track}
-                    isSelected={selectedTrackId === track.id}
-                    onSelect={() => setSelectedTrackId(track.id)}
-                    onRename={(name) => handleTrackRename(track.id, name)}
-                    onToggleMute={() =>
-                      handleTrackToggleMute(track.id, track.isMuted)
-                    }
-                    onToggleLock={() =>
-                      handleTrackToggleLock(track.id, track.isLocked)
-                    }
-                    onVolumeChange={(volume) =>
-                      handleTrackVolumeChange(track.id, volume)
-                    }
-                    onOpacityChange={(opacity) =>
-                      handleTrackOpacityChange(track.id, opacity)
-                    }
-                    onDelete={() => handleTrackDelete(track.id)}
-                  />
-                ))
-              )}
+              {hasNoTracks
+                ? !headersCollapsed && (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      No tracks yet. Create one to get started.
+                    </div>
+                  )
+                : sortedTracks.map((track) => (
+                    <TrackHeader
+                      key={track.id}
+                      track={track}
+                      compact={headersCollapsed}
+                      isSelected={selectedTrackId === track.id}
+                      onSelect={() => setSelectedTrackId(track.id)}
+                      onRename={(name) => handleTrackRename(track.id, name)}
+                      onToggleMute={() =>
+                        handleTrackToggleMute(track.id, track.isMuted)
+                      }
+                      onToggleLock={() =>
+                        handleTrackToggleLock(track.id, track.isLocked)
+                      }
+                      onVolumeChange={(volume) =>
+                        handleTrackVolumeChange(track.id, volume)
+                      }
+                      onOpacityChange={(opacity) =>
+                        handleTrackOpacityChange(track.id, opacity)
+                      }
+                      onDelete={() => handleTrackDelete(track.id)}
+                    />
+                  ))}
 
               {/* Add Track Button */}
               <div className="p-2 border-t">
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="w-full"
+                  size={headersCollapsed ? 'icon' : 'sm'}
+                  className={
+                    headersCollapsed ? 'w-8 h-8 mx-auto flex' : 'w-full'
+                  }
                   onClick={handleCreateTrack}
+                  title="Add Track"
                 >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Track
+                  <Plus className="h-4 w-4" />
+                  {!headersCollapsed && <span className="ml-2">Add Track</span>}
                 </Button>
               </div>
             </div>
@@ -910,18 +1046,65 @@ export function LayerTimelineView() {
                         isLocked={track.isLocked}
                         selectedClipIds={selectedClipIds}
                         onClipSelect={handleClipSelect}
-                        onClipDragStart={handleClipDragStart}
+                        onClipMoveStart={handleMoveStart}
+                        onClipResizeStart={handleResizeStart}
                         onDragOver={(e) => handleTrackDragOver(track.id, e)}
                         onDrop={(e) => handleTrackDrop(track.id, e)}
-                        onClipResize={(_clipId, _handle, _deltaTime) => {
-                          // This is handled by the resize handlers above
-                        }}
-                        snapGuides={activeGuides}
+                        resizeOverride={
+                          dragState?.active && dragState.handle !== 'move'
+                            ? {
+                                clipId: dragState.clipId,
+                                left: dragState.previewLeft,
+                                width: dragState.previewWidth,
+                              }
+                            : null
+                        }
+                        movingClipId={
+                          dragState?.active && dragState.handle === 'move'
+                            ? dragState.clipId
+                            : null
+                        }
+                        isDropTarget={
+                          dragState?.active &&
+                          dragState.handle === 'move' &&
+                          dragState.targetTrackId === track.id
+                        }
                       />
                     );
                   })
                 )}
               </div>
+
+              {/* Move Drag Ghost */}
+              {dragState?.active &&
+                dragState.handle === 'move' &&
+                (() => {
+                  const targetIndex = sortedTracks.findIndex(
+                    (t) => t.id === dragState.targetTrackId
+                  );
+                  if (targetIndex === -1) return null;
+                  const blocked = sortedTracks[targetIndex].isLocked;
+                  return (
+                    <div
+                      className={cn(
+                        'absolute z-[15] pointer-events-none rounded-sm border-2',
+                        blocked
+                          ? 'border-destructive bg-destructive/20'
+                          : 'border-primary bg-primary/30'
+                      )}
+                      style={{
+                        left: dragState.previewLeft,
+                        width: dragState.previewWidth,
+                        top: RULER_HEIGHT + targetIndex * TRACK_HEIGHT,
+                        height: TRACK_HEIGHT,
+                      }}
+                    >
+                      <div className="absolute top-1 left-1.5 text-[10px] font-mono text-white drop-shadow whitespace-nowrap">
+                        {formatTime(dragState.previewTimelineStart)}
+                      </div>
+                    </div>
+                  );
+                })()}
 
               {/* Snap Guides */}
               {activeGuides.map((guide, index) => (

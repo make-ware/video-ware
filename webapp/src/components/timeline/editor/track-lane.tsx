@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils';
 import type { TimelineClip, TimelineTrackRecord } from '@project/shared';
 import { ClipBlock } from './clip-block';
 import { calculateClipPosition } from './clip-position';
-import type { SnapPosition } from './use-snap';
 
 export interface TrackLaneProps {
   track: TimelineTrackRecord;
@@ -15,15 +14,27 @@ export interface TrackLaneProps {
   isLocked: boolean;
   selectedClipIds: Set<string>;
   onClipSelect: (clipId: string, e: React.MouseEvent) => void;
-  onClipDragStart: (clipId: string, e: React.DragEvent) => void;
+  /** Pointer-down on a clip body — starts a move drag (mouse + touch) */
+  onClipMoveStart: (
+    clip: TimelineClip,
+    left: number,
+    e: React.MouseEvent | React.TouchEvent
+  ) => void;
+  /** Pointer-down on a clip resize handle */
+  onClipResizeStart: (
+    clip: TimelineClip,
+    left: number,
+    handle: 'left' | 'right',
+    e: React.MouseEvent | React.TouchEvent
+  ) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
-  onClipResize: (
-    clipId: string,
-    handle: 'left' | 'right',
-    deltaTime: number
-  ) => void;
-  snapGuides: SnapPosition[];
+  /** Live position/size override while a clip on this lane is being resized */
+  resizeOverride?: { clipId: string; left: number; width: number } | null;
+  /** Clip currently mid-move-drag (rendered dimmed; ghost shows the target) */
+  movingClipId?: string | null;
+  /** True while a move drag is hovering this lane */
+  isDropTarget?: boolean;
 }
 
 export function TrackLane({
@@ -34,11 +45,13 @@ export function TrackLane({
   isLocked,
   selectedClipIds,
   onClipSelect,
-  onClipDragStart,
+  onClipMoveStart,
+  onClipResizeStart,
   onDragOver,
   onDrop,
-  onClipResize: _onClipResize,
-  snapGuides: _snapGuides,
+  resizeOverride,
+  movingClipId,
+  isDropTarget,
 }: TrackLaneProps) {
   // Sort clips by their position (either timelineStart or sequential order)
   const sortedClips = [...clips].sort((a, b) => {
@@ -56,6 +69,15 @@ export function TrackLane({
       precedingClips,
       pixelsPerSecond
     );
+
+    // Apply the live resize preview while a handle drag is in flight
+    if (resizeOverride && resizeOverride.clipId === clip.id) {
+      return {
+        clip,
+        left: resizeOverride.left,
+        width: resizeOverride.width,
+      };
+    }
 
     return {
       clip,
@@ -88,7 +110,8 @@ export function TrackLane({
       className={cn(
         'relative h-16 w-full bg-muted/5 border-b transition-colors',
         isLocked && 'bg-muted/20 cursor-not-allowed',
-        !isLocked && 'hover:bg-muted/10'
+        !isLocked && 'hover:bg-muted/10',
+        isDropTarget && !isLocked && 'bg-primary/5'
       )}
       style={{ width: totalWidth }}
       onDragOver={handleDragOver}
@@ -105,16 +128,12 @@ export function TrackLane({
           width={width}
           isSelected={selectedClipIds.has(clip.id)}
           isLocked={isLocked}
+          isDragging={movingClipId === clip.id}
           onSelect={(e) => onClipSelect(clip.id, e)}
-          onResizeStart={(handle, e) => {
-            // Calculate delta time from mouse movement
-            // This will be handled by the parent component
-            // For now, we just pass the event up
-            e.stopPropagation();
-          }}
-          onDragStart={(e) => {
-            onClipDragStart(clip.id, e);
-          }}
+          onMoveStart={(e) => onClipMoveStart(clip, left, e)}
+          onResizeStart={(handle, e) =>
+            onClipResizeStart(clip, left, handle, e)
+          }
         />
       ))}
 

@@ -13,10 +13,11 @@ export interface TrimHandlesProps {
   /** Callback when start or end time changes */
   onChange: (start: number, end: number) => void;
   /**
-   * Callback to scrub an attached video player whenever the user edits a handle.
-   * Parents should seek their <video> element to `time`.
+   * Callback to scrub an attached video player whenever the user edits a handle
+   * or drags the playhead along the track. Parents should seek their <video>
+   * element to `time`.
    */
-  onScrub?: (time: number, handle: 'start' | 'end') => void;
+  onScrub?: (time: number, handle: 'start' | 'end' | 'playhead') => void;
   /** Current playhead position in seconds (optional) */
   currentTime?: number;
   /** Minimum clip duration in seconds */
@@ -42,22 +43,25 @@ export function TrimHandles({
   className,
 }: TrimHandlesProps) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
+  const [dragging, setDragging] = useState<'start' | 'end' | 'playhead' | null>(
+    null
+  );
   const [focusedHandle, setFocusedHandle] = useState<'start' | 'end' | null>(
     null
   );
   const scrubRafRef = useRef<number | null>(null);
   const pendingScrubRef = useRef<{
     time: number;
-    handle: 'start' | 'end';
+    handle: 'start' | 'end' | 'playhead';
   } | null>(null);
-  const lastScrubRef = useRef<{ time: number; handle: 'start' | 'end' } | null>(
-    null
-  );
+  const lastScrubRef = useRef<{
+    time: number;
+    handle: 'start' | 'end' | 'playhead';
+  } | null>(null);
   const lastScrubAtRef = useRef<number>(0);
 
   const scheduleScrub = useCallback(
-    (time: number, handle: 'start' | 'end') => {
+    (time: number, handle: 'start' | 'end' | 'playhead') => {
       if (!onScrub) return;
       pendingScrubRef.current = { time, handle };
 
@@ -149,6 +153,19 @@ export function TrimHandles({
     [disabled, scheduleScrub, startTime, endTime]
   );
 
+  // Click / drag anywhere on the track to move the playhead (scrub the video).
+  // Handle grab areas stop propagation, so this only fires off the handles.
+  const handleTrackPointerDown = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (disabled || !onScrub) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const time = percentToTime(getPositionPercent(clientX));
+      scheduleScrub(time, 'playhead');
+      setDragging('playhead');
+    },
+    [disabled, onScrub, percentToTime, getPositionPercent, scheduleScrub]
+  );
+
   // Handle drag move
   useEffect(() => {
     if (!dragging) return;
@@ -158,7 +175,11 @@ export function TrimHandles({
       const percent = getPositionPercent(clientX);
       const time = percentToTime(percent);
 
-      if (dragging === 'start') {
+      if (dragging === 'playhead') {
+        // Free scrub of the playhead across the whole media; trim range
+        // is unaffected.
+        scheduleScrub(time, 'playhead');
+      } else if (dragging === 'start') {
         // Ensure start doesn't exceed end - minDuration
         const maxStart = endTime - minDuration;
         const newStart = Math.max(0, Math.min(maxStart, time));
@@ -281,8 +302,11 @@ export function TrimHandles({
           ref={trackRef}
           className={cn(
             'relative h-12 sm:h-10 bg-muted rounded-md overflow-visible touch-none',
+            !disabled && onScrub && 'cursor-pointer',
             disabled && 'opacity-50 cursor-not-allowed'
           )}
+          onMouseDown={handleTrackPointerDown}
+          onTouchStart={handleTrackPointerDown}
         >
           {/* Inactive region (before start) */}
           <div
@@ -305,12 +329,14 @@ export function TrimHandles({
             style={{ width: `${100 - endPercent}%` }}
           />
 
-          {/* Current time indicator */}
+          {/* Current time indicator (playhead) */}
           {currentPercent !== null && (
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-white z-10 pointer-events-none"
+              className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_3px_rgba(0,0,0,0.8)] z-[25] pointer-events-none"
               style={{ left: `${currentPercent}%` }}
-            />
+            >
+              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-sm" />
+            </div>
           )}
 
           {/* Extended grab area for start handle (invisible, extends beyond timeline) */}

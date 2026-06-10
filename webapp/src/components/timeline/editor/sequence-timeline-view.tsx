@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
 import { Pencil, GripVertical, AlertTriangle } from 'lucide-react';
@@ -27,10 +27,11 @@ interface SequenceClipCardProps {
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onEdit: () => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
+  /** Pointer-down on the grip handle — starts a reorder drag (mouse + touch) */
+  onGripPointerDown: (e: React.PointerEvent) => void;
   isDragged: boolean;
+  /** True while another card is being dragged over this one */
+  isDropTarget: boolean;
 }
 
 function SequenceClipCard({
@@ -38,10 +39,9 @@ function SequenceClipCard({
   isSelected,
   onSelect,
   onEdit,
-  onDragStart,
-  onDragOver,
-  onDrop,
+  onGripPointerDown,
   isDragged,
+  isDropTarget,
 }: SequenceClipCardProps) {
   const [isHovering, setIsHovering] = useState(false);
   const mediaMissing = clip.meta?.mediaMissing === true;
@@ -56,19 +56,17 @@ function SequenceClipCard({
 
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      data-clip-id={clip.id}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       onClick={(e) => onSelect(e)}
       className={cn(
-        'relative shrink-0 flex flex-col justify-between p-3 rounded-lg border-2 transition-all cursor-grab active:cursor-grabbing group overflow-hidden',
+        'relative shrink-0 flex flex-col justify-between p-3 rounded-lg border-2 transition-all cursor-pointer group overflow-hidden',
         isSelected
           ? 'border-primary shadow-lg ring-2 ring-primary/20 scale-105 z-10'
           : 'border-border bg-card hover:border-muted-foreground/50',
         isDragged && 'opacity-50',
+        isDropTarget && 'border-primary ring-2 ring-primary/40',
         'h-[120px] lg:h-[100px]'
       )}
       style={{
@@ -103,7 +101,15 @@ function SequenceClipCard({
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/40 to-background/90 z-0" />
       </div>
 
-      <GripVertical className="absolute top-3 right-2 h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors z-10" />
+      {/* Grip handle: drag here to reorder (keeps the strip scrollable on touch) */}
+      <div
+        className="absolute top-1 right-0.5 h-8 w-8 flex items-center justify-center z-20 cursor-grab active:cursor-grabbing touch-none rounded-md hover:bg-background/60"
+        onPointerDown={onGripPointerDown}
+        onClick={(e) => e.stopPropagation()}
+        title="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+      </div>
 
       <div className="flex flex-col gap-1 min-w-0 z-10">
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -119,7 +125,7 @@ function SequenceClipCard({
         <Button
           variant="secondary"
           size="icon"
-          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+          className="h-7 w-7 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shadow-md"
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
@@ -149,6 +155,9 @@ export function SequenceTimelineView() {
     [timeline, editingClipId]
   );
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
+  const [dropTargetClipId, setDropTargetClipId] = useState<string | null>(null);
+  const dragSourceRef = useRef<string | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
   const [selectedTrackFilter, setSelectedTrackFilter] =
     useState<string>(ALL_TRACKS_VALUE);
 
@@ -219,22 +228,7 @@ export function SequenceTimelineView() {
 
   if (!timeline) return null;
 
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggedClipId(id);
-    e.dataTransfer.setData('clipId', id);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    const sourceId = e.dataTransfer.getData('clipId');
-    if (sourceId === targetId) return;
-
+  const moveClip = async (sourceId: string, targetId: string) => {
     const sourceIndex = timeline.clips.findIndex((c) => c.id === sourceId);
     const targetIndex = timeline.clips.findIndex((c) => c.id === targetId);
 
@@ -251,7 +245,51 @@ export function SequenceTimelineView() {
     }));
 
     await reorderClips(clipOrders);
-    setDraggedClipId(null);
+  };
+
+  // Pointer-based reorder so it works with both mouse and touch. The grip
+  // handle owns the gesture; the card under the pointer is the drop target.
+  const handleGripPointerDown = (clipId: string) => (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragSourceRef.current = clipId;
+    dropTargetRef.current = null;
+    setDraggedClipId(clipId);
+
+    const onMove = (ev: PointerEvent) => {
+      const card = document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest('[data-clip-id]');
+      const id = card?.getAttribute('data-clip-id') ?? null;
+      const next = id === dragSourceRef.current ? null : id;
+      dropTargetRef.current = next;
+      setDropTargetClipId(next);
+    };
+
+    const onUp = async () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+
+      const sourceId = dragSourceRef.current;
+      const targetId = dropTargetRef.current;
+      dragSourceRef.current = null;
+      dropTargetRef.current = null;
+      setDraggedClipId(null);
+      setDropTargetClipId(null);
+
+      if (sourceId && targetId && sourceId !== targetId) {
+        try {
+          await moveClip(sourceId, targetId);
+        } catch (error) {
+          console.error('Failed to reorder clips', error);
+        }
+      }
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   return (
@@ -309,10 +347,9 @@ export function SequenceTimelineView() {
                       isSelected={isClipSelected(clip.id)}
                       onSelect={(e) => handleClipSelect(clip.id, e)}
                       onEdit={() => setEditingClipId(clip.id)}
-                      onDragStart={(e) => handleDragStart(e, clip.id)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, clip.id)}
+                      onGripPointerDown={handleGripPointerDown(clip.id)}
                       isDragged={draggedClipId === clip.id}
+                      isDropTarget={dropTargetClipId === clip.id}
                     />
                   ))}
                 </div>
@@ -329,27 +366,13 @@ export function SequenceTimelineView() {
                 isSelected={isClipSelected(clip.id)}
                 onSelect={(e) => handleClipSelect(clip.id, e)}
                 onEdit={() => setEditingClipId(clip.id)}
-                onDragStart={(e) => handleDragStart(e, clip.id)}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, clip.id)}
+                onGripPointerDown={handleGripPointerDown(clip.id)}
                 isDragged={draggedClipId === clip.id}
+                isDropTarget={dropTargetClipId === clip.id}
               />
             ))}
           </>
         )}
-
-        {/* Drop zone for adding clips at the end if needed */}
-        <div
-          className="shrink-0 w-12 h-full flex items-center justify-center text-muted-foreground/20 italic text-xs border-2 border-dashed border-muted/5 rounded-lg"
-          onDragOver={handleDragOver}
-          onDrop={(e) => {
-            e.preventDefault();
-            // const sourceId = e.dataTransfer.getData('clipId');
-            // Logic for dropping at the end...
-          }}
-        >
-          ...
-        </div>
       </div>
 
       {editingClip && (

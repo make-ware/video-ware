@@ -360,6 +360,77 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     onOpenChange,
   ]);
 
+  // Keyboard shortcuts for fast cutting: I/O set in/out points at the
+  // playhead, Space toggles playback, arrows step the playhead, and
+  // Cmd/Ctrl+Enter saves.
+  useEffect(() => {
+    if (!open) return;
+
+    const isInteractive = (el: HTMLElement | null) =>
+      !!el?.closest(
+        'input, textarea, select, button, [role="slider"], [contenteditable="true"]'
+      );
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void handleSave();
+        return;
+      }
+
+      if (isInteractive(e.target as HTMLElement | null)) return;
+
+      const video = editor.videoRef.current;
+
+      switch (e.key) {
+        case 'i':
+        case 'I':
+          if (!isComposite && editor.currentVideoTime < editor.endTime) {
+            e.preventDefault();
+            editor.setStartTime(editor.currentVideoTime);
+          }
+          break;
+        case 'o':
+        case 'O':
+          if (
+            !isComposite &&
+            editor.currentVideoTime > editor.startTime &&
+            editor.currentVideoTime <= editor.mediaDuration
+          ) {
+            e.preventDefault();
+            editor.setEndTime(editor.currentVideoTime);
+          }
+          break;
+        case ' ':
+          e.preventDefault();
+          if (video) {
+            if (video.paused) {
+              void video.play();
+            } else {
+              video.pause();
+            }
+          }
+          break;
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          e.preventDefault();
+          const step =
+            (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowLeft' ? -1 : 1);
+          editor.handleScrub(
+            Math.min(
+              editor.mediaDuration,
+              Math.max(0, editor.currentVideoTime + step)
+            )
+          );
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, editor, isComposite, handleSave]);
+
   const handleDelete = useCallback(async () => {
     if (mode !== 'edit-timeline-clip') return;
     const tlProps = props as ClipEditorEditTimelineClipProps;
@@ -459,60 +530,102 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           </DialogHeader>
 
           <ScrollArea className="max-h-[80vh]">
-            <div className="space-y-4 p-1">
-              {/* Video Preview */}
-              <div
-                className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm mx-auto w-full"
-                style={{
-                  maxHeight: '50vh',
-                  maxWidth: 'calc(50vh * 16 / 9)',
-                }}
-              >
-                {editor.src ? (
-                  <VideoPlayerUI
-                    src={editor.src}
-                    poster={editor.poster}
-                    startTime={
-                      isComposite
-                        ? editor.segments[0]?.start || 0
-                        : editor.startTime
-                    }
-                    endTime={
-                      isComposite
-                        ? editor.segments[editor.segments.length - 1]?.end ||
-                          editor.mediaDuration
-                        : editor.endTime
-                    }
-                    autoPlay={false}
-                    preload="auto"
-                    className="w-full h-full"
-                    ref={editor.videoRef}
+            <div className="flex flex-col lg:flex-row gap-4 p-1">
+              {/* Left column: video + trim track */}
+              <div className="flex-1 min-w-0 space-y-3">
+                {/* Video Preview */}
+                <div className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm mx-auto w-full max-h-[40vh] max-w-[calc(40vh*16/9)] lg:max-h-[62vh] lg:max-w-[calc(62vh*16/9)]">
+                  {editor.src ? (
+                    <VideoPlayerUI
+                      src={editor.src}
+                      poster={editor.poster}
+                      startTime={
+                        isComposite
+                          ? editor.segments[0]?.start || 0
+                          : editor.startTime
+                      }
+                      endTime={
+                        isComposite
+                          ? editor.segments[editor.segments.length - 1]?.end ||
+                            editor.mediaDuration
+                          : editor.endTime
+                      }
+                      autoPlay={false}
+                      preload="auto"
+                      seekOnStartTimeChange={false}
+                      clampToRange={false}
+                      className="w-full h-full"
+                      ref={editor.videoRef}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      No preview available
+                    </div>
+                  )}
+                </div>
+
+                {/* Trim Controls */}
+                {isComposite ? (
+                  <SegmentEditor
+                    segments={editor.segments}
+                    mediaDuration={editor.mediaDuration}
+                    onChange={editor.setSegments}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    No preview available
-                  </div>
+                  <>
+                    <TrimHandles
+                      duration={editor.mediaDuration}
+                      startTime={editor.startTime}
+                      endTime={editor.endTime}
+                      onChange={editor.handleTrimChange}
+                      onScrub={editor.handleScrub}
+                      currentTime={editor.currentVideoTime}
+                      minDuration={mode === 'create' ? 0 : 0.5}
+                    />
+
+                    {/* Keyboard shortcut hints (desktop only) */}
+                    <div className="hidden lg:flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
+                      <span>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                          I
+                        </kbd>{' '}
+                        set start
+                      </span>
+                      <span>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                          O
+                        </kbd>{' '}
+                        set end
+                      </span>
+                      <span>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                          Space
+                        </kbd>{' '}
+                        play/pause
+                      </span>
+                      <span>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                          ←
+                        </kbd>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px] ml-0.5">
+                          →
+                        </kbd>{' '}
+                        step
+                      </span>
+                      <span>
+                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                          ⌘↵
+                        </kbd>{' '}
+                        save
+                      </span>
+                    </div>
+                  </>
                 )}
               </div>
 
-              {/* Trim Controls */}
-              {isComposite ? (
-                <SegmentEditor
-                  segments={editor.segments}
-                  mediaDuration={editor.mediaDuration}
-                  onChange={editor.setSegments}
-                />
-              ) : (
-                <div className="space-y-4">
-                  <TrimHandles
-                    duration={editor.mediaDuration}
-                    startTime={editor.startTime}
-                    endTime={editor.endTime}
-                    onChange={editor.handleTrimChange}
-                    onScrub={editor.handleScrub}
-                    currentTime={editor.currentVideoTime}
-                    minDuration={mode === 'create' ? 0 : 0.5}
-                  />
+              {/* Right column: numeric inputs + clip metadata */}
+              <div className="lg:w-[380px] lg:shrink-0 space-y-4">
+                {!isComposite && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between gap-2">
@@ -581,93 +694,95 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                       </div>
                     </div>
                   </div>
+                )}
+
+                {/* Duration Display */}
+                <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                  <span className="text-sm font-medium flex items-center gap-2">
+                    {isComposite ? (
+                      <Layers className="h-4 w-4" />
+                    ) : (
+                      <Clock className="h-4 w-4" />
+                    )}
+                    {isComposite ? 'Effective Duration:' : 'Clip Duration:'}
+                  </span>
+                  <span className="text-sm font-mono font-bold">
+                    {formatClipTime(Math.max(0, editor.effectiveDuration))}
+                  </span>
                 </div>
-              )}
 
-              {/* Duration Display */}
-              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                <span className="text-sm font-medium flex items-center gap-2">
-                  {isComposite ? (
-                    <Layers className="h-4 w-4" />
-                  ) : (
-                    <Clock className="h-4 w-4" />
-                  )}
-                  {isComposite ? 'Effective Duration:' : 'Clip Duration:'}
-                </span>
-                <span className="text-sm font-mono font-bold">
-                  {formatClipTime(Math.max(0, editor.effectiveDuration))}
-                </span>
-              </div>
+                {/* Timeline-specific fields */}
+                {isTimelineMode && (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Type className="w-4 h-4" />
+                        Display Name
+                      </Label>
+                      <Input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Clip name"
+                      />
+                    </div>
 
-              {/* Timeline-specific fields */}
-              {isTimelineMode && (
-                <>
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      Display Name
-                    </Label>
-                    <Input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Clip name"
-                    />
-                  </div>
+                    <div className="space-y-3">
+                      <Label className="flex items-center gap-2">
+                        <Palette className="w-4 h-4" />
+                        Clip Color
+                      </Label>
+                      <div className="grid grid-cols-8 gap-2">
+                        {PRESET_COLORS.map((pc) => (
+                          <button
+                            key={pc.value}
+                            className={cn(
+                              'w-full aspect-square rounded-md border-2 transition-all',
+                              pc.value,
+                              color === pc.value
+                                ? 'border-white ring-2 ring-primary ring-offset-1'
+                                : 'border-transparent hover:scale-110'
+                            )}
+                            onClick={() => setColor(pc.value)}
+                            title={pc.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                  <div className="space-y-3">
-                    <Label className="flex items-center gap-2">
-                      <Palette className="w-4 h-4" />
-                      Clip Color
-                    </Label>
-                    <div className="grid grid-cols-8 gap-2">
-                      {PRESET_COLORS.map((pc) => (
-                        <button
-                          key={pc.value}
-                          className={cn(
-                            'w-full aspect-square rounded-md border-2 transition-all',
-                            pc.value,
-                            color === pc.value
-                              ? 'border-white ring-2 ring-primary ring-offset-1'
-                              : 'border-transparent hover:scale-110'
-                          )}
-                          onClick={() => setColor(pc.value)}
-                          title={pc.name}
-                        />
-                      ))}
+                {/* Original vs New (edit modes only) */}
+                {mode !== 'create' && !isComposite && editor.hasChanges && (
+                  <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Original:</span>
+                      <span className="font-mono">
+                        {formatClipTime(initialStart)} -{' '}
+                        {formatClipTime(initialEnd)} (
+                        {formatClipTime(initialEnd - initialStart)})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">New:</span>
+                      <span className="font-mono text-primary">
+                        {formatClipTime(editor.startTime)} -{' '}
+                        {formatClipTime(editor.endTime)} (
+                        {formatClipTime(editor.endTime - editor.startTime)})
+                      </span>
                     </div>
                   </div>
-                </>
-              )}
+                )}
 
-              {/* Original vs New (edit modes only) */}
-              {mode !== 'create' && !isComposite && editor.hasChanges && (
-                <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Original:</span>
-                    <span className="font-mono">
-                      {formatClipTime(initialStart)} -{' '}
-                      {formatClipTime(initialEnd)} (
-                      {formatClipTime(initialEnd - initialStart)})
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">New:</span>
-                    <span className="font-mono text-primary">
-                      {formatClipTime(editor.startTime)} -{' '}
-                      {formatClipTime(editor.endTime)} (
-                      {formatClipTime(editor.endTime - editor.startTime)})
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Validation Error */}
-              {editor.validationError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{editor.validationError}</AlertDescription>
-                </Alert>
-              )}
+                {/* Validation Error */}
+                {editor.validationError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {editor.validationError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
             </div>
           </ScrollArea>
 

@@ -24,6 +24,13 @@ export interface VideoPlayerUIProps {
    * This avoids seek loops during drag scrubbing.
    */
   seekOnStartTimeChange?: boolean;
+  /**
+   * When true (default), playback and seeking are confined to
+   * `[startTime, endTime]` (looping back at the end) — used for previewing a
+   * trimmed clip. Set false in editing UIs so the playhead can roam the full
+   * media to pick in/out points.
+   */
+  clampToRange?: boolean;
   /** Controls browser buffering behavior for better scrubbing UX. */
   preload?: HTMLVideoElement['preload'];
   className?: string;
@@ -45,6 +52,7 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
       endTime,
       autoPlay = false,
       seekOnStartTimeChange = true,
+      clampToRange = true,
       preload = 'metadata',
       className,
       placeholder,
@@ -154,6 +162,13 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
       const video = internalRef.current;
       let time = video.currentTime;
 
+      // In editing UIs the playhead is free to roam the whole media.
+      if (!clampToRange) {
+        setCurrentTime(time);
+        onTimeUpdate?.(time);
+        return;
+      }
+
       // Check if playhead is less than start time
       if (startTime !== undefined && time < startTime) {
         video.currentTime = startTime;
@@ -220,7 +235,7 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
 
     const handleSeek = (value: number[]) => {
       if (!internalRef.current) return;
-      const clampedTimeValue = clampTime(value[0]);
+      const clampedTimeValue = clampToRange ? clampTime(value[0]) : value[0];
       internalRef.current.currentTime = clampedTimeValue;
       setCurrentTime(clampedTimeValue);
     };

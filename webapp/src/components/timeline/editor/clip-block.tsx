@@ -11,12 +11,15 @@ export interface ClipBlockProps {
   width: number;
   isSelected: boolean;
   isLocked: boolean;
+  /** True while this clip is mid-move-drag (ghost shows the drop target) */
+  isDragging?: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onResizeStart: (
     handle: 'left' | 'right',
     e: React.MouseEvent | React.TouchEvent
   ) => void;
-  onDragStart: (e: React.DragEvent) => void;
+  /** Pointer-down on the clip body — parent decides when it becomes a drag */
+  onMoveStart: (e: React.MouseEvent | React.TouchEvent) => void;
 }
 
 export function ClipBlock({
@@ -25,9 +28,10 @@ export function ClipBlock({
   width,
   isSelected,
   isLocked,
+  isDragging = false,
   onSelect,
   onResizeStart,
-  onDragStart,
+  onMoveStart,
 }: ClipBlockProps) {
   const clipDuration = clip.end - clip.start;
   const clipColor =
@@ -47,10 +51,14 @@ export function ClipBlock({
   return (
     <div
       className={cn(
-        'absolute top-0 bottom-0 border-r border-background/20 transition-all group cursor-pointer',
+        'absolute top-0 bottom-0 border-r border-background/20 group touch-none',
         clipColor,
+        !isLocked && 'cursor-grab active:cursor-grabbing',
         isSelected && 'ring-2 ring-inset ring-white/50 z-10 shadow-sm',
-        isLocked && 'cursor-not-allowed opacity-60'
+        isLocked && 'cursor-not-allowed opacity-60',
+        isDragging && 'opacity-40',
+        // Position updates must be instant while dragging/resizing
+        !isDragging && 'transition-colors'
       )}
       style={{ left, width }}
       onClick={(e) => {
@@ -59,10 +67,14 @@ export function ClipBlock({
           onSelect(e);
         }
       }}
-      draggable={!isLocked}
-      onDragStart={(e) => {
+      onMouseDown={(e) => {
         if (!isLocked) {
-          onDragStart(e);
+          onMoveStart(e);
+        }
+      }}
+      onTouchStart={(e) => {
+        if (!isLocked) {
+          onMoveStart(e);
         }
       }}
     >
@@ -71,7 +83,7 @@ export function ClipBlock({
         <>
           {/* Left Handle */}
           <div
-            className="absolute left-0 top-0 bottom-0 w-6 -left-3 cursor-ew-resize flex items-center justify-center z-20 group/handle"
+            className="absolute top-0 bottom-0 w-8 -left-4 cursor-ew-resize flex items-center justify-center z-20 group/handle touch-none"
             onMouseDown={(e) => onResizeStart('left', e)}
             onTouchStart={(e) => onResizeStart('left', e)}
           >
@@ -80,7 +92,7 @@ export function ClipBlock({
 
           {/* Right Handle */}
           <div
-            className="absolute right-0 top-0 bottom-0 w-6 -right-3 cursor-ew-resize flex items-center justify-center z-20 group/handle"
+            className="absolute top-0 bottom-0 w-8 -right-4 cursor-ew-resize flex items-center justify-center z-20 group/handle touch-none"
             onMouseDown={(e) => onResizeStart('right', e)}
             onTouchStart={(e) => onResizeStart('right', e)}
           >

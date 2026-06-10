@@ -24,6 +24,8 @@ import {
 export interface TrackHeaderProps {
   track: TimelineTrackRecord;
   isSelected: boolean;
+  /** Narrow layer-badge-only rendering for the collapsed sidebar */
+  compact?: boolean;
   onSelect: () => void;
   onRename: (name: string) => void;
   onToggleMute: () => void;
@@ -36,6 +38,7 @@ export interface TrackHeaderProps {
 export function TrackHeader({
   track,
   isSelected,
+  compact = false,
   onSelect,
   onRename,
   onToggleMute,
@@ -67,6 +70,30 @@ export function TrackHeader({
       setEditName(track.name || `Track ${track.layer}`);
     }
   };
+
+  // Compact mode: badge-only column that stays aligned with 64px track lanes
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          'h-16 border-b bg-muted/30 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors',
+          isSelected && 'bg-muted/60'
+        )}
+        onClick={onSelect}
+        title={track.name || `Track ${track.layer}`}
+      >
+        <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
+          {track.layer}
+        </div>
+        {(track.isMuted || track.isLocked) && (
+          <div className="flex items-center gap-0.5 text-muted-foreground">
+            {track.isMuted && <VolumeX className="h-2.5 w-2.5" />}
+            {track.isLocked && <Lock className="h-2.5 w-2.5" />}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

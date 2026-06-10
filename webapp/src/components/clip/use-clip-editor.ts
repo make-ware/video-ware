@@ -76,14 +76,52 @@ export function useClipEditor({
     minDuration,
   ]);
 
-  // Track video current time
+  // Track the video playhead. Keyed on `src` so it (re)binds once the <video>
+  // element is actually mounted by VideoPlayerUI. While playing we update via
+  // requestAnimationFrame for a smooth playhead; `timeupdate` alone only fires
+  // ~4x/sec, which makes the indicator look laggy and out of sync.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const handleTimeUpdate = () => setCurrentVideoTime(video.currentTime);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, []);
+
+    let raf = 0;
+    const sync = () => setCurrentVideoTime(video.currentTime);
+    const tick = () => {
+      sync();
+      raf = requestAnimationFrame(tick);
+    };
+    const startLoop = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    const stopLoop = () => {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+      sync();
+    };
+
+    video.addEventListener('play', startLoop);
+    video.addEventListener('playing', startLoop);
+    video.addEventListener('pause', stopLoop);
+    video.addEventListener('ended', stopLoop);
+    video.addEventListener('seeked', sync);
+    video.addEventListener('timeupdate', sync);
+
+    // Initialize immediately and start the loop if already playing.
+    sync();
+    if (!video.paused) startLoop();
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      video.removeEventListener('play', startLoop);
+      video.removeEventListener('playing', startLoop);
+      video.removeEventListener('pause', stopLoop);
+      video.removeEventListener('ended', stopLoop);
+      video.removeEventListener('seeked', sync);
+      video.removeEventListener('timeupdate', sync);
+    };
+  }, [src]);
 
   // Seek to initialPlayhead once metadata is available
   useEffect(() => {

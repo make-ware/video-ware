@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { QueueService } from './queue.service';
 import { FlowService } from './flow.service';
 import { JobService } from './job.service';
+import { ProcessorsConfigService } from '../config/processors.config';
 import { QUEUE_NAMES } from './queue.constants';
 
 @Module({
@@ -14,7 +15,10 @@ import { QUEUE_NAMES } from './queue.constants';
       { name: QUEUE_NAMES.LABELS }
     ),
   ],
-  providers: [QueueService, FlowService, JobService],
+  // ProcessorsConfigService is stateless over env config, so providing a
+  // second instance here (next to LabelsModule's) is safe; it lets JobService
+  // gate flow children on the same ENABLE_* flags the processors use.
+  providers: [QueueService, FlowService, JobService, ProcessorsConfigService],
   exports: [QueueService, FlowService, JobService, BullModule],
 })
 export class QueueModule {}

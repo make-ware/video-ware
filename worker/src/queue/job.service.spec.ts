@@ -2,8 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { expect, vi, describe, it, beforeEach } from 'vitest';
 import { JobService } from './job.service';
 import { FlowService } from './flow.service';
+import { ProcessorsConfigService } from '../config/processors.config';
 import { TaskType } from '@project/shared';
 import { DetectLabelsStepType } from './types/step.types';
+import type { LabelsChildJobDefinition, LabelsFlowDefinition } from './flows';
 
 describe('JobService', () => {
   let service: JobService;
@@ -11,6 +13,14 @@ describe('JobService', () => {
 
   const mockFlowService = {
     addFlow: vi.fn(),
+  };
+
+  const mockProcessorsConfigService = {
+    enableLabelDetection: true,
+    enableObjectTracking: true,
+    enableFaceDetection: false,
+    enablePersonDetection: false,
+    enableSpeechTranscription: false,
   };
 
   beforeEach(async () => {
@@ -23,6 +33,10 @@ describe('JobService', () => {
         {
           provide: FlowService,
           useValue: mockFlowService,
+        },
+        {
+          provide: ProcessorsConfigService,
+          useValue: mockProcessorsConfigService,
         },
       ],
     }).compile();
@@ -50,34 +64,66 @@ describe('JobService', () => {
     });
   });
 
+  describe('submitLabelsJob', () => {
+    it('should only enqueue detection steps enabled via ENABLE_* flags', async () => {
+      const task = {
+        id: 'l-1',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        payload: {
+          mediaId: 'm-1',
+          fileRef: 'f-1',
+          config: {
+            detectLabels: true,
+            detectObjects: true,
+            detectFaces: true, // requested but disabled by env
+          },
+        },
+      } as any;
+
+      await service.submitLabelsJob(task);
+
+      const flow = mockFlowService.addFlow.mock
+        .calls[0][0] as LabelsFlowDefinition;
+      const stepTypes = (flow.children as LabelsChildJobDefinition[]).map(
+        (c) => c.data.stepType
+      );
+
+      expect(stepTypes).toEqual([
+        DetectLabelsStepType.LABEL_DETECTION,
+        DetectLabelsStepType.OBJECT_TRACKING,
+      ]);
+      expect(flow.data.expectedSteps).toEqual(stepTypes);
+    });
+  });
+
   describe('submitFullIngestJob', () => {
-    it('should chain transcode flow as dependency of labels flow', async () => {
+    it('should chain transcode flow beneath the first detection upload', async () => {
       const transcodeTask = {
         id: 't-1',
         type: TaskType.PROCESS_UPLOAD,
+        WorkspaceRef: 'w-1',
         payload: { uploadId: 'u-1' },
       } as any;
       const labelsTask = {
         id: 'l-1',
         type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
         payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },
       } as any;
 
       await service.submitFullIngestJob(transcodeTask, labelsTask);
 
-      expect(mockFlowService.addFlow).toHaveBeenCalledWith(
-        expect.objectContaining({
-          children: expect.arrayContaining([
-            expect.objectContaining({
-              name: DetectLabelsStepType.UPLOAD_TO_GCS,
-              children: expect.arrayContaining([
-                expect.objectContaining({
-                  name: 'parent',
-                }),
-              ]),
-            }),
-          ]),
-        })
+      const flow = mockFlowService.addFlow.mock
+        .calls[0][0] as LabelsFlowDefinition;
+      const firstDetection = flow.children[0] as LabelsChildJobDefinition;
+      const upload = firstDetection.children?.[0] as LabelsChildJobDefinition;
+
+      expect(upload.name).toBe(DetectLabelsStepType.UPLOAD_TO_GCS);
+      // The transcode flow's parent job is nested beneath the upload, so
+      // transcoding completes before that branch uploads to GCS.
+      expect(upload.children).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'parent' })])
       );
     });
   });

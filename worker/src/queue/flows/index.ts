@@ -7,11 +7,13 @@ export { TranscodeFlowBuilder } from './transcode-flow.builder';
 export { RenderFlowBuilder } from './render-flow.builder';
 export { LabelsFlowBuilder } from './labels-flow.builder';
 
+export type { EnabledLabelProcessors } from './labels-flow.builder';
 export type {
   FlowDefinition,
   TranscodeFlowDefinition,
   RenderFlowDefinition,
   LabelsFlowDefinition,
+  LabelsChildJobDefinition,
   ChildJobOpts,
-  ChildJobDependency,
+  ParentJobOpts,
 } from './types';

@@ -116,6 +116,17 @@ export abstract class BaseFlowProcessor
   protected abstract getQueue(): Queue;
 
   /**
+   * Resolve the flow-root parent job id for a step job. Builders set
+   * data.parentJobId to the pre-generated flow root id (a step's direct
+   * BullMQ parent may be another step in nested flows); fall back to the
+   * direct BullMQ parent for jobs enqueued by older builders that left it
+   * empty.
+   */
+  protected resolveParentJobId(job: Job<StepJobData>): string | undefined {
+    return job.data.parentJobId || job.parent?.id;
+  }
+
+  /**
    * Main process method - routes to parent or step job handler
    */
   async process(
@@ -127,14 +138,16 @@ export abstract class BaseFlowProcessor
       return this.processParentJob(job as Job<ParentJobData>);
     }
 
-    // Skip dependency reference jobs (they don't have stepType in data)
-    // These are created by BullMQ for dependency tracking but shouldn't be processed
+    // Safety net for malformed jobs without stepType in data. Flow builders
+    // used to enqueue data-less "dependency reference" children (BullMQ has no
+    // such concept — they were real empty jobs that completed instantly and
+    // broke step ordering); skip any still in flight from before that fix.
     const stepData = job.data as StepJobData;
     if (!stepData.stepType) {
-      this.logger.debug(
-        `Skipping job ${job.id} with name ${job.name} - no stepType (dependency reference created by BullMQ)`
+      this.logger.warn(
+        `Skipping job ${job.id} with name ${job.name} - no stepType in job data`
       );
-      return { skipped: true, reason: 'dependency_reference' };
+      return { skipped: true, reason: 'missing_step_type' };
     }
 
     return this.processStepJob(job as Job<StepJobData>);
@@ -323,9 +336,10 @@ export abstract class BaseFlowProcessor
    */
   private async handleStepCompleted(job: Job<StepJobData>) {
     const stepData = job.data;
+    const parentJobId = this.resolveParentJobId(job);
 
-    // Skip dependency reference jobs
-    if (!stepData.stepType || !stepData.parentJobId) {
+    // Skip malformed step jobs (no stepType or no resolvable parent)
+    if (!stepData.stepType || !parentJobId) {
       return;
     }
 
@@ -343,10 +357,10 @@ export abstract class BaseFlowProcessor
 
     if (result && result.stepType) {
       try {
-        const parentJob = await this.getQueue().getJob(stepData.parentJobId);
+        const parentJob = await this.getQueue().getJob(parentJobId);
         if (!parentJob) {
           this.logger.warn(
-            `Parent job ${stepData.parentJobId} not found for step ${result.stepType}`
+            `Parent job ${parentJobId} not found for step ${result.stepType}`
           );
           return;
         }
@@ -491,9 +505,10 @@ export abstract class BaseFlowProcessor
    */
   private async handleStepFailed(job: Job<StepJobData>, error: Error) {
     const stepData = job.data;
+    const parentJobId = this.resolveParentJobId(job);
 
-    // Skip dependency reference jobs
-    if (!stepData.stepType || !stepData.parentJobId) {
+    // Skip malformed step jobs (no stepType or no resolvable parent)
+    if (!stepData.stepType || !parentJobId) {
       return;
     }
 
@@ -520,7 +535,7 @@ export abstract class BaseFlowProcessor
       );
 
       try {
-        const parentJob = await this.getQueue().getJob(stepData.parentJobId);
+        const parentJob = await this.getQueue().getJob(parentJobId);
         if (parentJob) {
           const parentData = parentJob.data as ParentJobData;
 
@@ -567,7 +582,7 @@ export abstract class BaseFlowProcessor
       );
 
       try {
-        const parentJob = await this.getQueue().getJob(stepData.parentJobId);
+        const parentJob = await this.getQueue().getJob(parentJobId);
         if (parentJob) {
           const parentData = parentJob.data as ParentJobData;
 
@@ -635,14 +650,15 @@ export abstract class BaseFlowProcessor
    */
   private async handleStepActive(job: Job<StepJobData>) {
     const stepData = job.data;
+    const parentJobId = this.resolveParentJobId(job);
 
-    // Skip dependency reference jobs
-    if (!stepData.stepType || !stepData.parentJobId) {
+    // Skip malformed step jobs (no stepType or no resolvable parent)
+    if (!stepData.stepType || !parentJobId) {
       return;
     }
 
     try {
-      const parentJob = await this.getQueue().getJob(stepData.parentJobId);
+      const parentJob = await this.getQueue().getJob(parentJobId);
       if (parentJob) {
         const parentData = parentJob.data as ParentJobData;
 

@@ -15,6 +15,13 @@ export interface BaseJobData {
  */
 export interface ParentJobData extends BaseJobData {
   stepResults: Record<string, StepResult>;
+  /**
+   * Step types the flow builder actually enqueued as children. The parent
+   * aggregates success/failure over this list, so the builder is the single
+   * source of truth for which steps must produce results (re-deriving from
+   * env at process time can disagree with what was enqueued).
+   */
+  expectedSteps?: StepType[];
 }
 
 /**

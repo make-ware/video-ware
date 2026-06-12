@@ -25,6 +25,13 @@ export interface UploadToGcsStepOutput {
  * Processor for UPLOAD_TO_GCS step in detect_labels flow
  * Uploads local/S3 files to GCS for use by Video Intelligence and Speech-to-Text APIs
  * Uses deterministic paths so files can be reused across multiple analysis runs
+ *
+ * Each detection step in the labels flow owns its own UPLOAD_TO_GCS child job
+ * (BullMQ flows are trees; siblings can't share a dependency), so several
+ * upload jobs for the same media can run concurrently in one worker. The
+ * in-flight map below collapses them onto a single download/upload/cleanup
+ * pass; across workers the deterministic path + existence check (and GCS's
+ * atomic object visibility) keep duplicate uploads safe, merely redundant.
  */
 @Injectable()
 export class UploadToGcsStepProcessor extends BaseStepProcessor<
@@ -32,6 +39,8 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
   UploadToGcsStepOutput
 > {
   protected readonly logger = new Logger(UploadToGcsStepProcessor.name);
+
+  private readonly inFlight = new Map<string, Promise<UploadToGcsStepOutput>>();
 
   constructor(
     private readonly googleCloudService: GoogleCloudService,
@@ -41,12 +50,37 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Upload file to GCS with deterministic path
-   * Checks if file already exists to avoid redundant uploads
+   * Upload file to GCS, sharing a single in-flight upload per media between
+   * concurrent step jobs. Entries are removed once settled so a failed
+   * attempt is retried fresh by BullMQ rather than replaying the rejection.
    */
   async process(
     input: UploadToGcsStepInput,
     _job: Job<StepJobData>
+  ): Promise<UploadToGcsStepOutput> {
+    const key = `${input.workspaceRef}/${input.mediaId}`;
+
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      this.logger.log(
+        `Upload already in flight for media ${input.mediaId}, awaiting shared result`
+      );
+      return existing;
+    }
+
+    const upload = this.performUpload(input).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, upload);
+    return upload;
+  }
+
+  /**
+   * Upload file to GCS with deterministic path
+   * Checks if file already exists to avoid redundant uploads
+   */
+  private async performUpload(
+    input: UploadToGcsStepInput
   ): Promise<UploadToGcsStepOutput> {
     this.logger.log(`Uploading file to GCS for media ${input.mediaId}`);
 

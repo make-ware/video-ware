@@ -1,20 +1,61 @@
 /**
  * Labels Flow Builder
  * Builds BullMQ flow definitions for label detection operations
+ *
+ * BullMQ flows are trees where every child must complete before its parent
+ * runs. There is no way to reference an existing job as a dependency, so each
+ * detection step gets its OWN real UPLOAD_TO_GCS child job. The upload step is
+ * idempotent (deterministic GCS path + existence check) and the step processor
+ * deduplicates concurrent uploads in-process, so duplicate children cost one
+ * existence check each — and the detection step is guaranteed to only start
+ * once the file is actually in GCS.
+ *
+ * Resulting tree (children run before parents):
+ *
+ *   parent (aggregates results)
+ *   ├── LABEL_DETECTION      ── UPLOAD_TO_GCS
+ *   ├── OBJECT_TRACKING      ── UPLOAD_TO_GCS
+ *   ├── FACE_DETECTION       ── UPLOAD_TO_GCS
+ *   ├── PERSON_DETECTION     ── UPLOAD_TO_GCS
+ *   └── SPEECH_TRANSCRIPTION ── UPLOAD_TO_GCS
+ *
+ * A detection step is added only when its deployment-level ENABLE_* flag is on
+ * AND the task payload requests it. The steps actually added are recorded in
+ * the parent's `expectedSteps`, which the parent processor aggregates over —
+ * the builder is the single source of truth for what must produce results.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Task, DetectLabelsPayload } from '@project/shared';
 import { DetectLabelsStepType } from '../types/step.types';
 import { getStepJobOptions } from '../config/step-options';
 import { QUEUE_NAMES } from '../queue.constants';
-import type { LabelsFlowDefinition } from './types';
+import type { LabelsChildJobDefinition, LabelsFlowDefinition } from './types';
+
+/**
+ * Deployment-level processor enablement (from ENABLE_* env vars).
+ * Passed in by the caller so the builder stays a pure function.
+ */
+export interface EnabledLabelProcessors {
+  labelDetection: boolean;
+  objectTracking: boolean;
+  faceDetection: boolean;
+  personDetection: boolean;
+  speechTranscription: boolean;
+}
 
 export class LabelsFlowBuilder {
-  static buildFlow(task: Task): LabelsFlowDefinition {
+  static buildFlow(
+    task: Task,
+    enabled: EnabledLabelProcessors
+  ): LabelsFlowDefinition {
     const payload = task.payload as DetectLabelsPayload;
     const { mediaId, fileRef } = payload;
 
-    // Build base job data
+    // Pre-generate the parent job id so every child can carry a correct
+    // parentJobId (used for step-result caching and progress updates).
+    const parentJobId = randomUUID();
+
     const baseJobData = {
       taskId: task.id,
       workspaceId: task.WorkspaceRef,
@@ -23,26 +64,13 @@ export class LabelsFlowBuilder {
 
     const version = 1;
 
-    const flow: LabelsFlowDefinition = {
-      name: 'parent',
-      queueName: QUEUE_NAMES.LABELS,
-      data: {
-        ...baseJobData,
-        stepResults: {},
-      },
-      children: [],
-    };
-
-    // UPLOAD_TO_GCS step (runs first)
-    const uploadOptions = getStepJobOptions(DetectLabelsStepType.UPLOAD_TO_GCS);
-
-    flow.children.push({
+    const buildUploadChild = (): LabelsChildJobDefinition => ({
       name: DetectLabelsStepType.UPLOAD_TO_GCS,
       queueName: QUEUE_NAMES.LABELS,
       data: {
         ...baseJobData,
         stepType: DetectLabelsStepType.UPLOAD_TO_GCS,
-        parentJobId: '',
+        parentJobId,
         input: {
           type: 'upload_to_gcs',
           mediaId,
@@ -50,166 +78,95 @@ export class LabelsFlowBuilder {
           fileRef,
         },
       },
-      opts: uploadOptions,
+      opts: {
+        ...getStepJobOptions(DetectLabelsStepType.UPLOAD_TO_GCS),
+        // A detection step is useless without its upload; fail it immediately
+        // instead of leaving it stuck in waiting-children forever.
+        failParentOnFailure: true,
+      },
     });
 
-    // LABEL_DETECTION step (depends on UPLOAD_TO_GCS)
-    if (payload.config?.detectLabels !== false) {
-      const labelDetectionOptions = getStepJobOptions(
-        DetectLabelsStepType.LABEL_DETECTION
-      );
+    const detectionInputBase = {
+      mediaId,
+      workspaceRef: task.WorkspaceRef,
+      taskRef: task.id,
+      version,
+    };
 
-      flow.children.push({
-        name: DetectLabelsStepType.LABEL_DETECTION,
+    // Effective gating: ENABLE_* env flag AND payload config. Labels/objects
+    // default on when the payload is silent; faces/persons/speech default off.
+    const detectionSteps: Array<{
+      stepType: DetectLabelsStepType;
+      enabled: boolean;
+      input: Record<string, unknown>;
+    }> = [
+      {
+        stepType: DetectLabelsStepType.LABEL_DETECTION,
+        enabled:
+          enabled.labelDetection && payload.config?.detectLabels !== false,
+        input: {
+          type: 'label_detection',
+          ...detectionInputBase,
+          config: {
+            videoConfidenceThreshold: payload.config?.confidenceThreshold,
+          },
+        },
+      },
+      {
+        stepType: DetectLabelsStepType.OBJECT_TRACKING,
+        enabled:
+          enabled.objectTracking && payload.config?.detectObjects !== false,
+        input: { type: 'object_tracking', ...detectionInputBase },
+      },
+      {
+        stepType: DetectLabelsStepType.FACE_DETECTION,
+        enabled: enabled.faceDetection && payload.config?.detectFaces === true,
+        input: { type: 'face_detection', ...detectionInputBase },
+      },
+      {
+        stepType: DetectLabelsStepType.PERSON_DETECTION,
+        enabled:
+          enabled.personDetection && payload.config?.detectPersons === true,
+        input: { type: 'person_detection', ...detectionInputBase },
+      },
+      {
+        stepType: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
+        enabled:
+          enabled.speechTranscription && payload.config?.detectSpeech === true,
+        input: { type: 'speech_transcription', ...detectionInputBase },
+      },
+    ];
+
+    const children: LabelsChildJobDefinition[] = detectionSteps
+      .filter((step) => step.enabled)
+      .map((step) => ({
+        name: step.stepType,
         queueName: QUEUE_NAMES.LABELS,
         data: {
           ...baseJobData,
-          stepType: DetectLabelsStepType.LABEL_DETECTION,
-          parentJobId: '',
-          input: {
-            type: 'label_detection',
-            mediaId,
-            workspaceRef: task.WorkspaceRef,
-            taskRef: task.id,
-            version,
-            config: {
-              videoConfidenceThreshold: payload.config?.confidenceThreshold,
-            },
-          },
+          stepType: step.stepType,
+          parentJobId,
+          input: step.input,
         },
-        opts: labelDetectionOptions,
-        children: [
-          {
-            name: DetectLabelsStepType.UPLOAD_TO_GCS,
-            queueName: QUEUE_NAMES.LABELS,
-          },
-        ],
-      });
-    }
-
-    // OBJECT_TRACKING step (depends on UPLOAD_TO_GCS)
-    if (payload.config?.detectObjects !== false) {
-      const objectTrackingOptions = getStepJobOptions(
-        DetectLabelsStepType.OBJECT_TRACKING
-      );
-
-      flow.children.push({
-        name: DetectLabelsStepType.OBJECT_TRACKING,
-        queueName: QUEUE_NAMES.LABELS,
-        data: {
-          ...baseJobData,
-          stepType: DetectLabelsStepType.OBJECT_TRACKING,
-          parentJobId: '',
-          input: {
-            type: 'object_tracking',
-            mediaId,
-            workspaceRef: task.WorkspaceRef,
-            taskRef: task.id,
-            version,
-          },
+        opts: {
+          ...getStepJobOptions(step.stepType),
+          // Detect labels allows partial success: a failed detection step must
+          // not block the parent from aggregating the other steps' results.
+          ignoreDependencyOnFailure: true,
         },
-        opts: objectTrackingOptions,
-        children: [
-          {
-            name: DetectLabelsStepType.UPLOAD_TO_GCS,
-            queueName: QUEUE_NAMES.LABELS,
-          },
-        ],
-      });
-    }
+        children: [buildUploadChild()],
+      }));
 
-    // FACE_DETECTION step (depends on UPLOAD_TO_GCS)
-    if (payload.config?.detectFaces) {
-      const faceDetectionOptions = getStepJobOptions(
-        DetectLabelsStepType.FACE_DETECTION
-      );
-
-      flow.children.push({
-        name: DetectLabelsStepType.FACE_DETECTION,
-        queueName: QUEUE_NAMES.LABELS,
-        data: {
-          ...baseJobData,
-          stepType: DetectLabelsStepType.FACE_DETECTION,
-          parentJobId: '',
-          input: {
-            type: 'face_detection',
-            mediaId,
-            workspaceRef: task.WorkspaceRef,
-            taskRef: task.id,
-            version,
-          },
-        },
-        opts: faceDetectionOptions,
-        children: [
-          {
-            name: DetectLabelsStepType.UPLOAD_TO_GCS,
-            queueName: QUEUE_NAMES.LABELS,
-          },
-        ],
-      });
-    }
-
-    // PERSON_DETECTION step (depends on UPLOAD_TO_GCS)
-    if (payload.config?.detectPersons) {
-      const personDetectionOptions = getStepJobOptions(
-        DetectLabelsStepType.PERSON_DETECTION
-      );
-
-      flow.children.push({
-        name: DetectLabelsStepType.PERSON_DETECTION,
-        queueName: QUEUE_NAMES.LABELS,
-        data: {
-          ...baseJobData,
-          stepType: DetectLabelsStepType.PERSON_DETECTION,
-          parentJobId: '',
-          input: {
-            type: 'person_detection',
-            mediaId,
-            workspaceRef: task.WorkspaceRef,
-            taskRef: task.id,
-            version,
-          },
-        },
-        opts: personDetectionOptions,
-        children: [
-          {
-            name: DetectLabelsStepType.UPLOAD_TO_GCS,
-            queueName: QUEUE_NAMES.LABELS,
-          },
-        ],
-      });
-    }
-
-    // SPEECH_TRANSCRIPTION step (depends on UPLOAD_TO_GCS)
-    if (payload.config?.detectSpeech) {
-      const speechTranscriptionOptions = getStepJobOptions(
-        DetectLabelsStepType.SPEECH_TRANSCRIPTION
-      );
-
-      flow.children.push({
-        name: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
-        queueName: QUEUE_NAMES.LABELS,
-        data: {
-          ...baseJobData,
-          stepType: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
-          parentJobId: '',
-          input: {
-            type: 'speech_transcription',
-            mediaId,
-            workspaceRef: task.WorkspaceRef,
-            taskRef: task.id,
-            version,
-          },
-        },
-        opts: speechTranscriptionOptions,
-        children: [
-          {
-            name: DetectLabelsStepType.UPLOAD_TO_GCS,
-            queueName: QUEUE_NAMES.LABELS,
-          },
-        ],
-      });
-    }
-    return flow;
+    return {
+      name: 'parent',
+      queueName: QUEUE_NAMES.LABELS,
+      opts: { jobId: parentJobId },
+      data: {
+        ...baseJobData,
+        stepResults: {},
+        expectedSteps: children.map((child) => child.data.stepType),
+      },
+      children,
+    };
   }
 }

@@ -48,15 +48,18 @@ import { queueWorkerOptions } from '../../queue/worker-options';
  *
  * Key features:
  * - Allows partial success (one processor can fail while others succeed)
- * - UPLOAD_TO_GCS runs first to upload file to GCS
- * - Five new GCVI processors run in parallel (if enabled):
+ * - Each detection step owns an UPLOAD_TO_GCS child job (BullMQ flows are
+ *   trees, so siblings can't share a dependency); the upload is idempotent
+ *   and deduplicated, and guarantees the file is in GCS before detection runs
+ * - Up to five GCVI processors run in parallel (if enabled):
  *   - LABEL_DETECTION (labels + shot changes)
  *   - OBJECT_TRACKING (tracked objects with keyframes)
  *   - FACE_DETECTION (tracked faces with attributes)
  *   - PERSON_DETECTION (tracked persons with landmarks)
  *   - SPEECH_TRANSCRIPTION (speech-to-text)
  * - Each processor processes and writes its own data independently
- * - Task succeeds if at least one enabled processor succeeds
+ * - The parent aggregates over the steps the flow builder enqueued
+ *   (job.data.expectedSteps); task succeeds if at least one succeeds
  */
 @Processor(QUEUE_NAMES.LABELS, queueWorkerOptions())
 export class DetectLabelsParentProcessor extends BaseFlowProcessor {
@@ -99,12 +102,19 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
   protected async processParentJob(job: Job<ParentJobData>): Promise<void> {
     const { taskId, stepResults } = job.data;
 
-    // Label detection is fully disabled when no GCVI processors are enabled
-    // (all ENABLE_* vars unset or 'false', which is the default). Complete the
-    // task as a no-op without aggregating results or emitting noisy logs.
-    if (!this.processorsConfigService.hasEnabledProcessors) {
+    // The flow builder records which detection steps it actually enqueued.
+    // Aggregating over that list (instead of re-deriving from ENABLE_* env
+    // vars) keeps the parent in agreement with the flow: a processor enabled
+    // by env but excluded by the task payload is not expected to have results.
+    // Jobs enqueued before expectedSteps existed fall back to the env flags.
+    const expectedSteps =
+      job.data.expectedSteps ?? this.expectedStepsFromConfig();
+
+    // No detection steps were enqueued (processors disabled via ENABLE_* vars
+    // or excluded by the task payload). Complete the task as a no-op.
+    if (expectedSteps.length === 0) {
       this.logger.debug(
-        `Label detection disabled (no GCVI processors enabled); skipping task ${taskId}`
+        `No detection steps expected for task ${taskId}; completing as no-op`
       );
       return;
     }
@@ -197,85 +207,20 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
       `Cached ${Object.keys(aggregatedResults).length} step results for task ${taskId}`
     );
 
-    // Check which new processors succeeded
-    const labelDetectionResult =
-      aggregatedResults[DetectLabelsStepType.LABEL_DETECTION];
-    const objectTrackingResult =
-      aggregatedResults[DetectLabelsStepType.OBJECT_TRACKING];
-    const faceDetectionResult =
-      aggregatedResults[DetectLabelsStepType.FACE_DETECTION];
-    const personDetectionResult =
-      aggregatedResults[DetectLabelsStepType.PERSON_DETECTION];
-    const speechTranscriptionResult =
-      aggregatedResults[DetectLabelsStepType.SPEECH_TRANSCRIPTION];
-
-    // Determine which processors succeeded
+    // Determine which expected detection steps succeeded. A step with no
+    // result at all (job lost/never ran) counts as failed.
     const successfulProcessors: string[] = [];
     const failedProcessors: string[] = [];
 
-    // Check new processors
-    // For enabled processors, they should have a result. If not, mark as failed.
-    if (this.processorsConfigService.enableLabelDetection) {
-      if (labelDetectionResult?.status === 'completed') {
-        successfulProcessors.push('LABEL_DETECTION');
+    for (const stepType of expectedSteps) {
+      const result = aggregatedResults[stepType];
+      if (result?.status === 'completed') {
+        successfulProcessors.push(stepType);
       } else {
-        // Processor is enabled but either failed or has no result
-        failedProcessors.push('LABEL_DETECTION');
-        if (!labelDetectionResult) {
+        failedProcessors.push(stepType);
+        if (!result) {
           this.logger.warn(
-            `LABEL_DETECTION is enabled but has no result - marking as failed`
-          );
-        }
-      }
-    }
-
-    if (this.processorsConfigService.enableObjectTracking) {
-      if (objectTrackingResult?.status === 'completed') {
-        successfulProcessors.push('OBJECT_TRACKING');
-      } else {
-        failedProcessors.push('OBJECT_TRACKING');
-        if (!objectTrackingResult) {
-          this.logger.warn(
-            `OBJECT_TRACKING is enabled but has no result - marking as failed`
-          );
-        }
-      }
-    }
-
-    if (this.processorsConfigService.enableFaceDetection) {
-      if (faceDetectionResult?.status === 'completed') {
-        successfulProcessors.push('FACE_DETECTION');
-      } else {
-        failedProcessors.push('FACE_DETECTION');
-        if (!faceDetectionResult) {
-          this.logger.warn(
-            `FACE_DETECTION is enabled but has no result - marking as failed`
-          );
-        }
-      }
-    }
-
-    if (this.processorsConfigService.enablePersonDetection) {
-      if (personDetectionResult?.status === 'completed') {
-        successfulProcessors.push('PERSON_DETECTION');
-      } else {
-        failedProcessors.push('PERSON_DETECTION');
-        if (!personDetectionResult) {
-          this.logger.warn(
-            `PERSON_DETECTION is enabled but has no result - marking as failed`
-          );
-        }
-      }
-    }
-
-    if (this.processorsConfigService.enableSpeechTranscription) {
-      if (speechTranscriptionResult?.status === 'completed') {
-        successfulProcessors.push('SPEECH_TRANSCRIPTION');
-      } else {
-        failedProcessors.push('SPEECH_TRANSCRIPTION');
-        if (!speechTranscriptionResult) {
-          this.logger.warn(
-            `SPEECH_TRANSCRIPTION is enabled but has no result - marking as failed`
+            `Step ${stepType} was expected but has no result - marking as failed`
           );
         }
       }
@@ -327,7 +272,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
    * Process step job - dispatches to appropriate step processor
    */
   protected async processStepJob(job: Job<StepJobData>): Promise<StepResult> {
-    const { stepType, input, parentJobId } = job.data;
+    const { stepType, input } = job.data;
+    const parentJobId = this.resolveParentJobId(job);
     const startedAt = new Date();
 
     // Skip steps whose processor is disabled via ENABLE_* env vars. This is the
@@ -349,6 +295,7 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     this.logger.log(`Processing step ${stepType} for job ${job.id}`);
 
     // Check if this step has already been completed in a previous attempt
+    // (or, for the duplicated UPLOAD_TO_GCS children, by a sibling branch).
     // This allows retries to skip successful steps and only re-run failed ones
     if (parentJobId) {
       const parentJob = await this.labelsQueue.getJob(parentJobId);
@@ -460,6 +407,32 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
       // For processing steps, re-throw to let BullMQ handle retry logic
       throw error;
     }
+  }
+
+  /**
+   * Legacy fallback for parent jobs enqueued before the flow builder recorded
+   * `expectedSteps`: derive the expected detection steps from the ENABLE_*
+   * env vars (the payload-level gating of those older flows is unknown here).
+   */
+  private expectedStepsFromConfig(): StepType[] {
+    const cfg = this.processorsConfigService;
+    const steps: StepType[] = [];
+    if (cfg.enableLabelDetection) {
+      steps.push(DetectLabelsStepType.LABEL_DETECTION);
+    }
+    if (cfg.enableObjectTracking) {
+      steps.push(DetectLabelsStepType.OBJECT_TRACKING);
+    }
+    if (cfg.enableFaceDetection) {
+      steps.push(DetectLabelsStepType.FACE_DETECTION);
+    }
+    if (cfg.enablePersonDetection) {
+      steps.push(DetectLabelsStepType.PERSON_DETECTION);
+    }
+    if (cfg.enableSpeechTranscription) {
+      steps.push(DetectLabelsStepType.SPEECH_TRANSCRIPTION);
+    }
+    return steps;
   }
 
   /**

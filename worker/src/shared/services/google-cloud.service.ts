@@ -3,7 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { Storage } from '@google-cloud/storage';
 
 // Google Cloud Video Intelligence
-import { VideoIntelligenceServiceClient } from '@google-cloud/video-intelligence';
+import {
+  VideoIntelligenceServiceClient,
+  protos,
+} from '@google-cloud/video-intelligence';
 
 // Google Cloud Speech-to-Text
 import { SpeechClient } from '@google-cloud/speech';
@@ -19,6 +22,23 @@ export interface TranscoderJobResult {
   error?: string;
 }
 
+type AnnotateVideoRequest =
+  protos.google.cloud.videointelligence.v1.IAnnotateVideoRequest;
+type AnnotateVideoResponse =
+  protos.google.cloud.videointelligence.v1.IAnnotateVideoResponse;
+
+interface VideoIntelligencePollingSettings {
+  pollInitialDelayMs: number;
+  pollMaxDelayMs: number;
+  pollTotalTimeoutMs: number;
+  quotaRetryInitialDelayMs: number;
+  quotaRetryMaxDelayMs: number;
+  quotaRetryTotalTimeoutMs: number;
+}
+
+/** gRPC status code for RESOURCE_EXHAUSTED (quota exceeded) */
+const GRPC_RESOURCE_EXHAUSTED = 8;
+
 @Injectable()
 export class GoogleCloudService implements OnModuleInit {
   private readonly logger = new Logger(GoogleCloudService.name);
@@ -32,6 +52,7 @@ export class GoogleCloudService implements OnModuleInit {
   private readonly keyFilename?: string;
   private readonly credentials?: Record<string, unknown>;
   private readonly gcsBucket?: string;
+  private readonly polling: VideoIntelligencePollingSettings;
   private readonly enabled: {
     videoIntelligence: boolean;
     speech: boolean;
@@ -46,6 +67,33 @@ export class GoogleCloudService implements OnModuleInit {
     this.credentials =
       this.configService.get<Record<string, unknown>>('google.credentials');
     this.gcsBucket = this.configService.get<string>('google.gcsBucket');
+
+    this.polling = {
+      pollInitialDelayMs: this.configService.get<number>(
+        'google.videoIntelligence.pollInitialDelayMs',
+        20000
+      ),
+      pollMaxDelayMs: this.configService.get<number>(
+        'google.videoIntelligence.pollMaxDelayMs',
+        90000
+      ),
+      pollTotalTimeoutMs: this.configService.get<number>(
+        'google.videoIntelligence.pollTotalTimeoutMs',
+        7200000
+      ),
+      quotaRetryInitialDelayMs: this.configService.get<number>(
+        'google.videoIntelligence.quotaRetryInitialDelayMs',
+        30000
+      ),
+      quotaRetryMaxDelayMs: this.configService.get<number>(
+        'google.videoIntelligence.quotaRetryMaxDelayMs',
+        300000
+      ),
+      quotaRetryTotalTimeoutMs: this.configService.get<number>(
+        'google.videoIntelligence.quotaRetryTotalTimeoutMs',
+        1800000
+      ),
+    };
 
     this.enabled = {
       videoIntelligence: this.configService.get<boolean>(
@@ -377,6 +425,135 @@ export class GoogleCloudService implements OnModuleInit {
       throw new Error('Speech client not initialized');
     }
     return this.speechClient;
+  }
+
+  /**
+   * Start an AnnotateVideo operation and wait for its result, staying within
+   * the Video Intelligence 'Requests per minute' quota:
+   *
+   * - The initial AnnotateVideo call is retried with exponential backoff when
+   *   the API answers RESOURCE_EXHAUSTED (quota errors are transient, not
+   *   fatal — the request succeeds once the per-minute window resets).
+   * - The operation is then polled manually via single GetOperation calls on
+   *   a slow exponential schedule (gax's operation.promise() starts polling
+   *   at ~100ms intervals, which burns the same per-minute quota the
+   *   AnnotateVideo calls need).
+   * - A quota error *during* polling never re-issues the annotate request;
+   *   the operation keeps running server-side and we simply poll again later.
+   */
+  async annotateVideoAndWait(
+    request: AnnotateVideoRequest
+  ): Promise<AnnotateVideoResponse> {
+    const client = this.getVideoIntelligenceClient();
+
+    const operation = await this.retryOnQuotaExceeded(
+      `AnnotateVideo(${request.inputUri})`,
+      async () => {
+        const [op] = await client.annotateVideo(request);
+        return op;
+      }
+    );
+
+    this.logger.log(`Video Intelligence operation started: ${operation.name}`);
+
+    const deadline = Date.now() + this.polling.pollTotalTimeoutMs;
+    let pollDelayMs = this.polling.pollInitialDelayMs;
+    let quotaRetryDelayMs = this.polling.quotaRetryInitialDelayMs;
+
+    while (!operation.done) {
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Video Intelligence operation ${operation.name} did not complete ` +
+            `within ${this.polling.pollTotalTimeoutMs}ms`
+        );
+      }
+
+      await this.sleep(this.withJitter(pollDelayMs));
+
+      try {
+        // Single GetOperation call; updates operation.done/result in place
+        // and rejects if the operation itself completed with an error.
+        await operation.getOperation();
+        pollDelayMs = Math.min(pollDelayMs * 1.5, this.polling.pollMaxDelayMs);
+        quotaRetryDelayMs = this.polling.quotaRetryInitialDelayMs;
+      } catch (error) {
+        // getOperation() also rejects when the OPERATION completed with an
+        // error (gax records it on operation.error); that is final. Only
+        // transport-level quota rejections of the poll itself are retryable.
+        if (operation.error || !this.isQuotaExceededError(error)) {
+          throw error;
+        }
+        // The poll itself was rejected for quota; the operation is still
+        // running server-side. Back off harder and poll again.
+        this.logger.warn(
+          `Quota exceeded while polling operation ${operation.name}; ` +
+            `retrying in ${quotaRetryDelayMs}ms`
+        );
+        pollDelayMs = Math.min(quotaRetryDelayMs, this.polling.pollMaxDelayMs);
+        quotaRetryDelayMs = Math.min(
+          quotaRetryDelayMs * 2,
+          this.polling.quotaRetryMaxDelayMs
+        );
+      }
+    }
+
+    if (!operation.result) {
+      throw new Error(
+        `Video Intelligence operation ${operation.name} completed without a result`
+      );
+    }
+
+    return operation.result as AnnotateVideoResponse;
+  }
+
+  /**
+   * Run an API call, retrying with exponential backoff (plus jitter) while it
+   * fails with RESOURCE_EXHAUSTED. Any other error propagates immediately.
+   */
+  private async retryOnQuotaExceeded<T>(
+    label: string,
+    call: () => Promise<T>
+  ): Promise<T> {
+    const deadline = Date.now() + this.polling.quotaRetryTotalTimeoutMs;
+    let delayMs = this.polling.quotaRetryInitialDelayMs;
+
+    for (;;) {
+      try {
+        return await call();
+      } catch (error) {
+        if (!this.isQuotaExceededError(error) || Date.now() >= deadline) {
+          throw error;
+        }
+        this.logger.warn(
+          `Quota exceeded for ${label}; retrying in ${delayMs}ms`
+        );
+        await this.sleep(this.withJitter(delayMs));
+        delayMs = Math.min(delayMs * 2, this.polling.quotaRetryMaxDelayMs);
+      }
+    }
+  }
+
+  /**
+   * Detect a Video Intelligence quota error (gRPC RESOURCE_EXHAUSTED).
+   */
+  private isQuotaExceededError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    if (code === GRPC_RESOURCE_EXHAUSTED) return true;
+    return (
+      typeof message === 'string' &&
+      (message.includes('RESOURCE_EXHAUSTED') ||
+        message.includes('Quota exceeded'))
+    );
+  }
+
+  /** Add ±20% jitter so concurrent operations don't poll in lockstep. */
+  private withJitter(delayMs: number): number {
+    return Math.round(delayMs * (0.8 + Math.random() * 0.4));
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

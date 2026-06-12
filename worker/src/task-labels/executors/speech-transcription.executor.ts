@@ -49,9 +49,6 @@ export class SpeechTranscriptionExecutor {
     const gcsUri = this.googleCloudService.getTempGcsUri(workspaceId, mediaId);
 
     try {
-      // Use the authenticated Video Intelligence client from GoogleCloudService
-      const client = this.googleCloudService.getVideoIntelligenceClient();
-
       // Build speech transcription config
       const speechTranscriptionConfig: protos.google.cloud.videointelligence.v1.ISpeechTranscriptionConfig =
         {
@@ -89,14 +86,9 @@ export class SpeechTranscriptionExecutor {
         })}`
       );
 
-      // Execute API call
-      const [operation] = await client.annotateVideo(request);
-      this.logger.log(
-        `Speech transcription operation started: ${operation.name}`
-      );
-
-      // Wait for operation to complete
-      const [result] = await operation.promise();
+      // Execute API call and await the operation with quota-aware polling
+      const result =
+        await this.googleCloudService.annotateVideoAndWait(request);
 
       // Validate that we got a valid result
       if (!result) {

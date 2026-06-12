@@ -47,9 +47,6 @@ export class LabelDetectionExecutor {
     const gcsUri = this.googleCloudService.getTempGcsUri(workspaceId, mediaId);
 
     try {
-      // Use the authenticated client from GoogleCloudService
-      const client = this.googleCloudService.getVideoIntelligenceClient();
-
       // Map string mode to enum
       const modeMap = {
         SHOT_MODE: LabelDetectionMode.SHOT_MODE,
@@ -85,13 +82,10 @@ export class LabelDetectionExecutor {
         })}`
       );
 
-      // Execute API call
-      const [operation] = await client.annotateVideo(request);
-      this.logger.log(`Label detection operation started: ${operation.name}`);
-
-      // Wait for operation to complete
-      // Note: operation.promise() will throw if the operation fails (e.g., file not found)
-      const [result] = await operation.promise();
+      // Execute API call and await the operation with quota-aware polling
+      // Note: this throws if the operation fails (e.g., file not found)
+      const result =
+        await this.googleCloudService.annotateVideoAndWait(request);
 
       // Validate that we got a valid result
       if (!result) {

@@ -46,9 +46,6 @@ export class ObjectTrackingExecutor {
     const gcsUri = this.googleCloudService.getTempGcsUri(workspaceId, mediaId);
 
     try {
-      // Use the authenticated client from GoogleCloudService
-      const client = this.googleCloudService.getVideoIntelligenceClient();
-
       // Build request
       const request = {
         inputUri: gcsUri,
@@ -69,12 +66,9 @@ export class ObjectTrackingExecutor {
         })}`
       );
 
-      // Execute API call
-      const [operation] = await client.annotateVideo(request);
-      this.logger.log(`Object tracking operation started: ${operation.name}`);
-
-      // Wait for operation to complete
-      const [result] = await operation.promise();
+      // Execute API call and await the operation with quota-aware polling
+      const result =
+        await this.googleCloudService.annotateVideoAndWait(request);
 
       // Validate that we got a valid result
       if (!result) {

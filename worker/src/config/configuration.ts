@@ -122,6 +122,40 @@ export default () => {
         ? JSON.parse(process.env.GOOGLE_CLOUD_CREDENTIALS)
         : undefined,
       gcsBucket: process.env.GCS_BUCKET,
+
+      // Video Intelligence long-running operations. Every status poll is a
+      // GetOperation call that counts against the API's 'Requests per minute'
+      // quota, so polling is deliberately slow (exponential from initial to
+      // max delay). Quota-exceeded (RESOURCE_EXHAUSTED) responses are retried
+      // with their own backoff instead of failing the step.
+      videoIntelligence: {
+        pollInitialDelayMs: parseInt(
+          process.env.GCVI_POLL_INITIAL_DELAY_MS || '20000',
+          10
+        ),
+        pollMaxDelayMs: parseInt(
+          process.env.GCVI_POLL_MAX_DELAY_MS || '90000',
+          10
+        ),
+        // Give up waiting for an operation after this long (default 2h)
+        pollTotalTimeoutMs: parseInt(
+          process.env.GCVI_POLL_TOTAL_TIMEOUT_MS || '7200000',
+          10
+        ),
+        quotaRetryInitialDelayMs: parseInt(
+          process.env.GCVI_QUOTA_RETRY_INITIAL_DELAY_MS || '30000',
+          10
+        ),
+        quotaRetryMaxDelayMs: parseInt(
+          process.env.GCVI_QUOTA_RETRY_MAX_DELAY_MS || '300000',
+          10
+        ),
+        // Give up retrying quota errors after this long (default 30m)
+        quotaRetryTotalTimeoutMs: parseInt(
+          process.env.GCVI_QUOTA_RETRY_TOTAL_TIMEOUT_MS || '1800000',
+          10
+        ),
+      },
     },
 
     tasks: {

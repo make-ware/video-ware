@@ -34,6 +34,7 @@ import {
   type TimelineClip,
   type Media,
   MediaType,
+  MAX_TIMELINE_TRACKS,
 } from '@project/shared';
 import { createGenericMockCollection } from '@/test/__tests__/fixtures/pocketbase';
 
@@ -523,8 +524,8 @@ describe('TimelineService Property Tests', () => {
           }
         }
 
-        // Create random number of tracks (1-10)
-        const trackCount = 1 + Math.floor(Math.random() * 10);
+        // Create random number of tracks (1 up to the track limit)
+        const trackCount = 1 + Math.floor(Math.random() * MAX_TIMELINE_TRACKS);
         const layers: number[] = [];
 
         for (let i = 0; i < trackCount; i++) {
@@ -560,21 +561,40 @@ describe('TimelineService Property Tests', () => {
           }
         }
 
-        // Create 5 tracks (layers 0, 1, 2, 3, 4)
+        // Create the maximum number of tracks (layers 0, 1, 2, 3)
         const tracks = [];
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < MAX_TIMELINE_TRACKS; i++) {
           const track = await service.createTrack(timeline.id);
           tracks.push(track);
         }
 
         // Delete a random middle track (not first or last)
-        const deleteIndex = 1 + Math.floor(Math.random() * 3); // 1, 2, or 3
+        const deleteIndex =
+          1 + Math.floor(Math.random() * (MAX_TIMELINE_TRACKS - 2)); // 1 or 2
         await service.deleteTrack(tracks[deleteIndex].id, true);
 
-        // Create a new track - should have layer 5 (max was 4, so 4 + 1)
+        // Create a new track - should have layer max + 1 (max was 3, so 4)
         const newTrack = await service.createTrack(timeline.id);
-        expect(newTrack.layer).toBe(5);
+        expect(newTrack.layer).toBe(MAX_TIMELINE_TRACKS);
       }
+    });
+
+    it('should reject creating more than the maximum number of tracks', async () => {
+      const timeline = await service.createTimeline(
+        'workspace-1',
+        'Track Limit Timeline'
+      );
+
+      // Timeline starts with a default track; fill up to the limit
+      const timelineWithTracks = await service.getTimeline(timeline.id);
+      const existing = timelineWithTracks?.tracks.length ?? 0;
+      for (let i = existing; i < MAX_TIMELINE_TRACKS; i++) {
+        await service.createTrack(timeline.id);
+      }
+
+      await expect(service.createTrack(timeline.id)).rejects.toThrow(
+        `Timelines support a maximum of ${MAX_TIMELINE_TRACKS} tracks`
+      );
     });
 
     it('should handle arbitrary layer values correctly', async () => {

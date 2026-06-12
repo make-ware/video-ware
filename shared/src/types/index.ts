@@ -12,6 +12,7 @@ import type { Media } from '../schema/media';
 import type { Workspace } from '../schema/workspace';
 import type { WorkspaceMember } from '../schema/workspace-member';
 import type { Timeline } from '../schema/timeline';
+import type { Caption } from '../schema/caption';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
 import type { LabelEntity } from '../schema/label-entity';
@@ -28,6 +29,7 @@ import { LabelJob } from '../schema/label-job';
 
 export * from './video-ware.js';
 export * from './task-contracts.js';
+export * from './captions.js';
 export * from './processor.js';
 export * from './label-data.js';
 export * from './raw-label-cache.js';
@@ -59,6 +61,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;
   collection(idOrName: 'TimelineTracks'): RecordService<TimelineTrack>;
   collection(idOrName: 'LabelJobs'): RecordService<LabelJob>;
+  collection(idOrName: 'Captions'): RecordService<Caption>;
 }
 
 // PocketBase response types

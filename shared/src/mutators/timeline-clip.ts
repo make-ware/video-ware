@@ -27,6 +27,7 @@ export class TimelineClipMutator extends BaseMutator<
         'MediaRef.spriteFileRef',
         'MediaRef.filmstripFileRefs',
         'MediaClipRef',
+        'CaptionRef',
       ],
       filter: [],
       sort: ['order'], // Sort by order position by default

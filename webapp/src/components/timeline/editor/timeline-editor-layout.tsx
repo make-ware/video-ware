@@ -20,10 +20,20 @@ import {
   FileCode,
   Monitor,
   Smartphone,
+  Type,
+  Heading1,
+  ChevronDown,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { CaptionEditorModal } from '@/components/captions';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
-import { TimelineOrientation } from '@project/shared';
+import { TimelineOrientation, CaptionType } from '@project/shared';
 import { generateFCPXML } from '@/utils/fcpxml';
 import pb from '@/lib/pocketbase-client';
 import { toast } from 'sonner';
@@ -47,12 +57,15 @@ export function TimelineEditorLayout() {
     saveTimeline,
     isLoading,
     updateTimelineOrientation,
+    addCaptionClip,
   } = useTimeline();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
+  const [captionEditorType, setCaptionEditorType] =
+    useState<CaptionType | null>(null);
 
   // Directory filter synced to ?dir= query param
   const directoryFilter = searchParams.get('dir') ?? null;
@@ -251,6 +264,34 @@ export function TimelineEditorLayout() {
                 <Smartphone className="h-4 w-4" />
               </Button>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 lg:px-3"
+                  title="Add captions or title screens"
+                >
+                  <Type className="h-4 w-4 lg:mr-2" />
+                  <span className="hidden lg:inline">Text</span>
+                  <ChevronDown className="h-3 w-3 ml-1 hidden lg:inline" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => setCaptionEditorType(CaptionType.CAPTION)}
+                >
+                  <Type className="h-4 w-4 mr-2" />
+                  Add Caption
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setCaptionEditorType(CaptionType.TITLE)}
+                >
+                  <Heading1 className="h-4 w-4 mr-2" />
+                  Add Title Screen
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               variant="outline"
               size="sm"
@@ -394,6 +435,17 @@ export function TimelineEditorLayout() {
       <RenderDialog
         open={renderDialogOpen}
         onOpenChange={setRenderDialogOpen}
+      />
+      <CaptionEditorModal
+        open={captionEditorType !== null}
+        onOpenChange={(open) => {
+          if (!open) setCaptionEditorType(null);
+        }}
+        workspaceId={timeline.WorkspaceRef}
+        defaultType={captionEditorType ?? CaptionType.CAPTION}
+        onSaved={async (caption) => {
+          await addCaptionClip(caption.id, caption.duration);
+        }}
       />
     </div>
   );

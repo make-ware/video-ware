@@ -123,8 +123,8 @@ export function generateFCPXML(
       }
     }
 
-    // Video clip
-    const media = mediaMap.get(clip.MediaRef);
+    // Video clip (caption clips have no MediaRef and export as gaps)
+    const media = clip.MediaRef ? mediaMap.get(clip.MediaRef) : undefined;
     if (media) {
       const assetId = `asset_${clip.MediaRef}`;
       const clipDuration = toRationalTime(clip.end - clip.start, fps);

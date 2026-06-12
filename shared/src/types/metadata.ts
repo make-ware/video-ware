@@ -240,8 +240,21 @@ const TimelineSegmentSchema = z.object({
   text: z
     .object({
       content: z.string(),
+      cues: z
+        .array(
+          z.object({
+            text: z.string(),
+            start: z.number(),
+            end: z.number(),
+          })
+        )
+        .optional(),
       fontSize: z.number().optional(),
       color: z.string().optional(),
+      backgroundColor: z.string().optional(),
+      backgroundOpacity: z.number().optional(),
+      position: z.enum(['top', 'middle', 'bottom']).optional(),
+      align: z.enum(['left', 'center', 'right']).optional(),
       x: z.union([z.number(), z.string()]).optional(),
       y: z.union([z.number(), z.string()]).optional(),
     })

@@ -27,6 +27,8 @@ export interface TrackLaneProps {
     handle: 'left' | 'right',
     e: React.MouseEvent | React.TouchEvent
   ) => void;
+  /** Double-click on a clip body (open the matching editor) */
+  onClipDoubleClick?: (clip: TimelineClip) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   /** Live position/size override while a clip on this lane is being resized */
@@ -35,6 +37,8 @@ export interface TrackLaneProps {
   movingClipId?: string | null;
   /** True while a move drag is hovering this lane */
   isDropTarget?: boolean;
+  /** True when this lane is the selected insertion target */
+  isSelected?: boolean;
 }
 
 export function TrackLane({
@@ -47,11 +51,13 @@ export function TrackLane({
   onClipSelect,
   onClipMoveStart,
   onClipResizeStart,
+  onClipDoubleClick,
   onDragOver,
   onDrop,
   resizeOverride,
   movingClipId,
   isDropTarget,
+  isSelected,
 }: TrackLaneProps) {
   // Sort clips by their position (either timelineStart or sequential order)
   const sortedClips = [...clips].sort((a, b) => {
@@ -111,6 +117,9 @@ export function TrackLane({
         'relative h-16 w-full bg-muted/5 border-b transition-colors',
         isLocked && 'bg-muted/20 cursor-not-allowed',
         !isLocked && 'hover:bg-muted/10',
+        isSelected &&
+          !isLocked &&
+          'bg-primary/10 hover:bg-primary/10 shadow-[inset_2px_0_0_0_var(--primary)]',
         isDropTarget && !isLocked && 'bg-primary/5'
       )}
       style={{ width: totalWidth }}
@@ -134,6 +143,7 @@ export function TrackLane({
           onResizeStart={(handle, e) =>
             onClipResizeStart(clip, left, handle, e)
           }
+          onDoubleClick={() => onClipDoubleClick?.(clip)}
         />
       ))}
 

@@ -17,7 +17,11 @@ import {
   TimelineTrackRecord,
   TimelineTrackRecordInput,
 } from '@project/shared';
-import { computeClipPlacement } from '@/components/timeline/editor/clip-placement';
+import {
+  computeClipPlacement,
+  planOverwriteAtTime,
+} from '@/components/timeline/editor/clip-placement';
+import { computeTimelineDuration } from '@/components/timeline/editor/playback';
 
 interface TimelineContextType {
   // Current timeline state
@@ -65,6 +69,12 @@ interface TimelineContextType {
     start: number,
     end: number,
     mediaClipId?: string,
+    trackId?: string,
+    timelineStart?: number
+  ) => Promise<void>;
+  addCaptionClip: (
+    captionId: string,
+    duration: number,
     trackId?: string,
     timelineStart?: number
   ) => Promise<void>;
@@ -150,13 +160,11 @@ export function TimelineProvider({
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Calculate total duration from clips
+  // Total duration: furthest clip end across all tracks (respects
+  // timelineStart and overlapping multi-track clips)
   const duration = useMemo(() => {
     if (!timeline) return 0;
-    return timeline.clips.reduce(
-      (sum, clip) => sum + (clip.end - clip.start),
-      0
-    );
+    return computeTimelineDuration(timeline.clips, timeline.tracks || []);
   }, [timeline]);
 
   // Get tracks from timeline
@@ -429,29 +437,50 @@ export function TimelineProvider({
 
       try {
         let targetTrackId = trackId ?? selectedTrackId ?? null;
+        if (!targetTrackId) {
+          const defaultTrack =
+            timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
+          targetTrackId = defaultTrack?.id ?? null;
+        }
+
         let resolvedTimelineStart = timelineStart;
+        let truncated = false;
 
         if (resolvedTimelineStart === undefined) {
-          if (!targetTrackId) {
-            const defaultTrack =
-              timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
-            targetTrackId = defaultTrack?.id ?? null;
-          }
           const trackClips = (timeline.clips || []).filter(
             (c) => c.TimelineTrackRef === targetTrackId
           );
           const duration = end - start;
-          resolvedTimelineStart = computeClipPlacement(
-            trackClips,
-            selectedClipId,
-            duration
-          );
-        }
+          const selectedTrack = selectedTrackId
+            ? timeline.tracks.find((t) => t.id === selectedTrackId)
+            : undefined;
 
-        if (!targetTrackId) {
-          const defaultTrack =
-            timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
-          targetTrackId = defaultTrack?.id ?? undefined;
+          if (
+            selectedTrack &&
+            selectedTrack.id === targetTrackId &&
+            !selectedTrack.isLocked
+          ) {
+            // A lane is selected: insert at the playhead, truncating overlaps
+            resolvedTimelineStart = Math.max(0, currentTime);
+            const plan = planOverwriteAtTime(
+              trackClips,
+              resolvedTimelineStart,
+              duration
+            );
+            if (plan.trims.length > 0 || plan.removals.length > 0) {
+              await timelineService.applyClipTruncations(
+                plan.trims,
+                plan.removals
+              );
+              truncated = true;
+            }
+          } else {
+            resolvedTimelineStart = computeClipPlacement(
+              trackClips,
+              selectedClipId,
+              duration
+            );
+          }
         }
 
         const newClip = await timelineService.addClipToTimeline(
@@ -460,18 +489,23 @@ export function TimelineProvider({
           start,
           end,
           mediaClipId,
-          targetTrackId,
+          targetTrackId ?? undefined,
           resolvedTimelineStart
         );
 
-        // Update local state
-        setTimeline((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
-          };
-        });
+        if (truncated) {
+          // Neighboring clips changed too — reload for a consistent view
+          await loadTimeline(timeline.id);
+        } else {
+          // Update local state
+          setTimeline((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
+            };
+          });
+        }
       } catch (error) {
         handleError(error, 'add clip');
         throw error;
@@ -484,6 +518,108 @@ export function TimelineProvider({
       timelineService,
       selectedClipId,
       selectedTrackId,
+      currentTime,
+      loadTimeline,
+      clearError,
+      handleError,
+    ]
+  );
+
+  // Add a caption clip - same placement rules as media clips
+  const addCaptionClip = useCallback(
+    async (
+      captionId: string,
+      duration: number,
+      trackId?: string,
+      timelineStart?: number
+    ) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        let targetTrackId = trackId ?? selectedTrackId ?? null;
+        if (!targetTrackId) {
+          const defaultTrack =
+            timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
+          targetTrackId = defaultTrack?.id ?? null;
+        }
+
+        let resolvedTimelineStart = timelineStart;
+        let truncated = false;
+
+        if (resolvedTimelineStart === undefined) {
+          const trackClips = (timeline.clips || []).filter(
+            (c) => c.TimelineTrackRef === targetTrackId
+          );
+          const selectedTrack = selectedTrackId
+            ? timeline.tracks.find((t) => t.id === selectedTrackId)
+            : undefined;
+
+          if (
+            selectedTrack &&
+            selectedTrack.id === targetTrackId &&
+            !selectedTrack.isLocked
+          ) {
+            // A lane is selected: insert at the playhead, truncating overlaps
+            resolvedTimelineStart = Math.max(0, currentTime);
+            const plan = planOverwriteAtTime(
+              trackClips,
+              resolvedTimelineStart,
+              duration
+            );
+            if (plan.trims.length > 0 || plan.removals.length > 0) {
+              await timelineService.applyClipTruncations(
+                plan.trims,
+                plan.removals
+              );
+              truncated = true;
+            }
+          } else {
+            resolvedTimelineStart = computeClipPlacement(
+              trackClips,
+              selectedClipId,
+              duration
+            );
+          }
+        }
+
+        const newClip = await timelineService.addCaptionToTimeline(
+          timeline.id,
+          captionId,
+          targetTrackId ?? undefined,
+          resolvedTimelineStart
+        );
+
+        if (truncated) {
+          // Neighboring clips changed too — reload for a consistent view
+          await loadTimeline(timeline.id);
+        } else {
+          setTimeline((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
+            };
+          });
+        }
+      } catch (error) {
+        handleError(error, 'add caption');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      timeline,
+      timelineService,
+      selectedClipId,
+      selectedTrackId,
+      currentTime,
+      loadTimeline,
       clearError,
       handleError,
     ]
@@ -874,6 +1010,7 @@ export function TimelineProvider({
 
       // Clip operations
       addClip,
+      addCaptionClip,
       removeClip,
       reorderClips,
       updateClipTimes,
@@ -921,6 +1058,7 @@ export function TimelineProvider({
       updateTimelineName,
       updateTimelineOrientation,
       addClip,
+      addCaptionClip,
       removeClip,
       reorderClips,
       updateClipTimes,

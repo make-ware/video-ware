@@ -21,12 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { TimelineClip } from '@project/shared';
+import { MAX_TIMELINE_TRACKS } from '@project/shared';
+import type { Caption, TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
 import { useSnap } from './use-snap';
 import { findNonOverlappingTimelineStart } from './clip-placement';
+import { CaptionEditorModal } from '@/components/captions';
 
 const PIXELS_PER_SECOND = 20;
 const MIN_CLIP_DURATION = 0.5;
@@ -81,9 +83,11 @@ export function LayerTimelineView() {
     moveClipToTrack,
     updateClipPosition,
     addClip,
+    refreshTimeline,
   } = useTimeline();
 
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [editingCaption, setEditingCaption] = useState<Caption | null>(null);
   const dragInfoRef = useRef<DragState | null>(null);
   const [trackDeleteDialogOpen, setTrackDeleteDialogOpen] = useState(false);
   const [trackToDelete, setTrackToDelete] = useState<string | null>(null);
@@ -152,6 +156,7 @@ export function LayerTimelineView() {
       // Escape: clear selection (and any stale snap guides)
       if (e.key === 'Escape') {
         clearClipSelection();
+        setSelectedTrackId(null);
         clearGuides();
       }
 
@@ -178,7 +183,13 @@ export function LayerTimelineView() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectAllClips, clearClipSelection, clearGuides, selectedClipIds.size]);
+  }, [
+    selectAllClips,
+    clearClipSelection,
+    setSelectedTrackId,
+    clearGuides,
+    selectedClipIds.size,
+  ]);
 
   // Ensure minimum duration of 60s for the timeline view
   const displayDuration = Math.max(duration, 60);
@@ -219,7 +230,10 @@ export function LayerTimelineView() {
       e: React.MouseEvent | React.TouchEvent
     ): DragState => {
       const point = 'touches' in e ? e.touches[0] : e;
-      const mediaDuration = clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
+      // Caption clips trim against the caption's own duration
+      const mediaDuration = clip.CaptionRef
+        ? clip.expand?.CaptionRef?.duration || clip.end
+        : clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
       const trackId = clip.TimelineTrackRef || '';
 
       return {
@@ -484,6 +498,17 @@ export function LayerTimelineView() {
     clearGuides,
   ]);
 
+  // Double-click opens the caption editor for caption clips
+  const handleClipDoubleClick = useCallback((clip: TimelineClip) => {
+    if (!clip.CaptionRef) return;
+    const caption = (
+      clip as TimelineClip & { expand?: { CaptionRef?: Caption } }
+    ).expand?.CaptionRef;
+    if (caption) {
+      setEditingCaption(caption);
+    }
+  }, []);
+
   // Track management handlers
   const handleCreateTrack = useCallback(async () => {
     try {
@@ -723,8 +748,16 @@ export function LayerTimelineView() {
       // Deselect if clicking on the empty areas of the track
       // (The clip clicks stopPropagation)
       clearClipSelection();
+
+      // Pressing a lane selects it as the insertion target
+      const laneTrackId = (e.target as HTMLElement)
+        .closest?.('[data-track-id]')
+        ?.getAttribute('data-track-id');
+      if (laneTrackId) {
+        setSelectedTrackId(laneTrackId);
+      }
     },
-    [handleTimelineClick, dragState, clearClipSelection]
+    [handleTimelineClick, dragState, clearClipSelection, setSelectedTrackId]
   );
 
   useEffect(() => {
@@ -970,7 +1003,11 @@ export function LayerTimelineView() {
                       track={track}
                       compact={headersCollapsed}
                       isSelected={selectedTrackId === track.id}
-                      onSelect={() => setSelectedTrackId(track.id)}
+                      onSelect={() =>
+                        setSelectedTrackId(
+                          selectedTrackId === track.id ? null : track.id
+                        )
+                      }
                       onRename={(name) => handleTrackRename(track.id, name)}
                       onToggleMute={() =>
                         handleTrackToggleMute(track.id, track.isMuted)
@@ -997,7 +1034,12 @@ export function LayerTimelineView() {
                     headersCollapsed ? 'w-8 h-8 mx-auto flex' : 'w-full'
                   }
                   onClick={handleCreateTrack}
-                  title="Add Track"
+                  disabled={sortedTracks.length >= MAX_TIMELINE_TRACKS}
+                  title={
+                    sortedTracks.length >= MAX_TIMELINE_TRACKS
+                      ? `Maximum of ${MAX_TIMELINE_TRACKS} tracks`
+                      : 'Add Track'
+                  }
                 >
                   <Plus className="h-4 w-4" />
                   {!headersCollapsed && <span className="ml-2">Add Track</span>}
@@ -1048,6 +1090,7 @@ export function LayerTimelineView() {
                         onClipSelect={handleClipSelect}
                         onClipMoveStart={handleMoveStart}
                         onClipResizeStart={handleResizeStart}
+                        onClipDoubleClick={handleClipDoubleClick}
                         onDragOver={(e) => handleTrackDragOver(track.id, e)}
                         onDrop={(e) => handleTrackDrop(track.id, e)}
                         resizeOverride={
@@ -1069,6 +1112,7 @@ export function LayerTimelineView() {
                           dragState.handle === 'move' &&
                           dragState.targetTrackId === track.id
                         }
+                        isSelected={selectedTrackId === track.id}
                       />
                     );
                   })
@@ -1142,6 +1186,22 @@ export function LayerTimelineView() {
           </div>
         </div>
       </div>
+
+      {/* Caption editor for caption clips (double-click) */}
+      {timeline && (
+        <CaptionEditorModal
+          open={!!editingCaption}
+          onOpenChange={(open) => {
+            if (!open) setEditingCaption(null);
+          }}
+          workspaceId={timeline.WorkspaceRef}
+          caption={editingCaption}
+          onSaved={async () => {
+            // Reload so clips pick up the updated caption expansion
+            await refreshTimeline();
+          }}
+        />
+      )}
     </>
   );
 }

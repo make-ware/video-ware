@@ -9,14 +9,16 @@ import { z } from 'zod';
 import { TimelineClipMetadataSchema } from '../types/metadata';
 
 // Define the Zod schema
+// A clip references either media (MediaRef) or a caption (CaptionRef).
 export const TimelineClipSchema = z
   .object({
     TimelineRef: RelationField({ collection: 'Timelines' }),
     TimelineTrackRef: RelationField({
       collection: 'TimelineTracks',
     }).optional(),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media' }).optional(),
     MediaClipRef: RelationField({ collection: 'MediaClips' }).optional(),
+    CaptionRef: RelationField({ collection: 'Captions' }).optional(),
     order: NumberField({ min: 0 }), // position in timeline sequence
     start: NumberField({ min: 0 }).default(0), // absolute start time in source media (seconds)
     end: NumberField({ min: 0 }).default(0), // absolute end time in source media (seconds)
@@ -27,18 +29,24 @@ export const TimelineClipSchema = z
   .extend(baseSchema);
 
 // Define input schema for creating timeline clips
-export const TimelineClipInputSchema = z.object({
-  TimelineRef: z.string().min(1, 'Timeline is required'),
-  TimelineTrackRef: z.string().optional(),
-  MediaRef: z.string().min(1, 'Media is required'),
-  MediaClipRef: z.string().optional(),
-  order: z.number().min(0),
-  start: z.number().min(0).default(0),
-  end: z.number().min(0).default(0),
-  timelineStart: z.number().min(0).optional(),
-  duration: z.number().min(0).default(0),
-  meta: JSONField(TimelineClipMetadataSchema).optional(),
-});
+export const TimelineClipInputSchema = z
+  .object({
+    TimelineRef: z.string().min(1, 'Timeline is required'),
+    TimelineTrackRef: z.string().optional(),
+    MediaRef: z.string().optional(),
+    MediaClipRef: z.string().optional(),
+    CaptionRef: z.string().optional(),
+    order: z.number().min(0),
+    start: z.number().min(0).default(0),
+    end: z.number().min(0).default(0),
+    timelineStart: z.number().min(0).optional(),
+    duration: z.number().min(0).default(0),
+    meta: JSONField(TimelineClipMetadataSchema).optional(),
+  })
+  .refine((input) => !!input.MediaRef || !!input.CaptionRef, {
+    message: 'Either MediaRef or CaptionRef is required',
+    path: ['MediaRef'],
+  });
 
 // Define the collection with workspace-scoped permissions
 export const TimelineClipCollection = defineCollection({

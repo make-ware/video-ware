@@ -2,7 +2,6 @@
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
-import pb from '@/lib/pocketbase-client';
 import {
   Play,
   Pause,
@@ -12,7 +11,17 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { TimelineOrientation, type Media } from '@project/shared';
+import {
+  MAX_TIMELINE_TRACKS,
+  TimelineOrientation,
+  type Caption,
+  type CaptionCue,
+  type CaptionStyle,
+  type TimelineClip,
+} from '@project/shared';
+import { CaptionOverlay } from '@/components/captions';
+import { buildPlaybackTracks } from './playback';
+import { TrackVideo } from './track-video';
 
 export function TimelinePlayer() {
   const {
@@ -24,114 +33,57 @@ export function TimelinePlayer() {
     duration,
   } = useTimeline();
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [activeMedia, setActiveMedia] = useState<Media | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const lastUpdateRef = useRef<number>(0);
 
-  // Map clips to global timeline offsets
-  const clipRanges = useMemo(() => {
+  // Resolve clips to absolute timeline positions, grouped per track
+  // (layer ascending — index 0 is the bottom layer)
+  const playbackTracks = useMemo(() => {
     if (!timeline) return [];
-    let accumulated = 0;
-    return timeline.clips.map((clip) => {
-      const clipDuration = clip.end - clip.start;
-      const range = {
-        clipId: clip.id,
-        mediaId: clip.MediaRef,
-        globalStart: accumulated,
-        globalEnd: accumulated + clipDuration,
-        localStart: clip.start,
-        localEnd: clip.end,
-      };
-      accumulated += clipDuration;
-      return range;
-    });
+    return buildPlaybackTracks(timeline.clips, timeline.tracks || []);
   }, [timeline]);
 
-  // Find current clip
-  const currentRange = useMemo(() => {
-    return (
-      clipRanges.find(
-        (r) => currentTime >= r.globalStart && currentTime < r.globalEnd
-      ) || clipRanges[0]
-    );
-  }, [clipRanges, currentTime]);
+  // One <video> element per track with media, capped for performance
+  const mediaTracks = useMemo(
+    () => playbackTracks.filter((t) => t.mediaClips.length > 0),
+    [playbackTracks]
+  );
+  const videoTracks = useMemo(
+    () => mediaTracks.slice(0, MAX_TIMELINE_TRACKS),
+    [mediaTracks]
+  );
+  const hiddenTrackCount = mediaTracks.length - videoTracks.length;
 
-  // Fetch media for the current clip
-  useEffect(() => {
-    if (!currentRange) return;
-
-    const fetchMedia = async () => {
-      try {
-        const media = await pb.collection('Media').getOne(currentRange.mediaId);
-        setActiveMedia(media as unknown as Media);
-      } catch (err) {
-        console.error('Failed to fetch media for player:', err);
-      }
-    };
-
-    if (activeMedia?.id !== currentRange.mediaId) {
-      fetchMedia();
-    }
-  }, [currentRange, activeMedia?.id]);
-
-  // Proxy/Source handling
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeMedia) {
-      // If activeMedia becomes null, we want to clear the videoSrc.
-      // This will be handled in the cleanup function.
-      return;
-    }
-
-    const isMounted = true;
-    const loadVideoSrc = async () => {
-      try {
-        // If we have a proxy, use it
-        if (activeMedia.proxyFileRef) {
-          const fileRef = await pb
-            .collection('Files')
-            .getOne(activeMedia.proxyFileRef);
-          if (isMounted) {
-            setVideoSrc(
-              pb.files.getURL(fileRef, (fileRef as { file: string }).file)
-            );
-          }
-        } else {
-          // Fallback to original if proxy not available (might not work if original is too large)
-          // In a real app, we'd ensure proxy exists
-          setVideoSrc(null);
+  // Caption clips active at the playhead, across all tracks (bottom layer
+  // first so higher layers render on top)
+  const activeCaptions = useMemo(() => {
+    const active: Array<{
+      clipId: string;
+      caption: Caption;
+      localTime: number;
+    }> = [];
+    for (const track of playbackTracks) {
+      for (const placed of track.captionClips) {
+        if (
+          currentTime < placed.globalStart ||
+          currentTime >= placed.globalEnd
+        ) {
+          continue;
         }
-      } catch (err) {
-        console.error('Failed to load video source:', err);
-        setVideoSrc(null);
+        const caption = (
+          placed.clip as TimelineClip & { expand?: { CaptionRef?: Caption } }
+        ).expand?.CaptionRef;
+        if (!caption) continue;
+        // Map timeline time into the caption's own (possibly trimmed) timeline
+        active.push({
+          clipId: placed.clip.id,
+          caption,
+          localTime: currentTime - placed.globalStart + placed.clip.start,
+        });
       }
-    };
-
-    loadVideoSrc();
-  }, [activeMedia]);
-
-  // Sync video time and playback state with global time
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !currentRange) return;
-
-    const localTime =
-      currentTime - currentRange.globalStart + currentRange.localStart;
-
-    // Only seek if the difference is significant to avoid jitter
-    if (Math.abs(video.currentTime - localTime) > 0.3) {
-      video.currentTime = localTime;
     }
-
-    // Sync playback state
-    if (isPlaying && video.paused) {
-      video.play().catch(() => {}); // Ignore play errors
-    } else if (!isPlaying && !video.paused) {
-      video.pause();
-    }
-  }, [currentTime, currentRange, isPlaying]);
+    return active;
+  }, [playbackTracks, currentTime]);
 
   // Playback loop
   useEffect(() => {
@@ -184,22 +136,32 @@ export function TimelinePlayer() {
       <div
         className={`relative ${aspectClass} bg-black rounded-lg overflow-hidden shadow-2xl border border-white/10 group`}
       >
-        {videoSrc ? (
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            className="w-full h-full object-contain"
+        {/* One video element per track, stacked by layer */}
+        {videoTracks.map((track, i) => (
+          <TrackVideo
+            key={track.trackId ?? `layer-${track.layer}`}
+            track={track}
+            zIndex={i}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
             muted={isMuted}
-            playsInline
           />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground animate-pulse">
-            Loading preview...
-          </div>
-        )}
+        ))}
+
+        {/* Caption overlays (ad-hoc captions and title screens) */}
+        {activeCaptions.map(({ clipId, caption, localTime }) => (
+          <CaptionOverlay
+            key={clipId}
+            className="z-10"
+            text={caption.text}
+            cues={(caption.cues ?? undefined) as CaptionCue[] | undefined}
+            style={(caption.style ?? undefined) as CaptionStyle | undefined}
+            currentTime={localTime}
+          />
+        ))}
 
         {/* Overlay Controls */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+        <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
           <div className="flex items-center justify-center gap-4">
             <Button
               variant="ghost"
@@ -257,8 +219,15 @@ export function TimelinePlayer() {
           </Button>
         </div>
 
-        <div className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
-          Preview Quality: Proxy
+        <div className="flex items-center gap-2">
+          {hiddenTrackCount > 0 && (
+            <div className="text-xs font-medium text-amber-600 bg-amber-100 dark:bg-amber-950 px-2 py-1 rounded">
+              Preview limited to {MAX_TIMELINE_TRACKS} tracks
+            </div>
+          )}
+          <div className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
+            Preview Quality: Proxy
+          </div>
         </div>
       </div>
     </div>

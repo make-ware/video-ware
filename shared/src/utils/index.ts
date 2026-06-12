@@ -4,6 +4,7 @@ export * from './retry.js';
 export * from './time.js';
 export * from './edit-list.js';
 export * from './composite-utils.js';
+export * from './captions.js';
 
 import { z } from 'zod';
 

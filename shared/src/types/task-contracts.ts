@@ -271,8 +271,18 @@ export interface TimelineSegment {
   /** Text specific properties */
   text?: {
     content: string;
+    /**
+     * Timed text changes (animated captions). Cue times are in seconds
+     * relative to the segment start. When present, each cue's text is
+     * shown only during its window; `content` is the static fallback.
+     */
+    cues?: Array<{ text: string; start: number; end: number }>;
     fontSize?: number;
     color?: string; // hex color e.g. #FFFFFF
+    backgroundColor?: string; // hex color for a background box
+    backgroundOpacity?: number; // 0.0 to 1.0, default 0.6 when box is set
+    position?: 'top' | 'middle' | 'bottom'; // vertical placement preset
+    align?: 'left' | 'center' | 'right'; // horizontal alignment preset
     x?: number | string;
     y?: number | string;
   };

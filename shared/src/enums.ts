@@ -128,6 +128,15 @@ export enum TimelineOrientation {
   PORTRAIT = 'portrait',
 }
 
+// Maximum number of tracks per timeline. Keeps the preview player to a
+// bounded number of simultaneous <video> elements.
+export const MAX_TIMELINE_TRACKS = 4;
+
+export enum CaptionType {
+  CAPTION = 'caption',
+  TITLE = 'title',
+}
+
 export const VIDEO_COLLECTIONS = {
   WORKSPACES: 'workspaces',
   WORKSPACE_MEMBERS: 'workspace_members',

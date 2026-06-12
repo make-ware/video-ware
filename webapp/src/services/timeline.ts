@@ -6,6 +6,7 @@ import {
   MediaClipMutator,
   MediaMutator,
   TaskMutator,
+  CaptionMutator,
 } from '@project/shared/mutator';
 import type {
   Timeline,
@@ -19,7 +20,11 @@ import type {
   RenderFlowConfig,
   TimelineTrackRecord,
 } from '@project/shared';
-import { generateTracks, validateTimeRange } from '@project/shared';
+import {
+  generateTracks,
+  validateTimeRange,
+  MAX_TIMELINE_TRACKS,
+} from '@project/shared';
 
 /**
  * Extended Timeline type with clips included
@@ -47,6 +52,7 @@ export class TimelineService {
   private mediaClipMutator: MediaClipMutator;
   private mediaMutator: MediaMutator;
   private taskMutator: TaskMutator;
+  private captionMutator: CaptionMutator;
 
   constructor(pb: TypedPocketBase) {
     this.pb = pb;
@@ -56,6 +62,30 @@ export class TimelineService {
     this.mediaClipMutator = new MediaClipMutator(pb);
     this.mediaMutator = new MediaMutator(pb);
     this.taskMutator = new TaskMutator(pb);
+    this.captionMutator = new CaptionMutator(pb);
+  }
+
+  /**
+   * Resolve the target track for a new clip, creating a default track when
+   * the timeline has none.
+   */
+  private async resolveTargetTrack(
+    timelineId: string,
+    trackId?: string
+  ): Promise<string> {
+    if (trackId) return trackId;
+
+    const tracks = await this.timelineTrackMutator.getByTimeline(timelineId);
+    const defaultTrack =
+      tracks.items.find((t) => t.layer === 0) || tracks.items[0];
+    if (defaultTrack) return defaultTrack.id;
+
+    const newTrack = await this.timelineTrackMutator.create({
+      TimelineRef: timelineId,
+      name: 'Main Track',
+      layer: 0,
+    });
+    return newTrack.id;
   }
 
   // ============================================================================
@@ -171,25 +201,7 @@ export class TimelineService {
     }
 
     // Determine track
-    let targetTrackId = trackId;
-    if (!targetTrackId) {
-      // Find default track (layer 0)
-      const tracks = await this.timelineTrackMutator.getByTimeline(timelineId);
-      const defaultTrack =
-        tracks.items.find((t) => t.layer === 0) || tracks.items[0];
-
-      if (defaultTrack) {
-        targetTrackId = defaultTrack.id;
-      } else {
-        // Create default track if none exists (legacy support)
-        const newTrack = await this.timelineTrackMutator.create({
-          TimelineRef: timelineId,
-          name: 'Main Track',
-          layer: 0,
-        });
-        targetTrackId = newTrack.id;
-      }
-    }
+    const targetTrackId = await this.resolveTargetTrack(timelineId, trackId);
 
     // Validate time range
     // Handle potential array type from SelectField
@@ -221,6 +233,54 @@ export class TimelineService {
       start,
       end,
       duration: end - start,
+    };
+
+    if (timelineStart !== undefined) {
+      input.timelineStart = timelineStart;
+    }
+
+    return this.timelineClipMutator.create(input);
+  }
+
+  /**
+   * Add a caption to a timeline as a caption clip
+   *
+   * The clip's start/end trim the caption's own cue timeline (like media
+   * clips trim source media); a fresh clip spans the full caption.
+   *
+   * @param timelineId Timeline ID
+   * @param captionId Caption ID
+   * @param trackId Optional track ID (defaults to layer 0)
+   * @param timelineStart Optional absolute timeline position in seconds
+   * @returns The created timeline clip
+   */
+  async addCaptionToTimeline(
+    timelineId: string,
+    captionId: string,
+    trackId?: string,
+    timelineStart?: number
+  ): Promise<TimelineClip> {
+    const caption = await this.captionMutator.getById(captionId);
+    if (!caption) {
+      throw new Error(`Caption not found: ${captionId}`);
+    }
+
+    if (timelineStart !== undefined && timelineStart < 0) {
+      throw new Error(`Invalid timelineStart: ${timelineStart}. Must be >= 0.`);
+    }
+
+    const targetTrackId = await this.resolveTargetTrack(timelineId, trackId);
+    const maxOrder = await this.timelineClipMutator.getMaxOrder(timelineId);
+
+    const input: TimelineClipInput = {
+      TimelineRef: timelineId,
+      TimelineTrackRef: targetTrackId,
+      CaptionRef: captionId,
+      order: maxOrder + 1,
+      start: 0,
+      end: caption.duration,
+      duration: caption.duration,
+      meta: { title: caption.name || caption.text },
     };
 
     if (timelineStart !== undefined) {
@@ -346,6 +406,24 @@ export class TimelineService {
       throw new Error(`Timeline clip not found: ${timelineClipId}`);
     }
 
+    // Caption clips trim against the caption's own duration
+    if (clip.CaptionRef) {
+      const caption = await this.captionMutator.getById(clip.CaptionRef);
+      if (!caption) {
+        throw new Error(`Caption not found: ${clip.CaptionRef}`);
+      }
+      if (start < 0 || end <= start || end > caption.duration) {
+        throw new Error(
+          `Invalid time range: start=${start}, end=${end}, duration=${caption.duration}`
+        );
+      }
+      return this.timelineClipMutator.update(timelineClipId, { start, end });
+    }
+
+    if (!clip.MediaRef) {
+      throw new Error(`Timeline clip has no media: ${timelineClipId}`);
+    }
+
     // Get the media to validate time range
     const media = await this.mediaMutator.getById(clip.MediaRef);
     if (!media) {
@@ -365,6 +443,36 @@ export class TimelineService {
 
     // Update the clip
     return this.timelineClipMutator.update(timelineClipId, { start, end });
+  }
+
+  /**
+   * Apply the truncations computed for an overwrite-style insert: trim
+   * overlapped clips (pinning their timeline position) and remove clips the
+   * insert fully covers.
+   */
+  async applyClipTruncations(
+    trims: Array<{
+      clipId: string;
+      start: number;
+      end: number;
+      timelineStart: number;
+    }>,
+    removals: string[]
+  ): Promise<void> {
+    await Promise.all(
+      trims.map(({ clipId, start, end, timelineStart }) =>
+        this.timelineClipMutator.update(clipId, {
+          start,
+          end,
+          duration: end - start,
+          timelineStart,
+        })
+      )
+    );
+
+    if (removals.length > 0) {
+      await this.bulkRemoveClipsFromTimeline(removals);
+    }
   }
 
   // ============================================================================
@@ -453,6 +561,49 @@ export class TimelineService {
 
     // Validate each clip
     for (const clip of clips) {
+      // Caption clips validate against their caption instead of media
+      if (clip.CaptionRef) {
+        const captionRecord = await this.captionMutator.getById(
+          clip.CaptionRef
+        );
+        if (!captionRecord) {
+          errors.push({
+            code: 'INVALID_CAPTION_REF',
+            message: `Timeline clip references non-existent caption: ${clip.CaptionRef}`,
+            itemId: clip.id,
+            itemType: 'timelineClip',
+            field: 'CaptionRef',
+            actual: clip.CaptionRef,
+          });
+        } else if (
+          clip.start < 0 ||
+          clip.end <= clip.start ||
+          clip.end > captionRecord.duration
+        ) {
+          errors.push({
+            code: 'OFFSET_OUT_OF_BOUNDS',
+            message: `Timeline clip time range exceeds caption duration`,
+            itemId: clip.id,
+            itemType: 'timelineClip',
+            field: 'timeRange',
+            expected: `0 <= start < end <= ${captionRecord.duration}`,
+            actual: { start: clip.start, end: clip.end },
+          });
+        }
+        continue;
+      }
+
+      if (!clip.MediaRef) {
+        errors.push({
+          code: 'INVALID_MEDIA_REF',
+          message: `Timeline clip has neither media nor caption reference`,
+          itemId: clip.id,
+          itemType: 'timelineClip',
+          field: 'MediaRef',
+        });
+        continue;
+      }
+
       // Verify MediaClip reference exists (if provided)
       if (clip.MediaClipRef) {
         const mediaClip = await this.mediaClipMutator.getById(
@@ -607,6 +758,15 @@ export class TimelineService {
     timelineId: string,
     name?: string
   ): Promise<TimelineTrackRecord> {
+    // Cap track count: the preview player runs one <video> per track
+    const existingTracks =
+      await this.timelineTrackMutator.getByTimeline(timelineId);
+    if (existingTracks.items.length >= MAX_TIMELINE_TRACKS) {
+      throw new Error(
+        `Timelines support a maximum of ${MAX_TIMELINE_TRACKS} tracks`
+      );
+    }
+
     // Get the maximum layer number for this timeline
     const maxLayer = await this.timelineTrackMutator.getMaxLayer(timelineId);
     const nextLayer = maxLayer + 1;

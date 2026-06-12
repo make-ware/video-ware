@@ -7,12 +7,15 @@
 import type { TimelineTrack, TimelineSegment } from '../types/task-contracts';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { MediaClip } from '../schema/media-clip';
+import type { Caption } from '../schema/caption';
 import {
   isMediaClipComposite,
   getCompositeSegments,
   expandCompositeToSegments,
   calculateEffectiveDuration,
 } from './composite-utils';
+import { clampCuesToWindow } from './captions';
+import type { CaptionCue, CaptionStyle } from '../types/captions';
 /**
  * Validation result for validation
  */
@@ -41,6 +44,7 @@ export interface ValidationError {
 export type TimelineClipWithExpand = TimelineClip & {
   expand?: Record<string, unknown> & {
     MediaClipRef?: MediaClip;
+    CaptionRef?: Caption;
   };
 };
 
@@ -72,6 +76,42 @@ function generateSegmentsFromClip(
 ): ClipSegmentResult {
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
+
+  // Caption clips render as text segments (clip.start/end trim the caption's
+  // own cue timeline, mirroring how media clips trim source media)
+  if (clip.CaptionRef) {
+    const caption = clipWithExpand.expand?.CaptionRef;
+    const duration = clip.end - clip.start;
+    const style = (caption?.style ?? {}) as CaptionStyle;
+    const cues = clampCuesToWindow(
+      (caption?.cues ?? undefined) as CaptionCue[] | undefined,
+      clip.start,
+      clip.end
+    );
+
+    const segments: TimelineSegment[] = [
+      {
+        id: clip.id,
+        type: 'text',
+        time: {
+          start: startTime,
+          duration,
+        },
+        text: {
+          content: caption?.text ?? clip.meta?.title ?? '',
+          cues: cues.length > 0 ? cues : undefined,
+          fontSize: style.fontSize,
+          color: style.color,
+          backgroundColor: style.backgroundColor,
+          backgroundOpacity: style.backgroundOpacity,
+          position: style.position,
+          align: style.align,
+        },
+      },
+    ];
+
+    return { segments, totalDuration: duration };
+  }
 
   // Check for TimelineClip-level segments first (override)
   if (clip.meta?.segments && clip.meta.segments.length > 0) {
@@ -311,16 +351,19 @@ export function generateTracks(
           segments,
         });
         // Also generate audio track for these legacy clips (as per old behavior)
-        const audioSegments: TimelineSegment[] = clipsWithoutTrack.map(
-          (clip, idx) => {
+        const audioSegments: TimelineSegment[] = clipsWithoutTrack.flatMap(
+          (clip, idx): TimelineSegment[] => {
+            if (!clip.MediaRef) return [];
             const vidSeg = segments[idx];
-            return {
-              id: `${clip.id}-audio`,
-              assetId: clip.MediaRef,
-              type: 'audio',
-              time: vidSeg.time,
-              audio: { volume: 1.0 },
-            };
+            return [
+              {
+                id: `${clip.id}-audio`,
+                assetId: clip.MediaRef,
+                type: 'audio',
+                time: vidSeg.time,
+                audio: { volume: 1.0 },
+              },
+            ];
           }
         );
         tracks.push({
@@ -369,16 +412,19 @@ export function generateTracks(
         layer: 0,
         segments,
       });
-      const audioSegments: TimelineSegment[] = clipsWithoutTrack.map(
-        (clip, idx) => {
+      const audioSegments: TimelineSegment[] = clipsWithoutTrack.flatMap(
+        (clip, idx): TimelineSegment[] => {
+          if (!clip.MediaRef) return [];
           const vidSeg = segments[idx];
-          return {
-            id: `${clip.id}-audio`,
-            assetId: clip.MediaRef,
-            type: 'audio',
-            time: vidSeg.time,
-            audio: { volume: 1.0 },
-          };
+          return [
+            {
+              id: `${clip.id}-audio`,
+              assetId: clip.MediaRef,
+              type: 'audio',
+              time: vidSeg.time,
+              audio: { volume: 1.0 },
+            },
+          ];
         }
       );
       tracks.push({
@@ -413,15 +459,17 @@ export function generateTracks(
     if (!vidTrack) continue;
 
     if (!trackEntity.isMuted) {
-      const audioSegments: TimelineSegment[] = vidTrack.segments.map((seg) => ({
-        id: `${seg.id}-audio`,
-        assetId: seg.assetId,
-        type: 'audio',
-        time: seg.time,
-        audio: {
-          volume: trackEntity.volume, // Use track volume
-        },
-      }));
+      const audioSegments: TimelineSegment[] = vidTrack.segments
+        .filter((seg) => seg.assetId && seg.type !== 'text')
+        .map((seg) => ({
+          id: `${seg.id}-audio`,
+          assetId: seg.assetId,
+          type: 'audio',
+          time: seg.time,
+          audio: {
+            volume: trackEntity.volume, // Use track volume
+          },
+        }));
 
       audioTracks.push({
         id: `${trackEntity.id}-audio`,

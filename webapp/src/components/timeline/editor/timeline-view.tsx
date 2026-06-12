@@ -4,10 +4,11 @@ import React from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 
 import { LayerTimelineView } from './layer-timeline-view';
-import { SequenceTimelineView } from './sequence-timeline-view';
+import { SelectedClipView } from './selected-clip-view';
 
 export function TimelineView() {
-  const { timeline, duration, currentTime, tracks } = useTimeline();
+  const { timeline, duration, currentTime, tracks, selectedClipIds } =
+    useTimeline();
 
   if (!timeline) return null;
 
@@ -39,18 +40,22 @@ export function TimelineView() {
         <LayerTimelineView />
       </div>
 
-      {/* Sequence View Section */}
+      {/* Selected Clip Section */}
       <div className="flex flex-col gap-1.5 flex-1 min-h-0">
         <div className="flex items-center justify-between px-1">
           <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2">
-            Clip Sequence
-            <span className="w-1 h-1 rounded-full bg-primary/40" />
-            <span className="lowercase">
-              {timeline.clips.length} draggable blocks
-            </span>
+            Selected Clip
+            {selectedClipIds.size > 0 && (
+              <>
+                <span className="w-1 h-1 rounded-full bg-primary/40" />
+                <span className="lowercase">
+                  {selectedClipIds.size} selected
+                </span>
+              </>
+            )}
           </span>
         </div>
-        <SequenceTimelineView />
+        <SelectedClipView />
       </div>
     </div>
   );

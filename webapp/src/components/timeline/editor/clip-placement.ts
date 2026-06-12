@@ -4,7 +4,7 @@ import type { TimelineClip } from '@project/shared';
  * Get clips on a track sorted by position (timelineStart or sequential order).
  * Matches the sort logic in track-lane.tsx.
  */
-function getSortedTrackClips(clips: TimelineClip[]): TimelineClip[] {
+export function getSortedTrackClips(clips: TimelineClip[]): TimelineClip[] {
   return [...clips].sort((a, b) => {
     const aStart = a.timelineStart ?? 0;
     const bStart = b.timelineStart ?? 0;
@@ -16,7 +16,7 @@ function getSortedTrackClips(clips: TimelineClip[]): TimelineClip[] {
  * Compute effective [start, end] for each clip on the track.
  * Clips with timelineStart use it; others are placed sequentially after preceding clips.
  */
-function getClipRanges(
+export function getClipRanges(
   trackClips: TimelineClip[]
 ): Array<{ start: number; end: number }> {
   const sorted = getSortedTrackClips(trackClips);
@@ -81,6 +81,81 @@ export function findNonOverlappingTimelineStart(
   }
 
   return candidateTime;
+}
+
+/**
+ * A trim to apply to an existing clip so an inserted clip can take its place.
+ * start/end are source-media times; timelineStart pins the clip at its
+ * (possibly shifted) timeline position.
+ */
+export interface ClipTrim {
+  clipId: string;
+  start: number;
+  end: number;
+  timelineStart: number;
+}
+
+export interface OverwritePlan {
+  trims: ClipTrim[];
+  removals: string[];
+}
+
+const OVERLAP_EPSILON = 1e-6;
+
+/**
+ * Plan how existing clips on a track must be truncated so a new clip can be
+ * inserted at insertStart (overwrite-style insert, e.g. at the playhead).
+ *
+ * - A clip overlapped at its tail keeps its head (out-point trimmed).
+ * - A clip overlapped at its head keeps its tail (in-point trimmed and
+ *   shifted to the end of the inserted clip).
+ * - A clip fully covered by the insert range is removed.
+ * - A clip spanning the whole insert range keeps only its head.
+ */
+export function planOverwriteAtTime(
+  trackClips: TimelineClip[],
+  insertStart: number,
+  insertDuration: number
+): OverwritePlan {
+  const insertEnd = insertStart + insertDuration;
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+  const trims: ClipTrim[] = [];
+  const removals: string[] = [];
+
+  sorted.forEach((clip, i) => {
+    const { start: s, end: e } = ranges[i];
+    if (e <= s) return;
+    if (
+      e <= insertStart + OVERLAP_EPSILON ||
+      s >= insertEnd - OVERLAP_EPSILON
+    ) {
+      return;
+    }
+
+    const headDuration = insertStart - s; // portion surviving before the insert
+    const tailDuration = e - insertEnd; // portion surviving after the insert
+
+    if (headDuration > OVERLAP_EPSILON) {
+      trims.push({
+        clipId: clip.id,
+        start: clip.start,
+        end: clip.start + headDuration,
+        timelineStart: s,
+      });
+    } else if (tailDuration > OVERLAP_EPSILON) {
+      trims.push({
+        clipId: clip.id,
+        start: clip.end - tailDuration,
+        end: clip.end,
+        timelineStart: insertEnd,
+      });
+    } else {
+      removals.push(clip.id);
+    }
+  });
+
+  return { trims, removals };
 }
 
 /**

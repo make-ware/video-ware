@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import type { TimelineClip, MediaClip } from '@project/shared';
+import { Type } from 'lucide-react';
+import type { TimelineClip, MediaClip, Caption } from '@project/shared';
 import { CompositeClipOverlay } from './composite-clip-overlay';
 
 export interface ClipBlockProps {
@@ -20,6 +21,8 @@ export interface ClipBlockProps {
   ) => void;
   /** Pointer-down on the clip body — parent decides when it becomes a drag */
   onMoveStart: (e: React.MouseEvent | React.TouchEvent) => void;
+  /** Double-click on the clip body (used to open editors) */
+  onDoubleClick?: (e: React.MouseEvent) => void;
 }
 
 export function ClipBlock({
@@ -32,10 +35,19 @@ export function ClipBlock({
   onSelect,
   onResizeStart,
   onMoveStart,
+  onDoubleClick,
 }: ClipBlockProps) {
   const clipDuration = clip.end - clip.start;
+  const isCaption = !!clip.CaptionRef;
+  const caption = (clip as TimelineClip & { expand?: { CaptionRef?: Caption } })
+    .expand?.CaptionRef;
   const clipColor =
-    clip.meta?.color || (isSelected ? 'bg-primary' : 'bg-blue-600/60');
+    clip.meta?.color ||
+    (isCaption
+      ? 'bg-purple-600/60'
+      : isSelected
+        ? 'bg-primary'
+        : 'bg-blue-600/60');
 
   // Extract composite clip data
   const mediaClip = (
@@ -65,6 +77,12 @@ export function ClipBlock({
         e.stopPropagation();
         if (!isLocked) {
           onSelect(e);
+        }
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!isLocked) {
+          onDoubleClick?.(e);
         }
       }}
       onMouseDown={(e) => {
@@ -104,6 +122,16 @@ export function ClipBlock({
             {Math.round(clipDuration * 10) / 10}s
           </div>
         </>
+      )}
+
+      {/* Caption clips show an icon + their text */}
+      {isCaption && (
+        <div className="absolute inset-0 flex items-center gap-1 px-1.5 pointer-events-none overflow-hidden">
+          <Type className="h-3 w-3 shrink-0 text-white/80" />
+          <span className="text-[10px] text-white truncate drop-shadow-md">
+            {clip.meta?.title || caption?.text || 'Caption'}
+          </span>
+        </div>
       )}
 
       {/* Composite Clip Overlay - show segment visualization */}

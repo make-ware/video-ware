@@ -13,14 +13,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
+import { CaptionEditorModal } from '@/components/captions';
 import type { ExpandedTimelineClip } from '@/types/expanded-types';
-import type { TimelineClip } from '@project/shared';
+import type { Caption, TimelineClip } from '@project/shared';
 
 const BLOCK_WIDTH = 160;
 const ALL_TRACKS_VALUE = '__all__';
 
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
-import { Film } from 'lucide-react';
+import { Film, Type } from 'lucide-react';
 
 interface SequenceClipCardProps {
   clip: TimelineClip;
@@ -44,14 +45,19 @@ function SequenceClipCard({
   isDropTarget,
 }: SequenceClipCardProps) {
   const [isHovering, setIsHovering] = useState(false);
-  const mediaMissing = clip.meta?.mediaMissing === true;
-  const mediaName = mediaMissing
-    ? 'Media Deleted'
-    : clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
+  const isCaption = !!clip.CaptionRef;
+  const caption = (clip as TimelineClip & { expand?: { CaptionRef?: Caption } })
+    .expand?.CaptionRef;
+  const mediaMissing = !isCaption && clip.meta?.mediaMissing === true;
+  const mediaName = isCaption
+    ? caption?.name || caption?.text || 'Caption'
+    : mediaMissing
+      ? 'Media Deleted'
+      : clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
   const displayTitle = clip.meta?.title || mediaName;
   const clipColor = mediaMissing
     ? 'bg-destructive/60'
-    : clip.meta?.color || 'bg-blue-600/80';
+    : clip.meta?.color || (isCaption ? 'bg-purple-600/80' : 'bg-blue-600/80');
   const media = clip.expand?.MediaRef;
 
   return (
@@ -75,7 +81,11 @@ function SequenceClipCard({
     >
       {/* Background Sprite Animator */}
       <div className="absolute inset-0 z-0">
-        {mediaMissing ? (
+        {isCaption ? (
+          <div className="flex items-center justify-center h-full bg-purple-600/10">
+            <Type className="h-8 w-8 text-purple-400/40" />
+          </div>
+        ) : mediaMissing ? (
           <div className="flex items-center justify-center h-full bg-destructive/10">
             <AlertTriangle className="h-8 w-8 text-destructive/40" />
           </div>
@@ -147,6 +157,7 @@ export function SequenceTimelineView() {
     tracks,
     updateClip,
     removeClip,
+    refreshTimeline,
   } = useTimeline();
 
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
@@ -375,24 +386,44 @@ export function SequenceTimelineView() {
         )}
       </div>
 
-      {editingClip && (
-        <ClipEditorModal
-          key={editingClipId}
-          open={!!editingClipId}
-          onOpenChange={(open) => {
-            if (!open) setEditingClipId(null);
-          }}
-          mode="edit-timeline-clip"
-          clip={editingClip as ExpandedTimelineClip}
-          onSave={async (updates) => {
-            await updateClip(editingClipId!, updates);
-          }}
-          onDelete={async () => {
-            await removeClip(editingClipId!);
-            setEditingClipId(null);
-          }}
-        />
-      )}
+      {editingClip &&
+        (editingClip.CaptionRef ? (
+          <CaptionEditorModal
+            key={editingClipId}
+            open={!!editingClipId}
+            onOpenChange={(open) => {
+              if (!open) setEditingClipId(null);
+            }}
+            workspaceId={timeline.WorkspaceRef}
+            caption={
+              (
+                editingClip as TimelineClip & {
+                  expand?: { CaptionRef?: Caption };
+                }
+              ).expand?.CaptionRef ?? null
+            }
+            onSaved={async () => {
+              await refreshTimeline();
+            }}
+          />
+        ) : (
+          <ClipEditorModal
+            key={editingClipId}
+            open={!!editingClipId}
+            onOpenChange={(open) => {
+              if (!open) setEditingClipId(null);
+            }}
+            mode="edit-timeline-clip"
+            clip={editingClip as ExpandedTimelineClip}
+            onSave={async (updates) => {
+              await updateClip(editingClipId!, updates);
+            }}
+            onDelete={async () => {
+              await removeClip(editingClipId!);
+              setEditingClipId(null);
+            }}
+          />
+        ))}
     </div>
   );
 }

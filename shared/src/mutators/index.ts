@@ -9,6 +9,7 @@ export { UploadMutator } from './upload';
 export { FileMutator } from './file';
 export { DirectoryMutator } from './directory';
 export { MediaMutator } from './media';
+export { CaptionMutator } from './caption';
 export { LabelTrackMutator } from './label-track';
 export { MediaClipMutator, type ActualizableLabel } from './media-clip';
 export { LabelFaceMutator } from './label-face';

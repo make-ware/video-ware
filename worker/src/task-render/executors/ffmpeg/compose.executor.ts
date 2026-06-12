@@ -160,6 +160,36 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       return hex;
     };
 
+    // Color with explicit opacity (for drawtext background boxes)
+    const formatColorWithOpacity = (hex: string, opacity: number) => {
+      const alpha = Math.round(Math.min(Math.max(opacity, 0), 1) * 255)
+        .toString(16)
+        .padStart(2, '0')
+        .toUpperCase();
+      if (hex.startsWith('#')) return hex.replace('#', '0x') + alpha;
+      return `${hex}@${opacity}`;
+    };
+
+    // Escape literal text for the drawtext filter
+    const escapeDrawtext = (text: string) =>
+      text
+        .replace(/\\/g, '\\\\')
+        .replace(/:/g, '\\:')
+        .replace(/'/g, "\\'")
+        .replace(/%/g, '\\%');
+
+    // Map caption placement presets to drawtext expressions
+    const alignToX = (align?: 'left' | 'center' | 'right') => {
+      if (align === 'left') return 'w*0.05';
+      if (align === 'right') return 'w-text_w-w*0.05';
+      return '(w-text_w)/2';
+    };
+    const positionToY = (position?: 'top' | 'middle' | 'bottom') => {
+      if (position === 'top') return 'h*0.08';
+      if (position === 'bottom') return 'h-text_h-h*0.08';
+      return '(h-text_h)/2';
+    };
+
     // Round time values to avoid floating-point precision issues (e.g. 18.599999999999998)
     // Composite clips with decimal segments can accumulate errors; millisecond precision is sufficient
     const fmtTime = (t: number): number => Math.round(t * 1000) / 1000;
@@ -251,28 +281,55 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           }
 
           // Use drawtext on top of the current video chain
-          const content = seg.text?.content || '';
           const fontSize = seg.text?.fontSize || 24;
           const fontColor = formatColor(seg.text?.color);
-          const x = seg.text?.x || '(w-text_w)/2';
-          const y = seg.text?.y || '(h-text_h)/2';
+          const x = seg.text?.x ?? alignToX(seg.text?.align);
+          const y = seg.text?.y ?? positionToY(seg.text?.position);
 
-          const start = fmtTime(seg.time.start);
-          const end = fmtTime(start + seg.time.duration);
-          const enable = `between(t,${start},${end})`;
+          // Background box (e.g. subtitle banding)
+          let boxArgs = '';
+          if (seg.text?.backgroundColor) {
+            const boxColor = formatColorWithOpacity(
+              seg.text.backgroundColor,
+              seg.text.backgroundOpacity ?? 0.6
+            );
+            const boxBorder = Math.max(8, Math.round(fontSize / 4));
+            boxArgs = `:box=1:boxcolor=${boxColor}:boxborderw=${boxBorder}`;
+          }
 
-          const nextLabel = `[v_txt_${seg.id}]`;
+          const segStart = fmtTime(seg.time.start);
+          const segEnd = fmtTime(seg.time.start + seg.time.duration);
 
-          // Escape text for FFmpeg
-          const escapedContent = content
-            .replace(/:/g, '\\:')
-            .replace(/'/g, "\\'");
+          // Animated captions emit one drawtext per cue; static text gets a
+          // single drawtext covering the whole segment window.
+          const cues = seg.text?.cues;
+          const entries =
+            cues && cues.length > 0
+              ? cues.map((cue) => ({
+                  text: cue.text,
+                  start: Math.max(segStart, fmtTime(segStart + cue.start)),
+                  end: Math.min(segEnd, fmtTime(segStart + cue.end)),
+                }))
+              : [
+                  {
+                    text: seg.text?.content || '',
+                    start: segStart,
+                    end: segEnd,
+                  },
+                ];
 
-          filterComplex.push(
-            `${lastVideoLabel}drawtext=text='${escapedContent}':fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}:enable='${enable}'${nextLabel}`
-          );
+          entries.forEach((entry, cueIndex) => {
+            if (!entry.text || entry.end <= entry.start) return;
 
-          lastVideoLabel = nextLabel;
+            const enable = `between(t,${entry.start},${entry.end})`;
+            const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
+
+            filterComplex.push(
+              `${lastVideoLabel}drawtext=text='${escapeDrawtext(entry.text)}':fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${boxArgs}:enable='${enable}'${nextLabel}`
+            );
+
+            lastVideoLabel = nextLabel;
+          });
           continue;
         }
 

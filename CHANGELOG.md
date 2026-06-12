@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.5...video-ware-v0.7.6) (2026-06-12)
+
+
+### Bug Fixes
+
+* backoff polling ([35a6d24](https://github.com/make-ware/video-ware/commit/35a6d24e35c1b5d1b7e01f056b59f6b8ebc609df))
+
 ## [0.7.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.4...video-ware-v0.7.5) (2026-06-12)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.3...video-ware-v0.7.4) (2026-06-12)
+
+
+### Bug Fixes
+
+* add parallel timeline players ([be31966](https://github.com/make-ware/video-ware/commit/be31966d52330218c439c9c5123fb10e494509be))
+* ui improvements ([20e2663](https://github.com/make-ware/video-ware/commit/20e2663e67de82c8bb3b09ba8fa35c331701a261))
+
 ## [0.7.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.2...video-ware-v0.7.3) (2026-06-09)
 
 

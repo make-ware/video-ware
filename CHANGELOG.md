@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.4...video-ware-v0.7.5) (2026-06-12)
+
+
+### Bug Fixes
+
+* limit default concurrency ([6868b77](https://github.com/make-ware/video-ware/commit/6868b771392a076d30d215d4aad15ef5ef0dfca8))
+* update label queue logic ([e38c59c](https://github.com/make-ware/video-ware/commit/e38c59cb3addbfed3f38121e93460798a877f504))
+
 ## [0.7.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.3...video-ware-v0.7.4) (2026-06-12)
 
 

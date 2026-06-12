@@ -181,26 +181,10 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
         `Object tracking failed for media ${input.mediaId}: ${errorMessage}`
       );
 
-      return {
-        success: false,
-        cacheHit: false,
-        processorVersion: this.processorVersion,
-        processingTimeMs: Date.now() - startTime,
-        error: errorMessage,
-        counts: {
-          objectCount: 0,
-          objectTrackCount: 0,
-          labelEntityCount: 0,
-          labelTrackCount: 0,
-          labelClipCount: 0,
-          labelObjectCount: 0,
-          labelFaceCount: 0,
-          labelPersonCount: 0,
-          labelSpeechCount: 0,
-          labelSegmentCount: 0,
-          labelShotCount: 0,
-        },
-      };
+      // Rethrow so processStepJob produces a status: 'failed' StepResult.
+      // Swallowing this into a success:false output makes the parent's
+      // partial-success accounting count a failed step as completed.
+      throw error;
     }
   }
 

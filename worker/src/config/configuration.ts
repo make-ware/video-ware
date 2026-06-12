@@ -60,14 +60,18 @@ export default () => {
     redis: redisConfig,
 
     // Per-queue BullMQ worker concurrency.
-    // CPU-bound ffmpeg queues default low; IO/API-bound queues default higher.
+    // Default every queue to single-threaded (1 job at a time). This is the
+    // safe default for CPU-bound ffmpeg work and, more importantly, keeps us
+    // under external API rate limits (e.g. Google Video Intelligence
+    // "Requests per minute" quota). Bump per-queue via WORKER_CONCURRENCY_* if
+    // a deployment has headroom.
     concurrency: {
-      transcode: parseConcurrency(process.env.WORKER_CONCURRENCY_TRANSCODE, 3),
-      render: parseConcurrency(process.env.WORKER_CONCURRENCY_RENDER, 2),
-      labels: parseConcurrency(process.env.WORKER_CONCURRENCY_LABELS, 5),
+      transcode: parseConcurrency(process.env.WORKER_CONCURRENCY_TRANSCODE, 1),
+      render: parseConcurrency(process.env.WORKER_CONCURRENCY_RENDER, 1),
+      labels: parseConcurrency(process.env.WORKER_CONCURRENCY_LABELS, 1),
       intelligence: parseConcurrency(
         process.env.WORKER_CONCURRENCY_INTELLIGENCE,
-        5
+        1
       ),
     },
 

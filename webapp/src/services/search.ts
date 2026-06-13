@@ -159,7 +159,11 @@ export class SearchService {
       clipId: clip.id,
       mediaId: clip.MediaRef,
       mediaName: media?.expand?.UploadRef?.name ?? 'Untitled',
-      thumbnailUrl: thumb ? this.file.getFileUrl(thumb) : undefined,
+      // pb.files.getURL needs the stored filename (the value of the File
+      // record's `file` field), not the field name — matches MediaCard etc.
+      thumbnailUrl: thumb?.file
+        ? this.file.getFileUrl(thumb, thumb.file)
+        : undefined,
       start: clip.start,
       end: clip.end,
       snippet,

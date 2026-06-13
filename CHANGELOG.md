@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.6...video-ware-v0.7.7) (2026-06-13)
+
+
+### Bug Fixes
+
+* add fonts to docker ([5608a0d](https://github.com/make-ware/video-ware/commit/5608a0d60c90baa57448196ee6073773e74142d3))
+* add search to timeline editor ([35d2e6b](https://github.com/make-ware/video-ware/commit/35d2e6be0adbdb496218bef009c845830a7b15c3))
+
 ## [0.7.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.5...video-ware-v0.7.6) (2026-06-12)
 
 

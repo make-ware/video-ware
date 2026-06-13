@@ -1,4 +1,5 @@
 export * from './caption.js';
+export * from './clip-label-search.js';
 export * from './directory.js';
 export * from './file.js';
 export * from './label-entity.js';

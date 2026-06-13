@@ -13,6 +13,7 @@ import type { Workspace } from '../schema/workspace';
 import type { WorkspaceMember } from '../schema/workspace-member';
 import type { Timeline } from '../schema/timeline';
 import type { Caption } from '../schema/caption';
+import type { ClipLabelSearch } from '../schema/clip-label-search';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
 import type { LabelEntity } from '../schema/label-entity';
@@ -62,6 +63,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'TimelineTracks'): RecordService<TimelineTrack>;
   collection(idOrName: 'LabelJobs'): RecordService<LabelJob>;
   collection(idOrName: 'Captions'): RecordService<Caption>;
+  collection(idOrName: 'ClipLabelSearch'): RecordService<ClipLabelSearch>;
 }
 
 // PocketBase response types

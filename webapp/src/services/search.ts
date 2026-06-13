@@ -1,9 +1,7 @@
 import {
   MediaClipMutator,
   FileMutator,
-  LabelObjectMutator,
-  LabelSegmentMutator,
-  LabelSpeechMutator,
+  ClipLabelSearchMutator,
 } from '@project/shared/mutator';
 import type { File, MediaClip } from '@project/shared';
 import type { TypedPocketBase } from '@project/shared/types';
@@ -31,7 +29,7 @@ export interface SearchResult {
   score: number; // label confidence 0..1; 1 for metadata
 }
 
-/** MediaClip with the relations our search queries expand. */
+/** MediaClip with the relations our hydration query expands. */
 type SearchMediaClip = MediaClip & {
   expand?: {
     MediaRef?: {
@@ -48,23 +46,25 @@ const MAX_RESULTS = 5;
 const SNIPPET_LEN = 120;
 
 /**
- * Universal search for the timeline editor. Each category text-matches a
- * source table, then resolves matches to existing MediaClips so results are
- * always timeline-ready (no clips are created here).
+ * Universal search for the timeline editor.
+ *
+ * - Objects / Tags / Transcripts: query the `ClipLabelSearch` view (a temporal
+ *   join of MediaClips to labels on MediaRef + time overlap), then hydrate the
+ *   matched clip ids through the MediaClips collection. Returns only existing
+ *   clips that overlap a matching label.
+ * - Metadata: match clips by their media's upload filename.
+ *
+ * No clips are created here.
  */
 export class SearchService {
   private mediaClip: MediaClipMutator;
   private file: FileMutator;
-  private labelObject: LabelObjectMutator;
-  private labelSegment: LabelSegmentMutator;
-  private labelSpeech: LabelSpeechMutator;
+  private clipLabelSearch: ClipLabelSearchMutator;
 
   constructor(pb: TypedPocketBase) {
     this.mediaClip = new MediaClipMutator(pb);
     this.file = new FileMutator(pb);
-    this.labelObject = new LabelObjectMutator(pb);
-    this.labelSegment = new LabelSegmentMutator(pb);
-    this.labelSpeech = new LabelSpeechMutator(pb);
+    this.clipLabelSearch = new ClipLabelSearchMutator(pb);
   }
 
   async search(
@@ -97,96 +97,53 @@ export class SearchService {
   }
 
   /**
-   * Objects/Transcripts/Tags: text-match the label table, then resolve the
-   * matched labels to existing MediaClips via clipData.sourceId, preserving
-   * the label confidence order.
+   * Objects/Transcripts/Tags: query the temporal-join view, dedupe to the best
+   * matching label per clip, then hydrate the top clips for display.
    */
   private async searchLabels(
     category: Exclude<SearchCategory, 'metadata'>,
     workspaceId: string,
     query: string
   ): Promise<SearchResult[]> {
-    // 1. Find matching labels (highest confidence first).
-    const labels = await this.fetchLabels(category, workspaceId, query);
-    if (labels.length === 0) return [];
-
-    // snippet + score + relevance order, keyed by label id.
-    const meta = new Map<
-      string,
-      { snippet: string; score: number; rank: number }
-    >();
-    labels.forEach((label, rank) => {
-      meta.set(label.id, {
-        snippet: this.snippetFor(category, label, query),
-        score: label.score,
-        rank,
-      });
-    });
-
-    // 2. Resolve to existing MediaClips.
-    const clipResult = await this.mediaClip.getBySourceLabels(
+    const view = await this.clipLabelSearch.searchByWorkspace(
+      category,
       workspaceId,
-      labels.map((l) => l.id)
+      query
+    );
+    if (view.items.length === 0) return [];
+
+    // Rows are sorted by confidence desc; the first row per clip is its best
+    // match. Map insertion order therefore ranks clips by best-match confidence.
+    const bestByClip = new Map<string, { matchText: string; score: number }>();
+    for (const row of view.items) {
+      if (!bestByClip.has(row.clipId)) {
+        bestByClip.set(row.clipId, {
+          matchText: row.matchText,
+          score: row.confidence,
+        });
+      }
+    }
+
+    const clipIds = [...bestByClip.keys()].slice(0, MAX_RESULTS);
+
+    // Hydrate clip/media/thumbnail through the real collection (working expand).
+    const clips = await this.mediaClip.getByIds(clipIds);
+    const clipById = new Map(
+      (clips.items as SearchMediaClip[]).map((c) => [c.id, c])
     );
 
-    // 3. Keep only clips whose source label matched, order by label relevance.
-    const results = (clipResult.items as SearchMediaClip[])
-      .map((clip) => {
-        const sourceId = clip.clipData?.sourceId;
-        const m = sourceId ? meta.get(sourceId) : undefined;
-        if (!m) return null;
-        return {
-          result: this.toResult(clip, category, m.snippet, m.score),
-          rank: m.rank,
-        };
-      })
-      .filter((x): x is { result: SearchResult; rank: number } => x !== null)
-      .sort((a, b) => a.rank - b.rank)
-      .slice(0, MAX_RESULTS)
-      .map((x) => x.result);
-
+    const results: SearchResult[] = [];
+    for (const clipId of clipIds) {
+      const clip = clipById.get(clipId);
+      const match = bestByClip.get(clipId);
+      if (!clip || !match) continue;
+      const snippet =
+        category === 'transcripts'
+          ? excerpt(match.matchText, query, SNIPPET_LEN)
+          : match.matchText;
+      results.push(this.toResult(clip, category, snippet, match.score));
+    }
     return results;
-  }
-
-  private async fetchLabels(
-    category: Exclude<SearchCategory, 'metadata'>,
-    workspaceId: string,
-    query: string
-  ): Promise<{ id: string; text: string; score: number }[]> {
-    if (category === 'objects') {
-      const r = await this.labelObject.searchByWorkspace(workspaceId, query);
-      return r.items.map((l) => ({
-        id: l.id,
-        text: l.entity,
-        score: l.confidence,
-      }));
-    }
-    if (category === 'tags') {
-      const r = await this.labelSegment.searchByWorkspace(workspaceId, query);
-      return r.items.map((l) => ({
-        id: l.id,
-        text: l.entity,
-        score: l.confidence,
-      }));
-    }
-    // transcripts
-    const r = await this.labelSpeech.searchByWorkspace(workspaceId, query);
-    return r.items.map((l) => ({
-      id: l.id,
-      text: l.transcript,
-      score: l.confidence,
-    }));
-  }
-
-  private snippetFor(
-    category: Exclude<SearchCategory, 'metadata'>,
-    label: { text: string },
-    query: string
-  ): string {
-    if (category === 'transcripts') {
-      return excerpt(label.text, query, SNIPPET_LEN);
-    }
-    return label.text;
   }
 
   private toResult(

@@ -64,6 +64,10 @@ export const MediaClipCollection = defineCollection({
     // Authenticated users can delete media clips
     deleteRule: '@request.auth.id != ""',
   },
+  indexes: [
+    'CREATE INDEX idx_mediaclips_workspace ON MediaClips (WorkspaceRef)',
+    'CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)',
+  ],
 });
 
 export default MediaClipCollection;

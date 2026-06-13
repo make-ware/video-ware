@@ -82,6 +82,8 @@ export const LabelSpeechCollection = defineCollection({
     'CREATE UNIQUE INDEX idx_label_speech_hash ON LabelSpeech (speechHash)',
     'CREATE INDEX idx_label_speech_workspace ON LabelSpeech (WorkspaceRef)',
     'CREATE INDEX idx_label_speech_media ON LabelSpeech (MediaRef)',
+    // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
+    'CREATE INDEX idx_label_speech_media_range ON LabelSpeech (MediaRef, start, "end")',
   ],
 });
 

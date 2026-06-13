@@ -132,30 +132,23 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
   }
 
   /**
-   * Resolve existing MediaClips that were derived from the given source labels.
-   * Matches on `clipData.sourceId` (the label id stored by createFromLabel).
-   * Label ids are system-generated, but are still bound via pb.filter for
-   * consistency. Returns clips with MediaRef/UploadRef/thumbnail expanded.
-   * Result order is not significant — callers re-order by relevance.
+   * Fetch MediaClips by id, with MediaRef/UploadRef/thumbnail expanded.
+   * Used to hydrate clip/media/thumbnail details for search results coming
+   * from the ClipLabelSearch view. Ids are system-generated but are bound via
+   * pb.filter for consistency. Result order is not significant — callers
+   * re-order by relevance.
    */
-  async getBySourceLabels(
-    workspaceId: string,
-    labelIds: string[],
-    perPage = 50
-  ): Promise<ListResult<MediaClip>> {
-    if (labelIds.length === 0) {
+  async getByIds(ids: string[], perPage = 50): Promise<ListResult<MediaClip>> {
+    if (ids.length === 0) {
       return { page: 1, perPage, totalItems: 0, totalPages: 0, items: [] };
     }
 
-    const params: Record<string, string> = { ws: workspaceId };
-    const orClauses = labelIds.map((id, i) => {
+    const params: Record<string, string> = {};
+    const orClauses = ids.map((id, i) => {
       params[`id${i}`] = id;
-      return `clipData.sourceId = {:id${i}}`;
+      return `id = {:id${i}}`;
     });
-    const filter = this.pb.filter(
-      `WorkspaceRef = {:ws} && (${orClauses.join(' || ')})`,
-      params
-    );
+    const filter = this.pb.filter(`(${orClauses.join(' || ')})`, params);
 
     return this.getList(1, perPage, filter, '-created', [
       'MediaRef',

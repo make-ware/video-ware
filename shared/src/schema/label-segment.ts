@@ -81,6 +81,8 @@ export const LabelSegmentCollection = defineCollection({
     'CREATE INDEX idx_label_segment_workspace ON LabelSegment (WorkspaceRef)',
     'CREATE INDEX idx_label_segment_media ON LabelSegment (MediaRef)',
     'CREATE INDEX idx_label_segment_entity ON LabelSegment (LabelEntityRef)',
+    // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
+    'CREATE INDEX idx_label_segment_media_range ON LabelSegment (MediaRef, start, "end")',
   ],
 });
 

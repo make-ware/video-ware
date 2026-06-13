@@ -76,6 +76,8 @@ export const LabelObjectCollection = defineCollection({
     'CREATE INDEX idx_label_object_workspace ON LabelObjects (WorkspaceRef)',
     'CREATE INDEX idx_label_object_media ON LabelObjects (MediaRef)',
     'CREATE INDEX idx_label_object_track ON LabelObjects (LabelTrackRef)',
+    // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
+    'CREATE INDEX idx_label_object_media_range ON LabelObjects (MediaRef, start, "end")',
   ],
 });
 

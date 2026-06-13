@@ -13,18 +13,22 @@ import {
 
 interface UseUniversalSearchReturn {
   results: SearchResult[];
+  total: number;
   isFetching: boolean;
   /** True once a non-empty query has been searched. */
   hasQuery: boolean;
 }
 
 /**
- * Debounced universal search for the timeline editor, scoped to the current
- * workspace. Re-keyed per category so switching tabs caches independently.
+ * Debounced, paginated universal search for the timeline editor, scoped to the
+ * current workspace. Re-keyed per category/page so each combination caches
+ * independently. `page` is 0-based.
  */
 export function useUniversalSearch(
   category: SearchCategory,
-  query: string
+  query: string,
+  page: number,
+  perPage: number
 ): UseUniversalSearchReturn {
   const { currentWorkspace } = useWorkspace();
   const service = useMemo(() => new SearchService(pb), []);
@@ -38,15 +42,17 @@ export function useUniversalSearch(
   const workspaceId = currentWorkspace?.id ?? '';
 
   const result = useQuery({
-    queryKey: qk.search.results(category, workspaceId, debounced),
+    queryKey: qk.search.results(category, workspaceId, debounced, page, perPage),
     enabled: !!workspaceId && debounced.length > 0,
     // Keep prior results visible while the next query resolves (no flicker).
     placeholderData: (prev) => prev,
-    queryFn: () => service.search(category, workspaceId, debounced),
+    queryFn: () =>
+      service.search(category, workspaceId, debounced, page, perPage),
   });
 
   return {
-    results: result.data ?? [],
+    results: result.data?.results ?? [],
+    total: result.data?.total ?? 0,
     isFetching: result.isFetching,
     hasQuery: debounced.length > 0,
   };

@@ -3,7 +3,7 @@ import {
   FileMutator,
   ClipLabelSearchMutator,
 } from '@project/shared/mutator';
-import type { File, MediaClip } from '@project/shared';
+import type { File, Media, MediaClip, Upload } from '@project/shared';
 import type { TypedPocketBase } from '@project/shared/types';
 
 export type SearchCategory = 'metadata' | 'objects' | 'transcripts' | 'tags';
@@ -15,6 +15,15 @@ export const SEARCH_CATEGORIES: { id: SearchCategory; label: string }[] = [
   { id: 'tags', label: 'Tags' },
 ];
 
+/** Expanded media carried on a result so the row can render a sprite preview. */
+export type SearchResultMedia = Media & {
+  expand?: {
+    UploadRef?: Upload;
+    thumbnailFileRef?: File;
+    spriteFileRef?: File;
+  };
+};
+
 /** A single, normalized search hit that maps to an existing MediaClip. */
 export interface SearchResult {
   key: string; // stable React key, `${category}:${clipId}`
@@ -22,6 +31,8 @@ export interface SearchResult {
   mediaId: string; // clip.MediaRef
   mediaName: string;
   thumbnailUrl?: string;
+  /** Expanded source media (for the sprite-viewer preview). */
+  media?: SearchResultMedia;
   start: number; // seconds (in source media)
   end: number; // seconds
   snippet?: string; // entity name / transcript excerpt
@@ -29,32 +40,33 @@ export interface SearchResult {
   score: number; // label confidence 0..1; 1 for metadata
 }
 
+/** A page of results plus the total count for pagination. */
+export interface SearchPage {
+  results: SearchResult[];
+  total: number;
+}
+
 /** MediaClip with the relations our hydration query expands. */
 type SearchMediaClip = MediaClip & {
-  expand?: {
-    MediaRef?: {
-      id: string;
-      expand?: {
-        UploadRef?: { name?: string };
-        thumbnailFileRef?: File;
-      };
-    };
-  };
+  expand?: { MediaRef?: SearchResultMedia };
 };
 
-const MAX_RESULTS = 5;
 const SNIPPET_LEN = 120;
+// Upper bound of view rows scanned per (category, query) before dedupe. Bounds
+// the total distinct clips a label search can page through.
+const VIEW_ROW_CAP = 200;
+
+const EMPTY_PAGE: SearchPage = { results: [], total: 0 };
 
 /**
  * Universal search for the timeline editor.
  *
  * - Objects / Tags / Transcripts: query the `ClipLabelSearch` view (a temporal
- *   join of MediaClips to labels on MediaRef + time overlap), then hydrate the
- *   matched clip ids through the MediaClips collection. Returns only existing
- *   clips that overlap a matching label.
- * - Metadata: match clips by their media's upload filename.
+ *   join of MediaClips to labels on MediaRef + time overlap), dedupe to the
+ *   best matching label per clip, then hydrate the requested page of clips.
+ * - Metadata: match clips by their media's upload filename (server-paginated).
  *
- * No clips are created here.
+ * Returns only existing clips; no clips are created here.
  */
 export class SearchService {
   private mediaClip: MediaClipMutator;
@@ -67,75 +79,88 @@ export class SearchService {
     this.clipLabelSearch = new ClipLabelSearchMutator(pb);
   }
 
+  /** `page` is 0-based. */
   async search(
     category: SearchCategory,
     workspaceId: string,
-    query: string
-  ): Promise<SearchResult[]> {
+    query: string,
+    page = 0,
+    perPage = 5
+  ): Promise<SearchPage> {
     const q = query.trim();
-    if (!q) return [];
+    if (!q) return EMPTY_PAGE;
 
     if (category === 'metadata') {
-      return this.searchMetadata(workspaceId, q);
+      return this.searchMetadata(workspaceId, q, page, perPage);
     }
-    return this.searchLabels(category, workspaceId, q);
+    return this.searchLabels(category, workspaceId, q, page, perPage);
   }
 
   /** Metadata: match clips by their media's upload filename. */
   private async searchMetadata(
     workspaceId: string,
-    query: string
-  ): Promise<SearchResult[]> {
+    query: string,
+    page: number,
+    perPage: number
+  ): Promise<SearchPage> {
     const result = await this.mediaClip.searchByMediaName(
       workspaceId,
       query,
-      MAX_RESULTS
+      page + 1,
+      perPage
     );
-    return (result.items as SearchMediaClip[]).map((clip) =>
-      this.toResult(clip, 'metadata', undefined, 1)
-    );
+    return {
+      results: (result.items as SearchMediaClip[]).map((clip) =>
+        this.toResult(clip, 'metadata', undefined, 1)
+      ),
+      total: result.totalItems,
+    };
   }
 
   /**
    * Objects/Transcripts/Tags: query the temporal-join view, dedupe to the best
-   * matching label per clip, then hydrate the top clips for display.
+   * matching label per clip, then hydrate the requested page for display.
    */
   private async searchLabels(
     category: Exclude<SearchCategory, 'metadata'>,
     workspaceId: string,
-    query: string
-  ): Promise<SearchResult[]> {
+    query: string,
+    page: number,
+    perPage: number
+  ): Promise<SearchPage> {
     const view = await this.clipLabelSearch.searchByWorkspace(
       category,
       workspaceId,
-      query
+      query,
+      VIEW_ROW_CAP
     );
-    if (view.items.length === 0) return [];
+    if (view.items.length === 0) return EMPTY_PAGE;
 
     // Rows are sorted by confidence desc; the first row per clip is its best
-    // match. Map insertion order therefore ranks clips by best-match confidence.
-    const bestByClip = new Map<string, { matchText: string; score: number }>();
+    // match. Insertion order therefore ranks clips by best-match confidence.
+    const order: string[] = [];
+    const best = new Map<string, { matchText: string; score: number }>();
     for (const row of view.items) {
-      if (!bestByClip.has(row.clipId)) {
-        bestByClip.set(row.clipId, {
-          matchText: row.matchText,
-          score: row.confidence,
-        });
+      if (!best.has(row.clipId)) {
+        best.set(row.clipId, { matchText: row.matchText, score: row.confidence });
+        order.push(row.clipId);
       }
     }
 
-    const clipIds = [...bestByClip.keys()].slice(0, MAX_RESULTS);
+    const total = order.length;
+    const pageIds = order.slice(page * perPage, page * perPage + perPage);
+    if (pageIds.length === 0) return { results: [], total };
 
     // Hydrate clip/media/thumbnail through the real collection (working expand).
-    const clips = await this.mediaClip.getByIds(clipIds);
+    const clips = await this.mediaClip.getByIds(pageIds);
     const clipById = new Map(
       (clips.items as SearchMediaClip[]).map((c) => [c.id, c])
     );
 
     const results: SearchResult[] = [];
-    for (const clipId of clipIds) {
+    for (const clipId of pageIds) {
       const clip = clipById.get(clipId);
-      const match = bestByClip.get(clipId);
+      const match = best.get(clipId);
       if (!clip || !match) continue;
       const snippet =
         category === 'transcripts'
@@ -143,7 +168,7 @@ export class SearchService {
           : match.matchText;
       results.push(this.toResult(clip, category, snippet, match.score));
     }
-    return results;
+    return { results, total };
   }
 
   private toResult(
@@ -164,6 +189,7 @@ export class SearchService {
       thumbnailUrl: thumb?.file
         ? this.file.getFileUrl(thumb, thumb.file)
         : undefined,
+      media,
       start: clip.start,
       end: clip.end,
       snippet,

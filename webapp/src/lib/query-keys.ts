@@ -31,8 +31,13 @@ export const qk = {
     byMedia: (id: string) => ['transcripts', id] as const,
   },
   search: {
-    results: (category: string, workspaceId: string, query: string) =>
-      ['search', category, workspaceId, query] as const,
+    results: (
+      category: string,
+      workspaceId: string,
+      query: string,
+      page: number,
+      perPage: number
+    ) => ['search', category, workspaceId, query, page, perPage] as const,
   },
   files: {
     sprite: (id: string) => ['files', 'sprite', id] as const,

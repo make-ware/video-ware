@@ -154,6 +154,7 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
       'MediaRef',
       'MediaRef.UploadRef',
       'MediaRef.thumbnailFileRef',
+      'MediaRef.spriteFileRef',
     ]);
   }
 
@@ -165,16 +166,18 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
   async searchByMediaName(
     workspaceId: string,
     query: string,
+    page = 1,
     perPage = 5
   ): Promise<ListResult<MediaClip>> {
     const filter = this.pb.filter(
       'WorkspaceRef = {:ws} && MediaRef.UploadRef.name ~ {:q}',
       { ws: workspaceId, q: query }
     );
-    return this.getList(1, perPage, filter, '-created', [
+    return this.getList(page, perPage, filter, '-created', [
       'MediaRef',
       'MediaRef.UploadRef',
       'MediaRef.thumbnailFileRef',
+      'MediaRef.spriteFileRef',
     ]);
   }
 

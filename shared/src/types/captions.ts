@@ -34,6 +34,23 @@ export const CaptionStyleSchema = z.object({
   position: z.enum(['top', 'middle', 'bottom']).optional(),
   /** Horizontal alignment preset */
   align: z.enum(['left', 'center', 'right']).optional(),
+  /** Render with the bold font variant (used for titles). Default false. */
+  bold: z.boolean().optional(),
+  /** Drop shadow behind the text for depth/legibility. Default true. */
+  shadow: z.boolean().optional(),
+  /** Shadow color, hex e.g. #000000. Default #000000. */
+  shadowColor: z.string().optional(),
+  /** Shadow opacity 0.0–1.0. Default 0.5. */
+  shadowOpacity: z.number().min(0).max(1).optional(),
+  /**
+   * Text outline. Guarantees contrast on any background (e.g. white text on a
+   * white frame). Defaults true when no background box is set, false otherwise.
+   */
+  outline: z.boolean().optional(),
+  /** Outline color, hex e.g. #000000. Default #000000. */
+  outlineColor: z.string().optional(),
+  /** Outline opacity 0.0–1.0. Default 0.9. */
+  outlineOpacity: z.number().min(0).max(1).optional(),
 });
 
 export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
@@ -46,6 +63,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   backgroundOpacity: 0.6,
   position: 'bottom',
   align: 'center',
+  shadow: true,
 };
 
 /** Default style applied to title screens */
@@ -54,4 +72,7 @@ export const DEFAULT_TITLE_STYLE: CaptionStyle = {
   color: '#FFFFFF',
   position: 'middle',
   align: 'center',
+  bold: true,
+  shadow: true,
+  outline: true,
 };

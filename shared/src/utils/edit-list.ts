@@ -106,6 +106,13 @@ function generateSegmentsFromClip(
           backgroundOpacity: style.backgroundOpacity,
           position: style.position,
           align: style.align,
+          bold: style.bold,
+          shadow: style.shadow,
+          shadowColor: style.shadowColor,
+          shadowOpacity: style.shadowOpacity,
+          outline: style.outline,
+          outlineColor: style.outlineColor,
+          outlineOpacity: style.outlineOpacity,
         },
       },
     ];

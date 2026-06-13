@@ -190,6 +190,20 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       return '(h-text_h)/2';
     };
 
+    // Deterministic fonts. In production these point at fonts baked into the
+    // image (see docker/Dockerfile); when unset (e.g. local macOS dev) we omit
+    // fontfile and let fontconfig resolve a system font, preserving prior
+    // behaviour. Building the fontfile clause once keeps every drawtext call
+    // pinned to the same typeface.
+    const regularFont = process.env.RENDER_FONT_FILE;
+    const boldFont = process.env.RENDER_FONT_FILE_BOLD || regularFont;
+    const escapeFontPath = (p: string) =>
+      p.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+    const fontFileArg = (bold: boolean) => {
+      const file = bold ? boldFont : regularFont;
+      return file ? `:fontfile='${escapeFontPath(file)}'` : '';
+    };
+
     // Round time values to avoid floating-point precision issues (e.g. 18.599999999999998)
     // Composite clips with decimal segments can accumulate errors; millisecond precision is sufficient
     const fmtTime = (t: number): number => Math.round(t * 1000) / 1000;
@@ -285,8 +299,10 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           const fontColor = formatColor(seg.text?.color);
           const x = seg.text?.x ?? alignToX(seg.text?.align);
           const y = seg.text?.y ?? positionToY(seg.text?.position);
+          const fontArg = fontFileArg(seg.text?.bold ?? false);
 
           // Background box (e.g. subtitle banding)
+          const hasBox = !!seg.text?.backgroundColor;
           let boxArgs = '';
           if (seg.text?.backgroundColor) {
             const boxColor = formatColorWithOpacity(
@@ -295,6 +311,29 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
             );
             const boxBorder = Math.max(8, Math.round(fontSize / 4));
             boxArgs = `:box=1:boxcolor=${boxColor}:boxborderw=${boxBorder}`;
+          }
+
+          // Legibility + modern styling. An outline guarantees contrast on any
+          // background (including white text on a white frame); a soft drop
+          // shadow adds depth. Both scale with font size so captions (~48px)
+          // and titles (~96px) stay balanced. A background box already
+          // provides contrast, so the outline defaults off when a box is set.
+          let styleArgs = '';
+          if (seg.text?.outline ?? !hasBox) {
+            const borderWidth = Math.max(2, Math.round(fontSize / 22));
+            const borderColor = formatColorWithOpacity(
+              seg.text?.outlineColor ?? '#000000',
+              seg.text?.outlineOpacity ?? 0.9
+            );
+            styleArgs += `:borderw=${borderWidth}:bordercolor=${borderColor}`;
+          }
+          if (seg.text?.shadow ?? true) {
+            const shadowOffset = Math.max(2, Math.round(fontSize / 18));
+            const shadowColor = formatColorWithOpacity(
+              seg.text?.shadowColor ?? '#000000',
+              seg.text?.shadowOpacity ?? 0.5
+            );
+            styleArgs += `:shadowcolor=${shadowColor}:shadowx=${shadowOffset}:shadowy=${shadowOffset}`;
           }
 
           const segStart = fmtTime(seg.time.start);
@@ -325,7 +364,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
             const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
 
             filterComplex.push(
-              `${lastVideoLabel}drawtext=text='${escapeDrawtext(entry.text)}':fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${boxArgs}:enable='${enable}'${nextLabel}`
+              `${lastVideoLabel}drawtext=text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
             );
 
             lastVideoLabel = nextLabel;

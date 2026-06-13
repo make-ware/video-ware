@@ -283,6 +283,13 @@ export interface TimelineSegment {
     backgroundOpacity?: number; // 0.0 to 1.0, default 0.6 when box is set
     position?: 'top' | 'middle' | 'bottom'; // vertical placement preset
     align?: 'left' | 'center' | 'right'; // horizontal alignment preset
+    bold?: boolean; // use the bold font variant (titles); default false
+    shadow?: boolean; // drop shadow behind text; default true
+    shadowColor?: string; // hex color for the shadow; default #000000
+    shadowOpacity?: number; // 0.0 to 1.0; default 0.5
+    outline?: boolean; // text outline; default true unless a box is set
+    outlineColor?: string; // hex color for the outline; default #000000
+    outlineOpacity?: number; // 0.0 to 1.0; default 0.9
     x?: number | string;
     y?: number | string;
   };

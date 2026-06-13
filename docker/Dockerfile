@@ -134,9 +134,20 @@ ENV LOG_LEVEL=warn
 ENV POCKETBASE_URL="http://localhost:8090"
 ENV REDIS_URL=""
 
-# Install supervisor, nginx, curl, and ffmpeg
-RUN apk add --no-cache supervisor nginx curl ffmpeg && \
+# Install supervisor, nginx, curl, and ffmpeg.
+# fontconfig + a font package are required for ffmpeg's drawtext filter
+# (used to burn in captions); without them drawtext fails with
+# "Cannot find a valid font for the family Sans". We copy the resolved
+# DejaVu files to a fixed path and pin RENDER_FONT_FILE so captions/titles
+# render with a deterministic font in every environment.
+RUN apk add --no-cache supervisor nginx curl ffmpeg fontconfig font-dejavu && \
+    fc-cache -f && \
+    mkdir -p /opt/fonts && \
+    cp "$(fc-match -f '%{file}' 'DejaVu Sans')" /opt/fonts/regular.ttf && \
+    cp "$(fc-match -f '%{file}' 'DejaVu Sans:bold')" /opt/fonts/bold.ttf && \
     rm -rf /var/cache/apk/*
+ENV RENDER_FONT_FILE=/opt/fonts/regular.ttf
+ENV RENDER_FONT_FILE_BOLD=/opt/fonts/bold.ttf
 
 # Create directories for supervisor and nginx
 RUN mkdir -p /var/log/supervisor /var/run /etc/supervisor/conf.d && \
@@ -206,9 +217,20 @@ ENV WORKER_LOCK_DURATION_MS=60000
 # One-time local->S3 migration scan; keep off for stateless S3 pods.
 ENV ENABLE_S3_MIGRATION=false
 
-# Install ffmpeg and curl
-RUN apk add --no-cache ffmpeg curl && \
+# Install ffmpeg and curl.
+# fontconfig + a font package are required for ffmpeg's drawtext filter
+# (used to burn in captions); without them drawtext fails with
+# "Cannot find a valid font for the family Sans". We copy the resolved
+# DejaVu files to a fixed path and pin RENDER_FONT_FILE so captions/titles
+# render with a deterministic font in every environment.
+RUN apk add --no-cache ffmpeg curl fontconfig font-dejavu && \
+    fc-cache -f && \
+    mkdir -p /opt/fonts && \
+    cp "$(fc-match -f '%{file}' 'DejaVu Sans')" /opt/fonts/regular.ttf && \
+    cp "$(fc-match -f '%{file}' 'DejaVu Sans:bold')" /opt/fonts/bold.ttf && \
     rm -rf /var/cache/apk/*
+ENV RENDER_FONT_FILE=/opt/fonts/regular.ttf
+ENV RENDER_FONT_FILE_BOLD=/opt/fonts/bold.ttf
 
 # Create data directories with proper permissions
 RUN mkdir -p /data/pb_data /data/storage && \

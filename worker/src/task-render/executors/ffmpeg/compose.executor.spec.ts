@@ -235,6 +235,82 @@ describe('FFmpegComposeExecutor', () => {
     // Color might be converted
     expect(filterComplex).toContain('fontcolor=0xFFFFFFFF'); // #FFFFFF -> 0xFFFFFFFF
     expect(filterComplex).toContain("enable='between(t,1,3)'");
+    // No box set -> outline + shadow applied by default for legibility
+    expect(filterComplex).toContain('bordercolor=0x000000E6'); // black @ 0.9
+    expect(filterComplex).toContain('shadowcolor=0x00000080'); // black @ 0.5
+    expect(filterComplex).toMatch(/shadowx=\d+:shadowy=\d+/);
+  });
+
+  it('should use the configured font file when RENDER_FONT_FILE is set', async () => {
+    vi.stubEnv('RENDER_FONT_FILE', '/opt/fonts/regular.ttf');
+    vi.stubEnv('RENDER_FONT_FILE_BOLD', '/opt/fonts/bold.ttf');
+
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'text',
+        layer: 0,
+        segments: [
+          {
+            id: 'txt1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: { content: 'Title', fontSize: 96, bold: true },
+          },
+        ],
+      },
+    ];
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, {}, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+    // Bold text picks the bold font file
+    expect(filterComplex).toContain("fontfile='/opt/fonts/bold.ttf'");
+    vi.unstubAllEnvs();
+  });
+
+  it('should skip the outline when a background box is set', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'text',
+        layer: 0,
+        segments: [
+          {
+            id: 'txt1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: {
+              content: 'Subtitle',
+              fontSize: 48,
+              backgroundColor: '#000000',
+            },
+          },
+        ],
+      },
+    ];
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, {}, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+    // Box present -> no outline, but shadow still applied
+    expect(filterComplex).toContain('box=1');
+    expect(filterComplex).not.toContain('bordercolor=');
+    expect(filterComplex).toContain('shadowcolor=');
   });
 
   it('should build correct FFmpeg command for composite clip (multiple segments from same source)', async () => {

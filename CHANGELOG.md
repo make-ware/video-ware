@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.8...video-ware-v0.7.9) (2026-06-13)
+
+
+### Bug Fixes
+
+* search image url ([bc0ef10](https://github.com/make-ware/video-ware/commit/bc0ef1020dfd88672ea6582ef0834bfd89549cd7))
+
 ## [0.7.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.7...video-ware-v0.7.8) (2026-06-13)
 
 

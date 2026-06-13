@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.7...video-ware-v0.7.8) (2026-06-13)
+
+
+### Bug Fixes
+
+* add pb filter to mutators ([f7e4d1f](https://github.com/make-ware/video-ware/commit/f7e4d1f4b1bcc2c81b7de1f923539672f7131adc))
+* add view collection to pb for search ([4a222ad](https://github.com/make-ware/video-ware/commit/4a222ad643d0ad9c2e3c9ab2ddd85350c88fd3d8))
+
 ## [0.7.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.6...video-ware-v0.7.7) (2026-06-13)
 
 

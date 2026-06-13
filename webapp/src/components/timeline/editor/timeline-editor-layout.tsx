@@ -23,6 +23,7 @@ import {
   Type,
   Heading1,
   ChevronDown,
+  Search,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -31,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CaptionEditorModal } from '@/components/captions';
+import { UniversalSearchModal } from './universal-search-modal';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
 import { TimelineOrientation, CaptionType } from '@project/shared';
@@ -64,8 +66,22 @@ export function TimelineEditorLayout() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [captionEditorType, setCaptionEditorType] =
     useState<CaptionType | null>(null);
+
+  // Cmd/Ctrl+K opens the universal clip search (window-level so it works
+  // regardless of focus, including when the timeline grid has focus).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Directory filter synced to ?dir= query param
   const directoryFilter = searchParams.get('dir') ?? null;
@@ -264,6 +280,16 @@ export function TimelineEditorLayout() {
                 <Smartphone className="h-4 w-4" />
               </Button>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 lg:px-3"
+              title="Search clips (⌘K)"
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Search</span>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -432,6 +458,7 @@ export function TimelineEditorLayout() {
           </div>
         </div>
       )}
+      <UniversalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
       <RenderDialog
         open={renderDialogOpen}
         onOpenChange={setRenderDialogOpen}

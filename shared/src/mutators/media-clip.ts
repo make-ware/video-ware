@@ -132,6 +132,60 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
   }
 
   /**
+   * Resolve existing MediaClips that were derived from the given source labels.
+   * Matches on `clipData.sourceId` (the label id stored by createFromLabel).
+   * Label ids are system-generated, but are still bound via pb.filter for
+   * consistency. Returns clips with MediaRef/UploadRef/thumbnail expanded.
+   * Result order is not significant — callers re-order by relevance.
+   */
+  async getBySourceLabels(
+    workspaceId: string,
+    labelIds: string[],
+    perPage = 50
+  ): Promise<ListResult<MediaClip>> {
+    if (labelIds.length === 0) {
+      return { page: 1, perPage, totalItems: 0, totalPages: 0, items: [] };
+    }
+
+    const params: Record<string, string> = { ws: workspaceId };
+    const orClauses = labelIds.map((id, i) => {
+      params[`id${i}`] = id;
+      return `clipData.sourceId = {:id${i}}`;
+    });
+    const filter = this.pb.filter(
+      `WorkspaceRef = {:ws} && (${orClauses.join(' || ')})`,
+      params
+    );
+
+    return this.getList(1, perPage, filter, '-created', [
+      'MediaRef',
+      'MediaRef.UploadRef',
+      'MediaRef.thumbnailFileRef',
+    ]);
+  }
+
+  /**
+   * Search MediaClips within a workspace by their media's upload filename.
+   * Used by the "Metadata" search tab. The free-text `query` is bound via
+   * pb.filter to avoid filter-string injection.
+   */
+  async searchByMediaName(
+    workspaceId: string,
+    query: string,
+    perPage = 5
+  ): Promise<ListResult<MediaClip>> {
+    const filter = this.pb.filter(
+      'WorkspaceRef = {:ws} && MediaRef.UploadRef.name ~ {:q}',
+      { ws: workspaceId, q: query }
+    );
+    return this.getList(1, perPage, filter, '-created', [
+      'MediaRef',
+      'MediaRef.UploadRef',
+      'MediaRef.thumbnailFileRef',
+    ]);
+  }
+
+  /**
    * Find a derived clip by media reference and source label ID
    * @param mediaRef The media ID
    * @param sourceLabelId The source label_clip ID

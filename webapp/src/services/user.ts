@@ -4,9 +4,11 @@ import type { User } from '@project/shared';
 import type { ListResult } from 'pocketbase';
 
 export class UserService {
+  private pb: TypedPocketBase;
   private userMutator: UserMutator;
 
   constructor(pb: TypedPocketBase) {
+    this.pb = pb;
     this.userMutator = new UserMutator(pb);
   }
 
@@ -22,9 +24,8 @@ export class UserService {
     page = 1,
     perPage = 20
   ): Promise<ListResult<User>> {
-    // Escape quotes in query
-    const safeQuery = query.replace(/"/g, '\\"');
-    const filter = `email ~ "${safeQuery}" || name ~ "${safeQuery}"`;
+    // Bind the free-text query via pb.filter to safely escape it
+    const filter = this.pb.filter('email ~ {:q} || name ~ {:q}', { q: query });
     return this.userMutator.getList(page, perPage, filter);
   }
 

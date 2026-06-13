@@ -185,8 +185,11 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
     perPage = 100
   ): Promise<ListResult<Task>> {
     const filter = type
-      ? `status = "${TaskStatus.QUEUED}" && type = "${type}"`
-      : `status = "${TaskStatus.QUEUED}"`;
+      ? this.pb.filter('status = {:status} && type = {:type}', {
+          status: TaskStatus.QUEUED,
+          type,
+        })
+      : this.pb.filter('status = {:status}', { status: TaskStatus.QUEUED });
     return this.getList(page, perPage, filter, 'created');
   }
 

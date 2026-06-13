@@ -21,7 +21,7 @@ export class LabelJobMutator extends BaseMutator<
   }
 
   async getByMedia(mediaId: string): Promise<LabelJob[]> {
-    const filter = `MediaRef = "${mediaId}"`;
+    const filter = this.pb.filter('MediaRef = {:mediaId}', { mediaId });
     try {
       const result = await this.getList(1, 50, filter, '-created', ['TaskRef']);
       return result.items;
@@ -33,7 +33,10 @@ export class LabelJobMutator extends BaseMutator<
   }
 
   async getByType(mediaId: string, type: string): Promise<LabelJob | null> {
-    const filter = `MediaRef = "${mediaId}" && jobType = "${type}"`;
+    const filter = this.pb.filter(
+      'MediaRef = {:mediaId} && jobType = {:type}',
+      { mediaId, type }
+    );
     try {
       return await this.getFirstByFilter(filter, ['TaskRef'], '-created');
     } catch {

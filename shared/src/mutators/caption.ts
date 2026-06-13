@@ -49,8 +49,10 @@ export class CaptionMutator extends BaseMutator<Caption, CaptionInput> {
     perPage = 100
   ): Promise<ListResult<Caption>> {
     const filter = adhocOnly
-      ? `WorkspaceRef = "${workspaceId}" && MediaRef = ""`
-      : `WorkspaceRef = "${workspaceId}"`;
+      ? this.pb.filter('WorkspaceRef = {:ws} && MediaRef = ""', {
+          ws: workspaceId,
+        })
+      : this.pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId });
     return this.getList(page, perPage, filter);
   }
 }

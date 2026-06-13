@@ -22,7 +22,7 @@ RUN yarn install --immutable
 # Download PocketBase binary
 # Supports multi-architecture builds via TARGETARCH
 # TARGETARCH is automatically provided by Docker Buildx
-ARG POCKETBASE_VERSION=0.35.0
+ARG POCKETBASE_VERSION=0.39.3
 ARG TARGETARCH
 RUN mkdir -p /app/pb && \
     # Map Docker TARGETARCH to PocketBase architecture naming

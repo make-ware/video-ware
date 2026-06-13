@@ -105,15 +105,19 @@ export class DirectoryMutator extends BaseMutator<
    */
   async deleteIfEmpty(id: string): Promise<boolean> {
     // Check for child directories
-    const children = await this.getList(1, 1, `ParentDirectoryRef = "${id}"`);
+    const children = await this.getList(
+      1,
+      1,
+      this.pb.filter('ParentDirectoryRef = {:id}', { id })
+    );
     if (children.totalItems > 0) {
       throw new Error('Cannot delete directory: it contains child directories');
     }
 
     // Check for media in this directory
-    const media = await this.pb
-      .collection('Media')
-      .getList(1, 1, { filter: `DirectoryRef = "${id}"` });
+    const media = await this.pb.collection('Media').getList(1, 1, {
+      filter: this.pb.filter('DirectoryRef = {:id}', { id }),
+    });
     if (media.totalItems > 0) {
       throw new Error('Cannot delete directory: it contains media');
     }

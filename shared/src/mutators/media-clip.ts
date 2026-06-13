@@ -195,7 +195,10 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
     mediaRef: string,
     sourceLabelId: string
   ): Promise<MediaClip | null> {
-    const filter = `MediaRef = "${mediaRef}" && clipData.sourceLabel = "${sourceLabelId}"`;
+    const filter = this.pb.filter(
+      'MediaRef = {:mediaRef} && clipData.sourceLabel = {:sourceLabelId}',
+      { mediaRef, sourceLabelId }
+    );
     const result = await this.getList(1, 1, filter);
     return result.items.length > 0 ? result.items[0] : null;
   }

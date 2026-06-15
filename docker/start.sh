@@ -67,6 +67,13 @@ if [ ! -d "$WORKER_DATA_DIR" ]; then
     mkdir -p "$WORKER_DATA_DIR"
 fi
 
+# Create Redis data directory (bundled BullMQ broker, AOF persistence under /data)
+REDIS_DATA_DIR="${REDIS_DATA_DIR:-/data/redis}"
+if [ ! -d "$REDIS_DATA_DIR" ]; then
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating REDIS_DATA_DIR: $REDIS_DATA_DIR"
+    mkdir -p "$REDIS_DATA_DIR"
+fi
+
 
 # Create log directories
 mkdir -p /var/log/supervisor
@@ -87,11 +94,17 @@ chown -R nextjs:nodejs "$WORKER_DATA_DIR" 2>/dev/null || {
     echo "    Warning: Could not change ownership of $WORKER_DATA_DIR"
   fi
 }
+chown -R nextjs:nodejs "$REDIS_DATA_DIR" 2>/dev/null || {
+  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
+    echo "    Warning: Could not change ownership of $REDIS_DATA_DIR"
+  fi
+}
 
 
 # Set appropriate permissions (rwx for owner, rx for group)
 chmod -R 755 "$PB_DATA_DIR" 2>/dev/null || true
 chmod -R 755 "$WORKER_DATA_DIR" 2>/dev/null || true
+chmod -R 755 "$REDIS_DATA_DIR" 2>/dev/null || true
 
 
 if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then

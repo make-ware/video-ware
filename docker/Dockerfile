@@ -132,15 +132,21 @@ FROM runner-base AS monolith
 # Set default log level
 ENV LOG_LEVEL=warn
 ENV POCKETBASE_URL="http://localhost:8090"
-ENV REDIS_URL=""
+# The monolith bundles Redis internally so it is fully self-contained (no
+# external Redis container required, e.g. for Unraid single-container installs).
+# Redis listens on localhost only and is never exposed outside the container.
+# Override REDIS_URL to point the worker at an external Redis instead.
+ENV REDIS_URL="redis://127.0.0.1:6379"
 
-# Install supervisor, nginx, curl, and ffmpeg.
+# Install supervisor, nginx, curl, ffmpeg, and redis.
+# Redis is the BullMQ broker for the bundled worker; running it in-container
+# keeps the monolith self-contained.
 # fontconfig + a font package are required for ffmpeg's drawtext filter
 # (used to burn in captions); without them drawtext fails with
 # "Cannot find a valid font for the family Sans". We copy the resolved
 # DejaVu files to a fixed path and pin RENDER_FONT_FILE so captions/titles
 # render with a deterministic font in every environment.
-RUN apk add --no-cache supervisor nginx curl ffmpeg fontconfig font-dejavu && \
+RUN apk add --no-cache supervisor nginx curl ffmpeg redis fontconfig font-dejavu && \
     fc-cache -f && \
     mkdir -p /opt/fonts && \
     cp "$(fc-match -f '%{file}' 'DejaVu Sans')" /opt/fonts/regular.ttf && \

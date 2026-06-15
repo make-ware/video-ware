@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.9...video-ware-v0.7.10) (2026-06-15)
+
+
+### Bug Fixes
+
+* add redis to mono image ([fcc8983](https://github.com/make-ware/video-ware/commit/fcc8983f39280231781ede3dc30c4a8ad7920402))
+* add sprite to search results ([188dcf8](https://github.com/make-ware/video-ware/commit/188dcf8c419ab1fcd00cf6971667a3d4bc0e8b7b))
+
 ## [0.7.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.8...video-ware-v0.7.9) (2026-06-13)
 
 

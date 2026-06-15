@@ -142,7 +142,10 @@ export class SearchService {
     const best = new Map<string, { matchText: string; score: number }>();
     for (const row of view.items) {
       if (!best.has(row.clipId)) {
-        best.set(row.clipId, { matchText: row.matchText, score: row.confidence });
+        best.set(row.clipId, {
+          matchText: row.matchText,
+          score: row.confidence,
+        });
         order.push(row.clipId);
       }
     }

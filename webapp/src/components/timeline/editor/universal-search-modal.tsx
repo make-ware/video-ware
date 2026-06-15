@@ -1,7 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, ImageIcon, Loader2, Plus } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ImageIcon,
+  Loader2,
+  Plus,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,

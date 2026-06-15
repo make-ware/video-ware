@@ -42,7 +42,13 @@ export function useUniversalSearch(
   const workspaceId = currentWorkspace?.id ?? '';
 
   const result = useQuery({
-    queryKey: qk.search.results(category, workspaceId, debounced, page, perPage),
+    queryKey: qk.search.results(
+      category,
+      workspaceId,
+      debounced,
+      page,
+      perPage
+    ),
     enabled: !!workspaceId && debounced.length > 0,
     // Keep prior results visible while the next query resolves (no flicker).
     placeholderData: (prev) => prev,

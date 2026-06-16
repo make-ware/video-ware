@@ -26,10 +26,13 @@ group "default" {
   targets = ["monolith", "worker", "webapp", "pocketbase"]
 }
 
+# Each app now has its own Dockerfile (docker/<app>.Dockerfile). They share a
+# byte-identical base->deps->builder->runner-base prefix, so the GHA layer cache
+# (mode=max, shared CACHE_SCOPE per arch) builds `yarn install` / the PocketBase
+# download / the shared+app builds once and reuses them across all four targets.
 target "_common" {
-  context    = "."
-  dockerfile = "docker/Dockerfile"
-  platforms  = split(",", "${PLATFORM}")
+  context   = "."
+  platforms = split(",", "${PLATFORM}")
   args = {
     POCKETBASE_VERSION         = "${POCKETBASE_VERSION}"
     NEXT_PUBLIC_POCKETBASE_URL = "${NEXT_PUBLIC_POCKETBASE_URL}"
@@ -39,25 +42,29 @@ target "_common" {
 }
 
 target "monolith" {
-  inherits = ["_common"]
-  target   = "monolith"
-  tags     = ["videoware:local-monolith"]
+  inherits   = ["_common"]
+  dockerfile = "docker/monolith.Dockerfile"
+  target     = "monolith"
+  tags       = ["videoware:local-monolith"]
 }
 
 target "worker" {
-  inherits = ["_common"]
-  target   = "worker"
-  tags     = ["videoware:local-worker"]
+  inherits   = ["_common"]
+  dockerfile = "docker/worker.Dockerfile"
+  target     = "worker"
+  tags       = ["videoware:local-worker"]
 }
 
 target "webapp" {
-  inherits = ["_common"]
-  target   = "webapp"
-  tags     = ["videoware:local-webapp"]
+  inherits   = ["_common"]
+  dockerfile = "docker/webapp.Dockerfile"
+  target     = "webapp"
+  tags       = ["videoware:local-webapp"]
 }
 
 target "pocketbase" {
-  inherits = ["_common"]
-  target   = "pocketbase"
-  tags     = ["videoware:local-pocketbase"]
+  inherits   = ["_common"]
+  dockerfile = "docker/pocketbase.Dockerfile"
+  target     = "pocketbase"
+  tags       = ["videoware:local-pocketbase"]
 }

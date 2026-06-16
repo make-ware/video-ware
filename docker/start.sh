@@ -79,33 +79,11 @@ fi
 mkdir -p /var/log/supervisor
 mkdir -p /var/log/nginx
 
-# Ensure proper ownership for non-root user (nextjs:nodejs)
-# Use -R for recursive ownership change
-if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-  echo "  Setting directory permissions..."
-fi
-chown -R nextjs:nodejs "$PB_DATA_DIR" 2>/dev/null || {
-  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-    echo "    Warning: Could not change ownership of $PB_DATA_DIR"
-  fi
-}
-chown -R nextjs:nodejs "$WORKER_DATA_DIR" 2>/dev/null || {
-  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-    echo "    Warning: Could not change ownership of $WORKER_DATA_DIR"
-  fi
-}
-chown -R nextjs:nodejs "$REDIS_DATA_DIR" 2>/dev/null || {
-  if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-    echo "    Warning: Could not change ownership of $REDIS_DATA_DIR"
-  fi
-}
-
-
-# Set appropriate permissions (rwx for owner, rx for group)
-chmod -R 755 "$PB_DATA_DIR" 2>/dev/null || true
-chmod -R 755 "$WORKER_DATA_DIR" 2>/dev/null || true
-chmod -R 755 "$REDIS_DATA_DIR" 2>/dev/null || true
-
+# NOTE: /data ownership is normalized later, in Step 5b (after the superuser
+# upsert). Doing it here would only chown the empty directories; the upsert runs
+# as root and CREATES the PocketBase DB files, so ownership must be re-asserted
+# AFTER it — otherwise PocketBase (running as nextjs) cannot write the
+# root-owned database. See Step 5b below.
 
 if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
   echo ""
@@ -159,6 +137,31 @@ if [ "$POCKETBASE_ADMIN_PASSWORD" != "your-secure-password!" ]; then
 else
     echo "⚠️  Warning: Using default admin password - superuser creation skipped. Set POCKETBASE_ADMIN_PASSWORD to auto-create superuser." >&2
 fi
+
+# =============================================================================
+# Step 5b: Normalize /data ownership (MUST run AFTER the superuser upsert)
+#
+# The superuser upsert above runs as root and, on a fresh data dir, CREATES the
+# PocketBase database files (data.db, auxiliary.db) owned by root. PocketBase
+# then runs under supervisord as the unprivileged `nextjs` user (uid 1001) and
+# would fail to write those root-owned files with:
+#   "attempt to write a readonly database (8)"   (SQLite SQLITE_READONLY)
+# Re-asserting ownership here — after every root-side write and before
+# supervisord starts the services — guarantees the unprivileged services own
+# everything they touch under /data. This is deliberately late (not at
+# directory-creation time) so it catches root-created FILES, not just dirs.
+# =============================================================================
+if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
+  echo ""
+  echo "Normalizing /data ownership for nextjs:nodejs (uid 1001)..."
+fi
+for _data_dir in "$PB_DATA_DIR" "$WORKER_DATA_DIR" "$REDIS_DATA_DIR"; do
+    chown -R nextjs:nodejs "$_data_dir" 2>/dev/null \
+        || echo "⚠️  Could not change ownership of $_data_dir — services run as nextjs (uid 1001) and may fail to write. Ensure the mounted volume is writable/chownable by uid 1001." >&2
+    # Ensure the owner can read/write (and traverse dirs); leaves group/other and
+    # avoids marking data files executable the way a blanket chmod 755 would.
+    chmod -R u+rwX "$_data_dir" 2>/dev/null || true
+done
 
 # =============================================================================
 # Step 6: Setup signal handlers for graceful shutdown (Requirements 13.4)

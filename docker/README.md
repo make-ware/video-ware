@@ -248,8 +248,9 @@ You can persist data using one of two methods depending on your needs.
 Map a single host directory (e.g., `./data`) to `/data` in the container. This requires the least configuration and keeps all data in one place.
 
 **Internal Structure:**
-- `/data/pb_data` - PocketBase database and files
-- `/data/storage` - Worker temporary storage
+- `/data/pb_data` — PocketBase database (`data.db`) and uploaded files
+- `/data/storage` — media storage, **shared** by the worker (processing) and the webapp (SSR uploads)
+- `/data/redis` — Redis append-only file (AOF) for the BullMQ queue (**monolith only**; the bundled Redis persists here)
 
 **Docker Run:**
 ```bash
@@ -296,6 +297,50 @@ volumes:
   pb_data:
   storage:
 ```
+
+### Data directory & permissions
+
+All container processes (PocketBase, the worker, the webapp, and the bundled
+Redis) run as a single unprivileged user, **`nextjs:nodejs` = UID/GID `1001:1001`**.
+Everything under `/data` must therefore be owned by — or at least writable by —
+UID `1001`. This is a stable contract; the images do not run their long-lived
+processes as root.
+
+> **Why this matters:** if `/data` (or a file inside it, such as PocketBase's
+> `data.db`) is owned by `root` or another UID, PocketBase fails on its first
+> write with `attempt to write a readonly database (8)` (SQLite `SQLITE_READONLY`),
+> typically while applying the startup snapshot migration. The fix is always to
+> make `/data` writable by UID `1001`.
+
+How ownership is established depends on the mount type:
+
+- **Named volumes (recommended for the split images / Compose).** Docker
+  initializes a fresh named volume from the image's `/data`, which the images
+  pre-create owned by `1001`. Ownership is correct automatically — no setup
+  needed. The split `worker` and `pocketbase` images run as UID `1001` directly.
+
+- **Bind mounts (`-v ./data:/data`).** A bind mount keeps the **host**
+  directory's ownership, shadowing the image's. For the split images (which run
+  as UID `1001`), chown the host directory once:
+
+  ```bash
+  sudo chown -R 1001:1001 ./data
+  ```
+
+- **Monolith image.** The monolith starts as root and runs
+  [`start.sh`](./start.sh), which seeds the PocketBase superuser and then
+  re-asserts ownership of `/data` to `1001` **before** handing off to
+  supervisord (which runs every service as `1001`). This self-heals both bind
+  mounts and named volumes with no manual step.
+
+#### Unraid
+
+The Unraid template bind-mounts the appdata share (e.g.
+`/mnt/user/appdata/video-ware`) to `/data` and runs the **monolith** as root, so
+ownership self-heals on startup — no manual chown is required. If you ever see
+SQLite locking errors (distinct from the readonly error above), point the
+appdata share at a cache pool / direct disk path rather than the FUSE
+`/mnt/user` path, which is a known SQLite-on-network-share gotcha.
 
 
 ## Updating

@@ -26,27 +26,20 @@ POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
 mkdir -p "$PB_DATA_DIR"
 
 # =============================================================================
-# Fix data-dir ownership, then drop privileges.
+# Ownership model (no su-exec / no runtime chown).
 #
-# Bind-mounted volumes (e.g. `./data:/data`) keep the HOST directory's
-# ownership, which shadows the image's build-time chown. When that host dir is
-# root-owned, PocketBase running as the unprivileged `nextjs` user cannot write
-# the SQLite database/WAL files and the first write fails with:
-#   "attempt to write a readonly database (8)"   (SQLite SQLITE_READONLY)
-# This typically surfaces on the startup snapshot migration (the first write),
-# e.g. failing to save the "_mfas" system collection.
+# This image runs as the unprivileged `nextjs` user (uid/gid 1001) via `USER`
+# in the Dockerfile. Because the superuser upsert and `serve` below both run as
+# 1001, any database files they create are owned by 1001 — so PocketBase can
+# always write them. This avoids the "attempt to write a readonly database (8)"
+# (SQLite SQLITE_READONLY) failure that occurs when root creates the DB files
+# and an unprivileged process then tries to write them.
 #
-# When started as root we chown the data dir to nextjs and then step down via
-# `su-exec` so the long-running PocketBase process is unprivileged. When already
-# started as a non-root user (e.g. a platform that pins the UID) we run in place
-# — chown would fail and is unnecessary if the volume is already writable.
+# The only requirement is that the mounted /data is writable by uid 1001:
+#   * named volumes  -> inherit the image's 1001 ownership automatically;
+#   * bind mounts    -> chown the host dir once: `chown -R 1001:1001 <hostdir>`.
+# See docker/README.md ("Data directory & permissions").
 # =============================================================================
-RUN_AS=""
-if [ "$(id -u)" = "0" ]; then
-    chown -R nextjs:nodejs "$PB_DATA_DIR" 2>/dev/null \
-        || echo "⚠️  Could not chown $PB_DATA_DIR — writes may fail if the mounted volume is not writable by uid 1001 (nextjs)." >&2
-    RUN_AS="su-exec nextjs"
-fi
 
 # Create or update the superuser. `superuser upsert` writes directly to the
 # database file and works whether or not `serve` is running. A failure here is
@@ -57,9 +50,7 @@ if [ -n "$POCKETBASE_ADMIN_EMAIL" ] && [ -n "$POCKETBASE_ADMIN_PASSWORD" ]; then
         echo "⚠️  POCKETBASE_ADMIN_PASSWORD is the insecure default — set a strong password (e.g. via a k8s Secret) for production." >&2
     fi
     echo "Ensuring PocketBase superuser exists: $POCKETBASE_ADMIN_EMAIL"
-    # $RUN_AS is intentionally unquoted so it word-splits into `su-exec nextjs`
-    # (or expands to nothing when already non-root).
-    if $RUN_AS "$PB_BIN" superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR"; then
+    if "$PB_BIN" superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR"; then
         echo "✅ PocketBase superuser ready"
     else
         echo "⚠️  superuser upsert failed — the worker may not be able to authenticate until this is resolved." >&2
@@ -69,7 +60,7 @@ else
 fi
 
 # Replace the shell with PocketBase so signals (SIGTERM) propagate correctly.
-exec $RUN_AS "$PB_BIN" serve \
+exec "$PB_BIN" serve \
     --http="$PB_HTTP" \
     --dir="$PB_DATA_DIR" \
     --migrationsDir="$PB_MIGRATIONS_DIR" \

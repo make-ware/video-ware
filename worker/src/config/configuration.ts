@@ -83,9 +83,6 @@ export default () => {
       // superuser may not be seeded yet) when the worker boots, especially on
       // a fresh k8s deploy. Retry with exponential backoff instead of
       // crash-looping the pod.
-      connectMaxRetries: 30,
-      connectRetryDelayMs: 2000,
-      connectRetryMaxDelayMs: 15000,
     },
 
     storage: {

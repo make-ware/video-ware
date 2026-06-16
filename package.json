@@ -30,7 +30,7 @@
     "db:status": "yarn workspace @project/shared migrate:status",
     "db:typegen": "yarn workspace @project/shared migrate:typegen",
     "staging": "yarn run staging:build && yarn run staging:run",
-    "staging:build": "docker build -f docker/Dockerfile --target monolith --build-arg NEXT_PUBLIC_POCKETBASE_URL=\"/\" -t video-ware:staging .",
+    "staging:build": "docker build -f docker/monolith.Dockerfile --target monolith --build-arg NEXT_PUBLIC_POCKETBASE_URL=\"/\" -t video-ware:staging .",
     "staging:run": "docker run --rm -p 8888:80 -p 8889:8090 -v $(pwd)/staging_data:/data video-ware:staging",
     "staging:up": "yarn run staging:build && yarn run staging:run",
     "staging:stop": "docker stop $(docker ps -q --filter ancestor=video-ware:staging) 2>/dev/null || true && docker rm $(docker ps -aq --filter ancestor=video-ware:staging) 2>/dev/null || true",

@@ -92,13 +92,9 @@ export class PocketBaseService implements OnModuleInit {
     // may not be seeded yet, when the worker boots. Retry with exponential
     // backoff instead of throwing on the first failure (which would crash-loop
     // the pod).
-    const maxRetries =
-      this.configService.get<number>('pocketbase.connectMaxRetries') ?? 30;
-    const baseDelayMs =
-      this.configService.get<number>('pocketbase.connectRetryDelayMs') ?? 2000;
-    const maxDelayMs =
-      this.configService.get<number>('pocketbase.connectRetryMaxDelayMs') ??
-      15000;
+    const maxRetries = 3;
+    const baseDelayMs = 300;
+    const maxDelayMs = 3000;
 
     let attempt = 0;
 

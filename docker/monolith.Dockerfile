@@ -166,9 +166,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pocketbase ./pb/pocketbase
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
 COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
 
-# Create pb_data and storage directories
-RUN mkdir -p /data/pb_data && chown -R nextjs:nodejs /data/pb_data
-RUN mkdir -p /data/storage && chown -R nextjs:nodejs /data/storage
+# Create the full /data tree and make the WHOLE tree (including /data itself)
+# owned by nextjs:nodejs (uid/gid 1001). Named volumes inherit this ownership;
+# for bind mounts, start.sh re-asserts it at runtime (the monolith runs start.sh
+# as root, so it can chown). See docker/README.md ("Data directory & permissions").
+RUN mkdir -p /data/pb_data /data/storage /data/redis && \
+    chown -R nextjs:nodejs /data
 
 
 
@@ -203,126 +206,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost/health || exit 1
 
 CMD ["/app/start.sh"]
-
-# -----------------------------------------------------------------------------
-# Worker Target
-# -----------------------------------------------------------------------------
-FROM runner-base AS worker
-
-ENV LOG_LEVEL=warn
-ENV REDIS_URL=""
-
-# Per-queue BullMQ worker concurrency. Override per queue with
-# WORKER_CONCURRENCY_{TRANSCODE,RENDER,LABELS,INTELLIGENCE} or set a single
-# WORKER_CONCURRENCY for all. CPU-bound ffmpeg queues are kept low by default.
-ENV WORKER_CONCURRENCY_TRANSCODE=3
-ENV WORKER_CONCURRENCY_RENDER=2
-ENV WORKER_CONCURRENCY_LABELS=5
-# Lock duration (ms) so long ffmpeg jobs are not marked "stalled" mid-run.
-ENV WORKER_LOCK_DURATION_MS=60000
-# One-time local->S3 migration scan; keep off for stateless S3 pods.
-ENV ENABLE_S3_MIGRATION=false
-
-# Install ffmpeg, curl, and su-exec.
-# su-exec lets the entrypoint chown bind-mounted volumes as root and then drop
-# to the unprivileged `nextjs` user before running the worker.
-# fontconfig + a font package are required for ffmpeg's drawtext filter
-# (used to burn in captions); without them drawtext fails with
-# "Cannot find a valid font for the family Sans". We copy the resolved
-# DejaVu files to a fixed path and pin RENDER_FONT_FILE so captions/titles
-# render with a deterministic font in every environment.
-RUN apk add --no-cache ffmpeg curl su-exec fontconfig font-dejavu && \
-    fc-cache -f && \
-    mkdir -p /opt/fonts && \
-    cp "$(fc-match -f '%{file}' 'DejaVu Sans')" /opt/fonts/regular.ttf && \
-    cp "$(fc-match -f '%{file}' 'DejaVu Sans:bold')" /opt/fonts/bold.ttf && \
-    rm -rf /var/cache/apk/*
-ENV RENDER_FONT_FILE=/opt/fonts/regular.ttf
-ENV RENDER_FONT_FILE_BOLD=/opt/fonts/bold.ttf
-
-# Create data directories with proper permissions
-RUN mkdir -p /data/pb_data /data/storage && \
-    chown -R nextjs:nodejs /data && \
-    chmod -R 775 /data
-
-
-
-# Copy necessary package.json
-COPY --from=builder --chown=nextjs:nodejs /app/worker/package.json ./worker/
-COPY --from=builder --chown=nextjs:nodejs /app/shared/package.json ./shared/
-
-# Copy built files
-COPY --from=builder --chown=nextjs:nodejs /app/worker/dist ./worker/dist
-COPY --from=builder --chown=nextjs:nodejs /app/shared/dist ./shared/dist
-
-# Entrypoint repairs WORKER_DATA_DIR ownership (bind mounts ignore the image's
-# build-time chown) and then drops to nextjs via su-exec; see worker-entrypoint.sh.
-COPY --chown=root:root docker/worker-entrypoint.sh /app/worker-entrypoint.sh
-RUN chmod +x /app/worker-entrypoint.sh
-
-# NOTE: intentionally NO `USER nextjs` here — the entrypoint starts as root to
-# repair mounted-volume ownership, then steps down to nextjs via su-exec.
-CMD ["/app/worker-entrypoint.sh"]
-
-# -----------------------------------------------------------------------------
-# Webapp Target
-# -----------------------------------------------------------------------------
-FROM runner-base AS webapp
-
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-# Install curl for healthcheck
-RUN apk add --no-cache curl && \
-    rm -rf /var/cache/apk/*
-
-# Copy necessary package.json
-COPY --from=builder --chown=nextjs:nodejs /app/webapp/package.json ./webapp/
-COPY --from=builder --chown=nextjs:nodejs /app/shared/package.json ./shared/
-
-# Copy built files
-COPY --from=builder --chown=nextjs:nodejs /app/webapp/.next ./webapp/.next
-COPY --from=builder --chown=nextjs:nodejs /app/webapp/public ./webapp/public
-COPY --from=builder --chown=nextjs:nodejs /app/webapp/next.config.ts ./webapp/next.config.ts
-COPY --from=builder --chown=nextjs:nodejs /app/webapp/tsconfig.json ./webapp/tsconfig.json
-COPY --from=builder --chown=nextjs:nodejs /app/shared/dist ./shared/dist
-
-USER nextjs
-EXPOSE 3000
-
-CMD ["yarn", "workspace", "@project/webapp", "start"]
-
-# -----------------------------------------------------------------------------
-# PocketBase Target
-# -----------------------------------------------------------------------------
-FROM runner-base AS pocketbase
-
-# Install curl and su-exec.
-# su-exec lets the entrypoint chown bind-mounted volumes as root and then drop
-# to the unprivileged `nextjs` user before serving PocketBase.
-RUN apk add --no-cache curl su-exec && \
-    rm -rf /var/cache/apk/*
-
-# Copy PocketBase binary and files
-COPY --from=builder --chown=nextjs:nodejs /app/pb/pocketbase ./pb/pocketbase
-COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_hooks ./pb/pb_hooks
-COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migrations
-
-# Create data directories with proper permissions
-RUN mkdir -p /data/pb_data /data/storage && \
-    chown -R nextjs:nodejs /data && \
-    chmod -R 775 /data
-
-# Entrypoint repairs PB_DATA_DIR ownership (bind mounts ignore the image's
-# build-time chown, which otherwise causes "attempt to write a readonly
-# database (8)" on the first migration), seeds/updates the superuser, then
-# drops to nextjs via su-exec before serving.
-COPY --chown=root:root docker/pocketbase-entrypoint.sh /app/pocketbase-entrypoint.sh
-RUN chmod +x /app/pocketbase-entrypoint.sh
-
-# NOTE: intentionally NO `USER nextjs` here — the entrypoint starts as root to
-# repair mounted-volume ownership, then steps down to nextjs via su-exec.
-EXPOSE 8090
-
-CMD ["/app/pocketbase-entrypoint.sh"]
 

@@ -3,7 +3,7 @@
 # used when running `docker buildx bake` locally without those overlays.
 
 variable "POCKETBASE_VERSION" {
-  default = "0.39.3"
+  default = "0.39.4"
 }
 
 variable "NEXT_PUBLIC_POCKETBASE_URL" {

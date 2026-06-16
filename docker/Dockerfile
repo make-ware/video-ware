@@ -22,7 +22,7 @@ RUN yarn install --immutable
 # Download PocketBase binary
 # Supports multi-architecture builds via TARGETARCH
 # TARGETARCH is automatically provided by Docker Buildx
-ARG POCKETBASE_VERSION=0.39.3
+ARG POCKETBASE_VERSION=0.39.4
 ARG TARGETARCH
 RUN mkdir -p /app/pb && \
     # Map Docker TARGETARCH to PocketBase architecture naming
@@ -223,13 +223,15 @@ ENV WORKER_LOCK_DURATION_MS=60000
 # One-time local->S3 migration scan; keep off for stateless S3 pods.
 ENV ENABLE_S3_MIGRATION=false
 
-# Install ffmpeg and curl.
+# Install ffmpeg, curl, and su-exec.
+# su-exec lets the entrypoint chown bind-mounted volumes as root and then drop
+# to the unprivileged `nextjs` user before running the worker.
 # fontconfig + a font package are required for ffmpeg's drawtext filter
 # (used to burn in captions); without them drawtext fails with
 # "Cannot find a valid font for the family Sans". We copy the resolved
 # DejaVu files to a fixed path and pin RENDER_FONT_FILE so captions/titles
 # render with a deterministic font in every environment.
-RUN apk add --no-cache ffmpeg curl fontconfig font-dejavu && \
+RUN apk add --no-cache ffmpeg curl su-exec fontconfig font-dejavu && \
     fc-cache -f && \
     mkdir -p /opt/fonts && \
     cp "$(fc-match -f '%{file}' 'DejaVu Sans')" /opt/fonts/regular.ttf && \
@@ -253,8 +255,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/shared/package.json ./shared/
 COPY --from=builder --chown=nextjs:nodejs /app/worker/dist ./worker/dist
 COPY --from=builder --chown=nextjs:nodejs /app/shared/dist ./shared/dist
 
-USER nextjs
-CMD ["node", "worker/dist/main.js"]
+# Entrypoint repairs WORKER_DATA_DIR ownership (bind mounts ignore the image's
+# build-time chown) and then drops to nextjs via su-exec; see worker-entrypoint.sh.
+COPY --chown=root:root docker/worker-entrypoint.sh /app/worker-entrypoint.sh
+RUN chmod +x /app/worker-entrypoint.sh
+
+# NOTE: intentionally NO `USER nextjs` here — the entrypoint starts as root to
+# repair mounted-volume ownership, then steps down to nextjs via su-exec.
+CMD ["/app/worker-entrypoint.sh"]
 
 # -----------------------------------------------------------------------------
 # Webapp Target
@@ -289,8 +297,10 @@ CMD ["yarn", "workspace", "@project/webapp", "start"]
 # -----------------------------------------------------------------------------
 FROM runner-base AS pocketbase
 
-# Install curl
-RUN apk add --no-cache curl && \
+# Install curl and su-exec.
+# su-exec lets the entrypoint chown bind-mounted volumes as root and then drop
+# to the unprivileged `nextjs` user before serving PocketBase.
+RUN apk add --no-cache curl su-exec && \
     rm -rf /var/cache/apk/*
 
 # Copy PocketBase binary and files
@@ -303,12 +313,15 @@ RUN mkdir -p /data/pb_data /data/storage && \
     chown -R nextjs:nodejs /data && \
     chmod -R 775 /data
 
-# Entrypoint that seeds/updates the superuser before serving so split-pod
-# deployments boot without manual admin creation.
-COPY --chown=nextjs:nodejs docker/pocketbase-entrypoint.sh /app/pocketbase-entrypoint.sh
+# Entrypoint repairs PB_DATA_DIR ownership (bind mounts ignore the image's
+# build-time chown, which otherwise causes "attempt to write a readonly
+# database (8)" on the first migration), seeds/updates the superuser, then
+# drops to nextjs via su-exec before serving.
+COPY --chown=root:root docker/pocketbase-entrypoint.sh /app/pocketbase-entrypoint.sh
 RUN chmod +x /app/pocketbase-entrypoint.sh
 
-USER nextjs
+# NOTE: intentionally NO `USER nextjs` here — the entrypoint starts as root to
+# repair mounted-volume ownership, then steps down to nextjs via su-exec.
 EXPOSE 8090
 
 CMD ["/app/pocketbase-entrypoint.sh"]

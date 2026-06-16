@@ -5,7 +5,7 @@ const path = require('path');
 const https = require('https');
 const { execSync } = require('child_process');
 
-const POCKETBASE_VERSION = process.env.PB_VERSION || '0.39.3';
+const POCKETBASE_VERSION = process.env.PB_VERSION || '0.39.4';
 const PLATFORM_MAP = {
   darwin: 'darwin',
   linux: 'linux',

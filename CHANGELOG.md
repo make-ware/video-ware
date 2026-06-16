@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.11](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.10...video-ware-v0.7.11) (2026-06-16)
+
+
+### Bug Fixes
+
+* redis chatter ([240616f](https://github.com/make-ware/video-ware/commit/240616fb14e7890f8e1f5f173166ee4985e3405f))
+
 ## [0.7.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.9...video-ware-v0.7.10) (2026-06-15)
 
 

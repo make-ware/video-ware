@@ -3,10 +3,14 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProcessorsConfigService } from './config/processors.config';
+import { resolveNestLogLevels } from './config/log-level';
 
 async function bootstrap() {
+  // Honor LOG_LEVEL for NestJS's built-in logger. NestJS reads this only once,
+  // here at create time (before ConfigService exists), so read process.env
+  // directly. e.g. LOG_LEVEL=warn suppresses debug/log output.
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: resolveNestLogLevels(process.env.LOG_LEVEL),
   });
 
   const configService = app.get(ConfigService);

@@ -73,6 +73,11 @@ export const validationSchema = Joi.object({
   GOOGLE_PROJECT_ID: Joi.string().optional(),
   GOOGLE_CLOUD_KEY: Joi.string().optional(),
 
+  // Logging configuration
+  LOG_LEVEL: Joi.string()
+    .valid('verbose', 'debug', 'info', 'warn', 'error')
+    .optional(),
+
   // Task enqueuer configuration
   ENABLE_TASK_ENQUEUER: Joi.string().optional(),
   TASK_ENQUEUER_POLL_INTERVAL_MS: Joi.string().optional(),

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.12](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.11...video-ware-v0.7.12) (2026-06-16)
+
+
+### Bug Fixes
+
+* docker permissions ([6a7e29d](https://github.com/make-ware/video-ware/commit/6a7e29dfeb1b159a8f37b068d674ca4f3bba9abf))
+
 ## [0.7.11](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.10...video-ware-v0.7.11) (2026-06-16)
 
 

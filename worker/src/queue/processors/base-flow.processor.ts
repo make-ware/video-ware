@@ -111,6 +111,16 @@ export abstract class BaseFlowProcessor
   ): Promise<void> {}
 
   /**
+   * Hook invoked after a parent (task) flow fails and the Task has been marked
+   * failed. Subclasses override this to mirror the failure onto a domain entity
+   * (e.g. flip a TimelineRender to `failed`). Default: no-op.
+   */
+  protected async onParentFailed(
+    _parentData: ParentJobData,
+    _error: Error
+  ): Promise<void> {}
+
+  /**
    * Get the queue instance for accessing child jobs
    */
   protected abstract getQueue(): Queue;
@@ -496,6 +506,8 @@ export abstract class BaseFlowProcessor
     this.logger.error(
       `Task ${parentData.taskId} failed: ${taskResult.failedSteps.length} steps failed`
     );
+
+    await this.onParentFailed(parentData, error);
 
     await this.cleanupTaskArtifacts(parentData, finalStepResults);
   }

@@ -20,12 +20,21 @@ import {
   FileVideo,
   Clock,
   Loader2,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
+import type { RecordSubscription } from 'pocketbase';
 import pb from '@/lib/pocketbase-client';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import type { TimelineRender, Timeline, File } from '@project/shared';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
+
+type RenderRecord = TimelineRender & {
+  expand?: { FileRef?: File; TimelineRef?: Timeline };
+};
 
 function TimelineRendersPageContent() {
   const { currentWorkspace } = useWorkspace();
@@ -33,11 +42,7 @@ function TimelineRendersPageContent() {
   const router = useRouter();
   const timelineId = params.id as string;
   const [timeline, setTimeline] = useState<Timeline | null>(null);
-  const [renders, setRenders] = useState<
-    Array<
-      TimelineRender & { expand?: { FileRef?: File; TimelineRef?: Timeline } }
-    >
-  >([]);
+  const [renders, setRenders] = useState<RenderRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -57,7 +62,7 @@ function TimelineRendersPageContent() {
       // Load renders with expanded file and timeline
       const rendersResult = await pb
         .collection('TimelineRenders')
-        .getList<TimelineRender>(1, 100, {
+        .getList<RenderRecord>(1, 100, {
           filter: `TimelineRef = "${timelineId}"`,
           sort: '-created',
           expand: 'FileRef,TimelineRef',
@@ -80,6 +85,39 @@ function TimelineRendersPageContent() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Live updates: renders are created up-front and filled in by the worker, so
+  // subscribe to see queued -> running -> success/failed transitions in place.
+  useEffect(() => {
+    if (!timelineId) return;
+    let unsubscribe: (() => void) | undefined;
+
+    (async () => {
+      unsubscribe = await pb
+        .collection('TimelineRenders')
+        .subscribe<RenderRecord>(
+          '*',
+          (e: RecordSubscription<RenderRecord>) => {
+            if (e.record.TimelineRef !== timelineId) return;
+            setRenders((prev) => {
+              if (e.action === 'delete') {
+                return prev.filter((r) => r.id !== e.record.id);
+              }
+              const exists = prev.some((r) => r.id === e.record.id);
+              if (exists) {
+                return prev.map((r) => (r.id === e.record.id ? e.record : r));
+              }
+              return [e.record, ...prev];
+            });
+          },
+          { expand: 'FileRef,TimelineRef' }
+        );
+    })();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [timelineId]);
 
   const handleDownload = useCallback(
     async (render: TimelineRender & { expand?: { FileRef?: File } }) => {
@@ -128,6 +166,41 @@ function TimelineRendersPageContent() {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  const renderStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'success':
+        return (
+          <Badge variant="default" className="gap-1">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Ready
+          </Badge>
+        );
+      case 'running':
+        return (
+          <Badge variant="secondary" className="gap-1">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Rendering
+          </Badge>
+        );
+      case 'failed':
+        return (
+          <Badge variant="destructive" className="gap-1">
+            <XCircle className="h-3.5 w-3.5" />
+            Failed
+          </Badge>
+        );
+      case 'canceled':
+        return <Badge variant="outline">Canceled</Badge>;
+      default:
+        return (
+          <Badge variant="secondary" className="gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            Queued
+          </Badge>
+        );
+    }
   };
 
   if (isLoading) {
@@ -214,6 +287,10 @@ function TimelineRendersPageContent() {
         <div className="space-y-4">
           {renders.map((render) => {
             const file = render.expand?.FileRef;
+            const status = Array.isArray(render.status)
+              ? render.status[0]
+              : render.status;
+            const isDownloadable = status === 'success' && !!file;
             const createdDate = new Date(render.created);
             const relativeTime = formatDistanceToNow(createdDate, {
               addSuffix: true,
@@ -227,6 +304,7 @@ function TimelineRendersPageContent() {
                       <CardTitle className="flex items-center gap-2">
                         <FileVideo className="h-5 w-5" />
                         Version {render.version}
+                        {renderStatusBadge(status)}
                       </CardTitle>
                       <CardDescription className="mt-2 flex items-center gap-4">
                         <span className="flex items-center gap-1.5">
@@ -241,7 +319,7 @@ function TimelineRendersPageContent() {
                         )}
                       </CardDescription>
                     </div>
-                    {file && (
+                    {isDownloadable && (
                       <Button
                         onClick={() => handleDownload(render)}
                         className="gap-2"
@@ -252,7 +330,33 @@ function TimelineRendersPageContent() {
                     )}
                   </div>
                 </CardHeader>
-                {file && (
+
+                {/* In-progress: show a progress indicator while the worker renders */}
+                {(status === 'queued' || status === 'running') && (
+                  <CardContent>
+                    <Progress value={render.progress ?? 0} className="h-2" />
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {status === 'running'
+                        ? 'Rendering in the background…'
+                        : 'Queued — waiting for a worker…'}
+                    </p>
+                  </CardContent>
+                )}
+
+                {/* Failed: surface the error */}
+                {status === 'failed' && (
+                  <CardContent>
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Render failed</AlertTitle>
+                      <AlertDescription className="font-mono text-xs">
+                        {render.errorLog || 'Unknown error'}
+                      </AlertDescription>
+                    </Alert>
+                  </CardContent>
+                )}
+
+                {isDownloadable && (
                   <CardContent>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">

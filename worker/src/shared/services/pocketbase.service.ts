@@ -5,6 +5,7 @@ import {
   type TaskStatus,
   type Media,
   type MediaInput,
+  type TimelineRender,
   type TimelineRenderInput,
   type FileType,
   FileSource,
@@ -562,6 +563,34 @@ export class PocketBaseService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to create timeline render record: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get a timeline render record by ID
+   */
+  async getTimelineRender(id: string) {
+    try {
+      return await this.timelineRenderMutator.getById(id);
+    } catch (error) {
+      this.logger.error(
+        `Failed to get timeline render ${id}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Update a timeline render record (FileRef, status, progress, errorLog).
+   */
+  async updateTimelineRender(id: string, data: Partial<TimelineRender>) {
+    try {
+      return await this.timelineRenderMutator.update(id, data);
+    } catch (error) {
+      this.logger.error(
+        `Failed to update timeline render ${id}: ${error instanceof Error ? error.message : String(error)}`
       );
       throw error;
     }

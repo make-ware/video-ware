@@ -54,6 +54,8 @@ export interface TaskRenderFinalizeStep {
   type: 'finalize';
   /** ID of the timeline being rendered */
   timelineId: string;
+  /** ID of the TimelineRender record to update with the output file/status */
+  timelineRenderId?: string;
   /** Workspace ID */
   workspaceId: string;
   /** Version number */

@@ -2057,7 +2057,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@inquirer/prompts@npm:7.10.1":
+"@inquirer/prompts@npm:7.10.1, @inquirer/prompts@npm:^7.2.0":
   version: 7.10.1
   resolution: "@inquirer/prompts@npm:7.10.1"
   dependencies:
@@ -2797,6 +2797,29 @@ __metadata:
   checksum: 10/bb2fb86977d63f836f8f5b09015d74e6af6488f7a411dcd2bfdca79d76b5a681a9112f41c45bdf88a9069f049718efc6f3900d7f1de66a2ec966068308ae517f
   languageName: node
   linkType: hard
+
+"@project/cli@workspace:cli":
+  version: 0.0.0-use.local
+  resolution: "@project/cli@workspace:cli"
+  dependencies:
+    "@inquirer/prompts": "npm:^7.2.0"
+    "@project/shared": "workspace:*"
+    "@types/node": "npm:^25.0.9"
+    "@typescript-eslint/eslint-plugin": "npm:^8.53.1"
+    "@typescript-eslint/parser": "npm:^8.53.1"
+    commander: "npm:^14.0.0"
+    eslint: "npm:^9.39.2"
+    pocketbase: "npm:0.27.0"
+    prettier: "npm:^3.8.0"
+    tsup: "npm:^8.5.1"
+    tsx: "npm:^4.21.0"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^4.0.17"
+    zod: "npm:^4.3.5"
+  bin:
+    vw: ./dist/cli.js
+  languageName: unknown
+  linkType: soft
 
 "@project/pb@workspace:pb":
   version: 0.0.0-use.local
@@ -7635,6 +7658,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"commander@npm:^14.0.0":
+  version: 14.0.3
+  resolution: "commander@npm:14.0.3"
+  checksum: 10/dfa9ebe2a433d277de5cb0252d23b10a543d245d892db858d23b516336a835c50fd4f52bee4cd13c705cc8acb6f03dc632c73dd806f7d06d3353eb09953dd17a
+  languageName: node
+  linkType: hard
+
 "commander@npm:^2.20.0":
   version: 2.20.3
   resolution: "commander@npm:2.20.3"
@@ -12458,17 +12488,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pocketbase@npm:0.27.0, pocketbase@npm:^0.27.0":
+  version: 0.27.0
+  resolution: "pocketbase@npm:0.27.0"
+  checksum: 10/5c0eab63af37eafb195cfc663e6baea79d374f6471cb9361a6ad67a4a5d68a64341e2b53e4ad18c0594af1a91e86e55493d2cf56a49054dde1f85e7ce40736a9
+  languageName: node
+  linkType: hard
+
 "pocketbase@npm:^0.26.6":
   version: 0.26.6
   resolution: "pocketbase@npm:0.26.6"
   checksum: 10/4e51de063d9dbc380a8d127372966f67f317d5adf2f8bf5ba88d00f341eba70a05ee4a7f626e6c279cae5a4432dd0e7714ab923ec7f048bfac822f41f9e66b47
-  languageName: node
-  linkType: hard
-
-"pocketbase@npm:^0.27.0":
-  version: 0.27.0
-  resolution: "pocketbase@npm:0.27.0"
-  checksum: 10/5c0eab63af37eafb195cfc663e6baea79d374f6471cb9361a6ad67a4a5d68a64341e2b53e4ad18c0594af1a91e86e55493d2cf56a49054dde1f85e7ce40736a9
   languageName: node
   linkType: hard
 

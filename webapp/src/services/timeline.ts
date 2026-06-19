@@ -5,21 +5,22 @@ import {
   TimelineTrackMutator,
   MediaClipMutator,
   MediaMutator,
-  TaskMutator,
   CaptionMutator,
+  TimelineRenderMutator,
 } from '@project/shared/mutator';
 import type {
   Timeline,
   TimelineInput,
   TimelineClip,
   TimelineClipInput,
-  Task,
+  TimelineRender,
   ValidationResult,
   ValidationError,
   TimelineTrack,
   RenderFlowConfig,
   TimelineTrackRecord,
 } from '@project/shared';
+import { TaskStatus } from '@project/shared';
 import {
   generateTracks,
   validateTimeRange,
@@ -51,8 +52,8 @@ export class TimelineService {
   private timelineTrackMutator: TimelineTrackMutator;
   private mediaClipMutator: MediaClipMutator;
   private mediaMutator: MediaMutator;
-  private taskMutator: TaskMutator;
   private captionMutator: CaptionMutator;
+  private timelineRenderMutator: TimelineRenderMutator;
 
   constructor(pb: TypedPocketBase) {
     this.pb = pb;
@@ -61,8 +62,8 @@ export class TimelineService {
     this.timelineTrackMutator = new TimelineTrackMutator(pb);
     this.mediaClipMutator = new MediaClipMutator(pb);
     this.mediaMutator = new MediaMutator(pb);
-    this.taskMutator = new TaskMutator(pb);
     this.captionMutator = new CaptionMutator(pb);
+    this.timelineRenderMutator = new TimelineRenderMutator(pb);
   }
 
   /**
@@ -835,17 +836,23 @@ export class TimelineService {
   // ============================================================================
 
   /**
-   * Create a render task for a timeline
+   * Create a render for a timeline.
+   *
+   * Creates a TimelineRender entity carrying the render input (timelineData +
+   * outputSettings). A PocketBase hook turns this into a `render_timeline` task,
+   * and the worker fills in the output file + status on the same record. The
+   * returned entity id is stable from the start, so the UI can track progress.
+   *
    * @param timelineId Timeline ID
    * @param config Output settings for the render
    * @param userId Optional user ID (defaults to authenticated user from pb.authStore)
-   * @returns The created task
+   * @returns The created TimelineRender record
    */
   async createRenderTask(
     timelineId: string,
     config: RenderFlowConfig,
     userId?: string
-  ): Promise<Task> {
+  ): Promise<TimelineRender> {
     // Validate timeline
     const validationResult = await this.validateTimeline(timelineId);
     if (!validationResult.valid) {
@@ -867,24 +874,19 @@ export class TimelineService {
     // Get current user ID - use provided userId or fall back to authStore
     const currentUserId = userId || this.pb.authStore.record?.id;
     if (!currentUserId) {
-      throw new Error('User must be authenticated to create render tasks');
+      throw new Error('User must be authenticated to create renders');
     }
 
-    // Create task payload
-    const payload = {
-      timelineId,
+    return this.timelineRenderMutator.create({
+      TimelineRef: timelineId,
+      WorkspaceRef: timeline.WorkspaceRef,
+      UserRef: currentUserId,
       version: timeline.version || 0,
-      tracks,
+      timelineData: tracks,
       outputSettings: config,
-    };
-
-    // Create task
-    return this.taskMutator.createRenderTimelineTask(
-      timeline.WorkspaceRef,
-      currentUserId,
-      timelineId,
-      payload
-    );
+      status: TaskStatus.QUEUED,
+      progress: 1,
+    });
   }
 }
 

@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { QueueService } from '../queue/queue.service';
-import { TaskStatus, type Task } from '@project/shared';
+import { IngestOrchestratorService } from './ingest-orchestrator.service';
+import {
+  TaskStatus,
+  TaskType,
+  type Task,
+  type RenderTimelinePayload,
+} from '@project/shared';
 
 @Injectable()
 export class TaskEnqueuerService implements OnApplicationBootstrap {
@@ -14,7 +20,8 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
   constructor(
     private readonly configService: ConfigService,
     private readonly pocketbaseService: PocketBaseService,
-    private readonly queueService: QueueService
+    private readonly queueService: QueueService,
+    private readonly ingestOrchestrator: IngestOrchestratorService
   ) {}
 
   onApplicationBootstrap() {
@@ -103,9 +110,29 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
   private async enqueueTaskIfNeeded(task: Task): Promise<void> {
     if (task.status !== TaskStatus.QUEUED) return;
 
+    // full_ingest is an orchestration task, not a BullMQ flow: it creates the
+    // placeholder Media and fans out the transcode/labels child tasks. It owns
+    // its own status transitions, so skip the generic enqueue/claim path.
+    if ((task.type as TaskType) === TaskType.FULL_INGEST) {
+      await this.ingestOrchestrator.orchestrate(task);
+      return;
+    }
+
+    // render_timeline tasks carry only { timelineRenderId }. Resolve the render
+    // input from the TimelineRender entity (the source of truth) into the full
+    // RenderTimelinePayload the flow builder expects, and flip the render entity
+    // to `running`. Returns null (and marks task+render failed) if the entity is
+    // missing/invalid.
+    let taskToEnqueue = task;
+    if ((task.type as TaskType) === TaskType.RENDER_TIMELINE) {
+      const prepared = await this.prepareRenderTask(task);
+      if (!prepared) return;
+      taskToEnqueue = prepared;
+    }
+
     try {
       // Enqueue task using QueueService - it will route to the correct queue based on task type
-      await this.queueService.enqueueTask(task);
+      await this.queueService.enqueueTask(taskToEnqueue);
 
       // Mark task as running in PocketBase so it's not re-polled
       await this.markTaskClaimed(task.id);
@@ -128,6 +155,79 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
 
       // Unexpected error - log and continue to next task
       this.logger.error(`Failed to enqueue task ${task.id}: ${message}`);
+    }
+  }
+
+  /**
+   * Resolve a render_timeline task's full payload from its TimelineRender entity
+   * and mark the entity `running`. Returns the task with an assembled payload, or
+   * null if the entity is missing/invalid (in which case the task and render are
+   * marked failed). Keeps the PocketBase hook dumb: it only stores { timelineRenderId }.
+   */
+  private async prepareRenderTask(task: Task): Promise<Task | null> {
+    const payloadIn = (task.payload ?? {}) as { timelineRenderId?: string };
+    const renderId = payloadIn.timelineRenderId ?? (task.sourceId as string);
+
+    try {
+      if (!renderId) {
+        throw new Error('render_timeline task is missing timelineRenderId');
+      }
+
+      const render = await this.pocketbaseService.getTimelineRender(renderId);
+      if (!render) {
+        throw new Error(`TimelineRender not found: ${renderId}`);
+      }
+
+      const tracks = (render.timelineData ??
+        []) as RenderTimelinePayload['tracks'];
+      const outputSettings = render.outputSettings as
+        | RenderTimelinePayload['outputSettings']
+        | undefined;
+
+      if (!outputSettings) {
+        throw new Error(`TimelineRender ${renderId} has no outputSettings`);
+      }
+      if (!tracks || tracks.length === 0) {
+        throw new Error(`TimelineRender ${renderId} has no timelineData`);
+      }
+
+      const payload: RenderTimelinePayload = {
+        timelineId: render.TimelineRef as string,
+        timelineRenderId: renderId,
+        version: render.version ?? 0,
+        tracks,
+        outputSettings,
+      };
+
+      // Reflect "render started" on the entity (the UI tracks the render here).
+      await this.pocketbaseService.updateTimelineRender(renderId, {
+        status: TaskStatus.RUNNING,
+        progress: 10,
+      });
+
+      return {
+        ...task,
+        payload: payload as unknown as Record<string, unknown>,
+      } as Task;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to prepare render task ${task.id}: ${message}`);
+      try {
+        await this.pocketbaseService.taskMutator.markFailed(task.id, message);
+      } catch {
+        // best-effort
+      }
+      if (renderId) {
+        try {
+          await this.pocketbaseService.updateTimelineRender(renderId, {
+            status: TaskStatus.FAILED,
+            errorLog: message.slice(0, 500),
+          });
+        } catch {
+          // best-effort
+        }
+      }
+      return null;
     }
   }
 

@@ -6,13 +6,18 @@ import {
   TimelineTrack,
   TimelineSegment,
 } from './task-contracts';
-import { StorageBackendType } from '../enums';
+import { StorageBackendType, TimelineOrientation } from '../enums';
 import type { StorageConfig } from '../storage/types';
 
-const RenderTimelineConfigSchema = z.object({
+export const RenderTimelineConfigSchema = z.object({
   resolution: z.string(),
   codec: z.string(),
   format: z.string(),
+  // Optional render flags consumed by the worker's compose step — must be
+  // preserved (not stripped) when stored on a TimelineRender / task payload.
+  orientation: z.nativeEnum(TimelineOrientation).optional(),
+  includeCaptions: z.boolean().optional(),
+  includeTransitions: z.boolean().optional(),
 }) satisfies z.ZodType<RenderTimelineConfig>;
 
 const FilmstripConfigSchema = z.object({

@@ -315,6 +315,8 @@ export interface TimelineTrack {
 export interface RenderTimelinePayload {
   /** ID of the Timeline record */
   timelineId: string;
+  /** ID of the TimelineRender record the worker updates (FileRef/status) */
+  timelineRenderId?: string;
   /** Version of the timeline */
   version: number;
   /** List of tracks defining the timeline composition */

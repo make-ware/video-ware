@@ -9,6 +9,7 @@ import {
   TaskRenderExecuteStep,
   TaskRenderFinalizeStep,
 } from '@project/shared/jobs';
+import { TaskStatus, TaskType } from '@project/shared';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { PrepareRenderStepProcessor } from './prepare-step.processor';
 import { ExecuteRenderStepProcessor } from './execute-step.processor';
@@ -48,6 +49,32 @@ export class RenderParentProcessor extends BaseFlowProcessor {
    */
   protected getQueue(): Queue {
     return this.renderQueue;
+  }
+
+  /**
+   * Mirror a render failure onto the TimelineRender entity so the UI shows the
+   * render as failed (the FINALIZE step never runs when an earlier step fails).
+   */
+  protected async onParentFailed(
+    parentData: ParentJobData,
+    error: Error
+  ): Promise<void> {
+    try {
+      const task = await this.pocketbaseService.getTask(parentData.taskId);
+      const renderId = task?.sourceId as string | undefined;
+      if (!renderId || task?.type !== TaskType.RENDER_TIMELINE) return;
+
+      await this.pocketbaseService.updateTimelineRender(renderId, {
+        status: TaskStatus.FAILED,
+        errorLog: (error?.message ?? 'Render failed').slice(0, 500),
+      });
+    } catch (e) {
+      this.logger.warn(
+        `Failed to mark TimelineRender failed for task ${parentData.taskId}: ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
+    }
   }
 
   /**

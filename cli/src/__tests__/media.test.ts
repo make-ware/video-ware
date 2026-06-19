@@ -1,0 +1,146 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ClipType, type TypedPocketBase } from '@project/shared';
+import {
+  createMediaClip,
+  parseClipType,
+  searchMediaByName,
+} from '../lib/media.js';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Stub = Record<string, any>;
+
+function fakePb(collections: Record<string, Stub>): TypedPocketBase {
+  return {
+    authStore: { record: { id: 'user1' }, token: 'tok' },
+    autoCancellation: () => {},
+    // Echo a deterministic, already-substituted filter string for assertions.
+    filter: (tpl: string, params: Record<string, unknown>) =>
+      Object.entries(params).reduce(
+        (acc, [k, v]) => acc.replaceAll(`{:${k}}`, String(v)),
+        tpl
+      ),
+    collection: (name: string) => {
+      const c = collections[name];
+      if (!c) throw new Error(`unexpected collection: ${name}`);
+      return c;
+    },
+  } as unknown as TypedPocketBase;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function listResult(items: any[]) {
+  return {
+    page: 1,
+    perPage: 200,
+    totalItems: items.length,
+    totalPages: 1,
+    items,
+  };
+}
+
+describe('searchMediaByName', () => {
+  it('filters media by workspace and bound upload filename', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([{ id: 'm1' }])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    const result = await searchMediaByName(pb, 'ws1', 'beach', 25);
+
+    expect(result.items).toHaveLength(1);
+    expect(getList).toHaveBeenCalledOnce();
+    const [page, perPage, options] = getList.mock.calls[0];
+    expect(page).toBe(1);
+    expect(perPage).toBe(25);
+    expect(options.filter).toContain('WorkspaceRef = ws1');
+    expect(options.filter).toContain('UploadRef.name ~ beach');
+  });
+});
+
+describe('createMediaClip', () => {
+  it('creates a full-media USER clip with workspace derived from media', async () => {
+    const create = vi.fn(async (data) => ({ ...data, id: 'clip1' }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          WorkspaceRef: 'ws1',
+          duration: 60,
+          mediaType: 'video',
+        })),
+      },
+      MediaClips: { create },
+    });
+
+    const clip = await createMediaClip(pb, { mediaId: 'm1' });
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0][0]).toMatchObject({
+      WorkspaceRef: 'ws1',
+      MediaRef: 'm1',
+      type: ClipType.USER,
+      start: 0,
+      end: 60,
+      duration: 60,
+    });
+    expect(clip.id).toBe('clip1');
+  });
+
+  it('honors an explicit range and clip type', async () => {
+    const create = vi.fn(async (data) => ({ ...data, id: 'clip2' }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          WorkspaceRef: 'ws1',
+          duration: 60,
+          mediaType: 'video',
+        })),
+      },
+      MediaClips: { create },
+    });
+
+    await createMediaClip(pb, {
+      mediaId: 'm1',
+      start: 5,
+      end: 12.5,
+      type: ClipType.RANGE,
+    });
+
+    expect(create.mock.calls[0][0]).toMatchObject({
+      type: ClipType.RANGE,
+      start: 5,
+      end: 12.5,
+      duration: 7.5,
+    });
+  });
+
+  it('rejects a range beyond the media duration', async () => {
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          WorkspaceRef: 'ws1',
+          duration: 10,
+          mediaType: 'video',
+        })),
+      },
+      MediaClips: { create: vi.fn() },
+    });
+
+    await expect(
+      createMediaClip(pb, { mediaId: 'm1', start: 0, end: 99 })
+    ).rejects.toThrow(/invalid time range/i);
+  });
+});
+
+describe('parseClipType', () => {
+  it('accepts a valid clip type', () => {
+    expect(parseClipType('range')).toBe(ClipType.RANGE);
+  });
+
+  it('rejects an unknown clip type', () => {
+    expect(() => parseClipType('bogus')).toThrow(/invalid clip type/i);
+  });
+});

@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -36,6 +37,7 @@ import {
   Type,
   LogIn,
   LogOut,
+  Volume2,
 } from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { TrimHandles } from '@/components/video/trim-handles';
@@ -205,17 +207,19 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   // Timeline-specific fields
   const [title, setTitle] = useState('');
   const [color, setColor] = useState('bg-blue-600');
+  const [gain, setGain] = useState(1);
 
   // Reset timeline fields when clip changes
   useEffect(() => {
     if (mode === 'edit-timeline-clip' && open) {
       const clip = (props as ClipEditorEditTimelineClipProps).clip;
       const meta = clip.meta as
-        | { title?: string; color?: string }
+        | { title?: string; color?: string; gain?: number }
         | null
         | undefined;
       setTitle(meta?.title || '');
       setColor(meta?.color || 'bg-blue-600');
+      setGain(typeof meta?.gain === 'number' ? meta.gain : 1);
     }
   }, [mode, open, props]);
 
@@ -313,6 +317,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
             ...(typeof clip.meta === 'object' && clip.meta ? clip.meta : {}),
             title,
             color,
+            gain,
             ...(isComposite && editor.segments.length > 0
               ? { segments: editor.segments }
               : {}),
@@ -357,6 +362,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     currentWorkspace,
     title,
     color,
+    gain,
     onOpenChange,
   ]);
 
@@ -748,6 +754,29 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                         ))}
                       </div>
                     </div>
+
+                    {/* Audio gain — media clips only (captions have no audio) */}
+                    {media && (
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          <Volume2 className="w-4 h-4" />
+                          Audio Gain
+                        </Label>
+                        <div className="flex items-center gap-3">
+                          <Slider
+                            value={[gain]}
+                            onValueChange={([v]) => setGain(v)}
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            className="flex-1"
+                          />
+                          <span className="w-12 text-right text-sm font-mono text-muted-foreground">
+                            {Math.round(gain * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
 

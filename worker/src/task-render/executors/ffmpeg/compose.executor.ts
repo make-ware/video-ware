@@ -426,9 +426,17 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     }
 
     // Mix Audio
+    //
+    // normalize=0 is critical: amix defaults normalize=1, which divides the
+    // output by the number of currently-active inputs. Every segment is
+    // adelay-padded with leading silence (real zero samples), so all clips count
+    // as "active" from t=0 — the first clip would otherwise be divided by the
+    // full clip count (e.g. ÷3 for 3 clips) while later clips get progressively
+    // louder. With normalize off each clip plays at its intended level; the
+    // alimiter then guards against clipping when audio genuinely overlaps.
     if (audioInputs.length > 0) {
       filterComplex.push(
-        `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest[outa]`
+        `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest:normalize=0,alimiter=limit=0.95[outa]`
       );
     } else {
       filterComplex.push(

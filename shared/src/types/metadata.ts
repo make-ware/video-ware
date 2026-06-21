@@ -291,6 +291,7 @@ export const TimelineClipMetadataSchema = z.object({
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),
   mediaMissing: z.boolean().optional(), // set when source media is deleted
+  gain: z.number().min(0).max(1).optional(), // per-clip audio gain, 0.0–1.0 (default 1.0)
 });
 
 // ============================================================================

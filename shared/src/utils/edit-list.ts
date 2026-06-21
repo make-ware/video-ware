@@ -77,6 +77,10 @@ function generateSegmentsFromClip(
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
 
+  // Per-clip audio gain (0.0–1.0, attenuate-only). Multiplied into the track
+  // volume so a clip can be quieter than its track without affecting siblings.
+  const clipGain = clip.meta?.gain ?? 1;
+
   // Caption clips render as text segments (clip.start/end trim the caption's
   // own cue timeline, mirroring how media clips trim source media)
   if (clip.CaptionRef) {
@@ -149,7 +153,11 @@ function generateSegmentsFromClip(
       },
       video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
       audio: trackSettings
-        ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
+        ? {
+            volume: trackSettings.isMuted
+              ? 0
+              : (trackSettings.volume ?? 1) * clipGain,
+          }
         : undefined,
     }));
 
@@ -211,7 +219,11 @@ function generateSegmentsFromClip(
       },
       video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
       audio: trackSettings
-        ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
+        ? {
+            volume: trackSettings.isMuted
+              ? 0
+              : (trackSettings.volume ?? 1) * clipGain,
+          }
         : undefined,
     },
   ];
@@ -368,7 +380,7 @@ export function generateTracks(
                 assetId: clip.MediaRef,
                 type: 'audio',
                 time: vidSeg.time,
-                audio: { volume: 1.0 },
+                audio: { volume: clip.meta?.gain ?? 1.0 },
               },
             ];
           }
@@ -474,7 +486,10 @@ export function generateTracks(
           type: 'audio',
           time: seg.time,
           audio: {
-            volume: trackEntity.volume, // Use track volume
+            // Reuse the segment volume already computed by
+            // generateSegmentsFromClip (track volume × per-clip gain); fall back
+            // to raw track volume if absent.
+            volume: seg.audio?.volume ?? trackEntity.volume,
           },
         }));
 

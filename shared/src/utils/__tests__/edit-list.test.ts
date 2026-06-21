@@ -308,4 +308,65 @@ describe('generateTracks with composite clips', () => {
     expect(segments[0].type).toBe('image');
     expect(segments[0].time.duration).toBe(5);
   });
+
+  it('should apply per-clip gain (meta.gain) to the generated audio segment', () => {
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: { gain: 0.5 },
+    } as any;
+
+    const tracks = generateTracks(
+      [clip],
+      [{ id: 'track1', layer: 0, volume: 1, isMuted: false } as any]
+    );
+
+    const audioTrack = tracks.find((t) => t.type === 'audio');
+    expect(audioTrack).toBeDefined();
+    expect(audioTrack!.segments[0].audio?.volume).toBe(0.5);
+  });
+
+  it('should default audio volume to track volume when no clip gain set', () => {
+    const clip = {
+      id: 'clip1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      TimelineTrackRef: 'track1',
+    } as any;
+
+    const tracks = generateTracks(
+      [clip],
+      [{ id: 'track1', layer: 0, volume: 1, isMuted: false } as any]
+    );
+
+    const audioTrack = tracks.find((t) => t.type === 'audio');
+    expect(audioTrack!.segments[0].audio?.volume).toBe(1);
+  });
+
+  it('should multiply per-clip gain with track volume', () => {
+    const clip = {
+      id: 'clip1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: { gain: 0.5 },
+    } as any;
+
+    const tracks = generateTracks(
+      [clip],
+      [{ id: 'track1', layer: 0, volume: 0.5, isMuted: false } as any]
+    );
+
+    const audioTrack = tracks.find((t) => t.type === 'audio');
+    expect(audioTrack!.segments[0].audio?.volume).toBe(0.25);
+  });
 });

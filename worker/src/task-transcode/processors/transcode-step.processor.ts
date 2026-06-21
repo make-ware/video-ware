@@ -136,6 +136,12 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       // Create File record
       const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.PROXY}/${fileName}`;
 
+      // Fetch the Media first so we can link the File back to it (enables
+      // cascade delete of the proxy when the Media is removed).
+      const media = await this.pocketbaseService.findMediaByUpload(
+        input.uploadId
+      );
+
       const proxyFile = await this.pocketbaseService.uploadFile({
         localFilePath: proxyPath,
         fileName,
@@ -144,13 +150,11 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
         storageKey,
         workspaceRef: upload.WorkspaceRef,
         uploadRef: input.uploadId,
+        mediaRef: media?.id,
         mimeType: 'video/mp4',
       });
 
       // Update Media record
-      const media = await this.pocketbaseService.findMediaByUpload(
-        input.uploadId
-      );
       if (media) {
         await this.pocketbaseService.updateMedia(media.id, {
           proxyFileRef: proxyFile.id,

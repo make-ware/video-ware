@@ -46,7 +46,12 @@ export const FileSchema = z
     meta: JSONField(FileMetaSchema).optional(),
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UploadRef: RelationField({ collection: 'Uploads' }).optional(),
-    MediaRef: RelationField({ collection: 'Media' }).optional(),
+    // cascadeDelete: deleting a Media removes the File records that point to it
+    // (proxy, filmstrip, sprite, thumbnail, audio, ...).
+    MediaRef: RelationField({
+      collection: 'Media',
+      cascadeDelete: true,
+    }).optional(),
   })
   .extend(baseSchema);
 

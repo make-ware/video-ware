@@ -97,6 +97,8 @@ export class AudioStepProcessor extends BaseStepProcessor<
         storageKey,
         workspaceRef: upload.WorkspaceRef,
         uploadRef: input.uploadId,
+        // Link to Media so the record is removed when the Media is deleted.
+        mediaRef: media?.id,
         mimeType: this.getMimeType(format),
       });
 

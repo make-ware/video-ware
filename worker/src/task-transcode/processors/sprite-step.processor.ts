@@ -105,6 +105,12 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       // Create File record with sprite configuration in meta
       const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.SPRITE}/${fileName}`;
 
+      // Fetch the Media first so we can link the File back to it (enables
+      // cascade delete of the sprite when the Media is removed).
+      const media = await this.pocketbaseService.findMediaByUpload(
+        input.uploadId
+      );
+
       const spriteFile = await this.pocketbaseService.uploadFile({
         localFilePath: spritePath,
         fileName,
@@ -113,6 +119,7 @@ export class SpriteStepProcessor extends BaseStepProcessor<
         storageKey,
         workspaceRef: upload.WorkspaceRef,
         uploadRef: input.uploadId,
+        mediaRef: media?.id,
         mimeType: 'image/jpeg',
         meta: {
           mimeType: 'image/jpeg',
@@ -127,9 +134,6 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       });
 
       // Update Media record
-      const media = await this.pocketbaseService.findMediaByUpload(
-        input.uploadId
-      );
       if (media) {
         await this.pocketbaseService.updateMedia(media.id, {
           spriteFileRef: spriteFile.id,

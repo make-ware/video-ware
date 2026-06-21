@@ -140,6 +140,9 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
           storageKey,
           workspaceRef: upload.WorkspaceRef,
           uploadRef: input.uploadId,
+          // Link the File back to its Media so consumers can resolve filmstrips
+          // by MediaRef (the webapp falls back to this when Media isn't expanded).
+          mediaRef: mediaData.id,
           mimeType: 'image/jpeg',
           meta: {
             mimeType: 'image/jpeg',
@@ -148,6 +151,10 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
               rows: enhancedConfig.rows,
               tileWidth: enhancedConfig.tileWidth,
               tileHeight: enhancedConfig.tileHeight,
+              // Per-segment fields the viewer needs to map time -> tile.
+              segmentIndex: i,
+              startTime,
+              fps: enhancedConfig.fps,
             },
           },
         });

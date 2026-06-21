@@ -25,6 +25,11 @@ const FilmstripConfigSchema = z.object({
   rows: z.number(),
   tileWidth: z.number(),
   tileHeight: z.number().optional(),
+  // Per-segment fields written onto stored File meta (see FilmstripConfig).
+  // Kept here so they survive schema validation instead of being stripped.
+  segmentIndex: z.number().optional(),
+  startTime: z.number().optional(),
+  fps: z.number().optional(),
 }) satisfies z.ZodType<FilmstripConfig>;
 
 const SpriteConfigSchema = z.object({

@@ -33,7 +33,7 @@ function MediaPageContent() {
     refreshMedia,
   } = useMedia();
   const { currentWorkspace } = useWorkspace();
-  const processingMediaIds = useProcessingMedia(currentWorkspace?.id);
+  const processingMedia = useProcessingMedia(currentWorkspace?.id);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -222,7 +222,7 @@ function MediaPageContent() {
         onMediaClick={handleMediaClick}
         directoryFilter={directoryFilter}
         mediaTypeFilter={mediaTypeFilter}
-        processingMediaIds={processingMediaIds}
+        processingMedia={processingMedia}
         selectedIds={selectedIds}
         onSelectionClick={handleSelectionClick}
         onSelectAll={selectAll}

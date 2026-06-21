@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.14](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.13...video-ware-v0.7.14) (2026-06-19)
+
+
+### Bug Fixes
+
+* add small delay on backend worker ([1f3fb2a](https://github.com/make-ware/video-ware/commit/1f3fb2a28685d32dee1db8fa0c96f90d39587c8c))
+* labels not running ([cd958d9](https://github.com/make-ware/video-ware/commit/cd958d9d7b13a6d0cf7233fd634dc4a913ba9071))
+* nest log level fix ([e5afab5](https://github.com/make-ware/video-ware/commit/e5afab53f19e8c525b57f3ca7fbd890d4e85f287))
+
 ## [0.7.13](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.12...video-ware-v0.7.13) (2026-06-16)
 
 

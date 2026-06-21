@@ -49,21 +49,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Default ceiling on how long `pollRender` will wait before giving up. */
+export const DEFAULT_RENDER_MAX_WAIT_MS = 10 * 60 * 1000;
+
 /**
  * Poll a TimelineRender until it reaches a terminal status. `onUpdate` is
  * called whenever status or progress changes.
+ *
+ * Polling is bounded by `maxWaitMs` so a render stuck in a non-terminal state
+ * (e.g. `running`) can't hang the caller indefinitely. On timeout this throws
+ * with the last observed status/progress.
  */
 export async function pollRender(
   pb: TypedPocketBase,
   renderId: string,
   opts: {
     intervalMs?: number;
+    maxWaitMs?: number;
     onUpdate?: (status: string, progress: number) => void;
   } = {}
 ): Promise<RenderWithFile> {
   const intervalMs = opts.intervalMs ?? 2000;
+  const maxWaitMs = opts.maxWaitMs ?? DEFAULT_RENDER_MAX_WAIT_MS;
   const mutator = new TimelineRenderMutator(pb);
+  const deadline = Date.now() + maxWaitMs;
   let lastKey = '';
+  let lastStatus: string = TaskStatus.QUEUED;
+  let lastProgress = 0;
 
   while (true) {
     const render = (await mutator.getById(
@@ -78,6 +90,8 @@ export async function pollRender(
       (Array.isArray(render.status) ? render.status[0] : render.status) ??
       TaskStatus.QUEUED;
     const progress = render.progress ?? 0;
+    lastStatus = status;
+    lastProgress = progress;
     const key = `${status}:${progress}`;
     if (key !== lastKey) {
       opts.onUpdate?.(status, progress);
@@ -86,6 +100,14 @@ export async function pollRender(
 
     if (TERMINAL.has(status)) {
       return render;
+    }
+
+    if (Date.now() + intervalMs > deadline) {
+      throw new Error(
+        `Timed out after ${Math.round(maxWaitMs / 1000)}s waiting for render ${renderId} ` +
+          `(last status: ${lastStatus} at ${lastProgress}%). ` +
+          `The render may still be processing — re-run to resume polling.`
+      );
     }
 
     await sleep(intervalMs);

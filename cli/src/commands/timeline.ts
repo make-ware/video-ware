@@ -92,6 +92,10 @@ export function registerTimelineCommands(program: Command): void {
     .option('--width <px>', 'output width (use with --height)')
     .option('--height <px>', 'output height (use with --width)')
     .option('--no-wait', 'enqueue and exit without polling for completion')
+    .option(
+      '--timeout <seconds>',
+      'max seconds to wait for completion before giving up (default: 1800)'
+    )
     .option('--download <path>', 'download the output file on success')
     .action(async (opts) => {
       try {
@@ -119,7 +123,17 @@ export function registerTimelineCommands(program: Command): void {
           return;
         }
 
+        let maxWaitMs: number | undefined;
+        if (opts.timeout !== undefined) {
+          const seconds = Number(opts.timeout);
+          if (!Number.isFinite(seconds) || seconds <= 0) {
+            throw new Error('--timeout must be a positive number of seconds.');
+          }
+          maxWaitMs = seconds * 1000;
+        }
+
         const final = await pollRender(pb, render.id, {
+          maxWaitMs,
           onUpdate: (status, progress) => info(`  ${status} (${progress}%)`),
         });
 

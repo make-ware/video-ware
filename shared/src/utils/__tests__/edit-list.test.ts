@@ -369,4 +369,120 @@ describe('generateTracks with composite clips', () => {
     const audioTrack = tracks.find((t) => t.type === 'audio');
     expect(audioTrack!.segments[0].audio?.volume).toBe(0.25);
   });
+
+  it('should apply per-clip gain on a composite (mediaClip) clip', () => {
+    // Regression: the mediaClip-composite branch previously dropped clip gain.
+    const clip = {
+      id: 'clip1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 0,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: { gain: 0.5 },
+      expand: {
+        MediaClipRef: {
+          type: 'composite',
+          MediaRef: 'media1',
+          start: 0,
+          end: 0,
+          clipData: { segments: [{ start: 0, end: 5 }] },
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks(
+      [clip],
+      [{ id: 'track1', layer: 0, volume: 1, isMuted: false } as any]
+    );
+
+    const audioTrack = tracks.find((t) => t.type === 'audio');
+    expect(audioTrack!.segments[0].audio?.volume).toBe(0.5);
+  });
+});
+
+describe('generateTracks legacy fallback (clips without a track)', () => {
+  it('generates default video + audio tracks for orphan clips', () => {
+    const clip = {
+      id: 'clip1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+    } as any;
+
+    const tracks = generateTracks([clip]); // no track entities
+
+    const videoTrack = tracks.find((t) => t.id === 'default-video-track');
+    const audioTrack = tracks.find((t) => t.id === 'default-audio-track');
+    expect(videoTrack).toBeDefined();
+    expect(audioTrack).toBeDefined();
+    expect(videoTrack!.segments).toHaveLength(1);
+    expect(audioTrack!.segments).toHaveLength(1);
+    expect(audioTrack!.segments[0].id).toBe('clip1-audio');
+    expect(audioTrack!.segments[0].assetId).toBe('media1');
+  });
+
+  it('applies per-clip gain to the legacy default audio track', () => {
+    // Regression: this branch previously hardcoded volume 1.0, dropping gain.
+    const clip = {
+      id: 'clip1',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      meta: { gain: 0.25 },
+    } as any;
+
+    const tracks = generateTracks([clip]);
+
+    const audioTrack = tracks.find((t) => t.id === 'default-audio-track');
+    expect(audioTrack!.segments[0].audio?.volume).toBe(0.25);
+  });
+
+  it('places orphan clips on a high layer when layer 0 is already defined', () => {
+    const trackedClip = {
+      id: 'tracked',
+      MediaRef: 'media1',
+      start: 0,
+      end: 5,
+      order: 0,
+      TimelineTrackRef: 'track1',
+    } as any;
+    const orphanClip = {
+      id: 'orphan',
+      MediaRef: 'media2',
+      start: 0,
+      end: 5,
+      order: 0,
+    } as any;
+
+    const tracks = generateTracks(
+      [trackedClip, orphanClip],
+      [{ id: 'track1', layer: 0, volume: 1, isMuted: false } as any]
+    );
+
+    const orphanTrack = tracks.find((t) => t.id === 'orphan-clips-track');
+    expect(orphanTrack).toBeDefined();
+    expect(orphanTrack!.layer).toBe(999);
+    expect(orphanTrack!.segments[0].id).toBe('orphan');
+    // Orphan fallback is diagnostic only — no audio track is synthesized for it.
+    expect(
+      tracks.find((t) => t.id === 'orphan-clips-track-audio')
+    ).toBeUndefined();
+  });
+
+  it('skips orphan clips without a media asset in the legacy audio track', () => {
+    const clip = {
+      id: 'clip1',
+      start: 0,
+      end: 5,
+      order: 0,
+    } as any; // no MediaRef
+
+    const tracks = generateTracks([clip]);
+
+    const audioTrack = tracks.find((t) => t.id === 'default-audio-track');
+    expect(audioTrack!.segments).toHaveLength(0);
+  });
 });

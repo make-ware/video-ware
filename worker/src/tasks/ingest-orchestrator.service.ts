@@ -25,8 +25,10 @@ import { QueueService } from '../queue/queue.service';
  *   4. fans out the `process_upload` (transcode) and `detect_labels` tasks,
  *      enqueuing them immediately so they don't wait for another poll tick.
  *
- * The `full_ingest` task owns its own status (running -> success/failed); the
- * generic enqueue/claim path is bypassed for it.
+ * The `full_ingest` task owns its own status (queued -> running -> success/failed);
+ * the generic enqueue/claim path is bypassed for it, so this service claims the
+ * task (-> running) up front to drop it out of the poll loop's queued set and
+ * avoid duplicate orchestration under more than one worker.
  */
 @Injectable()
 export class IngestOrchestratorService {
@@ -42,6 +44,27 @@ export class IngestOrchestratorService {
     const uploadId = payload.uploadId ?? (task.sourceId as string);
 
     try {
+      // Claim the task (queued -> running) before doing any work. full_ingest is
+      // orchestrated in-process with no BullMQ job (so no jobId dedup), and the
+      // poll loop selects tasks by `status = queued`. Leaving it queued for the
+      // whole (multi-second) orchestration lets every poll tick of every worker
+      // re-dispatch it and fan out duplicate transcode/labels child tasks. Marking
+      // it running here drops it out of the queued set immediately. Best-effort:
+      // if this fails the orchestration below would fail too, so just log and go.
+      try {
+        await this.pocketbaseService.updateTask(task.id, {
+          status: TaskStatus.RUNNING,
+        });
+      } catch (claimError) {
+        this.logger.warn(
+          `Failed to claim full_ingest task ${task.id} (continuing): ${
+            claimError instanceof Error
+              ? claimError.message
+              : String(claimError)
+          }`
+        );
+      }
+
       if (!uploadId) {
         throw new Error('full_ingest task is missing uploadId');
       }

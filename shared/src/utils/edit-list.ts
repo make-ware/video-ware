@@ -59,6 +59,53 @@ interface ClipSegmentResult {
 }
 
 /**
+ * Effective audio volume for a segment.
+ *
+ * The single source of truth for the volume rule used everywhere: a muted
+ * track is silent, otherwise the track volume (default 1) is scaled by the
+ * per-clip gain (0.0–1.0, attenuate-only). When no track settings are supplied
+ * (legacy orphan clips) the volume is simply the per-clip gain.
+ */
+function effectiveVolume(
+  trackSettings: { isMuted?: boolean; volume?: number } | undefined,
+  clipGain: number
+): number {
+  if (trackSettings?.isMuted) return 0;
+  return (trackSettings?.volume ?? 1) * clipGain;
+}
+
+/**
+ * Build the audio counterpart of a visual segment.
+ *
+ * The renderer (compose.executor) only emits audio for tracks of type
+ * 'audio', so every audible visual segment needs a paired audio segment on a
+ * dedicated audio track. Volume is reused verbatim from the visual segment —
+ * generateSegmentsFromClip already folded track volume × per-clip gain into it
+ * — so the video and audio sides can never drift apart.
+ */
+function buildAudioSegment(seg: TimelineSegment): TimelineSegment {
+  return {
+    id: `${seg.id}-audio`,
+    assetId: seg.assetId,
+    type: 'audio',
+    time: seg.time,
+    audio: { volume: seg.audio?.volume ?? 1 },
+  };
+}
+
+/**
+ * Build the audio-track segments mirroring a set of visual segments, skipping
+ * text (captions) and any segment without a media asset.
+ */
+function buildAudioTrackSegments(
+  videoSegments: TimelineSegment[]
+): TimelineSegment[] {
+  return videoSegments
+    .filter((seg) => seg.assetId && seg.type !== 'text')
+    .map(buildAudioSegment);
+}
+
+/**
  * Generate timeline segments from a single clip
  *
  * Handles both regular clips and composite clips (with segments in clipData).
@@ -77,9 +124,15 @@ function generateSegmentsFromClip(
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
 
-  // Per-clip audio gain (0.0–1.0, attenuate-only). Multiplied into the track
+  // Per-clip audio gain (0.0–1.0, attenuate-only). Folded into the track
   // volume so a clip can be quieter than its track without affecting siblings.
   const clipGain = clip.meta?.gain ?? 1;
+
+  // Visual/audio properties shared by every media segment this clip produces.
+  // Computing them once keeps the volume rule in a single place
+  // (effectiveVolume) no matter which branch below builds the segments.
+  const opacity = trackSettings?.opacity;
+  const volume = effectiveVolume(trackSettings, clipGain);
 
   // Caption clips render as text segments (clip.start/end trim the caption's
   // own cue timeline, mirroring how media clips trim source media)
@@ -151,14 +204,8 @@ function generateSegmentsFromClip(
         duration: expSeg.duration,
         sourceStart: expSeg.sourceStart,
       },
-      video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
-      audio: trackSettings
-        ? {
-            volume: trackSettings.isMuted
-              ? 0
-              : (trackSettings.volume ?? 1) * clipGain,
-          }
-        : undefined,
+      video: { opacity },
+      audio: { volume },
     }));
 
     return { segments, totalDuration: usageDuration };
@@ -192,10 +239,8 @@ function generateSegmentsFromClip(
           duration: expSeg.duration,
           sourceStart: expSeg.sourceStart,
         },
-        video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
-        audio: trackSettings
-          ? { volume: trackSettings.isMuted ? 0 : trackSettings.volume }
-          : undefined,
+        video: { opacity },
+        audio: { volume },
       }));
 
       return { segments, totalDuration: usageDuration };
@@ -217,14 +262,8 @@ function generateSegmentsFromClip(
         duration: duration,
         sourceStart: clip.start,
       },
-      video: trackSettings ? { opacity: trackSettings.opacity } : undefined,
-      audio: trackSettings
-        ? {
-            volume: trackSettings.isMuted
-              ? 0
-              : (trackSettings.volume ?? 1) * clipGain,
-          }
-        : undefined,
+      video: { opacity },
+      audio: { volume },
     },
   ];
 
@@ -241,6 +280,35 @@ function generateSegmentsFromClip(
  * @param timelineClips - Array of TimelineClip records (should be sorted by order)
  * @returns Array of TimelineTrack objects
  */
+
+/**
+ * Lay out orphan clips (those without a TimelineTrackRef) sequentially,
+ * honoring an explicit timelineStart but never allowing overlap. Used by the
+ * legacy/transitional fallback tracks. Per-clip gain is folded into each
+ * segment's audio volume by generateSegmentsFromClip.
+ */
+function buildOrphanSegments(clips: TimelineClip[]): TimelineSegment[] {
+  const segments: TimelineSegment[] = [];
+  let currentTimelineTime = 0;
+
+  for (const clip of clips) {
+    let startTime =
+      typeof clip.timelineStart === 'number'
+        ? clip.timelineStart
+        : currentTimelineTime;
+
+    // Force sequential placement to prevent overlaps from stale timelineStart
+    if (startTime < currentTimelineTime) {
+      startTime = currentTimelineTime;
+    }
+
+    const result = generateSegmentsFromClip(clip, startTime);
+    segments.push(...result.segments);
+    currentTimelineTime = startTime + result.totalDuration;
+  }
+
+  return segments;
+}
 
 /**
  * Generate Tracks from timeline clips and track definitions
@@ -322,184 +390,62 @@ export function generateTracks(
     });
   }
 
-  // Handle clips without a track (Legacy/Default behavior)
-  // These go to a generated 'Layer 0' if no Layer 0 exists, or appended?
-  // We'll create a default track for them.
+  // Handle clips without a TimelineTrackRef (legacy/transitional timelines).
+  // In a clean state every clip has a track, so this is a fallback path.
   if (clipsWithoutTrack.length > 0) {
     clipsWithoutTrack.sort((a, b) => a.order - b.order);
+    const orphanSegments = buildOrphanSegments(clipsWithoutTrack);
 
-    // Check if we already have a layer 0 track
+    // existingLayer0 truthy implies tracks.length >= 1, so the two cases are:
+    //   - defined tracks already own layer 0 → park orphans on a high layer so
+    //     they can't clobber the primary storyline (diagnostic only, no audio).
+    //   - no layer 0 yet → synthesize the default video + audio track pair,
+    //     reusing the same audio builder as every other track.
     const existingLayer0 = tracks.find((t) => t.layer === 0);
 
     if (existingLayer0) {
-      // Append to existing layer 0? Or create a special "Legacy" track?
-      // For safety, let's create a separate track if layer 0 is taken, or merge if suitable.
-      // Merging is complex. Let's put them in a "fallback" track at layer -1 or appended to list.
-      // But the user said "update ... to work with a single track for now".
-      // If we have mixed content, it's messy.
-      // Assuming new system: all clips have tracks.
-      // Transitional system: clips might not have tracks.
-      // We will generate a default track.
-
-      const segments: TimelineSegment[] = [];
-      let currentTimelineTime = 0;
-
-      for (const clip of clipsWithoutTrack) {
-        let startTime =
-          typeof clip.timelineStart === 'number'
-            ? clip.timelineStart
-            : currentTimelineTime;
-
-        // Force sequential placement for orphan clips
-        if (startTime < currentTimelineTime) {
-          startTime = currentTimelineTime;
-        }
-
-        // Generate segments (handles both regular and composite clips)
-        const result = generateSegmentsFromClip(clip, startTime);
-        segments.push(...result.segments);
-        currentTimelineTime = startTime + result.totalDuration;
-      }
-
-      // If no tracks exist at all (legacy timeline), this is the main track.
-      if (tracks.length === 0) {
-        tracks.push({
-          id: 'default-video-track',
-          type: 'video',
-          layer: 0,
-          segments,
-        });
-        // Also generate audio track for these legacy clips (as per old behavior)
-        const audioSegments: TimelineSegment[] = clipsWithoutTrack.flatMap(
-          (clip, idx): TimelineSegment[] => {
-            if (!clip.MediaRef) return [];
-            const vidSeg = segments[idx];
-            return [
-              {
-                id: `${clip.id}-audio`,
-                assetId: clip.MediaRef,
-                type: 'audio',
-                time: vidSeg.time,
-                audio: { volume: clip.meta?.gain ?? 1.0 },
-              },
-            ];
-          }
-        );
-        tracks.push({
-          id: 'default-audio-track',
-          type: 'audio',
-          layer: 0,
-          segments: audioSegments,
-        });
-
-        return tracks; // Return early for legacy behavior
-      } else {
-        // We have tracks AND orphan clips. This shouldn't happen in a clean state.
-        // Put orphans on layer 999
-        tracks.push({
-          id: 'orphan-clips-track',
-          type: 'video',
-          layer: 999,
-          segments,
-        });
-      }
+      tracks.push({
+        id: 'orphan-clips-track',
+        type: 'video',
+        layer: 999,
+        segments: orphanSegments,
+      });
     } else {
-      // No Layer 0 track exists, but we have defined tracks?
-      // Treat as above (legacy behavior generation)
-      const segments: TimelineSegment[] = [];
-      let currentTimelineTime = 0;
-      for (const clip of clipsWithoutTrack) {
-        let startTime =
-          typeof clip.timelineStart === 'number'
-            ? clip.timelineStart
-            : currentTimelineTime;
-
-        // Force sequential placement for default track
-        if (startTime < currentTimelineTime) {
-          startTime = currentTimelineTime;
-        }
-
-        // Generate segments (handles both regular and composite clips)
-        const result = generateSegmentsFromClip(clip, startTime);
-        segments.push(...result.segments);
-        currentTimelineTime = startTime + result.totalDuration;
-      }
-
       tracks.push({
         id: 'default-video-track',
         type: 'video',
         layer: 0,
-        segments,
+        segments: orphanSegments,
       });
-      const audioSegments: TimelineSegment[] = clipsWithoutTrack.flatMap(
-        (clip, idx): TimelineSegment[] => {
-          if (!clip.MediaRef) return [];
-          const vidSeg = segments[idx];
-          return [
-            {
-              id: `${clip.id}-audio`,
-              assetId: clip.MediaRef,
-              type: 'audio',
-              time: vidSeg.time,
-              audio: { volume: 1.0 },
-            },
-          ];
-        }
-      );
       tracks.push({
         id: 'default-audio-track',
         type: 'audio',
         layer: 0,
-        segments: audioSegments,
+        segments: buildAudioTrackSegments(orphanSegments),
       });
     }
   }
 
-  // Create audio tracks for the Defined Tracks??
-  // The old logic separated Video and Audio into two tracks for the SAME clips.
-  // Ideally, a "Video" track in ffmpeg contains both if the source has both.
-  // The `compose.executor.ts` handles `track.type === 'audio'`.
-  // If `TimelineTrackEntity` represents a "Track" that can contain both (since it's a structural container),
-  // we might need to split it into Video and Audio tracks for the renderer if the renderer expects separate tracks.
-  // The renderer `compose.executor.ts`:
-  // Iterates `sortedTracks`.
-  // If `track.type === 'audio'`, processes audio.
-  // Base video/image processing is for visual tracks.
-  // Does it extract audio from visual tracks?
-  // NO. `if (track.type === 'audio') { ... } else { // Visual ... }`
-  // It does NOT process audio for visual tracks in the `else` block.
-  // So we MUST generate a separate Audio Track for the audio component of video clips.
-
+  // The renderer (compose.executor) only emits audio for tracks of type
+  // 'audio' — it never extracts audio from visual tracks. So each defined
+  // track needs a paired audio track carrying the audio component of its
+  // clips. buildAudioTrackSegments reuses the per-segment volume already
+  // computed by generateSegmentsFromClip (track volume × per-clip gain).
   const audioTracks: TimelineTrack[] = [];
 
   for (const trackEntity of timelineTracks) {
+    if (trackEntity.isMuted) continue;
+
     // Find the corresponding video track we just created
     const vidTrack = tracks.find((t) => t.id === trackEntity.id);
     if (!vidTrack) continue;
 
-    if (!trackEntity.isMuted) {
-      const audioSegments: TimelineSegment[] = vidTrack.segments
-        .filter((seg) => seg.assetId && seg.type !== 'text')
-        .map((seg) => ({
-          id: `${seg.id}-audio`,
-          assetId: seg.assetId,
-          type: 'audio',
-          time: seg.time,
-          audio: {
-            // Reuse the segment volume already computed by
-            // generateSegmentsFromClip (track volume × per-clip gain); fall back
-            // to raw track volume if absent.
-            volume: seg.audio?.volume ?? trackEntity.volume,
-          },
-        }));
-
-      audioTracks.push({
-        id: `${trackEntity.id}-audio`,
-        type: 'audio',
-        layer: trackEntity.layer,
-        segments: audioSegments,
-      });
-    }
+    audioTracks.push({
+      id: `${trackEntity.id}-audio`,
+      type: 'audio',
+      layer: trackEntity.layer,
+      segments: buildAudioTrackSegments(vidTrack.segments),
+    });
   }
 
   return [...tracks, ...audioTracks];

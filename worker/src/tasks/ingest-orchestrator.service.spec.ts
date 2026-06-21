@@ -83,6 +83,31 @@ describe('IngestOrchestratorService', () => {
     );
   });
 
+  it('claims the task (marks it running) before any work, so a second worker does not re-orchestrate', async () => {
+    pb.getUpload.mockResolvedValue(videoUpload);
+
+    await service.orchestrate(fullIngestTask);
+
+    // The full_ingest task itself is flipped queued -> running...
+    expect(pb.updateTask).toHaveBeenCalledWith('fi-1', { status: 'running' });
+    // ...and that claim happens before the upload is even resolved.
+    const claimOrder = pb.updateTask.mock.invocationCallOrder[0];
+    const getUploadOrder = pb.getUpload.mock.invocationCallOrder[0];
+    expect(claimOrder).toBeLessThan(getUploadOrder);
+  });
+
+  it('still orchestrates (best-effort) if claiming the task fails', async () => {
+    pb.getUpload.mockResolvedValue(videoUpload);
+    pb.updateTask.mockRejectedValueOnce(new Error('pb blip'));
+
+    await service.orchestrate(fullIngestTask);
+
+    // Claim failure is swallowed; orchestration proceeds and succeeds.
+    expect(taskMutator.createProcessUploadTask).toHaveBeenCalledTimes(1);
+    expect(taskMutator.markSuccess).toHaveBeenCalledTimes(1);
+    expect(taskMutator.markFailed).not.toHaveBeenCalled();
+  });
+
   it('skips label detection for images', async () => {
     pb.getUpload.mockResolvedValue({ ...videoUpload, name: 'photo.jpg' });
 

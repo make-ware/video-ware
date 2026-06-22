@@ -61,16 +61,16 @@ jobs:
       packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -80,7 +80,7 @@ jobs:
       # applied later on the merged manifest, so they are irrelevant here.
       - name: Metadata - monolith
         id: meta-monolith
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           labels: |
@@ -91,7 +91,7 @@ jobs:
 
       - name: Metadata - worker
         id: meta-worker
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
           labels: |
@@ -102,7 +102,7 @@ jobs:
 
       - name: Metadata - webapp
         id: meta-webapp
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
           labels: |
@@ -113,7 +113,7 @@ jobs:
 
       - name: Metadata - pocketbase
         id: meta-pocketbase
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
           labels: |
@@ -124,7 +124,7 @@ jobs:
 
       - name: Build and push by digest
         id: bake
-        uses: docker/bake-action@v5
+        uses: docker/bake-action@v7
         env:
           PLATFORM: ${{ matrix.platform }}
           CACHE_SCOPE: videoware-${{ matrix.arch }}
@@ -158,7 +158,7 @@ jobs:
           done
 
       - name: Upload digests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -183,18 +183,27 @@ jobs:
     env:
       DOCKER_METADATA_ANNOTATIONS_LEVELS: index
     steps:
+      # Only the changelog is needed here (to compose the Docker Hub overview),
+      # so sparse-checkout avoids cloning the whole tree.
+      - name: Checkout changelog
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -207,7 +216,7 @@ jobs:
       - name: Log in to Docker Hub
         id: dockerhub-login
         continue-on-error: true
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -251,28 +260,28 @@ jobs:
 
       - name: Metadata - monolith
         id: meta-monolith
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: ${{ steps.tag-patterns.outputs.patterns }}
 
       - name: Metadata - worker
         id: meta-worker
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
           tags: ${{ steps.tag-patterns.outputs.patterns }}
 
       - name: Metadata - webapp
         id: meta-webapp
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webapp
           tags: ${{ steps.tag-patterns.outputs.patterns }}
 
       - name: Metadata - pocketbase
         id: meta-pocketbase
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
           tags: ${{ steps.tag-patterns.outputs.patterns }}
@@ -281,7 +290,7 @@ jobs:
       - name: Metadata - Docker Hub monolith
         id: meta-dockerhub
         continue-on-error: true
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKERHUB_IMAGE }}
           tags: ${{ steps.tag-patterns.outputs.patterns }}
@@ -360,6 +369,38 @@ jobs:
           DH_TAGS: ${{ steps.meta-dockerhub.outputs.tags }}
           DH_ANNOTATIONS: ${{ steps.meta-dockerhub.outputs.annotations }}
           GHCR_TAGS: ${{ steps.meta-monolith.outputs.tags }}
+
+      # Compose the Docker Hub overview from only the most recent release
+      # section of the changelog. Pushing the full changelog would eventually
+      # exceed Docker Hub's 25,000-byte cap and be blindly truncated, breaking
+      # the markdown; one release section stays well under the limit.
+      - name: Compose Docker Hub description
+        if: steps.dockerhub-login.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          # Most recent release: lines from the first "## [" version heading up
+          # to (but not including) the next one.
+          {
+            echo "# Changelog"
+            echo
+            awk '/^## \[/ { if (++seen == 2) exit } seen' CHANGELOG.md
+          } > DOCKERHUB_README.md
+
+          echo "Docker Hub description: $(wc -c < DOCKERHUB_README.md) bytes"
+
+      # Best-effort: gated on a successful Docker Hub login and
+      # continue-on-error, so it can never fail the job. The action truncates
+      # content over Docker Hub's 25,000-byte limit and warns in the log.
+      - name: Update Docker Hub description
+        if: steps.dockerhub-login.outcome == 'success'
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          readme-filepath: ./DOCKERHUB_README.md
 
       - name: Generate build summary
         run: |

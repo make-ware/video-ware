@@ -1,6 +1,10 @@
 import React, { useMemo } from 'react';
-import { LabelSpeech } from '@project/shared';
-import { cn } from '@/lib/utils';
+import {
+  cuesFromTranscripts,
+  DEFAULT_CAPTION_STYLE,
+  type LabelSpeech,
+} from '@project/shared';
+import { CaptionOverlay } from '@/components/captions';
 
 interface TranscriptOverlayProps {
   transcripts: LabelSpeech[];
@@ -9,36 +13,32 @@ interface TranscriptOverlayProps {
   className?: string;
 }
 
+/**
+ * Renders LabelSpeech transcripts as timed, single-line captions over the
+ * media player. Word-level timings are chunked into one-line cues
+ * (`cuesFromTranscripts`) and drawn through the shared `CaptionOverlay`, so the
+ * preview matches the burned-in render exactly — never more than one line.
+ *
+ * Cues are in absolute media time; `currentTime` is the media playback time, so
+ * the overlay resolves the active cue directly without re-basing.
+ */
 export function TranscriptOverlay({
   transcripts,
   currentTime,
   isVisible,
   className,
 }: TranscriptOverlayProps) {
-  const activeTranscripts = useMemo(() => {
-    if (!isVisible) return [];
-    return transcripts.filter(
-      (t) => currentTime >= t.start && currentTime <= t.end
-    );
-  }, [transcripts, currentTime, isVisible]);
+  const cues = useMemo(() => cuesFromTranscripts(transcripts), [transcripts]);
 
-  if (activeTranscripts.length === 0) return null;
+  if (!isVisible || cues.length === 0) return null;
 
   return (
-    <div
-      className={cn(
-        'absolute bottom-20 left-0 right-0 flex flex-col items-center gap-1 pointer-events-none px-4 z-10',
-        className
-      )}
-    >
-      {activeTranscripts.map((t) => (
-        <div
-          key={t.id}
-          className="bg-black/70 text-white px-4 py-2 rounded text-lg text-center max-w-3xl backdrop-blur-sm shadow-lg"
-        >
-          {t.transcript}
-        </div>
-      ))}
-    </div>
+    <CaptionOverlay
+      className={className}
+      text=""
+      cues={cues}
+      style={DEFAULT_CAPTION_STYLE}
+      currentTime={currentTime}
+    />
   );
 }

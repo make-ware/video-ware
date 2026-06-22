@@ -77,7 +77,7 @@ export function CaptionOverlay({
       data-testid="caption-overlay"
     >
       <span
-        className="whitespace-pre-wrap max-w-full rounded-sm leading-snug"
+        className="whitespace-pre max-w-full rounded-sm leading-snug"
         style={{
           fontSize: `${(fontSize / STYLE_CANVAS_HEIGHT) * 100}cqh`,
           color: style?.color ?? '#FFFFFF',

@@ -7,6 +7,7 @@ import {
   MediaMutator,
   CaptionMutator,
   TimelineRenderMutator,
+  LabelSpeechMutator,
 } from '@project/shared/mutator';
 import type {
   Timeline,
@@ -19,6 +20,7 @@ import type {
   TimelineTrack,
   RenderFlowConfig,
   TimelineTrackRecord,
+  LabelSpeech,
 } from '@project/shared';
 import { TaskStatus } from '@project/shared';
 import {
@@ -54,6 +56,7 @@ export class TimelineService {
   private mediaMutator: MediaMutator;
   private captionMutator: CaptionMutator;
   private timelineRenderMutator: TimelineRenderMutator;
+  private labelSpeechMutator: LabelSpeechMutator;
 
   constructor(pb: TypedPocketBase) {
     this.pb = pb;
@@ -64,6 +67,7 @@ export class TimelineService {
     this.mediaMutator = new MediaMutator(pb);
     this.captionMutator = new CaptionMutator(pb);
     this.timelineRenderMutator = new TimelineRenderMutator(pb);
+    this.labelSpeechMutator = new LabelSpeechMutator(pb);
   }
 
   /**
@@ -534,6 +538,31 @@ export class TimelineService {
     return generateTracks(clips, tracks.items);
   }
 
+  /**
+   * Fetch LabelSpeech transcripts for a set of media, keyed by media id.
+   * Used to burn auto-captions into renders (generateTracks derives single-line
+   * cues from each media's word timings).
+   */
+  private async getTranscriptsByMedia(
+    mediaIds: string[]
+  ): Promise<Record<string, LabelSpeech[]>> {
+    const entries = await Promise.all(
+      mediaIds.map(async (mediaId) => {
+        try {
+          const result = await this.labelSpeechMutator.getByMedia(
+            mediaId,
+            1,
+            500
+          );
+          return [mediaId, result.items] as const;
+        } catch {
+          return [mediaId, [] as LabelSpeech[]] as const;
+        }
+      })
+    );
+    return Object.fromEntries(entries.filter(([, items]) => items.length > 0));
+  }
+
   // ============================================================================
   // Validation
   // ============================================================================
@@ -868,8 +897,25 @@ export class TimelineService {
       throw new Error(`Timeline not found: ${timelineId}`);
     }
 
-    // Generate tracks (implicit track generation handled inside helper)
-    const tracks = await this.generateTracks(timelineId);
+    // Generate tracks, feeding each media clip's transcripts so the renderer
+    // can burn auto-captions in alongside custom caption clips (gated by the
+    // includeCaptions toggle).
+    const clips = await this.timelineClipMutator.getByTimeline(timelineId);
+    const tracksList =
+      await this.timelineTrackMutator.getByTimeline(timelineId);
+    const mediaIds = [
+      ...new Set(
+        clips.filter((c) => c.MediaRef).map((c) => c.MediaRef as string)
+      ),
+    ];
+    const transcriptsByMedia =
+      config.includeCaptions === false
+        ? {}
+        : await this.getTranscriptsByMedia(mediaIds);
+    const tracks = generateTracks(clips, tracksList.items, {
+      transcriptsByMedia,
+      includeCaptions: config.includeCaptions,
+    });
 
     // Get current user ID - use provided userId or fall back to authStore
     const currentUserId = userId || this.pb.authStore.record?.id;

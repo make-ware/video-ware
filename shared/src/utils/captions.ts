@@ -121,6 +121,104 @@ export function cuesFromWords(
 }
 
 /**
+ * Conservative character budget for a single on-screen caption line. The
+ * overlay (whitespace-pre) and the renderer (ffmpeg drawtext) both refuse to
+ * wrap, so chunking transcript words to this width keeps preview and render
+ * identical and never spills past one line at typical caption font sizes.
+ */
+export const SINGLE_LINE_MAX_CHARS = 32;
+
+/** Minimal shape needed to derive cues from a transcript record (LabelSpeech). */
+export interface TranscriptLike {
+  /** LabelSpeech.words (stored as JSON, so loosely typed) */
+  words?: unknown;
+  /** Full transcript text, used as a fallback when word timings are absent */
+  transcript?: string;
+  /** Segment start in media time (seconds) */
+  start: number;
+  /** Segment end in media time (seconds) */
+  end: number;
+}
+
+/**
+ * Split a transcript blob into single-line cues spread evenly across its
+ * [start, end] window. Fallback for transcripts that lack word-level timing.
+ * Returned cue times are in absolute media time.
+ */
+function chunkTextToTimedCues(
+  text: string,
+  start: number,
+  end: number,
+  maxChars: number
+): CaptionCue[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && candidate.length > maxChars) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+
+  const span = Math.max(end - start, 0);
+  const per = span / lines.length;
+  return lines.map((line, i) => ({
+    text: line,
+    start: span > 0 ? start + i * per : start,
+    end: span > 0 ? start + (i + 1) * per : Math.max(end, start),
+  }));
+}
+
+/**
+ * Derive single-line caption cues from one or more transcript records.
+ *
+ * Each record's word timings are chunked into single-line phrase cues (falling
+ * back to splitting the transcript blob when words are missing). Cues stay in
+ * absolute media time — re-basing/clamping to a trimmed clip window is done
+ * later with clampCuesToWindow. This is the shared bridge used by the
+ * media-detail overlay and the render edit-list so both show the same lines.
+ */
+export function cuesFromTranscripts(
+  transcripts: TranscriptLike[],
+  options: { maxChars?: number } = {}
+): CaptionCue[] {
+  const maxChars = options.maxChars ?? SINGLE_LINE_MAX_CHARS;
+  const cues: CaptionCue[] = [];
+
+  for (const t of transcripts) {
+    const rawWords = Array.isArray(t.words)
+      ? (t.words as SpeechWordTiming[])
+      : [];
+    const hasTimings =
+      rawWords.length > 0 &&
+      rawWords.every(
+        (w) =>
+          typeof w?.word === 'string' &&
+          typeof w?.startTime === 'number' &&
+          typeof w?.endTime === 'number'
+      );
+
+    if (hasTimings) {
+      cues.push(...cuesFromWords(rawWords, { maxChars, offset: 0 }));
+    } else if (t.transcript && t.transcript.trim()) {
+      cues.push(
+        ...chunkTextToTimedCues(t.transcript, t.start, t.end, maxChars)
+      );
+    }
+  }
+
+  cues.sort((a, b) => a.start - b.start);
+  return cues;
+}
+
+/**
  * Split text into evenly-timed cues across a duration.
  * Lines (or sentences when the text is a single line) become one cue each.
  * Used by the caption editor's "animate text" helper.

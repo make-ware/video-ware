@@ -14,8 +14,32 @@ import {
   expandCompositeToSegments,
   calculateEffectiveDuration,
 } from './composite-utils';
-import { clampCuesToWindow } from './captions';
-import type { CaptionCue, CaptionStyle } from '../types/captions';
+import {
+  clampCuesToWindow,
+  cuesFromTranscripts,
+  type TranscriptLike,
+} from './captions';
+import {
+  DEFAULT_CAPTION_STYLE,
+  type CaptionCue,
+  type CaptionStyle,
+} from '../types/captions';
+
+/**
+ * Optional inputs that let generateTracks burn auto-captions into the render.
+ *
+ * Transcript captions are derived from each media clip's LabelSpeech words
+ * (keyed by media id) so the renderer can show them alongside custom Caption
+ * clips, without persisting any extra records.
+ */
+export interface GenerateTracksOptions {
+  /** LabelSpeech-like transcript records keyed by media id */
+  transcriptsByMedia?: Record<string, TranscriptLike[]>;
+  /** When false, no caption text segments are emitted (default true) */
+  includeCaptions?: boolean;
+  /** Style applied to derived transcript captions (default DEFAULT_CAPTION_STYLE) */
+  captionStyle?: CaptionStyle;
+}
 /**
  * Validation result for validation
  */
@@ -106,6 +130,66 @@ function buildAudioTrackSegments(
 }
 
 /**
+ * Map a CaptionStyle onto the style fields of a text segment. Shared by custom
+ * caption clips and auto-derived transcript captions so both render identically.
+ */
+function captionStyleToText(style: CaptionStyle) {
+  return {
+    fontSize: style.fontSize,
+    color: style.color,
+    backgroundColor: style.backgroundColor,
+    backgroundOpacity: style.backgroundOpacity,
+    position: style.position,
+    align: style.align,
+    bold: style.bold,
+    shadow: style.shadow,
+    shadowColor: style.shadowColor,
+    shadowOpacity: style.shadowOpacity,
+    outline: style.outline,
+    outlineColor: style.outlineColor,
+    outlineOpacity: style.outlineOpacity,
+  };
+}
+
+/**
+ * Build the auto-caption text segment for a media clip from its LabelSpeech
+ * transcripts, or null when captions are disabled / no transcripts exist.
+ *
+ * Words live in absolute media time; clamping to [clip.start, clip.end] both
+ * trims to the visible source window and re-bases cues to the clip start —
+ * mirroring how custom caption clips trim their own cue timeline. The segment
+ * is placed at the clip's timeline position so the renderer draws each cue at
+ * startTime + cue.start, in lockstep with the video.
+ */
+function buildTranscriptCaptionSegment(
+  clip: TimelineClip,
+  startTime: number,
+  duration: number,
+  options?: GenerateTracksOptions
+): TimelineSegment | null {
+  if (!options || options.includeCaptions === false) return null;
+  if (!clip.MediaRef) return null;
+
+  const transcripts = options.transcriptsByMedia?.[clip.MediaRef];
+  if (!transcripts || transcripts.length === 0) return null;
+
+  const cues = clampCuesToWindow(
+    cuesFromTranscripts(transcripts),
+    clip.start,
+    clip.end
+  );
+  if (cues.length === 0) return null;
+
+  const style = options.captionStyle ?? DEFAULT_CAPTION_STYLE;
+  return {
+    id: `${clip.id}-captions`,
+    type: 'text',
+    time: { start: startTime, duration },
+    text: { content: '', cues, ...captionStyleToText(style) },
+  };
+}
+
+/**
  * Generate timeline segments from a single clip
  *
  * Handles both regular clips and composite clips (with segments in clipData).
@@ -114,12 +198,14 @@ function buildAudioTrackSegments(
  * @param clip - The timeline clip to process
  * @param startTime - Where on the timeline this clip starts
  * @param trackSettings - Optional video/audio settings from the track
+ * @param captionOptions - Optional transcript/caption inputs for auto-captions
  * @returns Array of generated segments and total duration
  */
 function generateSegmentsFromClip(
   clip: TimelineClip,
   startTime: number,
-  trackSettings?: { opacity?: number; isMuted?: boolean; volume?: number }
+  trackSettings?: { opacity?: number; isMuted?: boolean; volume?: number },
+  captionOptions?: GenerateTracksOptions
 ): ClipSegmentResult {
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
@@ -157,19 +243,7 @@ function generateSegmentsFromClip(
         text: {
           content: caption?.text ?? clip.meta?.title ?? '',
           cues: cues.length > 0 ? cues : undefined,
-          fontSize: style.fontSize,
-          color: style.color,
-          backgroundColor: style.backgroundColor,
-          backgroundOpacity: style.backgroundOpacity,
-          position: style.position,
-          align: style.align,
-          bold: style.bold,
-          shadow: style.shadow,
-          shadowColor: style.shadowColor,
-          shadowOpacity: style.shadowOpacity,
-          outline: style.outline,
-          outlineColor: style.outlineColor,
-          outlineOpacity: style.outlineOpacity,
+          ...captionStyleToText(style),
         },
       },
     ];
@@ -267,6 +341,17 @@ function generateSegmentsFromClip(
     },
   ];
 
+  // Auto-derived single-line captions from this media's LabelSpeech transcripts
+  // (composite clips return earlier; their non-linear source→timeline mapping
+  // isn't supported yet).
+  const captionSegment = buildTranscriptCaptionSegment(
+    clip,
+    startTime,
+    duration,
+    captionOptions
+  );
+  if (captionSegment) segments.push(captionSegment);
+
   return { segments, totalDuration: duration };
 }
 
@@ -287,7 +372,10 @@ function generateSegmentsFromClip(
  * legacy/transitional fallback tracks. Per-clip gain is folded into each
  * segment's audio volume by generateSegmentsFromClip.
  */
-function buildOrphanSegments(clips: TimelineClip[]): TimelineSegment[] {
+function buildOrphanSegments(
+  clips: TimelineClip[],
+  captionOptions?: GenerateTracksOptions
+): TimelineSegment[] {
   const segments: TimelineSegment[] = [];
   let currentTimelineTime = 0;
 
@@ -302,7 +390,12 @@ function buildOrphanSegments(clips: TimelineClip[]): TimelineSegment[] {
       startTime = currentTimelineTime;
     }
 
-    const result = generateSegmentsFromClip(clip, startTime);
+    const result = generateSegmentsFromClip(
+      clip,
+      startTime,
+      undefined,
+      captionOptions
+    );
     segments.push(...result.segments);
     currentTimelineTime = startTime + result.totalDuration;
   }
@@ -321,7 +414,8 @@ function buildOrphanSegments(clips: TimelineClip[]): TimelineSegment[] {
  */
 export function generateTracks(
   timelineClips: TimelineClip[],
-  timelineTracks: TimelineTrackRecord[] = []
+  timelineTracks: TimelineTrackRecord[] = [],
+  options?: GenerateTracksOptions
 ): TimelineTrack[] {
   // Map standard tracks from entities to worker format
   const tracks: TimelineTrack[] = [];
@@ -372,11 +466,16 @@ export function generateTracks(
       }
 
       // Generate segments (handles both regular and composite clips)
-      const result = generateSegmentsFromClip(clip, startTime, {
-        opacity: trackEntity.opacity,
-        isMuted: trackEntity.isMuted,
-        volume: trackEntity.volume,
-      });
+      const result = generateSegmentsFromClip(
+        clip,
+        startTime,
+        {
+          opacity: trackEntity.opacity,
+          isMuted: trackEntity.isMuted,
+          volume: trackEntity.volume,
+        },
+        options
+      );
 
       segments.push(...result.segments);
       currentTimelineTime = startTime + result.totalDuration;
@@ -394,7 +493,7 @@ export function generateTracks(
   // In a clean state every clip has a track, so this is a fallback path.
   if (clipsWithoutTrack.length > 0) {
     clipsWithoutTrack.sort((a, b) => a.order - b.order);
-    const orphanSegments = buildOrphanSegments(clipsWithoutTrack);
+    const orphanSegments = buildOrphanSegments(clipsWithoutTrack, options);
 
     // existingLayer0 truthy implies tracks.length >= 1, so the two cases are:
     //   - defined tracks already own layer 0 → park orphans on a high layer so

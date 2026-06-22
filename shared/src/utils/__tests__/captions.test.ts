@@ -3,8 +3,10 @@ import {
   getActiveCue,
   getCaptionTextAtTime,
   cuesFromWords,
+  cuesFromTranscripts,
   splitTextIntoCues,
   clampCuesToWindow,
+  SINGLE_LINE_MAX_CHARS,
 } from '../captions';
 import type { CaptionCue } from '../../types/captions';
 
@@ -86,6 +88,71 @@ describe('cuesFromWords', () => {
   it('splits cues at the character limit', () => {
     const result = cuesFromWords(words, { maxChars: 9 });
     expect(result.map((c) => c.text)).toEqual(['The quick', 'brown fox']);
+  });
+});
+
+describe('cuesFromTranscripts', () => {
+  const longSentence =
+    'If I can have you turn the camera around so we can all see the welder';
+
+  it('chunks word timings into single-line cues in absolute media time', () => {
+    const transcript = {
+      transcript: longSentence,
+      start: 2,
+      end: 8,
+      words: longSentence.split(' ').map((word, i) => ({
+        word,
+        startTime: 2 + i * 0.3,
+        endTime: 2 + (i + 1) * 0.3,
+        confidence: 0.9,
+      })),
+    };
+
+    const result = cuesFromTranscripts([transcript]);
+
+    expect(result.length).toBeGreaterThan(1);
+    // Every cue fits on one line and times stay in media time (>= 2)
+    for (const cue of result) {
+      expect(cue.text.length).toBeLessThanOrEqual(SINGLE_LINE_MAX_CHARS);
+      expect(cue.start).toBeGreaterThanOrEqual(2);
+    }
+    // Reassembling the cues recovers the original sentence
+    expect(result.map((c) => c.text).join(' ')).toBe(longSentence);
+  });
+
+  it('falls back to splitting the transcript blob when words are missing', () => {
+    const result = cuesFromTranscripts([
+      { transcript: 'one two three four five six seven', start: 0, end: 4 },
+    ]);
+
+    expect(result.length).toBeGreaterThan(0);
+    for (const cue of result) {
+      expect(cue.text.length).toBeLessThanOrEqual(SINGLE_LINE_MAX_CHARS);
+      expect(cue.start).toBeGreaterThanOrEqual(0);
+      expect(cue.end).toBeLessThanOrEqual(4);
+    }
+    expect(result.map((c) => c.text).join(' ')).toBe(
+      'one two three four five six seven'
+    );
+  });
+
+  it('flattens and sorts cues across multiple records by start time', () => {
+    const result = cuesFromTranscripts([
+      {
+        transcript: 'later',
+        start: 10,
+        end: 11,
+        words: [{ word: 'later', startTime: 10, endTime: 11, confidence: 1 }],
+      },
+      {
+        transcript: 'earlier',
+        start: 1,
+        end: 2,
+        words: [{ word: 'earlier', startTime: 1, endTime: 2, confidence: 1 }],
+      },
+    ]);
+
+    expect(result.map((c) => c.text)).toEqual(['earlier', 'later']);
   });
 });
 

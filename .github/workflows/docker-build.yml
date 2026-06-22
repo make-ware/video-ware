@@ -382,6 +382,8 @@ jobs:
           # Most recent release: lines from the first "## [" version heading up
           # to (but not including) the next one.
           {
+            echo "📦 Source: [github.com/make-ware/video-ware](https://github.com/make-ware/video-ware)"
+            echo
             echo "# Changelog"
             echo
             awk '/^## \[/ { if (++seen == 2) exit } seen' CHANGELOG.md

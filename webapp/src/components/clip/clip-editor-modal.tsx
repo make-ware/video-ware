@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
@@ -29,7 +30,6 @@ import {
   Edit,
   AlertCircle,
   Check,
-  X,
   Clock,
   Layers,
   Trash2,
@@ -463,7 +463,15 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     return 'Edit Clip';
   }, [mode]);
 
-  const saveLabel = mode === 'create' ? 'Create Clip' : 'Save';
+  const dialogDescription = useMemo(() => {
+    if (mode === 'create')
+      return 'Trim and configure a new clip from this media.';
+    if (mode === 'edit-timeline-clip')
+      return 'Adjust trim, name, color, and audio for this timeline clip.';
+    return 'Adjust the trim range for this clip.';
+  }, [mode]);
+
+  const saveLabel = mode === 'create' ? 'Create' : 'Save';
   const isTimelineMode = mode === 'edit-timeline-clip';
 
   return (
@@ -504,6 +512,9 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                 )}
                 {dialogTitle}
               </DialogTitle>
+              <DialogDescription className="sr-only">
+                {dialogDescription}
+              </DialogDescription>
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
@@ -511,7 +522,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                   onClick={() => onOpenChange(false)}
                   disabled={isSaving}
                 >
-                  <X className="h-4 w-4 mr-1" /> Cancel
+                  Done
                 </Button>
                 <Button
                   size="sm"
@@ -561,7 +572,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                       seekOnStartTimeChange={false}
                       clampToRange={false}
                       className="w-full h-full"
-                      ref={editor.videoRef}
+                      ref={editor.registerVideo}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground">

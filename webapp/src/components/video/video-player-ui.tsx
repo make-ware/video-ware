@@ -65,15 +65,22 @@ export const VideoPlayerUI = forwardRef<HTMLVideoElement, VideoPlayerUIProps>(
     const lastSrcRef = useRef<string | null>(null);
     const didInitialSeekRef = useRef(false);
 
-    // Merge internal ref with forwarded ref
-    const videoRef = (node: HTMLVideoElement | null) => {
-      internalRef.current = node;
-      if (typeof forwardedRef === 'function') {
-        forwardedRef(node);
-      } else if (forwardedRef) {
-        forwardedRef.current = node;
-      }
-    };
+    // Merge internal ref with forwarded ref. Memoized so the callback ref keeps
+    // a stable identity across renders — an inline ref function is re-created
+    // every render, which makes React detach (null) then reattach the <video>
+    // node each time, churning any node-keyed effects in the parent (e.g. the
+    // clip editor's playhead tracker).
+    const videoRef = useCallback(
+      (node: HTMLVideoElement | null) => {
+        internalRef.current = node;
+        if (typeof forwardedRef === 'function') {
+          forwardedRef(node);
+        } else if (forwardedRef) {
+          forwardedRef.current = node;
+        }
+      },
+      [forwardedRef]
+    );
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);

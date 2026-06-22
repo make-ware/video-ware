@@ -34,7 +34,18 @@ export function useClipEditor({
   const [currentVideoTime, setCurrentVideoTime] = useState(
     initialPlayhead ?? 0
   );
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // The mounted <video> node, tracked in state so effects (re)bind to it
+  // exactly when it mounts/unmounts. The player lives inside the dialog's
+  // portal, so the element can appear *after* `src` is already known — keying
+  // listener setup on `src` alone misses that mount, leaving the timeline
+  // playhead permanently out of sync with the video. A callback ref is the
+  // reliable signal.
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const registerVideo = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    setVideoEl((prev) => (prev === node ? prev : node));
+  }, []);
 
   const { src, poster } = useVideoSource(media ?? undefined);
 
@@ -76,12 +87,14 @@ export function useClipEditor({
     minDuration,
   ]);
 
-  // Track the video playhead. Keyed on `src` so it (re)binds once the <video>
-  // element is actually mounted by VideoPlayerUI. While playing we update via
-  // requestAnimationFrame for a smooth playhead; `timeupdate` alone only fires
-  // ~4x/sec, which makes the indicator look laggy and out of sync.
+  // Track the video playhead. Bound to the actual <video> node (via the
+  // `registerVideo` callback ref) so listeners attach exactly when the element
+  // mounts and detach when it unmounts — the player lives inside the dialog's
+  // portal and can mount after `src` is already known. While playing we update
+  // via requestAnimationFrame for a smooth playhead; `timeupdate` alone only
+  // fires ~4x/sec, which makes the indicator look laggy and out of sync.
   useEffect(() => {
-    const video = videoRef.current;
+    const video = videoEl;
     if (!video) return;
 
     let raf = 0;
@@ -121,11 +134,13 @@ export function useClipEditor({
       video.removeEventListener('seeked', sync);
       video.removeEventListener('timeupdate', sync);
     };
-  }, [src]);
+  }, [videoEl]);
 
   // Seek to initialPlayhead once metadata is available
   useEffect(() => {
-    if (initialPlayhead === undefined) return;
+    if (initialPlayhead === undefined || !videoEl) return;
+    // Mutate through the ref (not the state value) to keep the assignment off
+    // a useState-derived object; `videoEl` above is the mount trigger.
     const video = videoRef.current;
     if (!video) return;
 
@@ -143,7 +158,7 @@ export function useClipEditor({
       video.addEventListener('loadedmetadata', seek, { once: true });
       return () => video.removeEventListener('loadedmetadata', seek);
     }
-  }, [initialPlayhead]);
+  }, [initialPlayhead, videoEl]);
 
   const handleTrimChange = useCallback((start: number, end: number) => {
     setStartTime(start);
@@ -194,6 +209,7 @@ export function useClipEditor({
     isComposite,
     currentVideoTime,
     videoRef,
+    registerVideo,
     handleTrimChange,
     handleScrub,
     validationError,

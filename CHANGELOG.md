@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.1...video-ware-v0.8.2) (2026-06-22)
+
+
+### Bug Fixes
+
+* add timeline zoom ([2469b76](https://github.com/make-ware/video-ware/commit/2469b7682afdff2fc8ec351ec991c7f74509463a))
+* sync video with clip editor ([5d2dfdb](https://github.com/make-ware/video-ware/commit/5d2dfdbec753b640d643d4d807aa27672d47a733))
+* update media type filter ([8ced7dd](https://github.com/make-ware/video-ware/commit/8ced7dd41cc6f1aa518085f44280f3670e27b297))
+
 ## [0.8.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.0...video-ware-v0.8.1) (2026-06-22)
 
 

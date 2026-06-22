@@ -46,10 +46,7 @@ onRecordAfterDeleteSuccess((e) => {
   } catch (error) {
     // Never block the delete because of tombstone bookkeeping; just log. A leaked
     // blob is recoverable, a wedged delete is not.
-    console.error(
-      'files-artifact-tombstone: failed to record artifact:',
-      error
-    );
+    console.error('files-delete: failed to record artifact:', error);
   } finally {
     e.next();
   }

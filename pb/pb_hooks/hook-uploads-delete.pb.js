@@ -9,12 +9,12 @@
 // external blob, so deleting an Upload never reclaims it; the blob leaks.
 //
 // This hook fires after an Upload record is deleted (directly, or via the
-// media-uploads-cascade hook when its Media is removed) and records the original
+// hook-media-delete hook when its Media is removed) and records the original
 // blob's key in the Artifacts collection. The `cleanup` worker task drains
 // Artifacts and deletes the blob via the shared StorageBackend (which, on the
 // local backend, also prunes the now-empty uploads/{ws}/{uploadId}/ directory).
 //
-// Mirrors files-artifact-tombstone.pb.js, but keyed on Upload.externalPath rather
+// Mirrors hook-files-delete.pb.js, but keyed on Upload.externalPath rather
 // than Files.storageKey. Uploads that never finished (no externalPath) have no
 // blob to reap and are skipped.
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ onRecordAfterDeleteSuccess((e) => {
   } catch (error) {
     // Never block the delete because of tombstone bookkeeping; just log. A leaked
     // blob is recoverable, a wedged delete is not.
-    console.error('uploads-artifact-tombstone: failed to record artifact:', error);
+    console.error('uploads-delete: failed to record artifact:', error);
   } finally {
     e.next();
   }

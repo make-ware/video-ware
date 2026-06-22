@@ -170,12 +170,19 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       return `${hex}@${opacity}`;
     };
 
-    // Escape literal text for the drawtext filter
+    // Escape literal text for the drawtext filter. The value is wrapped in
+    // single quotes at the filtergraph level, which protects commas/spaces but
+    // NOT colons or percent (those still need a backslash). A literal ASCII
+    // apostrophe cannot be represented inside that quoted context — every known
+    // escape either breaks filtergraph parsing (crashing the render with
+    // "Filter not found") or silently drops surrounding text — so we map it to
+    // the typographic apostrophe (U+2019), which renders identically for
+    // caption/speech text and keeps the quoting intact.
     const escapeDrawtext = (text: string) =>
       text
         .replace(/\\/g, '\\\\')
+        .replace(/'/g, '’')
         .replace(/:/g, '\\:')
-        .replace(/'/g, "\\'")
         .replace(/%/g, '\\%');
 
     // Map caption placement presets to drawtext expressions

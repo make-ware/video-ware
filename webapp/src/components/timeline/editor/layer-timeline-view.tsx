@@ -3,13 +3,23 @@
 import React, {
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useMemo,
 } from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import {
+  X,
+  Plus,
+  Trash2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -30,13 +40,33 @@ import { useSnap } from './use-snap';
 import { findNonOverlappingTimelineStart } from './clip-placement';
 import { CaptionEditorModal } from '@/components/captions';
 
-const PIXELS_PER_SECOND = 20;
+const DEFAULT_PPS = 20; // pixels per second at 100% zoom
+const MIN_PPS = 2; // most zoomed out (high-level overview)
+const MAX_PPS = 200; // most zoomed in (precise edits)
+const ZOOM_FACTOR = 1.5; // multiplier per zoom-in/out step
+const PPS_STORAGE_KEY = 'timeline-editor:pixels-per-second';
 const MIN_CLIP_DURATION = 0.5;
 const TRACK_HEADER_WIDTH = 200; // pixels
 const TRACK_HEADER_WIDTH_COLLAPSED = 48; // pixels
 const RULER_HEIGHT = 32; // h-8
 const TRACK_HEIGHT = 64; // h-16
 const DRAG_ACTIVATION_PX = 4; // pointer travel before a press becomes a drag
+
+// Ruler tick steps in seconds. The smallest whose on-screen spacing clears
+// MIN_LABEL_PX becomes the labeled interval, keeping the ruler readable at any
+// zoom (dense seconds when zoomed in, sparse minutes when zoomed out).
+const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+const MIN_LABEL_PX = 56;
+const MIN_MINOR_PX = 8;
+
+function clampZoom(value: number): number {
+  return Math.min(Math.max(value, MIN_PPS), MAX_PPS);
+}
+
+// Anchored zoom adjusts scrollLeft after layout; run before paint to avoid a
+// visible jump. Falls back to useEffect during SSR where layout effects warn.
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 interface DragState {
   clipId: string;
@@ -102,6 +132,12 @@ export function LayerTimelineView() {
   const [shiftPressed, setShiftPressed] = useState(false);
   const [headersCollapsed, setHeadersCollapsed] = useState(false);
 
+  // Timeline zoom (pixels per second). Adjustable so users can zoom in for
+  // precise trims or out for a high-level overview of a long timeline.
+  const [pixelsPerSecond, setPixelsPerSecond] = useState(DEFAULT_PPS);
+  // Pending cursor anchor so a zoom keeps the same time under the pointer.
+  const zoomAnchorRef = useRef<{ time: number; offsetX: number } | null>(null);
+
   // Start with compact track headers on small screens
   useEffect(() => {
     if (window.matchMedia('(max-width: 1023px)').matches) {
@@ -121,11 +157,119 @@ export function LayerTimelineView() {
     return () => observer.disconnect();
   }, []);
 
+  // Restore the persisted zoom level on mount (after hydration to avoid a
+  // server/client mismatch).
+  useEffect(() => {
+    const stored = window.localStorage.getItem(PPS_STORAGE_KEY);
+    if (!stored) return;
+    const parsed = parseFloat(stored);
+    if (!Number.isNaN(parsed)) setPixelsPerSecond(clampZoom(parsed));
+  }, []);
+
+  // Persist the zoom level so it carries across sessions.
+  useEffect(() => {
+    window.localStorage.setItem(PPS_STORAGE_KEY, String(pixelsPerSecond));
+  }, [pixelsPerSecond]);
+
+  // After a zoom changes the content width, restore scroll so the anchored
+  // time stays under the cursor (or viewport center for button/key zooms).
+  useIsomorphicLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    const container = containerRef.current;
+    if (!anchor || !container) return;
+    container.scrollLeft = anchor.time * pixelsPerSecond - anchor.offsetX;
+    zoomAnchorRef.current = null;
+  }, [pixelsPerSecond]);
+
+  // Set a new zoom level, recording the anchor point to preserve on screen.
+  const applyZoom = useCallback(
+    (nextValue: number, anchorClientX?: number) => {
+      const clamped = clampZoom(nextValue);
+      if (clamped === pixelsPerSecond) return;
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const offsetX =
+          anchorClientX != null
+            ? anchorClientX - rect.left
+            : container.clientWidth / 2;
+        zoomAnchorRef.current = {
+          time: (container.scrollLeft + offsetX) / pixelsPerSecond,
+          offsetX,
+        };
+      }
+      setPixelsPerSecond(clamped);
+    },
+    [pixelsPerSecond]
+  );
+
+  const handleZoomIn = useCallback(
+    () => applyZoom(pixelsPerSecond * ZOOM_FACTOR),
+    [applyZoom, pixelsPerSecond]
+  );
+  const handleZoomOut = useCallback(
+    () => applyZoom(pixelsPerSecond / ZOOM_FACTOR),
+    [applyZoom, pixelsPerSecond]
+  );
+  const handleZoomReset = useCallback(
+    () => applyZoom(DEFAULT_PPS),
+    [applyZoom]
+  );
+  const handleZoomFit = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || container.clientWidth <= 0) return;
+    // Fit the whole timeline (min 60s, matching displayDuration) into the view,
+    // leaving a small margin so the final tick label isn't clipped.
+    applyZoom((container.clientWidth - 16) / Math.max(duration, 60));
+  }, [applyZoom, duration]);
+
+  // Ctrl/Cmd + wheel (and trackpad pinch, which arrives as ctrl+wheel) zooms,
+  // anchored at the cursor. Plain wheel keeps native scrolling.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      applyZoom(pixelsPerSecond * Math.exp(-e.deltaY * 0.002), e.clientX);
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, [applyZoom, pixelsPerSecond]);
+
+  // Keyboard zoom: +/- to step, 0 to fit. Ignored while typing or when a
+  // modifier is held (so browser zoom shortcuts still work).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        handleZoomIn();
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        handleZoomOut();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        handleZoomFit();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleZoomIn, handleZoomOut, handleZoomFit]);
+
   // Initialize snap engine
   const { snapTime, activeGuides, clearGuides } = useSnap({
     clips: timeline?.clips || [],
     currentTime,
-    pixelsPerSecond: PIXELS_PER_SECOND,
+    pixelsPerSecond: pixelsPerSecond,
     threshold: 8,
     enabled: !shiftPressed,
   });
@@ -194,8 +338,8 @@ export function LayerTimelineView() {
   // Ensure minimum duration of 60s for the timeline view
   const displayDuration = Math.max(duration, 60);
   const totalWidth = useMemo(
-    () => displayDuration * PIXELS_PER_SECOND,
-    [displayDuration]
+    () => displayDuration * pixelsPerSecond,
+    [displayDuration, pixelsPerSecond]
   );
 
   // Sort tracks by layer (descending - highest layer on top)
@@ -253,13 +397,13 @@ export function LayerTimelineView() {
         mediaDuration,
         targetTrackId: trackId,
         previewLeft: left,
-        previewWidth: (clip.end - clip.start) * PIXELS_PER_SECOND,
-        previewTimelineStart: left / PIXELS_PER_SECOND,
+        previewWidth: (clip.end - clip.start) * pixelsPerSecond,
+        previewTimelineStart: left / pixelsPerSecond,
         previewStart: clip.start,
         previewEnd: clip.end,
       };
     },
-    []
+    [pixelsPerSecond]
   );
 
   const handleResizeStart = useCallback(
@@ -327,8 +471,8 @@ export function LayerTimelineView() {
         // Stop touch scrolling while a drag is in flight
         if (e.cancelable) e.preventDefault();
 
-        const deltaTime = (clientX - next.initialX) / PIXELS_PER_SECOND;
-        const initialLeftTime = next.initialLeft / PIXELS_PER_SECOND;
+        const deltaTime = (clientX - next.initialX) / pixelsPerSecond;
+        const initialLeftTime = next.initialLeft / pixelsPerSecond;
 
         if (next.handle === 'move') {
           const clipDuration = next.initialEnd - next.initialStart;
@@ -347,8 +491,8 @@ export function LayerTimelineView() {
           }
 
           next.previewTimelineStart = leftTime;
-          next.previewLeft = leftTime * PIXELS_PER_SECOND;
-          next.previewWidth = clipDuration * PIXELS_PER_SECOND;
+          next.previewLeft = leftTime * pixelsPerSecond;
+          next.previewWidth = clipDuration * pixelsPerSecond;
 
           // Vertical position decides the target track
           const el = document.elementFromPoint(clientX, clientY);
@@ -377,8 +521,8 @@ export function LayerTimelineView() {
           }
 
           next.previewStart = newStart;
-          next.previewLeft = edgeTime * PIXELS_PER_SECOND;
-          next.previewWidth = (next.initialEnd - newStart) * PIXELS_PER_SECOND;
+          next.previewLeft = edgeTime * pixelsPerSecond;
+          next.previewWidth = (next.initialEnd - newStart) * pixelsPerSecond;
         } else {
           // Trim the out-point; the right edge follows the pointer
           const clampEnd = (value: number) =>
@@ -398,7 +542,7 @@ export function LayerTimelineView() {
 
           next.previewEnd = newEnd;
           next.previewLeft = next.initialLeft;
-          next.previewWidth = (newEnd - next.initialStart) * PIXELS_PER_SECOND;
+          next.previewWidth = (newEnd - next.initialStart) * pixelsPerSecond;
         }
       }
 
@@ -435,7 +579,7 @@ export function LayerTimelineView() {
 
           if (info.targetTrackId === info.sourceTrackId) {
             const previousStart =
-              info.initialTimelineStart ?? info.initialLeft / PIXELS_PER_SECOND;
+              info.initialTimelineStart ?? info.initialLeft / pixelsPerSecond;
             if (Math.abs(timelineStart - previousStart) > 0.001) {
               await updateClipPosition(info.clipId, timelineStart);
             }
@@ -496,6 +640,7 @@ export function LayerTimelineView() {
     moveClipToTrack,
     snapTime,
     clearGuides,
+    pixelsPerSecond,
   ]);
 
   // Double-click opens the caption editor for caption clips
@@ -617,12 +762,12 @@ export function LayerTimelineView() {
         const rect = trackAreaRef.current.getBoundingClientRect();
         const candidate = Math.max(
           0,
-          (e.clientX - rect.left) / PIXELS_PER_SECOND
+          (e.clientX - rect.left) / pixelsPerSecond
         );
         snapTime(candidate, undefined);
       }
     },
-    [snapTime]
+    [snapTime, pixelsPerSecond]
   );
 
   const parseLibraryDragData = useCallback((e: React.DragEvent) => {
@@ -673,7 +818,7 @@ export function LayerTimelineView() {
 
       const rect = trackAreaRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const candidateTime = Math.max(0, x / PIXELS_PER_SECOND);
+      const candidateTime = Math.max(0, x / pixelsPerSecond);
 
       // Drop from library (either a media clip or a full-length media)
       const dragData = parseLibraryDragData(e);
@@ -719,6 +864,7 @@ export function LayerTimelineView() {
       addClip,
       parseLibraryDragData,
       clearGuides,
+      pixelsPerSecond,
     ]
   );
 
@@ -728,13 +874,10 @@ export function LayerTimelineView() {
       const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const x = clientX - rect.left;
-      const time = Math.max(
-        0,
-        Math.min(displayDuration, x / PIXELS_PER_SECOND)
-      );
+      const time = Math.max(0, Math.min(displayDuration, x / pixelsPerSecond));
       setCurrentTime(time);
     },
-    [displayDuration, setCurrentTime]
+    [displayDuration, setCurrentTime, pixelsPerSecond]
   );
 
   const handleMouseDown = useCallback(
@@ -768,10 +911,7 @@ export function LayerTimelineView() {
       const rect = trackAreaRef.current.getBoundingClientRect();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const x = clientX - rect.left;
-      const time = Math.max(
-        0,
-        Math.min(displayDuration, x / PIXELS_PER_SECOND)
-      );
+      const time = Math.max(0, Math.min(displayDuration, x / pixelsPerSecond));
       setCurrentTime(time);
     };
 
@@ -790,7 +930,7 @@ export function LayerTimelineView() {
       window.removeEventListener('touchmove', handleMouseMove);
       window.removeEventListener('touchend', handleMouseUp);
     };
-  }, [isScrubbing, displayDuration, setCurrentTime]);
+  }, [isScrubbing, displayDuration, setCurrentTime, pixelsPerSecond]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -802,7 +942,7 @@ export function LayerTimelineView() {
   useEffect(() => {
     if (isPlaying && containerRef.current && !isScrubbing) {
       const container = containerRef.current;
-      const playheadX = currentTime * PIXELS_PER_SECOND;
+      const playheadX = currentTime * pixelsPerSecond;
       const scrollLeft = container.scrollLeft;
       const scrollRight = scrollLeft + container.clientWidth;
 
@@ -813,16 +953,25 @@ export function LayerTimelineView() {
         container.scrollLeft = playheadX - container.clientWidth / 2;
       }
     }
-  }, [currentTime, isPlaying, isScrubbing]);
+  }, [currentTime, isPlaying, isScrubbing, pixelsPerSecond]);
 
-  // Generate ruler ticks
+  // Generate ruler ticks. The labeled interval and minor subdivisions adapt to
+  // the zoom level so the ruler stays readable whether zoomed in or out.
   const ticks = useMemo(() => {
-    const tickCount = Math.ceil(displayDuration) + 1;
-    const items = [];
-    const interval = PIXELS_PER_SECOND;
+    const labeledStep =
+      TICK_STEPS.find((step) => step * pixelsPerSecond >= MIN_LABEL_PX) ??
+      TICK_STEPS[TICK_STEPS.length - 1];
+    const minorStep =
+      (labeledStep / 5) * pixelsPerSecond >= MIN_MINOR_PX
+        ? labeledStep / 5
+        : labeledStep;
+    const majorEvery = Math.max(1, Math.round(labeledStep / minorStep));
 
-    for (let i = 0; i < tickCount; i++) {
-      const isMajor = i % 5 === 0;
+    const count = Math.floor(displayDuration / minorStep);
+    const items = [];
+    for (let i = 0; i <= count; i++) {
+      const time = i * minorStep;
+      const isMajor = i % majorEvery === 0;
       items.push(
         <div
           key={i}
@@ -830,18 +979,18 @@ export function LayerTimelineView() {
             'absolute bottom-0 border-l border-muted-foreground/30',
             isMajor ? 'h-3' : 'h-1.5'
           )}
-          style={{ left: i * interval }}
+          style={{ left: time * pixelsPerSecond }}
         >
           {isMajor && (
             <span className="absolute -top-5 left-1 text-[10px] text-muted-foreground whitespace-nowrap">
-              {formatTime(i)}
+              {formatTime(time)}
             </span>
           )}
         </div>
       );
     }
     return items;
-  }, [displayDuration]);
+  }, [displayDuration, pixelsPerSecond]);
 
   if (!timeline) return null;
 
@@ -943,6 +1092,48 @@ export function LayerTimelineView() {
             </Button>
           </div>
         )}
+
+        {/* Zoom controls */}
+        <div className="absolute bottom-3 right-3 z-50 flex items-center gap-0.5 rounded-md border bg-background/90 px-0.5 py-0.5 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomOut}
+            disabled={pixelsPerSecond <= MIN_PPS}
+            title="Zoom out (−)"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <button
+            type="button"
+            onClick={handleZoomReset}
+            className="min-w-[3.25rem] px-1 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+            title="Reset to 100%"
+          >
+            {Math.round((pixelsPerSecond / DEFAULT_PPS) * 100)}%
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomIn}
+            disabled={pixelsPerSecond >= MAX_PPS}
+            title="Zoom in (+)"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <div className="mx-0.5 h-4 w-px bg-border" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomFit}
+            title="Fit timeline to view (0)"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        </div>
 
         {/* Timeline Area */}
         <div className="flex flex-1 overflow-hidden">
@@ -1084,7 +1275,7 @@ export function LayerTimelineView() {
                         track={track}
                         clips={trackClips}
                         totalWidth={totalWidth}
-                        pixelsPerSecond={PIXELS_PER_SECOND}
+                        pixelsPerSecond={pixelsPerSecond}
                         isLocked={track.isLocked}
                         selectedClipIds={selectedClipIds}
                         onClipSelect={handleClipSelect}
@@ -1154,7 +1345,7 @@ export function LayerTimelineView() {
               {activeGuides.map((guide, index) => (
                 <SnapGuide
                   key={`${guide.source}-${guide.time}-${index}`}
-                  position={guide.time * PIXELS_PER_SECOND}
+                  position={guide.time * pixelsPerSecond}
                   orientation="vertical"
                   label={formatTime(guide.time)}
                 />
@@ -1163,7 +1354,7 @@ export function LayerTimelineView() {
               {/* Playhead */}
               <div
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
-                style={{ left: currentTime * PIXELS_PER_SECOND }}
+                style={{ left: currentTime * pixelsPerSecond }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   setIsScrubbing(true);

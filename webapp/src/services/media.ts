@@ -337,15 +337,15 @@ export class MediaService {
       );
     }
 
-    // 8. Delete file records (collect s3Keys for storage cleanup)
-    const s3Keys: string[] = [];
+    // 8. Delete file records (collect storage keys for storage cleanup)
+    const storageKeys: string[] = [];
     try {
       const page = 1;
       while (true) {
         const files = await this.fileMutator.getByMedia(mediaId, page, 100);
         if (files.items.length === 0) break;
         for (const file of files.items) {
-          if (file.s3Key) s3Keys.push(file.s3Key);
+          if (file.storageKey) storageKeys.push(file.storageKey);
         }
         await Promise.allSettled(
           files.items.map((file) => this.fileMutator.delete(file.id))

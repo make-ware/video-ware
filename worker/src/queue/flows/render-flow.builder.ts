@@ -30,7 +30,8 @@ export class RenderFlowBuilder {
    */
   static buildFlow(task: Task): RenderFlowDefinition {
     const payload = task.payload as RenderTimelinePayload;
-    const { timelineId, version, tracks, outputSettings } = payload;
+    const { timelineId, timelineRenderId, version, tracks, outputSettings } =
+      payload;
 
     // Pre-generate the parent job id so every child can carry a correct
     // parentJobId pointing at the flow root (the chain means a step's direct
@@ -98,6 +99,7 @@ export class RenderFlowBuilder {
         input: {
           type: 'finalize',
           timelineId,
+          timelineRenderId,
           workspaceId: task.WorkspaceRef,
           version,
           format: outputSettings.format,

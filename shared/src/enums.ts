@@ -107,6 +107,23 @@ export enum TaskType {
   DETECT_LABELS = 'detect_labels',
   RENDER_TIMELINE = 'render_timeline',
   FULL_INGEST = 'full_ingest',
+  CLEANUP = 'cleanup',
+}
+
+// Lifecycle of an Artifacts row (a storage blob queued for deletion).
+export enum ArtifactStatus {
+  PENDING = 'pending',
+  DELETED = 'deleted',
+  FAILED = 'failed',
+}
+
+// Why a storage blob was queued for deletion. Drives observability only.
+export enum ArtifactReason {
+  FILE_DELETED = 'file_deleted',
+  UPLOAD_DELETED = 'upload_deleted',
+  TASK_FAILED = 'task_failed',
+  TASK_CANCELED = 'task_canceled',
+  RENDER_DELETED = 'render_deleted',
 }
 
 export enum ProcessingProvider {
@@ -147,6 +164,7 @@ export const VIDEO_COLLECTIONS = {
   MEDIA_LABELS: 'media_labels',
   TASKS: 'tasks',
   TIMELINES: 'timelines',
+  ARTIFACTS: 'artifacts',
 } as const;
 
 export type VideoCollectionName =

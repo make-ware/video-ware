@@ -6,13 +6,18 @@ import {
   TimelineTrack,
   TimelineSegment,
 } from './task-contracts';
-import { StorageBackendType } from '../enums';
+import { StorageBackendType, TimelineOrientation } from '../enums';
 import type { StorageConfig } from '../storage/types';
 
-const RenderTimelineConfigSchema = z.object({
+export const RenderTimelineConfigSchema = z.object({
   resolution: z.string(),
   codec: z.string(),
   format: z.string(),
+  // Optional render flags consumed by the worker's compose step — must be
+  // preserved (not stripped) when stored on a TimelineRender / task payload.
+  orientation: z.nativeEnum(TimelineOrientation).optional(),
+  includeCaptions: z.boolean().optional(),
+  includeTransitions: z.boolean().optional(),
 }) satisfies z.ZodType<RenderTimelineConfig>;
 
 const FilmstripConfigSchema = z.object({
@@ -20,6 +25,11 @@ const FilmstripConfigSchema = z.object({
   rows: z.number(),
   tileWidth: z.number(),
   tileHeight: z.number().optional(),
+  // Per-segment fields written onto stored File meta (see FilmstripConfig).
+  // Kept here so they survive schema validation instead of being stripped.
+  segmentIndex: z.number().optional(),
+  startTime: z.number().optional(),
+  fps: z.number().optional(),
 }) satisfies z.ZodType<FilmstripConfig>;
 
 const SpriteConfigSchema = z.object({
@@ -206,9 +216,28 @@ export const TaskResultSchema = z.union([
     fileId: z.string(),
     processorVersion: z.string(),
   }),
+  // CleanupResult — counts emitted by the `cleanup` task.
+  z.object({
+    refsLinked: z.number(),
+    staleFilesPruned: z.number(),
+    artifactsDeleted: z.number(),
+    artifactsFailed: z.number(),
+    localDirsPurged: z.number(),
+    tempDirsRemoved: z.number(),
+  }),
   // Generic fallback for unknown task types
   z.record(z.string(), z.unknown()),
 ]);
+
+// CleanupResult — typed shape of the cleanup task's result payload.
+export interface CleanupResult {
+  refsLinked: number;
+  staleFilesPruned: number;
+  artifactsDeleted: number;
+  artifactsFailed: number;
+  localDirsPurged: number;
+  tempDirsRemoved: number;
+}
 
 // ============================================================================
 // Timeline Metadata
@@ -281,6 +310,7 @@ export const TimelineClipMetadataSchema = z.object({
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),
   mediaMissing: z.boolean().optional(), // set when source media is deleted
+  gain: z.number().min(0).max(1).optional(), // per-clip audio gain, 0.0–1.0 (default 1.0)
 });
 
 // ============================================================================

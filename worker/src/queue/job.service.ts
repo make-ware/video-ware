@@ -8,7 +8,7 @@ import {
   RenderFlowBuilder,
   FlowDefinition,
 } from './flows';
-import type { EnabledLabelProcessors, LabelsChildJobDefinition } from './flows';
+import type { EnabledLabelProcessors } from './flows';
 
 @Injectable()
 export class JobService {
@@ -39,43 +39,6 @@ export class JobService {
     this.logger.log(`Submitting render job for task ${task.id}`);
     const flow = RenderFlowBuilder.buildFlow(task);
     return this.flowService.addFlow(flow);
-  }
-
-  async submitFullIngestJob(
-    transcodeTask: Task,
-    labelsTask?: Task
-  ): Promise<string> {
-    this.logger.log(`Submitting full ingest job`);
-
-    const actualLabelsTask = labelsTask || transcodeTask;
-
-    const transcodeFlow = TranscodeFlowBuilder.buildFlow(transcodeTask);
-    const labelsFlow = LabelsFlowBuilder.buildFlow(
-      actualLabelsTask,
-      this.enabledLabelProcessors()
-    );
-
-    // Each detection step owns an UPLOAD_TO_GCS child; nest the transcode flow
-    // under the first one so transcoding completes before that branch uploads.
-    // Detection runs on the ORIGINAL media file (payload.fileRef), which exists
-    // before transcoding, so the other branches have no data dependency on the
-    // transcode output — only this branch sequences behind it.
-    const firstDetection = labelsFlow.children.find(
-      (child): child is LabelsChildJobDefinition =>
-        'children' in child && Array.isArray(child.children)
-    );
-    const uploadChild = firstDetection?.children?.[0];
-
-    if (uploadChild) {
-      if (!uploadChild.children) uploadChild.children = [];
-      uploadChild.children.push(transcodeFlow as FlowDefinition);
-    } else {
-      // No detection steps enabled — still run the transcode before the
-      // (no-op) labels parent completes.
-      labelsFlow.children.push(transcodeFlow as FlowDefinition);
-    }
-
-    return this.flowService.addFlow(labelsFlow);
   }
 
   async submitCompositeJob(

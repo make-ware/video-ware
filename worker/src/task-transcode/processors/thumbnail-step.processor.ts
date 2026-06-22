@@ -94,7 +94,12 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
       );
 
       // Create File record
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.THUMBNAIL}/${fileName}`;
+      const storageKey = this.storageService.transcodeStorageKey(
+        upload.WorkspaceRef,
+        input.uploadId,
+        FileType.THUMBNAIL,
+        fileName
+      );
 
       const thumbnailFile = await this.pocketbaseService.uploadFile({
         localFilePath: thumbnailPath,
@@ -104,18 +109,15 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
         storageKey,
         workspaceRef: upload.WorkspaceRef,
         uploadRef: input.uploadId,
+        // Link to Media so the record is removed when the Media is deleted.
+        mediaRef: mediaData.id,
         mimeType: 'image/jpeg',
       });
 
       // Update Media record
-      const media = await this.pocketbaseService.findMediaByUpload(
-        input.uploadId
-      );
-      if (media) {
-        await this.pocketbaseService.updateMedia(media.id, {
-          thumbnailFileRef: thumbnailFile.id,
-        });
-      }
+      await this.pocketbaseService.updateMedia(mediaData.id, {
+        thumbnailFileRef: thumbnailFile.id,
+      });
 
       return { thumbnailPath, thumbnailFileId: thumbnailFile.id };
     } finally {

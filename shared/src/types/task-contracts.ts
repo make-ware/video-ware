@@ -32,6 +32,18 @@ export interface FilmstripConfig {
   tileWidth: number;
   /** Height of each tile in pixels (optional, will be calculated from aspect ratio if not provided) */
   tileHeight?: number;
+  /**
+   * The following fields are not part of the generation *input* — they are
+   * populated by the worker onto each segment's stored File `meta` so the
+   * viewer can map a playback time to the correct tile. Optional because the
+   * input config does not provide them.
+   */
+  /** Index of this segment within the media (0-based) */
+  segmentIndex?: number;
+  /** Absolute media time (seconds) at which this segment's first tile begins */
+  startTime?: number;
+  /** Frames sampled per second into the strip (currently always 1) */
+  fps?: number;
 }
 
 /**
@@ -315,6 +327,8 @@ export interface TimelineTrack {
 export interface RenderTimelinePayload {
   /** ID of the Timeline record */
   timelineId: string;
+  /** ID of the TimelineRender record the worker updates (FileRef/status) */
+  timelineRenderId?: string;
   /** Version of the timeline */
   version: number;
   /** List of tracks defining the timeline composition */

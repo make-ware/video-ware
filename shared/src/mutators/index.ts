@@ -21,6 +21,7 @@ export { LabelObjectMutator } from './label-objects';
 export { LabelPersonMutator } from './label-person';
 export { ClipLabelSearchMutator } from './clip-label-search';
 export { TaskMutator } from './task';
+export { ArtifactMutator } from './artifact';
 
 // Timeline and clip mutators
 export { TimelineMutator } from './timeline';

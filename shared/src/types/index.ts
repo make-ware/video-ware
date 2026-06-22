@@ -17,6 +17,7 @@ import type { ClipLabelSearch } from '../schema/clip-label-search';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
 import type { LabelEntity } from '../schema/label-entity';
+import type { Artifact } from '../schema/artifact';
 import { LabelTrack } from '../schema/label-track';
 import { LabelSpeech } from '../schema/label-speech';
 import { LabelFace } from '../schema/label-face';
@@ -39,31 +40,32 @@ export * from './relations.js';
 
 // Typed PocketBase interface
 export interface TypedPocketBase extends PocketBase {
+  collection(idOrName: 'Artifacts'): RecordService<Artifact>;
+  collection(idOrName: 'Captions'): RecordService<Caption>;
+  collection(idOrName: 'ClipLabelSearch'): RecordService<ClipLabelSearch>;
   collection(idOrName: 'Directories'): RecordService<Directory>;
   collection(idOrName: 'Files'): RecordService<File>;
-  collection(idOrName: 'LabelShots'): RecordService<LabelShot>;
-  collection(idOrName: 'LabelSegments'): RecordService<LabelSegment>;
-  collection(idOrName: 'LabelFaces'): RecordService<LabelFace>;
   collection(idOrName: 'LabelEntity'): RecordService<LabelEntity>;
+  collection(idOrName: 'LabelFaces'): RecordService<LabelFace>;
+  collection(idOrName: 'LabelJobs'): RecordService<LabelJob>;
+  collection(idOrName: 'LabelObjects'): RecordService<LabelObject>;
   collection(idOrName: 'LabelPerson'): RecordService<LabelPerson>;
+  collection(idOrName: 'LabelSegments'): RecordService<LabelSegment>;
+  collection(idOrName: 'LabelShots'): RecordService<LabelShot>;
   collection(idOrName: 'LabelSpeech'): RecordService<LabelSpeech>;
   collection(idOrName: 'LabelTrack'): RecordService<LabelTrack>;
-  collection(idOrName: 'LabelObjects'): RecordService<LabelObject>;
   collection(idOrName: 'Media'): RecordService<Media>;
   collection(idOrName: 'MediaClips'): RecordService<MediaClip>;
   collection(idOrName: 'Tasks'): RecordService<Task>;
   collection(idOrName: 'TimelineClips'): RecordService<TimelineClip>;
   collection(idOrName: 'TimelineRenders'): RecordService<TimelineRender>;
   collection(idOrName: 'Timelines'): RecordService<Timeline>;
+  collection(idOrName: 'TimelineTracks'): RecordService<TimelineTrack>;
   collection(idOrName: 'Uploads'): RecordService<Upload>;
+  collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;
   collection(idOrName: 'Users'): RecordService<User>;
   collection(idOrName: 'WorkspaceMembers'): RecordService<WorkspaceMember>;
   collection(idOrName: 'Workspaces'): RecordService<Workspace>;
-  collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;
-  collection(idOrName: 'TimelineTracks'): RecordService<TimelineTrack>;
-  collection(idOrName: 'LabelJobs'): RecordService<LabelJob>;
-  collection(idOrName: 'Captions'): RecordService<Caption>;
-  collection(idOrName: 'ClipLabelSearch'): RecordService<ClipLabelSearch>;
 }
 
 // PocketBase response types

@@ -38,6 +38,9 @@ export const UploadSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UserRef: RelationField({ collection: 'Users' }),
     errorMessage: TextField().optional(),
+    // Target directory for the Media created from this upload (carried through
+    // the DB so a PocketBase hook / the worker can place the media correctly).
+    DirectoryRef: RelationField({ collection: 'Directories' }).optional(),
   })
   .extend(baseSchema);
 
@@ -64,6 +67,7 @@ export const UploadInputSchema = z.object({
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   UserRef: z.string().min(1, 'User is required'),
   errorMessage: TextField().optional(),
+  DirectoryRef: z.string().optional(),
 });
 
 // Define the collection with workspace-scoped permissions

@@ -7,7 +7,6 @@ import {
   type Media,
   MediaType,
   RenderFlowConfig,
-  TaskType,
 } from '@project/shared';
 import { createGenericMockCollection } from '@/test/__tests__/fixtures/pocketbase';
 
@@ -20,6 +19,7 @@ function createMockPocketBase(): TypedPocketBase {
   let timelineIdCounter = 0;
   let clipIdCounter = 0;
   let taskIdCounter = 0;
+  let renderIdCounter = 0;
 
   const timelinesCollection = createGenericMockCollection<Timeline>(
     'Timelines',
@@ -46,6 +46,11 @@ function createMockPocketBase(): TypedPocketBase {
     () => `task-${++taskIdCounter}`
   );
 
+  const timelineRendersCollection = createGenericMockCollection<any>(
+    'TimelineRenders',
+    () => `render-${++renderIdCounter}`
+  );
+
   const pb = {
     authStore: {
       record: { id: 'user-1' },
@@ -56,6 +61,7 @@ function createMockPocketBase(): TypedPocketBase {
       if (name === 'TimelineTracks') return timelineTracksCollection;
       if (name === 'Media') return mediaCollection;
       if (name === 'Tasks') return tasksCollection;
+      if (name === 'TimelineRenders') return timelineRendersCollection;
       return createGenericMockCollection(name);
     },
   } as unknown as TypedPocketBase;
@@ -78,7 +84,7 @@ function createMockPocketBase(): TypedPocketBase {
   return pb;
 }
 
-describe('TimelineService.createRenderTask', () => {
+describe('TimelineService.createRenderTask (creates a TimelineRender entity)', () => {
   let service: TimelineService;
   let pb: TypedPocketBase;
 
@@ -87,7 +93,7 @@ describe('TimelineService.createRenderTask', () => {
     service = new TimelineService(pb);
   });
 
-  it('should create a render task for a valid timeline', async () => {
+  it('should create a TimelineRender entity for a valid timeline', async () => {
     // 1. Create Timeline
     const timeline = await service.createTimeline('ws-1', 'My Timeline');
 
@@ -97,31 +103,32 @@ describe('TimelineService.createRenderTask', () => {
     // 3. Add Clip
     await service.addClipToTimeline(timeline.id, 'media-1', 0, 10);
 
-    // 4. Create Render Task
+    // 4. Create the render (entity-first; a PB hook spawns the task)
     const config: RenderFlowConfig = {
       format: 'mp4',
       resolution: '1920x1080',
       codec: 'h264',
     };
 
-    const task = await service.createRenderTask(timeline.id, config);
+    const render = await service.createRenderTask(timeline.id, config);
 
-    expect(task).toBeDefined();
-    expect(task.id).toContain('task-');
+    expect(render).toBeDefined();
+    expect(render.id).toContain('render-');
 
-    // Check Task Data via Mutator/Collection spy access or by returned object
-    // Since we mocked the collection, checking the returned object is good.
-    // But we should verify structure.
-    // The `TaskMutator` creates a task with `type: 'render:timeline'` and `payload`.
+    // The render input lives on the TimelineRender record (the source of truth);
+    // no task is created by the client.
+    const renders = pb.collection('TimelineRenders') as any;
+    const renderRecord = renders._storage.get(render.id);
+    expect(renderRecord).toBeDefined();
+    expect(renderRecord.TimelineRef).toBe(timeline.id);
+    expect(renderRecord.WorkspaceRef).toBe('ws-1');
+    expect(renderRecord.status).toBe('queued');
+    expect(renderRecord.outputSettings).toEqual(config);
+    expect(renderRecord.timelineData).toHaveLength(2); // Layer 0 Video + Layer 0 Audio
 
-    // We can inspect the collection storage
+    // The client does NOT create a task — the hook does.
     const tasks = pb.collection('Tasks') as any;
-    const taskRecord = tasks._storage.get(task.id);
-    expect(taskRecord).toBeDefined();
-    expect(taskRecord.type).toBe(TaskType.RENDER_TIMELINE);
-    expect(taskRecord.payload.timelineId).toBe(timeline.id);
-    expect(taskRecord.payload.outputSettings).toEqual(config);
-    expect(taskRecord.payload.tracks).toHaveLength(2); // Layer 0 Video + Layer 0 Audio
+    expect(tasks._storage.size).toBe(0);
   });
 
   it('should throw error if timeline has no clips', async () => {

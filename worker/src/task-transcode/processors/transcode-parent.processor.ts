@@ -62,6 +62,26 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
     return this.transcodeQueue;
   }
 
+  /**
+   * Reclaim the local transcode working directory once the task is done. Each
+   * step uploads its derived output (proxy, audio, sprite, thumbnail, filmstrip)
+   * to PocketBase before completing, so the local `transcode/{ws}/{uploadId}`
+   * copy is redundant. The per-step cleanup only deletes in S3 mode, so this
+   * hook is what reclaims the directory on the local backend. Runs on both
+   * success and failure (via the base class) so a pod never accumulates disk.
+   */
+  protected async cleanupExtraArtifacts(
+    parentData: ParentJobData,
+    _stepResults: Record<string, StepResult>
+  ): Promise<void> {
+    if (parentData.uploadId) {
+      await this.storageService.cleanupTranscodeDir(
+        parentData.workspaceId,
+        parentData.uploadId
+      );
+    }
+  }
+
   protected async processParentJob(job: Job<ParentJobData>): Promise<void> {
     const { taskId } = job.data;
 

@@ -14,7 +14,6 @@ import {
 import { loadStorageConfig } from '@project/shared/config';
 import { UploadStatus, StorageBackendType } from '@project/shared';
 import { UploadMutator } from '@project/shared/mutator';
-import { UploadService } from '@/services';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -195,7 +194,11 @@ export async function PUT(req: Request) {
         storageMetadata.endpoint = storageConfig.s3.endpoint;
       }
 
-      // Update upload record with final status and metadata
+      // Update upload record with final status and metadata. Marking the
+      // upload `uploaded` (with the target directory) is the trigger: a
+      // PocketBase hook creates a `full_ingest` task and the worker takes over
+      // (creates Media, runs transcode + labels). The webapp no longer creates
+      // Media or processing tasks directly.
       const updatedUpload = await uploadMutator.update(uploadId, {
         status: UploadStatus.UPLOADED,
         storageBackend: storageConfig.type,
@@ -203,24 +206,8 @@ export async function PUT(req: Request) {
         storageConfig: storageMetadata,
         bytesUploaded: upload.size || 0,
         name: fileName,
+        ...(directoryId ? { DirectoryRef: directoryId } : {}),
       });
-
-      try {
-        const uploadService = new UploadService(pb);
-        await uploadService.processUploadAndDetectLabels(
-          workspaceId,
-          uploadId,
-          userId,
-          undefined,
-          undefined,
-          directoryId
-        );
-
-        console.log(`Processing task created for upload ${uploadId}`);
-      } catch (taskError) {
-        console.error('Failed to enqueue processing task:', taskError);
-        // Don't fail the upload if task creation fails
-      }
 
       return NextResponse.json({
         success: true,

@@ -45,9 +45,9 @@ export class QueueService {
       case TaskType.RENDER_TIMELINE:
         return this.addRenderJob(task);
 
-      case TaskType.FULL_INGEST:
-        return this.addFullIngestJob(task);
-
+      // FULL_INGEST is handled upstream by IngestOrchestratorService (it creates
+      // Media and fans out PROCESS_UPLOAD/DETECT_LABELS), so it never reaches the
+      // queue router. Reaching here means an unexpected/unhandled task type.
       default: {
         throw new Error(`Unknown task type: ${task.type}`);
       }
@@ -76,13 +76,6 @@ export class QueueService {
    */
   async addRenderJob(task: Task) {
     return this.jobService.submitRenderJob(task);
-  }
-
-  /**
-   * Add a full ingest job to the queue.
-   */
-  async addFullIngestJob(task: Task) {
-    return this.jobService.submitFullIngestJob(task);
   }
 
   /**

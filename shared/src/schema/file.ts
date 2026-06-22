@@ -42,11 +42,16 @@ export const FileSchema = z
       FileSource.GCS,
     ]),
     file: FileField({ maxSize: 7000000000 }).optional(),
-    s3Key: TextField().optional(),
+    storageKey: TextField().optional(),
     meta: JSONField(FileMetaSchema).optional(),
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UploadRef: RelationField({ collection: 'Uploads' }).optional(),
-    MediaRef: RelationField({ collection: 'Media' }).optional(),
+    // cascadeDelete: deleting a Media removes the File records that point to it
+    // (proxy, filmstrip, sprite, thumbnail, audio, ...).
+    MediaRef: RelationField({
+      collection: 'Media',
+      cascadeDelete: true,
+    }).optional(),
   })
   .extend(baseSchema);
 
@@ -73,7 +78,7 @@ export const FileInputSchema = z.object({
   ]),
   fileSource: z.enum([FileSource.S3, FileSource.POCKETBASE, FileSource.GCS]),
   file: z.instanceof(File).optional(),
-  s3Key: TextField().optional(),
+  storageKey: TextField().optional(),
   meta: JSONField(FileMetaSchema).optional(),
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   UploadRef: z.string().optional(),

@@ -9,7 +9,7 @@ import {
   TaskRenderFinalizeStep,
   TaskRenderFinalizeStepOutput,
 } from '@project/shared/jobs';
-import { FileType, FileSource, FileStatus } from '@project/shared';
+import { FileType, FileSource, FileStatus, TaskStatus } from '@project/shared';
 import { Readable } from 'stream';
 
 /**
@@ -35,7 +35,8 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     input: TaskRenderFinalizeStep,
     job: Job<StepJobData>
   ): Promise<TaskRenderFinalizeStepOutput> {
-    const { timelineId, workspaceId, version, format } = input;
+    const { timelineId, timelineRenderId, workspaceId, version, format } =
+      input;
     const taskId = job.data.taskId;
 
     this.logger.log(`Finalizing render for timeline ${timelineId}`);
@@ -107,7 +108,7 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
           fileStatus: FileStatus.AVAILABLE,
           fileType: FileType.RENDER,
           fileSource: FileSource.S3,
-          s3Key: storagePath,
+          storageKey: storagePath,
           WorkspaceRef: workspaceId,
           meta,
         });
@@ -121,24 +122,39 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
       }
     }
 
-    // 6. Create TimelineRender record
-    const timelineRenderRecord =
-      await this.pocketbaseService.createTimelineRender({
+    // 6. Attach the rendered file to the TimelineRender and mark it complete.
+    // The entity is created up-front (by the client) and triggers this render
+    // via a hook, so we update it here. Fall back to creating one for any
+    // legacy path that didn't pre-create the record.
+    let resolvedRenderId = timelineRenderId;
+    if (resolvedRenderId) {
+      await this.pocketbaseService.updateTimelineRender(resolvedRenderId, {
+        FileRef: fileRecord.id,
+        status: TaskStatus.SUCCESS,
+        progress: 100,
+      });
+    } else {
+      const created = await this.pocketbaseService.createTimelineRender({
         TimelineRef: timelineId,
+        WorkspaceRef: workspaceId,
         version: version,
         FileRef: fileRecord.id,
+        status: TaskStatus.SUCCESS,
+        progress: 100,
       });
+      resolvedRenderId = created.id;
+    }
 
-    // 7. Cleanup local file if using S3
-    await this.storageService.cleanup(localPath);
+    // 7. Remove the whole render working directory (inputs, output, ffmpeg
+    // scratch). The durable copy now lives in PocketBase/S3, so nothing reads
+    // this local tree again — leaving it behind just pollutes the disk.
+    await this.storageService.cleanupRenderDir(workspaceId, taskId);
 
-    this.logger.log(
-      `Successfully finalized render: ${timelineRenderRecord.id}`
-    );
+    this.logger.log(`Successfully finalized render: ${resolvedRenderId}`);
 
     return {
       fileId: fileRecord.id,
-      timelineRenderId: timelineRenderRecord.id,
+      timelineRenderId: resolvedRenderId,
     };
   }
 

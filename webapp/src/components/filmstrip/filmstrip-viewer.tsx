@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { Media, MediaRelations, Expanded } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { cn } from '@/lib/utils';
-import { useFilmstripData, FilmstripConfig } from './use-filmstrip-data';
+import { useFilmstripData } from './use-filmstrip-data';
 
 interface FilmstripViewerProps<
   E extends keyof MediaRelations = 'filmstripFileRefs',
@@ -21,14 +21,10 @@ export function FilmstripViewer({
 
   // Memoize the active filmstrip calculation to avoid recalculating on every render if time hasn't changed enough
   // (Though currentTime changes frequently during playback)
-  const activeData = useMemo(() => {
-    const file = getFilmstripForTime(currentTime);
-    if (!file || !file.meta?.filmstripConfig) return null;
-    return {
-      file,
-      config: file.meta.filmstripConfig as FilmstripConfig,
-    };
-  }, [getFilmstripForTime, currentTime]);
+  const activeData = useMemo(
+    () => getFilmstripForTime(currentTime),
+    [getFilmstripForTime, currentTime]
+  );
 
   if (isLoading && !activeData) {
     return (

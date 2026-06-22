@@ -39,6 +39,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Optional Docker Hub mirror target for the monolith (best-effort).
+  DOCKERHUB_IMAGE: dastron/video-ware
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -203,6 +205,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Optional Docker Hub mirror. Best-effort: a missing or invalid secret
+      # fails this login softly (continue-on-error), and the mirror step below
+      # is gated on this login succeeding — so the GHCR publish is never
+      # blocked by Docker Hub.
+      - name: Log in to Docker Hub
+        id: dockerhub-login
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Compute tag patterns
         id: tag-patterns
         run: |
@@ -262,6 +276,15 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pocketbase
           tags: ${{ steps.tag-patterns.outputs.patterns }}
 
+      # Same tag values as the GHCR monolith, just under the Docker Hub repo.
+      - name: Metadata - Docker Hub monolith
+        id: meta-dockerhub
+        continue-on-error: true
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_IMAGE }}
+          tags: ${{ steps.tag-patterns.outputs.patterns }}
+
       - name: Create and push multi-arch manifests
         run: |
           set -euo pipefail
@@ -306,6 +329,37 @@ jobs:
           TAGS_POCKETBASE: ${{ steps.meta-pocketbase.outputs.tags }}
           ANN_POCKETBASE: ${{ steps.meta-pocketbase.outputs.annotations }}
 
+      # Copy the freshly-pushed multi-arch monolith manifest from GHCR to
+      # Docker Hub. imagetools copies the index and its blobs cross-registry,
+      # so nothing is rebuilt. Best-effort: gated on a successful Docker Hub
+      # login and continue-on-error, so it can never fail the job.
+      - name: Mirror monolith to Docker Hub
+        if: steps.dockerhub-login.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=("-t" "$tag")
+          done <<< "$DH_TAGS"
+
+          while IFS= read -r ann; do
+            [ -n "$ann" ] && args+=("--annotation" "$ann")
+          done <<< "$DH_ANNOTATIONS"
+
+          # Use the first GHCR monolith tag as the copy source.
+          src=$(echo "$GHCR_TAGS" | head -n1)
+
+          echo "Mirroring ${src} to Docker Hub:"
+          echo "$DH_TAGS"
+          docker buildx imagetools create "${args[@]}" "$src"
+          docker buildx imagetools inspect "$(echo "$DH_TAGS" | head -n1)"
+        env:
+          DH_TAGS: ${{ steps.meta-dockerhub.outputs.tags }}
+          DH_ANNOTATIONS: ${{ steps.meta-dockerhub.outputs.annotations }}
+          GHCR_TAGS: ${{ steps.meta-monolith.outputs.tags }}
+
       - name: Generate build summary
         run: |
           {
@@ -328,4 +382,7 @@ jobs:
             echo '```'
             echo "${{ steps.meta-monolith.outputs.tags }}"
             echo '```'
+            echo ""
+            echo "### Docker Hub mirror (best-effort)"
+            echo "- \`${{ env.DOCKERHUB_IMAGE }}\` (monolith), login: ${{ steps.dockerhub-login.outcome }}"
           } >> $GITHUB_STEP_SUMMARY

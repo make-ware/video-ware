@@ -20,6 +20,7 @@ interface MediaCardProps<
   compact?: boolean;
   isSelected?: boolean;
   isProcessing?: boolean;
+  processingLabel?: string;
   showSelectionIndicator?: boolean;
   onSelectionClick?: (e: React.MouseEvent) => void;
 }
@@ -31,6 +32,7 @@ export function MediaCard({
   compact = false,
   isSelected = false,
   isProcessing = false,
+  processingLabel,
   showSelectionIndicator = false,
   onSelectionClick,
 }: MediaCardProps) {
@@ -232,7 +234,9 @@ export function MediaCard({
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30">
             <div className="flex items-center gap-1.5 bg-black/70 rounded-full px-2.5 py-1">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
-              <span className="text-xs text-white font-medium">Processing</span>
+              <span className="text-xs text-white font-medium">
+                {processingLabel ?? 'Processing'}
+              </span>
             </div>
           </div>
         )}

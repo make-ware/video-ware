@@ -3,28 +3,53 @@ import pb from '@/lib/pocketbase-client';
 import type { Task } from '@project/shared';
 import type { RecordSubscription } from 'pocketbase';
 
-function extractMediaIds(tasks: Task[]): Set<string> {
-  const mediaIds = new Set<string>();
+// Human-readable label shown in the spinner for each active task type.
+const TASK_TYPE_LABELS: Record<string, string> = {
+  process_upload: 'Transcoding',
+  detect_labels: 'Labeling',
+  render_timeline: 'Rendering',
+};
+
+function taskLabel(task: Task): string {
+  return TASK_TYPE_LABELS[task.type] ?? 'Processing';
+}
+
+function mediaIdForTask(task: Task): string | null {
+  if (task.sourceType === 'Media') return task.sourceId;
+  if (task.sourceType === 'upload') {
+    const payload = task.payload as Record<string, unknown>;
+    if (typeof payload?.mediaId === 'string') return payload.mediaId;
+  }
+  return null;
+}
+
+/**
+ * Build a map of media id → spinner label. When a media item has several
+ * active tasks, a running task's label wins over a merely queued one.
+ */
+function buildProcessingMap(tasks: Task[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  const weights = new Map<string, number>();
   for (const task of tasks) {
-    if (task.sourceType === 'Media') {
-      mediaIds.add(task.sourceId);
-    } else if (task.sourceType === 'upload') {
-      const payload = task.payload as Record<string, unknown>;
-      if (typeof payload?.mediaId === 'string') {
-        mediaIds.add(payload.mediaId);
-      }
+    const mediaId = mediaIdForTask(task);
+    if (!mediaId) continue;
+    const weight = task.status === 'running' ? 2 : 1;
+    if (weight >= (weights.get(mediaId) ?? 0)) {
+      labels.set(mediaId, taskLabel(task));
+      weights.set(mediaId, weight);
     }
   }
-  return mediaIds;
+  return labels;
 }
 
 /**
  * Hook to track which media items have active processing tasks
- * (process_upload or detect_labels with status queued/running)
+ * (process_upload or detect_labels with status queued/running).
+ * Returns a map of media id → human-readable label for the current task.
  */
 export function useProcessingMedia(workspaceId: string | undefined) {
-  const [processingMediaIds, setProcessingMediaIds] = useState<Set<string>>(
-    new Set()
+  const [processingMedia, setProcessingMedia] = useState<Map<string, string>>(
+    new Map()
   );
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
@@ -33,7 +58,7 @@ export function useProcessingMedia(workspaceId: string | undefined) {
 
     const fetchAndUpdate = async () => {
       if (!workspaceId) {
-        setProcessingMediaIds(new Set());
+        setProcessingMedia(new Map());
         return;
       }
 
@@ -42,7 +67,7 @@ export function useProcessingMedia(workspaceId: string | undefined) {
           filter: `WorkspaceRef = "${workspaceId}" && (status = "queued" || status = "running") && (type = "process_upload" || type = "detect_labels")`,
         });
         if (!cancelled) {
-          setProcessingMediaIds(extractMediaIds(result.items));
+          setProcessingMedia(buildProcessingMap(result.items));
         }
       } catch (error) {
         console.error('Failed to fetch processing tasks:', error);
@@ -82,5 +107,5 @@ export function useProcessingMedia(workspaceId: string | undefined) {
     };
   }, [workspaceId]);
 
-  return processingMediaIds;
+  return processingMedia;
 }

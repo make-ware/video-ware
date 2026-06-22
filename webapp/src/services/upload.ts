@@ -1,16 +1,7 @@
 import type { TypedPocketBase } from '@project/shared';
-import {
-  UploadMutator,
-  TaskMutator,
-  FileMutator,
-} from '@project/shared/mutator';
-import {
-  UploadStatus,
-  ProcessingProvider,
-  type LabelsFlowConfig,
-  type TranscodeFlowConfig,
-} from '@project/shared';
-import type { Upload, Task, UploadInput } from '@project/shared';
+import { UploadMutator } from '@project/shared/mutator';
+import { UploadStatus, ProcessingProvider } from '@project/shared';
+import type { Upload, UploadInput } from '@project/shared';
 import type { UploadProgress } from '@/types/upload-manager';
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
@@ -50,15 +41,11 @@ const DEFAULT_CONFIG: Omit<Required<UploadServiceConfig>, 'storageConfig'> = {
 export class UploadService {
   private pb: TypedPocketBase;
   private uploadMutator: UploadMutator;
-  private taskMutator: TaskMutator;
-  private fileMutator: FileMutator;
   private config: Required<UploadServiceConfig>;
 
   constructor(pb: TypedPocketBase, config?: UploadServiceConfig) {
     this.pb = pb;
     this.uploadMutator = new UploadMutator(pb);
-    this.taskMutator = new TaskMutator(pb);
-    this.fileMutator = new FileMutator(pb);
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
@@ -308,47 +295,15 @@ export class UploadService {
     }
   }
 
-  async processUpload(
-    workspaceId: string,
-    uploadId: string,
-    userId: string
-  ): Promise<Task> {
-    return this.processUploadAndDetectLabels(workspaceId, uploadId, userId);
-  }
-
-  async processUploadAndDetectLabels(
-    workspaceId: string,
-    uploadId: string,
-    userId: string,
-    transcodeConfig?: TranscodeFlowConfig,
-    labelsConfig?: LabelsFlowConfig,
-    directoryId?: string
-  ): Promise<Task> {
-    const upload = await this.uploadMutator.getById(uploadId);
-    if (!upload) {
-      throw new Error(`Upload not found: ${uploadId}`);
-    }
-
-    if (upload.WorkspaceRef !== workspaceId) {
-      throw new Error(`Upload ${uploadId} does not belong to workspace`);
-    }
-
-    return this.uploadMutator.processUploadAndDetectLabels(
-      uploadId,
-      userId,
-      transcodeConfig,
-      labelsConfig,
-      directoryId
-    );
-  }
-
   /**
-   * Retry a failed upload by creating a new processing task
+   * Retry a failed upload. Resetting the status to `uploaded` re-fires the
+   * PocketBase ingest hook, which creates a fresh `full_ingest` task; the
+   * worker then reuses/creates the Media record and re-runs transcode/labels.
    * @param uploadId The upload ID to retry
-   * @returns The new task
+   * @returns The updated upload record
    * @throws Error if upload not found or not in failed state
    */
-  async retryUpload(uploadId: string): Promise<Task> {
+  async retryUpload(uploadId: string): Promise<Upload> {
     const upload = await this.uploadMutator.getById(uploadId);
     if (!upload) {
       throw new Error(`Upload not found: ${uploadId}`);
@@ -360,15 +315,8 @@ export class UploadService {
       );
     }
 
-    // Reset upload status to uploaded
-    await this.uploadMutator.updateStatus(uploadId, UploadStatus.UPLOADED);
-
-    // Create new processing task (using shared logic to ensure media exists and parallel tasks)
-    return this.processUploadAndDetectLabels(
-      upload.WorkspaceRef,
-      uploadId,
-      upload.UserRef as string
-    );
+    // Re-fire the ingest hook by transitioning back to `uploaded`.
+    return this.uploadMutator.updateStatus(uploadId, UploadStatus.UPLOADED);
   }
 
   /**

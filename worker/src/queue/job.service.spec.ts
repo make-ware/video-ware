@@ -96,35 +96,4 @@ describe('JobService', () => {
       expect(flow.data.expectedSteps).toEqual(stepTypes);
     });
   });
-
-  describe('submitFullIngestJob', () => {
-    it('should chain transcode flow beneath the first detection upload', async () => {
-      const transcodeTask = {
-        id: 't-1',
-        type: TaskType.PROCESS_UPLOAD,
-        WorkspaceRef: 'w-1',
-        payload: { uploadId: 'u-1' },
-      } as any;
-      const labelsTask = {
-        id: 'l-1',
-        type: TaskType.DETECT_LABELS,
-        WorkspaceRef: 'w-1',
-        payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },
-      } as any;
-
-      await service.submitFullIngestJob(transcodeTask, labelsTask);
-
-      const flow = mockFlowService.addFlow.mock
-        .calls[0][0] as LabelsFlowDefinition;
-      const firstDetection = flow.children[0] as LabelsChildJobDefinition;
-      const upload = firstDetection.children?.[0] as LabelsChildJobDefinition;
-
-      expect(upload.name).toBe(DetectLabelsStepType.UPLOAD_TO_GCS);
-      // The transcode flow's parent job is nested beneath the upload, so
-      // transcoding completes before that branch uploads to GCS.
-      expect(upload.children).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: 'parent' })])
-      );
-    });
-  });
 });

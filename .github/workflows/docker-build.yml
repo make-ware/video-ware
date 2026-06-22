@@ -19,16 +19,11 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  # Allow manual trigger for testing
+  # Allow manual trigger for testing and nightly builds
   workflow_dispatch:
     inputs:
-      push_image:
-        description: 'Push image to registry'
-        required: false
-        default: 'false'
-        type: boolean
       version:
-        description: 'Version tag (e.g., 1.2.3)'
+        description: 'Version tag (e.g., 1.2.3, or "nightly" for an untagged-as-latest build)'
         required: false
         type: string
       tag_name:
@@ -220,7 +215,13 @@ jobs:
       - name: Compute tag patterns
         id: tag-patterns
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
+          if [ "${{ inputs.version }}" = "nightly" ]; then
+            # Nightly build: tag as `nightly` (and sha) but never `latest`.
+            {
+              echo "type=raw,value=nightly"
+              echo "type=sha,prefix=sha-"
+            } > /tmp/tag-patterns.txt
+          elif [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
             MAJOR=$(echo $VERSION | cut -d. -f1)
             MINOR=$(echo $VERSION | cut -d. -f2)

@@ -15,6 +15,7 @@ COPY webapp/package.json ./webapp/
 COPY shared/package.json ./shared/
 COPY pb/package.json ./pb/
 COPY worker/package.json ./worker/
+COPY cli/package.json ./cli/
 
 # Install dependencies
 RUN yarn install --immutable

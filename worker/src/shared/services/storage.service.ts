@@ -540,6 +540,40 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Remove the local working directory for a transcoded upload (proxy, audio,
+   * sprite, thumbnail, filmstrip). These derived outputs are uploaded to
+   * PocketBase (and tracked as File records) during each transcode step, so the
+   * durable copy never lives in this local `transcode/` tree — once the task is
+   * done the whole directory is disposable on every backend. The per-step
+   * cleanup only deletes in S3 mode (no-op locally), so without this the
+   * `transcode/{ws}/{uploadId}` dir would leak on the local backend.
+   * Best-effort: failures are logged, not thrown.
+   */
+  async cleanupTranscodeDir(
+    workspaceId: string,
+    uploadId: string
+  ): Promise<void> {
+    try {
+      const transcodeDir = path.join(
+        this.resolvedBasePath,
+        'transcode',
+        workspaceId,
+        uploadId
+      );
+      if (fs.existsSync(transcodeDir)) {
+        await fs.promises.rm(transcodeDir, { recursive: true, force: true });
+        this.logger.log(`Cleaned up transcode directory: ${transcodeDir}`);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to cleanup transcode directory for ${uploadId}: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
    * Remove stale worker working directories left behind by crashed/interrupted
    * tasks. Sweeps `os.tmpdir()/worker-temp/*` and the `renders/*` working dirs
    * on every backend — a render's durable copy lives in PocketBase/S3, so the

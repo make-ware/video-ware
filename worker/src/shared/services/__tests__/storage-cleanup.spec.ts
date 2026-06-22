@@ -91,6 +91,58 @@ describe('StorageService.cleanupRenderDir', () => {
   });
 });
 
+describe('StorageService.cleanupTranscodeDir', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const storageModule = await import('@project/shared/storage');
+    (storageModule.createStorageBackend as any).mockImplementation(
+      (config: { type: string }) =>
+        Promise.resolve({ type: config.type, exists: vi.fn() })
+    );
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('removes the transcode working directory in local mode (PocketBase holds the durable copy)', async () => {
+    const service = buildService('local');
+    await service.onModuleInit();
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+
+    await service.cleanupTranscodeDir('ws1', 'up1');
+
+    expect(fs.promises.rm).toHaveBeenCalledWith(
+      expect.stringContaining('transcode/ws1/up1'),
+      { recursive: true, force: true }
+    );
+  });
+
+  it('removes the transcode working directory in S3 mode too', async () => {
+    const service = buildService('s3');
+    await service.onModuleInit();
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+
+    await service.cleanupTranscodeDir('ws1', 'up1');
+
+    expect(fs.promises.rm).toHaveBeenCalledWith(
+      expect.stringContaining('transcode/ws1/up1'),
+      { recursive: true, force: true }
+    );
+  });
+
+  it('does not call rm when the directory does not exist', async () => {
+    const service = buildService('local');
+    await service.onModuleInit();
+
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    await service.cleanupTranscodeDir('ws1', 'up1');
+
+    expect(fs.promises.rm).not.toHaveBeenCalled();
+  });
+});
+
 describe('StorageService.cleanupStaleWorkingDirs', () => {
   const dirent = (name: string) => ({ name, isDirectory: () => true });
 

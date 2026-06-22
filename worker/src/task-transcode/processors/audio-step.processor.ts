@@ -87,7 +87,12 @@ export class AudioStepProcessor extends BaseStepProcessor<
       });
 
       // Create File record
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.AUDIO}/${fileName}`;
+      const storageKey = this.storageService.transcodeStorageKey(
+        upload.WorkspaceRef,
+        input.uploadId,
+        FileType.AUDIO,
+        fileName
+      );
 
       const audioFile = await this.pocketbaseService.uploadFile({
         localFilePath: audioPath,

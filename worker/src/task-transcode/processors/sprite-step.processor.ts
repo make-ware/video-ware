@@ -103,7 +103,12 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       await this.spriteExecutor.execute(filePath, spritePath, enhancedConfig);
 
       // Create File record with sprite configuration in meta
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.SPRITE}/${fileName}`;
+      const storageKey = this.storageService.transcodeStorageKey(
+        upload.WorkspaceRef,
+        input.uploadId,
+        FileType.SPRITE,
+        fileName
+      );
 
       // Fetch the Media first so we can link the File back to it (enables
       // cascade delete of the sprite when the Media is removed).

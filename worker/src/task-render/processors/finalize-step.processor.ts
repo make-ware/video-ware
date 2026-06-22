@@ -108,7 +108,7 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
           fileStatus: FileStatus.AVAILABLE,
           fileType: FileType.RENDER,
           fileSource: FileSource.S3,
-          s3Key: storagePath,
+          storageKey: storagePath,
           WorkspaceRef: workspaceId,
           meta,
         });
@@ -145,8 +145,10 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
       resolvedRenderId = created.id;
     }
 
-    // 7. Cleanup local file if using S3
-    await this.storageService.cleanup(localPath);
+    // 7. Remove the whole render working directory (inputs, output, ffmpeg
+    // scratch). The durable copy now lives in PocketBase/S3, so nothing reads
+    // this local tree again — leaving it behind just pollutes the disk.
+    await this.storageService.cleanupRenderDir(workspaceId, taskId);
 
     this.logger.log(`Successfully finalized render: ${resolvedRenderId}`);
 

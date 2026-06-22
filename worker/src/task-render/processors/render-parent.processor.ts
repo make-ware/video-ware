@@ -78,9 +78,11 @@ export class RenderParentProcessor extends BaseFlowProcessor {
   }
 
   /**
-   * Clean up render-specific working artifacts once the task is done (S3 mode
-   * only). Removes the deterministic render directory (symlinks + output) and
-   * the per-clip source downloads in worker-temp that PREPARE resolved.
+   * Clean up render-specific working artifacts once the task is done (on both
+   * success and failure, every backend). Removes the deterministic render
+   * directory (inputs + output) and the per-clip source downloads in
+   * worker-temp that PREPARE resolved. A render's durable copy lives in
+   * PocketBase/S3, so the local render tree is always disposable.
    */
   protected async cleanupExtraArtifacts(
     parentData: ParentJobData,

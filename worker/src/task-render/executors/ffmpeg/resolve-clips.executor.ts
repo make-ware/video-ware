@@ -131,24 +131,24 @@ export class FFmpegResolveClipsExecutor implements IPrepareExecutor {
   }
 
   /**
-   * Try alternative path patterns when the s3Key-based path doesn't exist.
+   * Try alternative path patterns when the storageKey-based path doesn't exist.
    * This handles legacy database records with incorrect paths.
    */
   private async tryAlternativePaths(
-    s3Key: string,
+    storageKey: string,
     workspaceId: string,
     uploadId: string,
     fileName: string
   ): Promise<string | null> {
     const basePath = this.storageService.getBasePath();
 
-    // Extract just the filename from the s3Key
-    const s3FileName = path.basename(s3Key);
+    // Extract just the filename from the storageKey
+    const storageFileName = path.basename(storageKey);
 
     // Alternative path patterns to try (only for ORIGINAL files)
     const alternatives = [
       // Pattern 1: uploads/<workspaceId>/<uploadId>/<fileName>
-      path.join(basePath, 'uploads', workspaceId, uploadId, s3FileName),
+      path.join(basePath, 'uploads', workspaceId, uploadId, storageFileName),
       // Pattern 2: uploads/<workspaceId>/<uploadId>/<original fileName from record>
       path.join(basePath, 'uploads', workspaceId, uploadId, fileName),
       // Pattern 3: Look for any original file in the upload folder

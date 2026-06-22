@@ -4,6 +4,7 @@ import { Interval } from '@nestjs/schedule';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { QueueService } from '../queue/queue.service';
 import { IngestOrchestratorService } from './ingest-orchestrator.service';
+import { CleanupOrchestratorService } from './cleanup-orchestrator.service';
 import {
   TaskStatus,
   TaskType,
@@ -21,7 +22,8 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
     private readonly configService: ConfigService,
     private readonly pocketbaseService: PocketBaseService,
     private readonly queueService: QueueService,
-    private readonly ingestOrchestrator: IngestOrchestratorService
+    private readonly ingestOrchestrator: IngestOrchestratorService,
+    private readonly cleanupOrchestrator: CleanupOrchestratorService
   ) {}
 
   onApplicationBootstrap() {
@@ -115,6 +117,14 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
     // its own status transitions, so skip the generic enqueue/claim path.
     if ((task.type as TaskType) === TaskType.FULL_INGEST) {
       await this.ingestOrchestrator.orchestrate(task);
+      return;
+    }
+
+    // cleanup is also an in-process orchestration task (no BullMQ flow): it runs
+    // maintenance — MediaRef backfill, stale-file pruning, Artifacts (orphaned
+    // blob) reaping, and stale working-dir removal — and owns its own status.
+    if ((task.type as TaskType) === TaskType.CLEANUP) {
+      await this.cleanupOrchestrator.run(task);
       return;
     }
 

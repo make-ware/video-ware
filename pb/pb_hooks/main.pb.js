@@ -2,12 +2,12 @@
 // Documentation: https://pocketbase.io/docs/js-overview/
 
 // Example: Custom API endpoint
-routerAdd('GET', '/api/hello', (c) => {
-  return c.json(200, {
-    message: 'Hello from PocketBase!',
-    timestamp: new Date().toISOString(),
-  });
-});
+// routerAdd('GET', '/api/hello', (c) => {
+//   return c.json(200, {
+//     message: 'Hello from PocketBase!',
+//     timestamp: new Date().toISOString(),
+//   });
+// });
 
 // Example: Validate user registration (before creation)
 onRecordCreateRequest((e) => {

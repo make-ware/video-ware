@@ -57,7 +57,7 @@ export class FileResolver {
       );
       if (files.items && files.items.length > 0) {
         const file = files.items[0];
-        storagePath = file.s3Key || undefined;
+        storagePath = file.storageKey || undefined;
         if (!storageBackend && file.fileSource) {
           // Map FileSource to StorageBackendType
           const fileSource = Array.isArray(file.fileSource)
@@ -92,7 +92,10 @@ export class FileResolver {
 
   /**
    * Generate output file path for derived files (thumbnails, sprites, proxies, etc.)
-   * Creates the path structure: ./data/uploads/<workspaceId>/<uploadId>/<filename>
+   * Creates the path structure: ./data/transcode/<workspaceId>/<uploadId>/<filename>
+   *
+   * Derived TRANSCODE outputs live under `transcode/` — separate from the
+   * untouchable `uploads/` original — so cleanup can safely reclaim them.
    *
    * @param workspaceId - Workspace ID
    * @param uploadId - Upload ID
@@ -109,7 +112,7 @@ export class FileResolver {
     const basePath = storageService.getBasePath();
     const outputPath = path.join(
       basePath,
-      'uploads',
+      'transcode',
       workspaceId,
       uploadId,
       filename

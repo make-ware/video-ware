@@ -216,9 +216,28 @@ export const TaskResultSchema = z.union([
     fileId: z.string(),
     processorVersion: z.string(),
   }),
+  // CleanupResult — counts emitted by the `cleanup` task.
+  z.object({
+    refsLinked: z.number(),
+    staleFilesPruned: z.number(),
+    artifactsDeleted: z.number(),
+    artifactsFailed: z.number(),
+    localDirsPurged: z.number(),
+    tempDirsRemoved: z.number(),
+  }),
   // Generic fallback for unknown task types
   z.record(z.string(), z.unknown()),
 ]);
+
+// CleanupResult — typed shape of the cleanup task's result payload.
+export interface CleanupResult {
+  refsLinked: number;
+  staleFilesPruned: number;
+  artifactsDeleted: number;
+  artifactsFailed: number;
+  localDirsPurged: number;
+  tempDirsRemoved: number;
+}
 
 // ============================================================================
 // Timeline Metadata

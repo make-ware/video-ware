@@ -30,6 +30,11 @@ export const TaskSchema = z
     payload: JSONField(TaskPayloadSchema),
     result: JSONField(TaskResultSchema).optional(),
     errorLog: TextField().optional(),
+    // Required at the DB level for user-facing tasks. System tasks (the
+    // `cleanup` task) are created without these by the storageCleanup PB cron — the
+    // DB fields were relaxed to optional in the 1781800001 migration for exactly
+    // that — but they're kept required here so the worker flow builders, which
+    // only run for user-facing tasks, can treat WorkspaceRef as a present string.
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UserRef: RelationField({ collection: 'Users' }),
     provider: SelectField([
@@ -51,6 +56,7 @@ export const TaskInputSchema = z.object({
     TaskType.DERIVE_CLIPS,
     TaskType.DETECT_LABELS,
     TaskType.RENDER_TIMELINE,
+    TaskType.CLEANUP,
   ]),
   status: z
     .enum([

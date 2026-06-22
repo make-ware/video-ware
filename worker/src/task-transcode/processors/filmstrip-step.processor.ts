@@ -130,7 +130,12 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
         );
 
         // Create File record
-        const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.FILMSTRIP}/${fileName}`;
+        const storageKey = this.storageService.transcodeStorageKey(
+          upload.WorkspaceRef,
+          input.uploadId,
+          FileType.FILMSTRIP,
+          fileName
+        );
 
         const filmstripFile = await this.pocketbaseService.uploadFile({
           localFilePath: filmstripPath,

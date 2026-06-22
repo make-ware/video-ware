@@ -94,7 +94,12 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
       );
 
       // Create File record
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.THUMBNAIL}/${fileName}`;
+      const storageKey = this.storageService.transcodeStorageKey(
+        upload.WorkspaceRef,
+        input.uploadId,
+        FileType.THUMBNAIL,
+        fileName
+      );
 
       const thumbnailFile = await this.pocketbaseService.uploadFile({
         localFilePath: thumbnailPath,

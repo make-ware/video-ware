@@ -134,7 +134,12 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       });
 
       // Create File record
-      const storageKey = `uploads/${upload.WorkspaceRef}/${input.uploadId}/${FileType.PROXY}/${fileName}`;
+      const storageKey = this.storageService.transcodeStorageKey(
+        upload.WorkspaceRef,
+        input.uploadId,
+        FileType.PROXY,
+        fileName
+      );
 
       // Fetch the Media first so we can link the File back to it (enables
       // cascade delete of the proxy when the Media is removed).

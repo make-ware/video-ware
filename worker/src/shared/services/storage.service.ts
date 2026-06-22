@@ -6,7 +6,7 @@ import {
   StorageBackend,
   StorageConfig,
 } from '@project/shared/storage';
-import { StorageBackendType, FileSource } from '@project/shared';
+import { StorageBackendType, FileSource, FileType } from '@project/shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -39,6 +39,17 @@ export interface GenerateDerivedPathParams {
   suffix: string;
   /** File extension (e.g., "jpg", "mp4") */
   extension: string;
+}
+
+/**
+ * Live-record keep-sets for reconcileLocal(). Each set holds the directory keys
+ * that should be KEPT; any on-disk dir not in its set is purged.
+ */
+export interface LocalReconcileKeep {
+  /** Keep uploads/{ws}/{uploadId} when uploadId is here (upload ids that have a Media). */
+  uploadIds: Set<string>;
+  /** Keep labels/{ws}/{mediaId} when mediaId is here (live Media ids). */
+  mediaIds: Set<string>;
 }
 
 @Injectable()
@@ -506,15 +517,13 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
-   * Clean up the deterministic render working directory for a task.
-   * Only removes files when using the S3 backend; in local mode the render
-   * directory lives under durable storage and is preserved.
+   * Remove the deterministic render working directory for a task (inputs,
+   * output, and any ffmpeg scratch). A render's durable copy lives in
+   * PocketBase (FileSource.POCKETBASE) or S3 — never in this local `renders/`
+   * tree — so once the render is finalized the whole directory is disposable on
+   * every backend. Best-effort: failures are logged, not thrown.
    */
   async cleanupRenderDir(workspaceId: string, taskId: string): Promise<void> {
-    if (this.backend.type !== StorageBackendType.S3) {
-      return;
-    }
-
     try {
       const renderDir = this.getRenderDir(workspaceId, taskId);
       if (fs.existsSync(renderDir)) {
@@ -528,6 +537,153 @@ export class StorageService implements OnModuleInit {
         `Failed to cleanup render directory for ${taskId}: ${errorMessage}`
       );
     }
+  }
+
+  /**
+   * Remove stale worker working directories left behind by crashed/interrupted
+   * tasks. Sweeps `os.tmpdir()/worker-temp/*` and the `renders/*` working dirs
+   * on every backend — a render's durable copy lives in PocketBase/S3, so the
+   * local renders tree is always disposable (see cleanupRenderDir). A directory
+   * is "stale" when its mtime is older than maxAgeMs, so in-flight tasks
+   * (recently touched) are preserved.
+   * Per-pod: only sees the local filesystem of the worker that runs it.
+   * @param maxAgeMs Age threshold in milliseconds (e.g. 24h)
+   * @returns number of directories removed
+   */
+  async cleanupStaleWorkingDirs(maxAgeMs: number): Promise<number> {
+    const cutoff = Date.now() - maxAgeMs;
+    let removed = 0;
+
+    const sweep = async (parentDir: string): Promise<void> => {
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(parentDir, {
+          withFileTypes: true,
+        });
+      } catch {
+        return; // parent doesn't exist yet -> nothing to sweep
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const dir = path.join(parentDir, entry.name);
+        try {
+          const stat = await fs.promises.stat(dir);
+          if (stat.mtimeMs >= cutoff) continue; // recently active -> keep
+          await fs.promises.rm(dir, { recursive: true, force: true });
+          removed++;
+          this.logger.log(`Removed stale working dir: ${dir}`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Failed to remove stale dir ${dir}: ${msg}`);
+        }
+      }
+    };
+
+    await sweep(path.join(os.tmpdir(), 'worker-temp'));
+
+    // renders/<workspaceId>/<taskId>: always a working dir (durable copy lives
+    // in PocketBase/S3), so sweep it on every backend. Sweep at the taskId
+    // level under each workspace.
+    const rendersRoot = path.join(this.resolvedBasePath, 'renders');
+    let workspaces: fs.Dirent[];
+    try {
+      workspaces = await fs.promises.readdir(rendersRoot, {
+        withFileTypes: true,
+      });
+    } catch {
+      workspaces = [];
+    }
+    for (const ws of workspaces) {
+      if (!ws.isDirectory()) continue;
+      await sweep(path.join(rendersRoot, ws.name));
+    }
+
+    return removed;
+  }
+
+  /**
+   * Reconcile the LOCAL storage tree against live PocketBase records and purge
+   * orphaned directories (folder-level). No-op on the S3 backend, which would
+   * require listing the whole bucket. Rules, keyed on each dir's owning record:
+   *   - uploads/{ws}/{uploadId}:   purged when the upload has no Media
+   *       (keep.uploadIds = upload ids that DO have a Media).
+   *   - transcode/{ws}/{uploadId}: same rule as uploads — derived TRANSCODE
+   *       outputs are regenerable, so they go when the upload has no Media.
+   *   - labels/{ws}/{mediaId}:   purged when the Media is gone
+   *       (keep.mediaIds = live Media ids) — never when the Media exists.
+   * A dir whose mtime is younger than maxAgeMs is skipped so in-flight ingests
+   * aren't deleted mid-write. The `renders/` tree is NOT reconciled here — it
+   * holds disposable working dirs reclaimed by cleanupStaleWorkingDirs (mtime
+   * based), since a render's durable copy lives in PocketBase/S3.
+   * @returns number of directories purged
+   */
+  async reconcileLocal(
+    keep: LocalReconcileKeep,
+    maxAgeMs: number
+  ): Promise<number> {
+    if (this.backend.type !== StorageBackendType.LOCAL) {
+      this.logger.debug('reconcileLocal: skipped (backend is not local)');
+      return 0;
+    }
+
+    const cutoff = Date.now() - maxAgeMs;
+    let purged = 0;
+
+    const categories: Array<{
+      top: string;
+      keepDir: (ws: string, id: string) => boolean;
+    }> = [
+      { top: 'uploads', keepDir: (_ws, id) => keep.uploadIds.has(id) },
+      { top: 'transcode', keepDir: (_ws, id) => keep.uploadIds.has(id) },
+      { top: 'labels', keepDir: (_ws, id) => keep.mediaIds.has(id) },
+    ];
+
+    for (const cat of categories) {
+      const root = path.join(this.resolvedBasePath, cat.top);
+      let workspaces: fs.Dirent[];
+      try {
+        workspaces = await fs.promises.readdir(root, { withFileTypes: true });
+      } catch {
+        continue; // category dir doesn't exist yet
+      }
+
+      for (const ws of workspaces) {
+        if (!ws.isDirectory()) continue;
+        const wsDir = path.join(root, ws.name);
+        let ids: fs.Dirent[];
+        try {
+          ids = await fs.promises.readdir(wsDir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+
+        for (const id of ids) {
+          if (!id.isDirectory()) continue;
+          if (cat.keepDir(ws.name, id.name)) continue;
+          const dir = path.join(wsDir, id.name);
+          try {
+            const stat = await fs.promises.stat(dir);
+            if (stat.mtimeMs >= cutoff) continue; // possibly in-flight -> keep
+            await fs.promises.rm(dir, { recursive: true, force: true });
+            purged++;
+            this.logger.log(`Purged orphaned ${cat.top} dir: ${dir}`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Failed to purge ${dir}: ${msg}`);
+          }
+        }
+
+        // Best-effort: drop the workspace dir if it's now empty.
+        try {
+          const remaining = await fs.promises.readdir(wsDir);
+          if (remaining.length === 0) await fs.promises.rmdir(wsDir);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return purged;
   }
 
   /**
@@ -687,6 +843,22 @@ export class StorageService implements OnModuleInit {
 
     // Resolve the path
     return this.resolveBasePath(localPath);
+  }
+
+  /**
+   * Storage key for a derived TRANSCODE output (proxy, audio, sprite, thumbnail,
+   * filmstrip). These live under the `transcode/` top-level — kept separate from
+   * the untouchable `uploads/` original — so the cleanup task can reclaim
+   * regenerable data per BullMQ queue (delete `transcode/`, keep `uploads/`).
+   * Layout: transcode/{workspaceId}/{uploadId}/{fileType}/{fileName}.
+   */
+  transcodeStorageKey(
+    workspaceId: string,
+    uploadId: string,
+    fileType: FileType,
+    fileName: string
+  ): string {
+    return `transcode/${workspaceId}/${uploadId}/${fileType}/${fileName}`;
   }
 
   /**

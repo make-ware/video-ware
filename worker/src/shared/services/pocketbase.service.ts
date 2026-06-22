@@ -16,6 +16,7 @@ import {
   // Mutator classes
   UsageEventMutator,
   type UsageEventInput,
+  ArtifactMutator,
   FileMutator,
   LabelEntityMutator,
   LabelFaceMutator,
@@ -45,6 +46,7 @@ export class PocketBaseService implements OnModuleInit {
 
   // Mutators for data operations
   public usageEventMutator!: UsageEventMutator;
+  public artifactMutator!: ArtifactMutator;
   public fileMutator!: FileMutator;
   public labelEntityMutator!: LabelEntityMutator;
   public mediaClipMutator!: MediaClipMutator;
@@ -113,6 +115,7 @@ export class PocketBaseService implements OnModuleInit {
 
   private initializeMutators() {
     this.usageEventMutator = new UsageEventMutator(this.pb);
+    this.artifactMutator = new ArtifactMutator(this.pb);
     this.fileMutator = new FileMutator(this.pb);
     this.labelEntityMutator = new LabelEntityMutator(this.pb);
     this.labelTrackMutator = new LabelTrackMutator(this.pb);
@@ -342,6 +345,22 @@ export class PocketBaseService implements OnModuleInit {
   }
 
   /**
+   * Delete a File record by ID. Deleting the record fires the PB
+   * files-artifact-tombstone hook, which queues the external blob (if any) into
+   * the Artifacts collection for the cleanup task to reap.
+   */
+  async deleteFile(fileId: string): Promise<boolean> {
+    try {
+      return await this.fileMutator.delete(fileId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete file record ${fileId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }
+
+  /**
    * Upload a file to PocketBase and create a File record
    */
   async uploadFile(params: {
@@ -388,7 +407,7 @@ export class PocketBaseService implements OnModuleInit {
       formData.append('fileType', fileType);
       formData.append('fileSource', fileSource);
       if (storageKey) {
-        formData.append('s3Key', storageKey);
+        formData.append('storageKey', storageKey);
       }
       formData.append('WorkspaceRef', workspaceRef);
       if (uploadRef) {

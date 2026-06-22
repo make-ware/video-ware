@@ -78,10 +78,11 @@ export abstract class BaseFlowProcessor
 
   /**
    * Remove local working artifacts for a finished task. Runs on BOTH parent
-   * success and failure so a stateless (S3) pod never accumulates disk; it is
-   * the only safe place to clean inputs shared by parallel sibling steps.
-   * All underlying cleanup methods are no-ops/guarded in local mode, where
-   * outputs and working dirs live under durable storage.
+   * success and failure so no pod accumulates disk; it is the only safe place
+   * to clean inputs shared by parallel sibling steps. Cleanup of durable
+   * outputs (e.g. transcode source temp) stays guarded in local mode, but
+   * render working dirs are disposable on every backend (the durable copy lives
+   * in PocketBase/S3) and are always removed.
    */
   protected async cleanupTaskArtifacts(
     parentData: ParentJobData,

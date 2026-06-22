@@ -7,6 +7,7 @@ import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { MediaService, type MediaWithPreviews } from '@/services/media';
 import { clipTypeFilterPredicate } from '@/components/clip/clip-type-filter';
+import { mediaTypeFilterPredicate } from '@/components/media/media-type-filter';
 import type { ExpandedMediaClip } from '@/types/expanded-types';
 import type { LibraryItem, LibrarySortBy } from './types';
 
@@ -18,6 +19,8 @@ interface UseClipLibraryArgs {
   source: ClipSource | null;
   searchQuery?: string;
   typeFilter?: string;
+  /** Filter by underlying media type ('all' | 'video' | 'audio' | 'image'). */
+  mediaTypeFilter?: string;
   sortBy?: LibrarySortBy;
 }
 
@@ -32,6 +35,7 @@ export function useClipLibrary({
   source,
   searchQuery = '',
   typeFilter = 'all',
+  mediaTypeFilter = 'all',
   sortBy = 'recent',
 }: UseClipLibraryArgs): UseClipLibraryReturn {
   const mediaClipMutator = useMemo(() => new MediaClipMutator(pb), []);
@@ -56,6 +60,7 @@ export function useClipLibrary({
       workspaceId: sourceWorkspaceId ?? '',
       directoryId: sourceDirectoryId,
       typeFilter,
+      mediaTypeFilter,
       sortBy,
       search: debouncedQuery,
     }),
@@ -86,6 +91,13 @@ export function useClipLibrary({
           clips = clips.filter((clip) => predicate(clip.type));
         }
 
+        if (mediaTypeFilter !== 'all') {
+          const mediaPredicate = mediaTypeFilterPredicate(mediaTypeFilter);
+          clips = clips.filter((clip) =>
+            mediaPredicate(clip.expand?.MediaRef?.mediaType)
+          );
+        }
+
         clips = sortClips(clips, sortBy);
 
         return clips.map(
@@ -98,6 +110,10 @@ export function useClipLibrary({
         : await mediaService.getMediaByWorkspace(sourceWorkspaceId!, 1, 100);
 
       let filtered = filterMedia(mediaList, debouncedQuery);
+      if (mediaTypeFilter !== 'all') {
+        const mediaPredicate = mediaTypeFilterPredicate(mediaTypeFilter);
+        filtered = filtered.filter((media) => mediaPredicate(media.mediaType));
+      }
       filtered = sortMedia(filtered, sortBy);
 
       return filtered.map(

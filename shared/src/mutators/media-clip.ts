@@ -109,9 +109,9 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
     if (options?.searchQuery) {
       const searchTerm = options.searchQuery.trim();
       if (searchTerm) {
-        // Search in type field or in the related media's upload filename
+        // Search in type field or in the related media's upload name
         filters.push(
-          `(type ~ "${searchTerm}" || MediaRef.UploadRef.filename ~ "${searchTerm}")`
+          `(type ~ "${searchTerm}" || MediaRef.UploadRef.name ~ "${searchTerm}")`
         );
       }
     }

@@ -53,16 +53,17 @@ export function WorkspaceLibrary({
 
   const directoryFilterId = currentDirectory?.id ?? undefined;
 
-  const [activeTab, setActiveTab] = useState<'media' | 'clips'>('media');
+  const [activeTab, setActiveTab] = useState<'media' | 'clips'>('clips');
 
   // Clips tab state
   const [clipSearch, setClipSearch] = useState('');
   const [clipSort, setClipSort] = useState<LibrarySortBy>('recent');
-  const [clipTypeFilter, setClipTypeFilter] = useState('user');
+  const [clipMediaType, setClipMediaType] = useState('all');
 
   // Media tab state
   const [mediaSearch, setMediaSearch] = useState('');
   const [mediaSort, setMediaSort] = useState<LibrarySortBy>('recent');
+  const [mediaMediaType, setMediaMediaType] = useState('all');
 
   // Carve-from-media (ClipEditorModal in create mode)
   const [carveMedia, setCarveMedia] = useState<
@@ -78,7 +79,10 @@ export function WorkspaceLibrary({
         }
       : null,
     searchQuery: clipSearch,
-    typeFilter: clipTypeFilter,
+    // Scope the clips tab to user-created clips (auto-generated label clips
+    // are surfaced elsewhere); the visible dropdown filters by media type.
+    typeFilter: 'user',
+    mediaTypeFilter: clipMediaType,
     sortBy: clipSort,
   });
 
@@ -91,6 +95,7 @@ export function WorkspaceLibrary({
         }
       : null,
     searchQuery: mediaSearch,
+    mediaTypeFilter: mediaMediaType,
     sortBy: mediaSort,
   });
 
@@ -167,13 +172,13 @@ export function WorkspaceLibrary({
       >
         <div className="px-4 pt-3 pb-0 flex-shrink-0">
           <TabsList className="w-full">
-            <TabsTrigger value="media" className="flex-1 gap-1.5">
-              <Video className="h-4 w-4" />
-              Media
-            </TabsTrigger>
             <TabsTrigger value="clips" className="flex-1 gap-1.5">
               <Scissors className="h-4 w-4" />
               Clips
+            </TabsTrigger>
+            <TabsTrigger value="media" className="flex-1 gap-1.5">
+              <Video className="h-4 w-4" />
+              Media
             </TabsTrigger>
           </TabsList>
         </div>
@@ -187,6 +192,8 @@ export function WorkspaceLibrary({
             onSearchChange={setMediaSearch}
             sortBy={mediaSort}
             onSortChange={setMediaSort}
+            mediaTypeFilter={mediaMediaType}
+            onMediaTypeFilterChange={setMediaMediaType}
             searchPlaceholder="Search media..."
             itemCount={mediaLib.items.length}
             itemLabel="media"
@@ -227,8 +234,8 @@ export function WorkspaceLibrary({
             onSearchChange={setClipSearch}
             sortBy={clipSort}
             onSortChange={setClipSort}
-            typeFilter={clipTypeFilter}
-            onTypeFilterChange={setClipTypeFilter}
+            mediaTypeFilter={clipMediaType}
+            onMediaTypeFilterChange={setClipMediaType}
             searchPlaceholder="Search clips..."
             itemCount={clipsLib.items.length}
             itemLabel="clip"

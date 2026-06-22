@@ -367,43 +367,54 @@ export function TranscriptList({
 
   return (
     <div className="space-y-4 pb-4">
-      <div className="flex justify-between items-center bg-background sticky top-0 z-10 py-2 border-b">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 bg-muted sticky top-0 z-10 -mx-3 px-3 py-2 border-b sm:-mx-6 sm:px-6">
+        <div className="flex justify-between items-center gap-2">
           <h3 className="font-semibold text-sm">Transcripts</h3>
-          {selectedIds.size > 0 && (
-            <span className="text-xs text-muted-foreground">
-              ({selectedIds.size} selected)
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
+          <div className="flex items-center gap-1">
             <Button
               size="sm"
-              variant="secondary"
-              onClick={handleCreateClipFromSelection}
-              disabled={isSubmitting}
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              onClick={() => setIsDeadAirDialogOpen(true)}
+              title="Remove Dead Air"
             >
-              <Scissors className="h-4 w-4 mr-2" />
-              Create Clip
+              <Wand2 className="h-4 w-4" />
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 p-0"
-            onClick={() => setIsDeadAirDialogOpen(true)}
-            title="Remove Dead Air"
-          >
-            <Wand2 className="h-4 w-4" />
-          </Button>
-          {!isCreating && (
-            <Button size="sm" onClick={handleStartCreate} variant="outline">
-              <Plus className="h-4 w-4 mr-2" />
-              Add
-            </Button>
-          )}
+            {!isCreating && (
+              <Button size="sm" onClick={handleStartCreate} variant="outline">
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            )}
+          </div>
         </div>
+        {selectedIds.size > 0 && (
+          <div className="flex justify-between items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5">
+            <span className="text-xs text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={isSubmitting}
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleCreateClipFromSelection}
+                disabled={isSubmitting}
+              >
+                <Scissors className="h-4 w-4 mr-2" />
+                Create Clip
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Dialog open={isDeadAirDialogOpen} onOpenChange={setIsDeadAirDialogOpen}>
@@ -510,7 +521,7 @@ export function TranscriptList({
               className={cn(
                 'transition-colors flex-1',
                 editingId === t.id && 'border-primary',
-                selectedIds.has(t.id) && 'bg-muted/30'
+                selectedIds.has(t.id) && 'border-primary/40 bg-primary/5'
               )}
             >
               <CardContent className="p-3">
@@ -567,7 +578,7 @@ export function TranscriptList({
                   <div className="space-y-2 group">
                     <div className="flex justify-between items-start">
                       <div
-                        className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-muted-foreground/20 transition-colors"
+                        className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-accent transition-colors"
                         onClick={() => onSeek(t.start)}
                       >
                         {formatTime(t.start)} - {formatTime(t.end)}

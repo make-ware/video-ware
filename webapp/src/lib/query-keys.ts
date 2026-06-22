@@ -18,6 +18,7 @@ export const qk = {
       workspaceId: string;
       directoryId?: string;
       typeFilter: string;
+      mediaTypeFilter: string;
       sortBy: string;
       search: string;
     }) => ['clips', 'library', args] as const,

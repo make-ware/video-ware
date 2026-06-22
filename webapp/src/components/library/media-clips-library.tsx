@@ -11,12 +11,10 @@ interface MediaClipsLibraryProps {
   media: Media | ExpandedMedia;
   clips: MediaClip[];
   activeClipId?: string;
-  showFullLengthCard?: boolean;
   onClipSelect?: (clip: MediaClip) => void;
   onClipUpdate?: () => void;
   onClipDelete?: () => void;
   onInlineEdit?: (clipId: string) => void;
-  onFullLengthSelect?: () => void;
   className?: string;
 }
 
@@ -24,31 +22,14 @@ export function MediaClipsLibrary({
   media,
   clips,
   activeClipId,
-  showFullLengthCard = true,
   onClipSelect,
   onClipUpdate,
   onClipDelete,
   onInlineEdit,
-  onFullLengthSelect,
   className,
 }: MediaClipsLibraryProps) {
-  const fullLengthItem: LibraryItem = {
-    kind: 'media',
-    id: `full-${media.id}`,
-    media: media as ExpandedMedia,
-  };
-
   return (
     <div className={cn('space-y-3', className)}>
-      {showFullLengthCard && (
-        <LibraryItemCard
-          item={fullLengthItem}
-          surface="media-details"
-          isActive={!activeClipId}
-          onSelect={onFullLengthSelect ? () => onFullLengthSelect() : undefined}
-        />
-      )}
-
       {clips.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <p>No clips found for this media.</p>

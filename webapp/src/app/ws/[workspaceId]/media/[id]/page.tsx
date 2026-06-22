@@ -33,7 +33,6 @@ import { TranscriptList } from '@/components/transcripts/transcript-list';
 import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
 import { cn } from '@/lib/utils';
 import { MediaClip } from '@project/shared';
-import { ClipType } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import {
   AlertDialog,
@@ -385,7 +384,7 @@ function MediaDetailsPageContent() {
                     <Scissors className="h-4 w-4" />
                     Create Clip
                   </Button>
-                  {activeClip && activeClip.type !== ClipType.FULL && (
+                  {activeClip && (
                     <Button
                       variant="outline"
                       onClick={() => handleOpenEditClip(activeClip.id)}
@@ -510,10 +509,6 @@ function MediaDetailsPageContent() {
                     media={media}
                     clips={filteredClips}
                     activeClipId={activeClipId}
-                    showFullLengthCard={
-                      typeFilter === 'all' || typeFilter === 'media'
-                    }
-                    onFullLengthSelect={handleClearClipSelection}
                     onClipSelect={handleClipSelect}
                     onClipUpdate={handleClipUpdate}
                     onClipDelete={handleClipDelete}

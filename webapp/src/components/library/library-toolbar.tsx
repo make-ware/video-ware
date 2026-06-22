@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
-import { ClipTypeFilter } from '@/components/clip/clip-type-filter';
+import { MediaTypeFilter } from '@/components/media/media-type-filter';
 import { Search, Folder, FolderOpen } from 'lucide-react';
 import type { Directory } from '@project/shared';
 import type { LibrarySortBy } from './types';
@@ -21,9 +21,9 @@ interface LibraryToolbarProps {
   onSearchChange: (query: string) => void;
   sortBy: LibrarySortBy;
   onSortChange: (sort: LibrarySortBy) => void;
-  /** Hidden when undefined — used only for the Clips tab. */
-  typeFilter?: string;
-  onTypeFilterChange?: (value: string) => void;
+  /** Media-type filter ('all' | 'video' | 'audio' | 'image'). Hidden when undefined. */
+  mediaTypeFilter?: string;
+  onMediaTypeFilterChange?: (value: string) => void;
   itemCount?: number;
   itemLabel?: string;
   searchPlaceholder?: string;
@@ -39,8 +39,8 @@ export function LibraryToolbar({
   onSearchChange,
   sortBy,
   onSortChange,
-  typeFilter,
-  onTypeFilterChange,
+  mediaTypeFilter,
+  onMediaTypeFilterChange,
   itemCount,
   itemLabel = 'item',
   searchPlaceholder = 'Search...',
@@ -52,7 +52,7 @@ export function LibraryToolbar({
   const showDirectoryNav =
     directories !== undefined && onDirectorySelect !== undefined;
   const showTypeFilter =
-    typeFilter !== undefined && onTypeFilterChange !== undefined;
+    mediaTypeFilter !== undefined && onMediaTypeFilterChange !== undefined;
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3 border-b flex-shrink-0">
@@ -84,9 +84,9 @@ export function LibraryToolbar({
       {(showTypeFilter || itemCount !== undefined) && (
         <div className="flex items-center justify-between">
           {showTypeFilter ? (
-            <ClipTypeFilter
-              value={typeFilter!}
-              onChange={onTypeFilterChange!}
+            <MediaTypeFilter
+              value={mediaTypeFilter!}
+              onChange={onMediaTypeFilterChange!}
             />
           ) : (
             <div />

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.14...video-ware-v0.8.0) (2026-06-22)
+
+
+### Features
+
+* add clean up task ([7a80ca9](https://github.com/make-ware/video-ware/commit/7a80ca950546623ae3e6c53e2472c9f6483d2833))
+* add CLI ([f7c30bd](https://github.com/make-ware/video-ware/commit/f7c30bdcd47297dc56ba7f317a5b98abbf9d96f8))
+* add docker hub deployment ([294ee9f](https://github.com/make-ware/video-ware/commit/294ee9f30b47e0d7d3a708c8ac1f3dd1dcdbe8f4))
+* move scheduling to pocketbase hooks ([fa8632d](https://github.com/make-ware/video-ware/commit/fa8632d53ea91405bd028746bcac335679c27e02))
+
+
+### Bug Fixes
+
+* add cascade delete to files ([740f7bc](https://github.com/make-ware/video-ware/commit/740f7bcdfcb52c6dc05fd7d6a26e74143ed13994))
+* add changelog to dockerhub ([ef41c8f](https://github.com/make-ware/video-ware/commit/ef41c8fd5b464ae34f53cb7d7e52a04efa2c2733))
+* add cleanup hooks and tasks ([2417f65](https://github.com/make-ware/video-ware/commit/2417f6501fdaaf8a3168cbad47d0ff3080924f22))
+* add nightly option and fix build ([337ee5d](https://github.com/make-ware/video-ware/commit/337ee5de05c56e8e5ac608f34d1c513a65ab5bd3))
+* add task type to spinner ([a1c5f69](https://github.com/make-ware/video-ware/commit/a1c5f69ef4c4e3f2eeae5523824ed7d2907daf23))
+* add transcode clean up ([a007129](https://github.com/make-ware/video-ware/commit/a0071294e9dac144c010503a095f33b5b54c1d25))
+* append mediaRef to filmstrips ([7c9eb62](https://github.com/make-ware/video-ware/commit/7c9eb627ae9455280bfbefa7dff695ae4b40466c))
+* audio attenuation bug ([023d0d9](https://github.com/make-ware/video-ware/commit/023d0d97988ef15f977edc51fb4cad391df4e1c5))
+
 ## [0.7.14](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.13...video-ware-v0.7.14) (2026-06-19)
 
 

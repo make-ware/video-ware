@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.0...video-ware-v0.8.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* add github link to dockerhub readme ([df6acf6](https://github.com/make-ware/video-ware/commit/df6acf6ae459c6479fd621be5af6ed3f9f0249b2))
+* enable captions from label data ([0acdd02](https://github.com/make-ware/video-ware/commit/0acdd02390a639840e33c87aacee4a3c4474ac78))
+* organize pocketbase hooks ([0dd3952](https://github.com/make-ware/video-ware/commit/0dd39520dc23253595a34dc493013b74bb766758))
+* restore old timeline renders ([b7d38aa](https://github.com/make-ware/video-ware/commit/b7d38aa694eb240cb8c8972c0df40e53ea0df841))
+
 ## [0.8.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.7.14...video-ware-v0.8.0) (2026-06-22)
 
 

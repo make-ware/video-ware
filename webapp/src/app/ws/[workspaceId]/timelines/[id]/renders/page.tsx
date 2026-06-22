@@ -287,10 +287,16 @@ function TimelineRendersPageContent() {
         <div className="space-y-4">
           {renders.map((render) => {
             const file = render.expand?.FileRef;
-            const status = Array.isArray(render.status)
+            const rawStatus = Array.isArray(render.status)
               ? render.status[0]
               : render.status;
-            const isDownloadable = status === 'success' && !!file;
+            // A populated FileRef blob is the source of truth for "downloadable".
+            // Legacy renders (created before the status/progress migration) have
+            // empty status fields, so we always offer the download when the output
+            // file is present — and treat an empty status as completed.
+            const hasFile = !!file?.file;
+            const status = rawStatus || (hasFile ? 'success' : rawStatus);
+            const isDownloadable = hasFile;
             const createdDate = new Date(render.created);
             const relativeTime = formatDistanceToNow(createdDate, {
               addSuffix: true,

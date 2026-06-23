@@ -2,6 +2,7 @@
   "name": "@project/pb",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "./pocketbase serve",
     "dev:debug": "./pocketbase serve --dev",

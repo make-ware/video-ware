@@ -277,9 +277,17 @@ yarn precommit                      # Run lint, typecheck, format, and test
 5. Run tests and linting: `yarn precommit`
 6. Submit a pull request
 
+By contributing, you agree to the [Contributor License Agreement](CLA.md).
+
 ## License
 
-See [LICENSE](pb/LICENSE.md) for details.
+Video Ware is licensed under the **[GNU AGPL-3.0-only](LICENSE)**. You are free
+to use, modify, and self-host it, including for commercial purposes. If you
+modify Video Ware and distribute it or run it as a network service, you must make
+your complete source code available to users under the same license.
+
+The software is provided "as is", without warranty, and the authors are not
+liable for any damages arising from its use.
 
 ## Links
 

@@ -3,6 +3,7 @@
   "version": "0.0.4",
   "description": "Shared zod schemas for the project",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",

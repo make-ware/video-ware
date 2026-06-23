@@ -2,6 +2,7 @@
   "name": "@project/worker",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main",

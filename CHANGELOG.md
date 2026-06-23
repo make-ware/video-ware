@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.2...video-ware-v0.8.3) (2026-06-23)
+
+
+### Bug Fixes
+
+* improve docs ([ccda62f](https://github.com/make-ware/video-ware/commit/ccda62fa5ef3e53804f2143df08df18349d2fa92))
+
 ## [0.8.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.1...video-ware-v0.8.2) (2026-06-22)
 
 

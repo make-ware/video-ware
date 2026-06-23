@@ -18,8 +18,6 @@ export const envSchema = z.object({
   // Next.js Configuration
   // ===========================================
   NEXT_PUBLIC_POCKETBASE_URL: z.string().default('http://localhost:8090'),
-  NEXTAUTH_SECRET: z.string().default('your-nextauth-secret-here'),
-  NEXTAUTH_URL: z.string().url().default('http://localhost:3000'),
 
   // ===========================================
   // Redis Configuration
@@ -61,7 +59,9 @@ export const envSchema = z.object({
   // ===========================================
   // Monitoring & Behavior
   // ===========================================
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  LOG_LEVEL: z
+    .enum(['verbose', 'debug', 'info', 'warn', 'error'])
+    .default('info'),
   GRACEFUL_SHUTDOWN_TIMEOUT: z.coerce.number().min(5).max(300).default(30),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])

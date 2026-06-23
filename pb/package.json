@@ -14,7 +14,7 @@
     "format": "echo 'PocketBase workspace - no format needed'",
     "format:check": "echo 'PocketBase workspace - no format check needed'",
     "serve": "./pocketbase serve",
-    "admin": "./pocketbase admin",
+    "admin": "./pocketbase superuser",
     "clean": "rm -rf pb_data",
     "download": "node --env-file-if-exists=../.env scripts/download-pocketbase.js",
     "start": "node --env-file-if-exists=../.env scripts/start-pocketbase.js",

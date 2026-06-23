@@ -106,8 +106,7 @@ video-ware/
 
 - **[Development Guide](docs/DEVELOPMENT.md)** - Comprehensive development documentation
 - **[GCVI Configuration Guide](docs/GCVI_CONFIGURATION.md)** - Google Cloud Video Intelligence processor configuration and cost optimization
-- **[Planning Overview](planning/overview.md)** - Product vision and architecture details
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment instructions
+- **[Deployment Guide](docker/README.md)** - Production Docker deployment instructions
 - **[PocketBase Docs](docs/)** - PocketBase-specific documentation
 
 ## Worker Architecture
@@ -223,8 +222,8 @@ yarn build                           # Build all packages
 yarn workspace @project/shared build # Build shared package
 
 # Code Quality
-yarn lint                            # Lint all workspaces
-yarn lint:fix                        # Auto-fix lint issues
+yarn lint                            # Lint all workspaces (auto-fix)
+yarn lint:check                      # Lint all workspaces (check only)
 yarn typecheck                       # Type check all workspaces
 yarn format                          # Format all code
 

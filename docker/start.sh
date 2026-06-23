@@ -121,21 +121,16 @@ if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
   echo "Creating PocketBase superuser..."
 fi
 
-# Only create superuser if password is not the default insecure one
-if [ "$POCKETBASE_ADMIN_PASSWORD" != "your-secure-password!" ]; then
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Email: $POCKETBASE_ADMIN_EMAIL"
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating superuser account..."
-    
-    # Run superuser upsert command
-    # This works even if PocketBase isn't running - it modifies the database directly
-    if /app/pb/pocketbase superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR" 2>/dev/null; then
-        [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ✅ Superuser created successfully"
-    else
-        [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ⚠️  Could not create superuser (this is normal if it already exists)"
-        [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ℹ️  Superuser will be created on first PocketBase startup if needed"
-    fi
+[ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Email: $POCKETBASE_ADMIN_EMAIL"
+[ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating superuser account..."
+
+# Run superuser upsert command
+# This works even if PocketBase isn't running - it modifies the database directly
+if /app/pb/pocketbase superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR" 2>/dev/null; then
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ✅ Superuser created successfully"
 else
-    echo "⚠️  Warning: Using default admin password - superuser creation skipped. Set POCKETBASE_ADMIN_PASSWORD to auto-create superuser." >&2
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ⚠️  Could not create superuser (this is normal if it already exists)"
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ℹ️  Superuser will be created on first PocketBase startup if needed"
 fi
 
 # =============================================================================

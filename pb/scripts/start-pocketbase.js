@@ -20,7 +20,7 @@ function startPocketBase() {
   const pbPath = path.join(pbDir, executableName);
   
   if (!fs.existsSync(pbPath)) {
-    console.error('❌ PocketBase not found. Run "yarn pb:download" first.');
+    console.error('❌ PocketBase not found. Run "yarn db:download" first.');
     process.exit(1);
   }
   

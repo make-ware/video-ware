@@ -72,7 +72,7 @@
     "migrate:generate": "npx pocketbase-migrate generate",
     "migrate:status": "npx pocketbase-migrate status",
     "migrate:typegen": "npx pocketbase-migrate generate-types",
-    "test": "echo 'shared workspace - no tests needed'",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",

@@ -37,45 +37,62 @@ video-ware/
 
 ## Quick Start
 
+> **Just want to run it?** Use the prebuilt Docker image `ghcr.io/make-ware/video-ware:latest`, which bundles every service (PocketBase, webapp, worker, and nginx) in a single container. See the **[Docker Deployment Guide](docker/README.md)** for pull-and-run instructions. To develop locally, follow the steps below.
+
 ### Prerequisites
 
 - Node.js >= 22.0.0
 - Yarn 4.12.0
 - FFmpeg (for media processing)
-- Redis (for task queue - optional, can use in-memory for development)
+- Redis (required by the worker for the BullMQ task queue; defaults to `localhost:6379`)
 - Google Cloud credentials (for video analysis features - optional)
 
-### Installation
+### Local Development Setup
 
 1. **Clone and install dependencies:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/make-ware/video-ware
    cd video-ware
    yarn install
    ```
 
-2. **Setup PocketBase:**
+2. **Configure environment (recommended):** copy the example file and set your
+   own PocketBase admin credentials.
+   ```bash
+   cp .env.example .env
+   ```
+   ```
+   POCKETBASE_ADMIN_EMAIL=admin@example.com
+   POCKETBASE_ADMIN_PASSWORD=your-secure-password
+   ```
+   You can skip this — `yarn setup` creates `.env` from `.env.example` if it's
+   missing — but you'll get the default credentials above instead of your own.
+
+3. **Set up PocketBase:**
    ```bash
    yarn setup
    ```
+   This creates `.env` from `.env.example` if it doesn't exist, downloads the
+   PocketBase binary, and creates the admin account using the credentials from
+   `.env`. The command is idempotent — if you change the credentials later, just
+   edit `.env` and run `yarn setup` again.
 
-3. **Create admin account (optional):**
+4. **Build the shared package:**
    ```bash
-   export POCKETBASE_ADMIN_EMAIL=admin@example.com
-   export POCKETBASE_ADMIN_PASSWORD=your-secure-password
-   yarn setup
-   ```
-   Or create manually:
-   ```bash
-   yarn pb:admin
+   yarn build:shared
    ```
 
-4. **Build shared package:**
+5. **Start Redis:** the worker connects to Redis on `localhost:6379` and has no
+   in-memory fallback, so it must be running before you start the worker. Use
+   whichever you have:
    ```bash
-   yarn workspace @project/shared build
+   redis-server                 # native install
+   brew services start redis    # macOS (Homebrew, runs in background)
+   docker run --rm -p 6379:6379 redis:7-alpine   # Docker
    ```
+   To point at a different instance, set `REDIS_URL` in `.env`.
 
-5. **Start development:**
+6. **Start development:**
    ```bash
    yarn dev
    ```
@@ -89,8 +106,7 @@ video-ware/
 
 - **[Development Guide](docs/DEVELOPMENT.md)** - Comprehensive development documentation
 - **[GCVI Configuration Guide](docs/GCVI_CONFIGURATION.md)** - Google Cloud Video Intelligence processor configuration and cost optimization
-- **[Planning Overview](planning/overview.md)** - Product vision and architecture details
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment instructions
+- **[Deployment Guide](docker/README.md)** - Production Docker deployment instructions
 - **[PocketBase Docs](docs/)** - PocketBase-specific documentation
 
 ## Worker Architecture
@@ -206,8 +222,8 @@ yarn build                           # Build all packages
 yarn workspace @project/shared build # Build shared package
 
 # Code Quality
-yarn lint                            # Lint all workspaces
-yarn lint:fix                        # Auto-fix lint issues
+yarn lint                            # Lint all workspaces (auto-fix)
+yarn lint:check                      # Lint all workspaces (check only)
 yarn typecheck                       # Type check all workspaces
 yarn format                          # Format all code
 

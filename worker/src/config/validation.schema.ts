@@ -71,7 +71,8 @@ export const validationSchema = Joi.object({
 
   // Google Cloud configuration
   GOOGLE_PROJECT_ID: Joi.string().optional(),
-  GOOGLE_CLOUD_KEY: Joi.string().optional(),
+  GOOGLE_CLOUD_KEY_FILE: Joi.string().optional(),
+  GOOGLE_CLOUD_CREDENTIALS: Joi.string().optional(),
 
   // Logging configuration
   LOG_LEVEL: Joi.string()

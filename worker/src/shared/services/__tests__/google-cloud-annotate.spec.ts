@@ -4,8 +4,8 @@ import { GoogleCloudService } from '../google-cloud.service';
 
 /**
  * Tests for GoogleCloudService.annotateVideoAndWait — the quota-aware
- * AnnotateVideo wrapper. Uses millisecond-scale delays via mocked config so
- * the backoff loops run instantly.
+ * AnnotateVideo wrapper. The backoff delays are hardcoded constants, so the
+ * service's `sleep` is stubbed (see beforeEach) to run the loops instantly.
  */
 
 const QUOTA_ERROR = Object.assign(
@@ -19,12 +19,6 @@ const QUOTA_ERROR = Object.assign(
 function makeService(): GoogleCloudService {
   const config = {
     'google.projectId': 'test-project',
-    'google.videoIntelligence.pollInitialDelayMs': 1,
-    'google.videoIntelligence.pollMaxDelayMs': 5,
-    'google.videoIntelligence.pollTotalTimeoutMs': 2000,
-    'google.videoIntelligence.quotaRetryInitialDelayMs': 1,
-    'google.videoIntelligence.quotaRetryMaxDelayMs': 5,
-    'google.videoIntelligence.quotaRetryTotalTimeoutMs': 1000,
   } as Record<string, unknown>;
 
   const configService = {
@@ -64,6 +58,11 @@ describe('GoogleCloudService.annotateVideoAndWait', () => {
 
   beforeEach(() => {
     service = makeService();
+    // Delays are hardcoded constants; skip the real waits so loops run fast.
+    vi.spyOn(
+      service as unknown as { sleep: (ms: number) => Promise<void> },
+      'sleep'
+    ).mockResolvedValue(undefined);
     operation = makeOperation();
     annotateVideo = vi.fn().mockResolvedValue([operation]);
     // Inject the mock client (onModuleInit is never run in unit tests)

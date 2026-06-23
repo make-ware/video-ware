@@ -36,6 +36,26 @@ interface VideoIntelligencePollingSettings {
   quotaRetryTotalTimeoutMs: number;
 }
 
+/**
+ * Video Intelligence long-running operations. Every status poll is a
+ * GetOperation call that counts against the API's 'Requests per minute'
+ * quota, so polling is deliberately slow (exponential from initial to max
+ * delay). Quota-exceeded (RESOURCE_EXHAUSTED) responses are retried with their
+ * own backoff instead of failing the step. These are operational tuning
+ * constants, not user-facing config, so they are hardcoded rather than
+ * read from the environment.
+ */
+const VIDEO_INTELLIGENCE_POLLING: VideoIntelligencePollingSettings = {
+  pollInitialDelayMs: 20_000,
+  pollMaxDelayMs: 90_000,
+  // Give up waiting for an operation after this long (2h).
+  pollTotalTimeoutMs: 7_200_000,
+  quotaRetryInitialDelayMs: 30_000,
+  quotaRetryMaxDelayMs: 300_000,
+  // Give up retrying quota errors after this long (30m).
+  quotaRetryTotalTimeoutMs: 1_800_000,
+};
+
 /** gRPC status code for RESOURCE_EXHAUSTED (quota exceeded) */
 const GRPC_RESOURCE_EXHAUSTED = 8;
 
@@ -68,32 +88,7 @@ export class GoogleCloudService implements OnModuleInit {
       this.configService.get<Record<string, unknown>>('google.credentials');
     this.gcsBucket = this.configService.get<string>('google.gcsBucket');
 
-    this.polling = {
-      pollInitialDelayMs: this.configService.get<number>(
-        'google.videoIntelligence.pollInitialDelayMs',
-        20000
-      ),
-      pollMaxDelayMs: this.configService.get<number>(
-        'google.videoIntelligence.pollMaxDelayMs',
-        90000
-      ),
-      pollTotalTimeoutMs: this.configService.get<number>(
-        'google.videoIntelligence.pollTotalTimeoutMs',
-        7200000
-      ),
-      quotaRetryInitialDelayMs: this.configService.get<number>(
-        'google.videoIntelligence.quotaRetryInitialDelayMs',
-        30000
-      ),
-      quotaRetryMaxDelayMs: this.configService.get<number>(
-        'google.videoIntelligence.quotaRetryMaxDelayMs',
-        300000
-      ),
-      quotaRetryTotalTimeoutMs: this.configService.get<number>(
-        'google.videoIntelligence.quotaRetryTotalTimeoutMs',
-        1800000
-      ),
-    };
+    this.polling = VIDEO_INTELLIGENCE_POLLING;
 
     this.enabled = {
       videoIntelligence: this.configService.get<boolean>(

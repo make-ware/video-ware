@@ -18,9 +18,9 @@ async function upsertSuperuser() {
   const adminEmail = process.env.POCKETBASE_ADMIN_EMAIL;
   const adminPassword = process.env.POCKETBASE_ADMIN_PASSWORD;
   
-  // Skip if using default insecure password
+  // No password provided — nothing to upsert. Set POCKETBASE_ADMIN_PASSWORD
+  // (e.g. in .env) if you want a superuser created automatically.
   if (adminPassword === undefined || adminPassword === null || adminPassword === '') {
-    console.error('❌ POCKETBASE_ADMIN_PASSWORD is not set. Set POCKETBASE_ADMIN_PASSWORD to create/update superuser.');
     return;
   }
   
@@ -33,7 +33,7 @@ async function upsertSuperuser() {
     
     // Ensure executable exists
     if (!fs.existsSync(executablePath)) {
-      console.error('❌ PocketBase executable not found. Run "yarn pb:download" first.');
+      console.error('❌ PocketBase executable not found. Run "yarn db:download" first.');
       process.exit(1);
     }
     

@@ -33,7 +33,7 @@ async function upsertSuperuser() {
     
     // Ensure executable exists
     if (!fs.existsSync(executablePath)) {
-      console.error('❌ PocketBase executable not found. Run "yarn pb:download" first.');
+      console.error('❌ PocketBase executable not found. Run "yarn db:download" first.');
       process.exit(1);
     }
     

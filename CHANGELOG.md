@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.2...video-ware-v0.8.3) (2026-07-03)
+
+
+### Bug Fixes
+
+* improve docs ([ccda62f](https://github.com/make-ware/video-ware/commit/ccda62fa5ef3e53804f2143df08df18349d2fa92))
+* update cli and add label fields ([497392b](https://github.com/make-ware/video-ware/commit/497392b1df68a22ede106de4623e1467e172a97f))
+
 ## [0.8.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.1...video-ware-v0.8.2) (2026-06-22)
 
 

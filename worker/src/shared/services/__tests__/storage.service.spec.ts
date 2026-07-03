@@ -253,28 +253,6 @@ describe('StorageService', () => {
     });
   });
 
-  describe('uploadFromPath', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
-
-    it('should read file and upload to storage', async () => {
-      const localPath = '/local/test.mp4';
-      const storagePath = 'uploads/test.mp4';
-      const fileData = Buffer.from('test data');
-
-      vi.mocked(fs.promises.readFile).mockResolvedValue(fileData);
-
-      await service.uploadFromPath(localPath, storagePath);
-
-      expect(fs.promises.readFile).toHaveBeenCalledWith(localPath);
-      expect(getMockStorageBackend().upload).toHaveBeenCalledWith(
-        fileData,
-        storagePath
-      );
-    });
-  });
-
   describe('exists', () => {
     beforeEach(async () => {
       await service.onModuleInit();

@@ -8,18 +8,28 @@ import {
   type MediaWithUpload,
 } from '../lib/select.js';
 import {
+  clipFieldOptions,
   createMediaClip,
   mediaClipMediaLabel,
+  mediaFieldOptions,
   parseClipType,
-  searchMediaByName,
+  searchMedia,
+  updateMedia,
   type MediaClipWithMedia,
 } from '../lib/media.js';
-import { formatDuration, info, success, table } from '../lib/output.js';
+import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import {
+  formatDuration,
+  printList,
+  printRecord,
+  success,
+} from '../lib/output.js';
 
 /** Shared column layout for `media list` and `media search`. */
 const mediaColumns = [
   { header: 'ID', value: (m: MediaWithUpload) => m.id },
   { header: 'NAME', value: (m: MediaWithUpload) => mediaLabel(m) },
+  { header: 'LABEL', value: (m: MediaWithUpload) => m.label ?? '' },
   { header: 'TYPE', value: (m: MediaWithUpload) => String(m.mediaType) },
   {
     header: 'DURATION',
@@ -31,49 +41,83 @@ const mediaColumns = [
 export function registerMediaCommands(program: Command): void {
   const media = program.command('media').description('Browse workspace media');
 
-  media
-    .command('list')
-    .alias('ls')
-    .description('List media in the active workspace')
-    .option('-w, --workspace <id>', 'workspace id override')
-    .action(async (opts) => {
-      try {
-        const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-        const result = await new MediaMutator(pb).getByWorkspace(
-          workspaceId,
-          1,
-          200
-        );
-        table(result.items as MediaWithUpload[], mediaColumns);
-      } catch (err) {
-        handleError(err);
-      }
-    });
+  withJsonOption(
+    media
+      .command('list')
+      .alias('ls')
+      .description('List media in the active workspace')
+      .option('-w, --workspace <id>', 'workspace id override')
+  ).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await new MediaMutator(pb).getByWorkspace(
+        workspaceId,
+        1,
+        200
+      );
+      printList(result.items as MediaWithUpload[], mediaColumns, {
+        json: opts.json,
+        totalItems: result.totalItems,
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
 
-  media
-    .command('search <query>')
-    .alias('find')
-    .description('Search workspace media by upload filename')
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-n, --limit <count>', 'max results (default: 50)', (v) =>
-      parseInt(v, 10)
-    )
-    .action(async (query: string, opts) => {
+  withJsonOption(
+    media
+      .command('search <query>')
+      .alias('find')
+      .description('Search workspace media by filename, label, or description')
+      .option('-w, --workspace <id>', 'workspace id override')
+      .option('-n, --limit <count>', 'max results (default: 50)', (v) =>
+        parseInt(v, 10)
+      )
+  ).action(async (query: string, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await searchMedia(
+        pb,
+        workspaceId,
+        query,
+        opts.limit ?? 50
+      );
+      printList(result.items as MediaWithUpload[], mediaColumns, {
+        json: opts.json,
+        totalItems: result.totalItems,
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  const mediaUpdate = media
+    .command('update <mediaId>')
+    .alias('set')
+    .description('Set a media item’s editor-facing label and description');
+
+  applyOptions(withJsonOption(mediaUpdate), mediaFieldOptions).action(
+    async (mediaId: string, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-        const result = await searchMediaByName(
+        const updated = await updateMedia(
           pb,
-          workspaceId,
-          query,
-          opts.limit ?? 50
+          mediaId,
+          pickOptions(opts, mediaFieldOptions)
         );
-        table(result.items as MediaWithUpload[], mediaColumns);
+        if (opts.json) {
+          printRecord(updated, [], true);
+          return;
+        }
+        const label = updated.label ? ` "${updated.label}"` : '';
+        success(`Updated media ${updated.id}${label}`);
       } catch (err) {
         handleError(err);
       }
-    });
+    }
+  );
 
   const clip = media
     .command('clip')
@@ -81,74 +125,76 @@ export function registerMediaCommands(program: Command): void {
       'Create and browse media clips (reusable sub-ranges of media)'
     );
 
-  clip
+  const clipCreate = clip
     .command('create')
     .description('Create a media clip from a media sub-range')
     .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'source media id')
-    .option('-s, --start <seconds>', 'clip start in source media', parseFloat)
-    .option('-e, --end <seconds>', 'clip end in source media', parseFloat)
-    .option('--type <type>', 'clip type (default: user)')
-    .action(async (opts) => {
-      try {
-        const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+    .option('-m, --media <id>', 'source media id');
 
-        let mediaId = opts.media as string | undefined;
-        if (!mediaId) {
-          mediaId = (await pickMedia(pb, workspaceId)).id;
-        }
+  applyOptions(clipCreate, clipFieldOptions).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
 
-        const created = await createMediaClip(pb, {
-          workspaceId,
-          mediaId,
-          start: opts.start,
-          end: opts.end,
-          type: opts.type ? parseClipType(opts.type) : undefined,
-        });
-        success(
-          `Created ${created.type} clip ${created.id} (${created.start}s–${created.end}s, ${formatDuration(created.duration)}) from media ${mediaId}`
-        );
-      } catch (err) {
-        handleError(err);
+      let mediaId = opts.media as string | undefined;
+      if (!mediaId) {
+        mediaId = (await pickMedia(pb, workspaceId)).id;
       }
-    });
 
-  clip
-    .command('list')
-    .alias('ls')
-    .description('List media clips in the active workspace')
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'filter to a single source media')
-    .option('--type <type>', 'filter by clip type')
-    .option('--search <query>', 'filter by clip type or media filename')
-    .action(async (opts) => {
-      try {
-        const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-        const mutator = new MediaClipMutator(pb);
+      const created = await createMediaClip(pb, {
+        workspaceId,
+        mediaId,
+        ...pickOptions(opts, clipFieldOptions),
+      });
+      const label = created.label ? ` "${created.label}"` : '';
+      success(
+        `Created ${created.type} clip ${created.id}${label} (${created.start}s–${created.end}s, ${formatDuration(created.duration)}) from media ${mediaId}`
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
 
-        const result = opts.media
-          ? await mutator.getByMedia(opts.media, 1, 200)
-          : await mutator.getByWorkspace(workspaceId, 1, 200, {
-              type: opts.type ? parseClipType(opts.type) : undefined,
-              searchQuery: opts.search,
-            });
+  withJsonOption(
+    clip
+      .command('list')
+      .alias('ls')
+      .description('List media clips in the active workspace')
+      .option('-w, --workspace <id>', 'workspace id override')
+      .option('-m, --media <id>', 'filter to a single source media')
+      .option('--type <type>', 'filter by clip type')
+      .option(
+        '--search <query>',
+        'filter by clip label, description, type, or media filename'
+      )
+  ).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const mutator = new MediaClipMutator(pb);
 
-        table(result.items as MediaClipWithMedia[], [
+      const result = opts.media
+        ? await mutator.getByMedia(opts.media, 1, 200)
+        : await mutator.getByWorkspace(workspaceId, 1, 200, {
+            type: opts.type ? parseClipType(opts.type) : undefined,
+            searchQuery: opts.search,
+          });
+
+      printList(
+        result.items as MediaClipWithMedia[],
+        [
           { header: 'ID', value: (c) => c.id },
+          { header: 'LABEL', value: (c) => c.label ?? '' },
           { header: 'MEDIA', value: (c) => mediaClipMediaLabel(c) },
           { header: 'TYPE', value: (c) => String(c.type) },
           { header: 'START', value: (c) => `${c.start.toFixed(2)}s` },
           { header: 'END', value: (c) => `${c.end.toFixed(2)}s` },
           { header: 'DURATION', value: (c) => formatDuration(c.duration) },
-        ]);
-
-        if (opts.media) {
-          info(`(${result.totalItems} clip(s) for media ${opts.media})`);
-        }
-      } catch (err) {
-        handleError(err);
-      }
-    });
+        ],
+        { json: opts.json, totalItems: result.totalItems }
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
 }

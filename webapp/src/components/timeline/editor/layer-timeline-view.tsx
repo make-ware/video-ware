@@ -31,13 +31,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { MAX_TIMELINE_TRACKS } from '@project/shared';
+import {
+  MAX_TIMELINE_TRACKS,
+  findNonOverlappingTimelineStart,
+} from '@project/shared';
 import type { Caption, TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
 import { useSnap } from './use-snap';
-import { findNonOverlappingTimelineStart } from './clip-placement';
 import { CaptionEditorModal } from '@/components/captions';
 
 const DEFAULT_PPS = 20; // pixels per second at 100% zoom

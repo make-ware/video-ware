@@ -14,13 +14,13 @@ import { Button } from '@/components/ui/button';
 import {
   MAX_TIMELINE_TRACKS,
   TimelineOrientation,
+  buildPlaybackTracks,
   type Caption,
   type CaptionCue,
   type CaptionStyle,
   type TimelineClip,
 } from '@project/shared';
 import { CaptionOverlay } from '@/components/captions';
-import { buildPlaybackTracks } from './playback';
 import { TrackVideo } from './track-video';
 
 export function TimelinePlayer() {

@@ -41,11 +41,17 @@ export class LocalStorageBackend implements StorageBackend {
     if (path.isAbsolute(basePath)) return basePath;
 
     // Best-effort upward search so "data" works from repo root or nested workspaces.
+    // The ignore comments keep bundler file-tracing (e.g. Turbopack's NFT) from
+    // treating this as a dynamic require and pulling in the whole project.
     let current = process.cwd();
     for (let i = 0; i < 8; i++) {
-      const candidate = path.resolve(current, basePath);
+      const candidate = path.resolve(
+        /* turbopackIgnore: true */ current,
+        basePath
+      );
       try {
-        if (fs.existsSync(candidate)) return candidate;
+        if (fs.existsSync(/* turbopackIgnore: true */ candidate))
+          return candidate;
       } catch {
         // ignore
       }
@@ -55,7 +61,7 @@ export class LocalStorageBackend implements StorageBackend {
     }
 
     // Fallback: resolve relative to current working directory.
-    return path.resolve(process.cwd(), basePath);
+    return path.resolve(/* turbopackIgnore: true */ process.cwd(), basePath);
   }
 
   /**

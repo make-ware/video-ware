@@ -7,6 +7,7 @@ import { MediaVideoPlayer } from '@/components/video/media-video-player';
 import { MediaClipsLibrary } from '@/components/library';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { MediaClipPanel } from '@/components/clip/media-clip-panel';
+import { MediaInfoEditor } from '@/components/media/media-info-editor';
 import {
   ClipTypeFilter,
   clipTypeFilterPredicate,
@@ -398,6 +399,9 @@ function MediaDetailsPageContent() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Editor-facing label + description */}
+          <MediaInfoEditor media={media} onUpdate={refresh} />
 
           {/* Metadata Card */}
           <Card className="hidden sm:block">

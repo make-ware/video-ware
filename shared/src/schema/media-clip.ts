@@ -16,6 +16,8 @@ export const MediaClipSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     MediaRef: RelationField({ collection: 'Media' }),
     type: TextField(),
+    label: TextField().optional(), // editor-facing name, searchable
+    description: TextField().optional(), // editor-facing notes, searchable
     start: NumberField({ min: 0 }), // seconds
     end: NumberField({ min: 0 }), // seconds
     duration: NumberField({ min: 0 }), // seconds
@@ -40,6 +42,8 @@ export const MediaClipInputSchema = z.object({
     ClipType.SPEECH,
     ClipType.COMPOSITE,
   ]),
+  label: z.string().optional(),
+  description: z.string().optional(),
   start: NumberField({ min: 0 }),
   end: NumberField({ min: 0 }),
   duration: NumberField({ min: 0 }),

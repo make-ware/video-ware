@@ -12,11 +12,16 @@ export { MediaMutator } from './media';
 export { CaptionMutator } from './caption';
 export { LabelTrackMutator } from './label-track';
 export { MediaClipMutator, type ActualizableLabel } from './media-clip';
+export {
+  MediaClipLabelMutator,
+  type LinkLabelParams,
+} from './media-clip-label';
 export { LabelFaceMutator } from './label-face';
 export { LabelSpeechMutator } from './label-speech';
 export { LabelEntityMutator } from './label-entity';
 export { LabelSegmentMutator } from './label-segment';
 export { LabelShotMutator } from './label-shot';
+export { LabelTextMutator } from './label-text';
 export { LabelObjectMutator } from './label-objects';
 export { LabelPersonMutator } from './label-person';
 export { ClipLabelSearchMutator } from './clip-label-search';

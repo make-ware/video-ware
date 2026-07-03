@@ -3,6 +3,7 @@ import {
   NumberField,
   RelationField,
   JSONField,
+  TextField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
 import { z } from 'zod';
@@ -19,6 +20,8 @@ export const TimelineClipSchema = z
     MediaRef: RelationField({ collection: 'Media' }).optional(),
     MediaClipRef: RelationField({ collection: 'MediaClips' }).optional(),
     CaptionRef: RelationField({ collection: 'Captions' }).optional(),
+    label: TextField().optional(), // editor-facing name, overrides source clip label; searchable
+    description: TextField().optional(), // editor-facing notes, overrides source clip description; searchable
     order: NumberField({ min: 0 }), // position in timeline sequence
     start: NumberField({ min: 0 }).default(0), // absolute start time in source media (seconds)
     end: NumberField({ min: 0 }).default(0), // absolute end time in source media (seconds)
@@ -36,6 +39,8 @@ export const TimelineClipInputSchema = z
     MediaRef: z.string().optional(),
     MediaClipRef: z.string().optional(),
     CaptionRef: z.string().optional(),
+    label: z.string().optional(),
+    description: z.string().optional(),
     order: z.number().min(0),
     start: z.number().min(0).default(0),
     end: z.number().min(0).default(0),

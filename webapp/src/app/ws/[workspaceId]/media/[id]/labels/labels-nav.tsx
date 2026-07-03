@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { INSPECTOR_CONFIGS } from '@/components/labels/inspector/config';
 
 export function LabelsNav() {
   const pathname = usePathname();
@@ -10,21 +11,13 @@ export function LabelsNav() {
   const workspaceId = params.workspaceId as string;
   const mediaId = params.id as string;
 
+  const base = `/ws/${workspaceId}/media/${mediaId}/labels`;
   const tabs = [
-    {
-      name: 'Objects',
-      href: `/ws/${workspaceId}/media/${mediaId}/labels/objects`,
-    },
-    { name: 'Faces', href: `/ws/${workspaceId}/media/${mediaId}/labels/faces` },
-    {
-      name: 'People',
-      href: `/ws/${workspaceId}/media/${mediaId}/labels/people`,
-    },
-    {
-      name: 'Transcripts',
-      href: `/ws/${workspaceId}/media/${mediaId}/labels/transcripts`,
-    },
-    { name: 'Shots', href: `/ws/${workspaceId}/media/${mediaId}/labels/shots` },
+    ...INSPECTOR_CONFIGS.map((config) => ({
+      name: config.title,
+      href: `${base}/${config.key}`,
+    })),
+    { name: 'Transcripts', href: `${base}/transcripts` },
   ];
 
   return (

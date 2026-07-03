@@ -13,6 +13,8 @@ export const TimelineTrackSchema = z
   .object({
     TimelineRef: RelationField({ collection: 'Timelines' }),
     name: TextField().min(1).max(200).optional(),
+    label: TextField().optional(), // editor-facing name, searchable
+    description: TextField().optional(), // editor-facing notes, searchable
     layer: NumberField({ min: 0 }).default(0), // visual layer index (0 is bottom)
     volume: NumberField({ min: 0, max: 1 }).default(1), // 0.0 to 1.0
     opacity: NumberField({ min: 0, max: 1 }).default(1), // 0.0 to 1.0
@@ -25,6 +27,8 @@ export const TimelineTrackSchema = z
 export const TimelineTrackInputSchema = z.object({
   TimelineRef: z.string().min(1, 'Timeline is required'),
   name: z.string().min(1).max(200).optional(),
+  label: z.string().optional(),
+  description: z.string().optional(),
   layer: z.number().min(0).default(0).optional(),
   volume: z.number().min(0).max(1).default(1).optional(),
   opacity: z.number().min(0).max(1).default(1).optional(),

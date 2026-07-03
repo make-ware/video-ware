@@ -3,7 +3,8 @@ import { ClipType, type TypedPocketBase } from '@project/shared';
 import {
   createMediaClip,
   parseClipType,
-  searchMediaByName,
+  searchMedia,
+  updateMedia,
 } from '../lib/media.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,15 +39,15 @@ function listResult(items: any[]) {
   };
 }
 
-describe('searchMediaByName', () => {
-  it('filters media by workspace and bound upload filename', async () => {
+describe('searchMedia', () => {
+  it('filters media by workspace and bound label/description/filename', async () => {
     const getList = vi.fn(
       async (_page: number, _perPage: number, _opts: { filter?: string }) =>
         listResult([{ id: 'm1' }])
     );
     const pb = fakePb({ Media: { getList } });
 
-    const result = await searchMediaByName(pb, 'ws1', 'beach', 25);
+    const result = await searchMedia(pb, 'ws1', 'beach', 25);
 
     expect(result.items).toHaveLength(1);
     expect(getList).toHaveBeenCalledOnce();
@@ -54,7 +55,44 @@ describe('searchMediaByName', () => {
     expect(page).toBe(1);
     expect(perPage).toBe(25);
     expect(options.filter).toContain('WorkspaceRef = ws1');
+    expect(options.filter).toContain('label ~ beach');
+    expect(options.filter).toContain('description ~ beach');
     expect(options.filter).toContain('UploadRef.name ~ beach');
+  });
+});
+
+describe('updateMedia', () => {
+  it('patches only the fields provided and leaves others untouched', async () => {
+    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          label: 'old',
+          description: '',
+        })),
+        update,
+      },
+    });
+
+    const result = await updateMedia(pb, 'm1', { label: 'Beach intro' });
+
+    expect(update).toHaveBeenCalledOnce();
+    const [id, patch] = update.mock.calls[0];
+    expect(id).toBe('m1');
+    expect(patch).toEqual({ label: 'Beach intro' });
+    expect(patch).not.toHaveProperty('description');
+    expect(result.label).toBe('Beach intro');
+  });
+
+  it('throws when the media does not exist', async () => {
+    const pb = fakePb({
+      Media: { getOne: vi.fn(async () => null), update: vi.fn() },
+    });
+
+    await expect(updateMedia(pb, 'missing', { label: 'x' })).rejects.toThrow(
+      /media not found/i
+    );
   });
 });
 
@@ -113,6 +151,32 @@ describe('createMediaClip', () => {
       start: 5,
       end: 12.5,
       duration: 7.5,
+    });
+  });
+
+  it('passes label and description through to the created clip', async () => {
+    const create = vi.fn(async (data) => ({ ...data, id: 'clip3' }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          WorkspaceRef: 'ws1',
+          duration: 60,
+          mediaType: 'video',
+        })),
+      },
+      MediaClips: { create },
+    });
+
+    await createMediaClip(pb, {
+      mediaId: 'm1',
+      label: 'Beach intro',
+      description: 'Opening shot of the beach',
+    });
+
+    expect(create.mock.calls[0][0]).toMatchObject({
+      label: 'Beach intro',
+      description: 'Opening shot of the beach',
     });
   });
 

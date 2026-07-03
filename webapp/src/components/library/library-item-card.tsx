@@ -40,6 +40,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
+import { getClipDisplayLabel, getClipDescription } from '@/utils/clip-display';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { TimelineService } from '@/services/timeline';
 import type {
@@ -113,7 +114,6 @@ function ClipCard({
   const { currentWorkspace } = useWorkspace();
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<'view' | 'edit'>('view');
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Media-details-only: workspace-wide "add to timeline" dialog
@@ -122,20 +122,27 @@ function ClipCard({
   const [selectedTimelineId, setSelectedTimelineId] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
-  const clipData = (clip.clipData as Record<string, unknown>) || {};
-  const label = typeof clipData.label === 'string' ? clipData.label : 'Clip';
+  const label = getClipDisplayLabel(clip);
+  const description = getClipDescription(clip);
+  const hasExplicitLabel = Boolean(clip.label?.trim());
   const mediaName = media?.expand?.UploadRef?.name || 'Unknown Media';
+  // Timeline surface historically shows the media filename; an explicit
+  // user-set label wins over it.
+  const subtitleText =
+    surface === 'timeline' && !hasExplicitLabel ? mediaName : label;
 
   const handleViewDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setDialogMode('view');
     setIsDetailsOpen(true);
   };
 
   const handleOpenEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setDialogMode('edit');
-    setIsDetailsOpen(true);
+    if (onInlineEditClip) {
+      onInlineEditClip(clip.id);
+    } else {
+      setIsDetailsOpen(true);
+    }
   };
 
   const handleDelete = async () => {
@@ -365,24 +372,6 @@ function ClipCard({
       </Dialog>
     );
 
-    if (clip.type === ClipType.USER && onInlineEditClip) {
-      overlayActions.push(
-        <Button
-          key="inline-edit"
-          size="icon"
-          variant="secondary"
-          onClick={(e) => {
-            e.stopPropagation();
-            onInlineEditClip(clip.id);
-          }}
-          className="h-7 w-7 shadow-md"
-          title="Edit with Trim Handles"
-        >
-          <Scissors className="h-4 w-4" />
-        </Button>
-      );
-    }
-
     overlayActions.push(
       <Button
         key="edit"
@@ -391,9 +380,7 @@ function ClipCard({
         onClick={handleOpenEdit}
         className="h-7 w-7 shadow-md"
         title={
-          clip.type === ClipType.COMPOSITE
-            ? 'Fine-Tune Segments'
-            : 'Edit Time Range'
+          clip.type === ClipType.COMPOSITE ? 'Fine-Tune Segments' : 'Edit Clip'
         }
       >
         <Edit className="h-4 w-4" />
@@ -477,8 +464,11 @@ function ClipCard({
                 'text-[10px] font-medium truncate opacity-80',
                 isActive && 'text-primary'
               )}
+              title={
+                description ? `${subtitleText} — ${description}` : subtitleText
+              }
             >
-              {surface === 'timeline' ? mediaName : label}
+              {subtitleText}
             </div>
             <div className="flex gap-2 text-[10px] text-muted-foreground font-mono">
               <span className="flex items-center justify-between gap-1">
@@ -527,11 +517,13 @@ function ClipCard({
         <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          initialMode={dialogMode}
           clip={
             detailsClip as unknown as Parameters<
               typeof ClipBaseDialog
             >[0]['clip']
+          }
+          onEdit={
+            onInlineEditClip ? () => onInlineEditClip(clip.id) : undefined
           }
           onClipUpdated={onClipUpdate}
         />

@@ -383,23 +383,6 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
-   * Upload file from local path to storage
-   */
-  async uploadFromPath(localPath: string, storagePath: string): Promise<void> {
-    try {
-      const buffer = await fs.promises.readFile(localPath);
-      await this.upload(storagePath, buffer);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Failed to upload from ${localPath} to ${storagePath}: ${errorMessage}`
-      );
-      throw error;
-    }
-  }
-
-  /**
    * Download file from storage
    */
   async download(storagePath: string): Promise<ReadableStream> {

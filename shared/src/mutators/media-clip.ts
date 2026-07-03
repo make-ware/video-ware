@@ -8,16 +8,23 @@ import type {
   LabelPerson,
   LabelObject,
   LabelFace,
+  LabelSpeech,
+  LabelSegment,
+  LabelText,
 } from '../schema';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
+import { MediaClipLabelMutator } from './media-clip-label';
 import { ClipType, LabelType } from '../enums';
 
 export type ActualizableLabel =
   | LabelShot
   | LabelPerson
   | LabelObject
-  | LabelFace;
+  | LabelFace
+  | LabelSpeech
+  | LabelSegment
+  | LabelText;
 
 /**
  * Options for filtering media clips by workspace
@@ -105,13 +112,13 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
     }
 
     // Add search query filter if provided
-    // Search in clip type and media name (via relation)
+    // Search in clip label/description/type and the source media's
+    // label/description/filename (via relation)
     if (options?.searchQuery) {
       const searchTerm = options.searchQuery.trim();
       if (searchTerm) {
-        // Search in type field or in the related media's upload name
         filters.push(
-          `(type ~ "${searchTerm}" || MediaRef.UploadRef.name ~ "${searchTerm}")`
+          `(label ~ "${searchTerm}" || description ~ "${searchTerm}" || type ~ "${searchTerm}" || MediaRef.label ~ "${searchTerm}" || MediaRef.description ~ "${searchTerm}" || MediaRef.UploadRef.name ~ "${searchTerm}")`
         );
       }
     }
@@ -159,18 +166,19 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
   }
 
   /**
-   * Search MediaClips within a workspace by their media's upload filename.
-   * Used by the "Metadata" search tab. The free-text `query` is bound via
-   * pb.filter to avoid filter-string injection.
+   * Search MediaClips within a workspace by clip label/description or their
+   * source media's label/description/upload filename. Used by the "Metadata"
+   * search tab. The free-text `query` is bound via pb.filter to avoid
+   * filter-string injection.
    */
-  async searchByMediaName(
+  async searchClipMetadata(
     workspaceId: string,
     query: string,
     page = 1,
     perPage = 5
   ): Promise<ListResult<MediaClip>> {
     const filter = this.pb.filter(
-      'WorkspaceRef = {:ws} && MediaRef.UploadRef.name ~ {:q}',
+      'WorkspaceRef = {:ws} && (label ~ {:q} || description ~ {:q} || MediaRef.label ~ {:q} || MediaRef.description ~ {:q} || MediaRef.UploadRef.name ~ {:q})',
       { ws: workspaceId, q: query }
     );
     return this.getList(page, perPage, filter, '-created', [
@@ -192,7 +200,7 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
     sourceLabelId: string
   ): Promise<MediaClip | null> {
     const filter = this.pb.filter(
-      'MediaRef = {:mediaRef} && clipData.sourceLabel = {:sourceLabelId}',
+      'MediaRef = {:mediaRef} && clipData.sourceId = {:sourceLabelId}',
       { mediaRef, sourceLabelId }
     );
     const result = await this.getList(1, 1, filter);
@@ -254,7 +262,27 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
       },
     };
 
-    // Create and return the clip
-    return await this.create(clipInput);
+    const clip = await this.create(clipInput);
+
+    // Record provenance in MediaClipLabels: the join row keeps pointing at
+    // the source label even after the clip is edited away from the label's
+    // time window (clipData.sourceId alone is not queryable per label type).
+    try {
+      await new MediaClipLabelMutator(this.pb).linkLabel({
+        workspaceId: labelInput.WorkspaceRef,
+        clipId: clip.id,
+        labelType,
+        labelId: labelInput.id,
+        confidence,
+      });
+    } catch (err) {
+      throw new Error(
+        `Clip ${clip.id} created but provenance link failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+
+    return clip;
   }
 }

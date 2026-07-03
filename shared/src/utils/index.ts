@@ -5,6 +5,7 @@ export * from './time.js';
 export * from './edit-list.js';
 export * from './composite-utils.js';
 export * from './captions.js';
+export * from './timeline-placement.js';
 
 import { z } from 'zod';
 

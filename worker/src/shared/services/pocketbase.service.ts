@@ -390,14 +390,14 @@ export class PocketBaseService implements OnModuleInit {
 
     try {
       const fs = await import('fs');
-      const { Blob } = await import('buffer');
 
-      // Read file from filesystem
-      const fileBuffer = await fs.promises.readFile(localFilePath);
-      const fileSize = fileBuffer.length;
-
-      // Create a Blob from the buffer
-      const blob = new Blob([fileBuffer], { type: mimeType });
+      // Back the upload with a lazily-read, file-backed Blob instead of reading
+      // the whole file into a Buffer. fs.readFile caps a single Buffer at
+      // kIoMaxLength (2 GiB) and throws ERR_FS_FILE_TOO_LARGE ("File size (N) is
+      // greater than 2 GiB") for larger proxies/renders. openAsBlob streams from
+      // disk on demand, so there is no 2 GiB ceiling and no huge memory spike.
+      const blob = await fs.openAsBlob(localFilePath, { type: mimeType });
+      const fileSize = blob.size;
 
       // Create FormData and append all fields
       const formData = new FormData();

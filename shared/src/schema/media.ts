@@ -24,6 +24,8 @@ export const MediaSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UploadRef: RelationField({ collection: 'Uploads' }),
     mediaType: SelectField([MediaType.VIDEO, MediaType.AUDIO, MediaType.IMAGE]),
+    label: TextField().optional(), // editor-facing name, searchable
+    description: TextField().optional(), // editor-facing notes, searchable
     mediaDate: DateField().optional(),
     duration: NumberField(), // seconds as float
     width: NumberField(), // video width in pixels
@@ -49,6 +51,8 @@ export const MediaInputSchema = z.object({
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   UploadRef: z.string().min(1, 'Upload is required'),
   mediaType: z.enum([MediaType.VIDEO, MediaType.AUDIO, MediaType.IMAGE]),
+  label: z.string().optional(),
+  description: z.string().optional(),
   mediaDate: DateField().optional(),
   duration: NumberField({ min: 0 }),
   width: NumberField({ min: 0 }).optional(),

@@ -21,6 +21,8 @@ export const TimeOffsetSchema = z.object({
 export const TimelineSchema = z
   .object({
     name: TextField().min(1).max(200),
+    label: TextField().optional(), // editor-facing name, searchable
+    description: TextField().optional(), // editor-facing notes, searchable
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     duration: NumberField({ min: 0 }).default(0), // computed total duration in seconds
     timelineData: JSONField(TimelineMetadataSchema).optional(),
@@ -37,6 +39,8 @@ export const TimelineSchema = z
 // Define input schema for creating timelines
 export const TimelineInputSchema = z.object({
   name: z.string().min(1).max(200),
+  label: z.string().optional(),
+  description: z.string().optional(),
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   duration: z.number().min(0).default(0),
   timelineData: TimelineMetadataSchema.optional(),

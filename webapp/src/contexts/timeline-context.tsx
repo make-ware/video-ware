@@ -16,12 +16,10 @@ import {
   TimelineOrientation,
   TimelineTrackRecord,
   TimelineTrackRecordInput,
-} from '@project/shared';
-import {
   computeClipPlacement,
+  computeTimelineDuration,
   planOverwriteAtTime,
-} from '@/components/timeline/editor/clip-placement';
-import { computeTimelineDuration } from '@/components/timeline/editor/playback';
+} from '@project/shared';
 
 interface TimelineContextType {
   // Current timeline state

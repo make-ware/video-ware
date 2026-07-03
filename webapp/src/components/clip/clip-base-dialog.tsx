@@ -10,9 +10,19 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Edit, X, Clock, Layers, Info, Tag, FileVideo } from 'lucide-react';
+import {
+  AlignLeft,
+  Edit,
+  X,
+  Clock,
+  Layers,
+  Info,
+  Tag,
+  FileVideo,
+} from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { useVideoSource } from '@/hooks/use-video-source';
+import { getClipDisplayLabel, getClipDescription } from '@/utils/clip-display';
 import { ClipType } from '@project/shared';
 import { calculateMediaDate, formatMediaDateTime } from '@/utils/date-utils';
 import {
@@ -28,6 +38,8 @@ type ClipUnion = (ExpandedMediaClip | ExpandedTimelineClip) & {
   end: number;
   duration: number;
   id: string;
+  label?: string;
+  description?: string;
   clipData?: Record<string, unknown>;
   meta?: Record<string, unknown>;
 };
@@ -66,6 +78,24 @@ export function ClipBaseDialog({
 
   const { src, poster } = useVideoSource(media ?? undefined);
 
+  // Cards pass a pseudo timeline clip whose real MediaClip sits under
+  // expand.MediaClipRef — read label/description from either level.
+  const underlyingClip = (
+    clip.expand as
+      | { MediaClipRef?: { label?: string; description?: string } }
+      | undefined
+  )?.MediaClipRef;
+  const displayLabel = getClipDisplayLabel(
+    {
+      label: clip.label || underlyingClip?.label,
+      clipData: clip.clipData,
+    },
+    ''
+  );
+  const description = getClipDescription({
+    description: clip.description || underlyingClip?.description,
+  });
+
   const metadata = useMemo(() => {
     return clip.clipData || clip.meta || {};
   }, [clip]);
@@ -83,8 +113,13 @@ export function ClipBaseDialog({
       <DialogContent className="max-w-4xl" showCloseButton={false}>
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2">
-              <Info className="h-5 w-5 text-primary" /> Clip Details
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <Info className="h-5 w-5 text-primary shrink-0" /> Clip Details
+              {displayLabel && (
+                <span className="truncate font-normal text-muted-foreground">
+                  — {displayLabel}
+                </span>
+              )}
             </DialogTitle>
             <div className="flex items-center gap-2">
               {isEditable && onEdit && (
@@ -188,6 +223,18 @@ export function ClipBaseDialog({
                 </div>
               </div>
             </div>
+
+            {description && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <AlignLeft className="h-4 w-4" /> Description
+                  </h4>
+                  <p className="text-sm whitespace-pre-wrap">{description}</p>
+                </div>
+              </>
+            )}
 
             <Separator />
 

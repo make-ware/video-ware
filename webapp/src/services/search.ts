@@ -96,14 +96,14 @@ export class SearchService {
     return this.searchLabels(category, workspaceId, q, page, perPage);
   }
 
-  /** Metadata: match clips by their media's upload filename. */
+  /** Metadata: match clips by label/description or their media's filename. */
   private async searchMetadata(
     workspaceId: string,
     query: string,
     page: number,
     perPage: number
   ): Promise<SearchPage> {
-    const result = await this.mediaClip.searchByMediaName(
+    const result = await this.mediaClip.searchClipMetadata(
       workspaceId,
       query,
       page + 1,
@@ -111,7 +111,7 @@ export class SearchService {
     );
     return {
       results: (result.items as SearchMediaClip[]).map((clip) =>
-        this.toResult(clip, 'metadata', undefined, 1)
+        this.toResult(clip, 'metadata', metadataSnippet(clip, query), 1)
       ),
       total: result.totalItems,
     };
@@ -200,6 +200,28 @@ export class SearchService {
       score,
     };
   }
+}
+
+/**
+ * Snippet for a metadata hit: the clip's label/description when it matched the
+ * query, else the source media's label/description; undefined when only the
+ * media filename matched (the row already shows the filename).
+ */
+function metadataSnippet(
+  clip: SearchMediaClip,
+  query: string
+): string | undefined {
+  const q = query.toLowerCase();
+  if (clip.label?.toLowerCase().includes(q)) return clip.label;
+  if (clip.description?.toLowerCase().includes(q)) {
+    return excerpt(clip.description, query, SNIPPET_LEN);
+  }
+  const media = clip.expand?.MediaRef;
+  if (media?.label?.toLowerCase().includes(q)) return media.label;
+  if (media?.description?.toLowerCase().includes(q)) {
+    return excerpt(media.description, query, SNIPPET_LEN);
+  }
+  return undefined;
 }
 
 /**

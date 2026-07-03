@@ -1,61 +1,78 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TaskStatus, type TypedPocketBase } from '@project/shared';
-import { createRender, insertClip } from '../lib/timeline.js';
+import { TaskStatus } from '@project/shared';
+import {
+  createRender,
+  createTimeline,
+  insertClip,
+  resolveTrackRef,
+  syncTimelineDuration,
+} from '../lib/timeline.js';
+import { fakePb, listResult, type Stub } from './fake-pb.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Stub = Record<string, any>;
-
-function fakePb(collections: Record<string, Stub>): TypedPocketBase {
-  return {
-    authStore: { record: { id: 'user1' }, token: 'tok' },
-    autoCancellation: () => {},
-    collection: (name: string) => {
-      const c = collections[name];
-      if (!c) throw new Error(`unexpected collection: ${name}`);
-      return c;
-    },
-  } as unknown as TypedPocketBase;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function listResult(items: any[]) {
-  return {
-    page: 1,
-    perPage: 500,
-    totalItems: items.length,
-    totalPages: 1,
-    items,
-  };
-}
+const notFound = () => Object.assign(new Error('not found'), { status: 404 });
 
 const OUTPUT = { resolution: '1920x1080', codec: 'h264', format: 'mp4' };
 
+interface StubOptions {
+  media?: Record<string, unknown>;
+  mediaClip?: Record<string, unknown>;
+  tracks?: Record<string, unknown>[];
+  clips?: Record<string, unknown>[];
+  timeline?: Record<string, unknown>;
+}
+
+/** Collection stubs for the common insert/sync flow (override per test). */
+function timelineStubs(opts: StubOptions = {}): Record<string, Stub> {
+  const {
+    media = { id: 'm1', duration: 60, mediaType: 'video' },
+    mediaClip,
+    tracks = [{ id: 'track1', layer: 0, TimelineRef: 'tl1' }],
+    clips = [],
+    timeline = { id: 'tl1', WorkspaceRef: 'ws1', duration: 0, version: 1 },
+  } = opts;
+  return {
+    Media: { getOne: vi.fn(async () => media) },
+    MediaClips: {
+      getOne: vi.fn(async () => {
+        if (!mediaClip) throw notFound();
+        return mediaClip;
+      }),
+    },
+    TimelineTracks: {
+      getList: vi.fn(async () => listResult(tracks)),
+      getOne: vi.fn(async (id: string) => {
+        const track = tracks.find((t) => t.id === id);
+        if (!track) throw notFound();
+        return track;
+      }),
+      create: vi.fn(async (data) => ({ ...data, id: 'newtrack' })),
+    },
+    TimelineClips: {
+      getList: vi.fn(async () => listResult(clips)),
+      create: vi.fn(async (data) => ({ ...data, id: 'newclip' })),
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+      delete: vi.fn(async () => true),
+    },
+    Timelines: {
+      getOne: vi.fn(async () => timeline),
+      create: vi.fn(async (data) => ({ ...data, id: 'tl1' })),
+      update: vi.fn(async (id: string, data: object) => ({
+        ...timeline,
+        ...data,
+      })),
+    },
+  };
+}
+
 describe('insertClip', () => {
   it('appends a media clip with computed order and full-media duration', async () => {
-    const create = vi.fn(async (data) => ({ ...data, id: 'clip1' }));
-    const pb = fakePb({
-      Media: {
-        getOne: vi.fn(async () => ({
-          id: 'm1',
-          duration: 60,
-          mediaType: 'video',
-        })),
-      },
-      TimelineTracks: {
-        getList: vi.fn(async () =>
-          listResult([{ id: 'track1', layer: 0, TimelineRef: 'tl1' }])
-        ),
-      },
-      TimelineClips: {
-        getList: vi.fn(async () => listResult([])), // no clips → maxOrder -1
-        create,
-      },
-    });
+    const stubs = timelineStubs();
+    const pb = fakePb(stubs);
 
-    const clip = await insertClip(pb, { timelineId: 'tl1', mediaId: 'm1' });
+    const result = await insertClip(pb, { timelineId: 'tl1', media: 'm1' });
 
-    expect(create).toHaveBeenCalledOnce();
-    expect(create.mock.calls[0][0]).toMatchObject({
+    expect(stubs.TimelineClips.create).toHaveBeenCalledOnce();
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
       TimelineRef: 'tl1',
       TimelineTrackRef: 'track1',
       MediaRef: 'm1',
@@ -64,27 +81,382 @@ describe('insertClip', () => {
       end: 60,
       duration: 60,
     });
-    expect(clip.id).toBe('clip1');
+    expect(result.clip.id).toBe('newclip');
+    expect(result.placedAt).toBeUndefined();
+    expect(result.nudged).toBe(false);
   });
 
   it('rejects a time range beyond the media duration', async () => {
-    const pb = fakePb({
-      Media: {
-        getOne: vi.fn(async () => ({
-          id: 'm1',
-          duration: 10,
-          mediaType: 'video',
-        })),
-      },
-      TimelineTracks: {
-        getList: vi.fn(async () => listResult([{ id: 'track1', layer: 0 }])),
-      },
-      TimelineClips: { getList: vi.fn(async () => listResult([])) },
-    });
+    const pb = fakePb(
+      timelineStubs({ media: { id: 'm1', duration: 10, mediaType: 'video' } })
+    );
 
     await expect(
-      insertClip(pb, { timelineId: 'tl1', mediaId: 'm1', start: 0, end: 99 })
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', start: 0, end: 99 })
     ).rejects.toThrow(/invalid time range/i);
+  });
+
+  it('tells the caller image media needs an explicit end', async () => {
+    const pb = fakePb(
+      timelineStubs({ media: { id: 'm1', duration: 0, mediaType: 'image' } })
+    );
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1' })
+    ).rejects.toThrow(/explicit --end/i);
+  });
+
+  it('requires exactly one of media and clip', async () => {
+    const pb = fakePb(timelineStubs());
+    await expect(insertClip(pb, { timelineId: 'tl1' })).rejects.toThrow(
+      /--media <id> or --clip/i
+    );
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', clip: 'mc1' })
+    ).rejects.toThrow(/mutually exclusive/i);
+  });
+
+  it('rejects --overwrite without --at', async () => {
+    const pb = fakePb(timelineStubs());
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', overwrite: true })
+    ).rejects.toThrow(/--overwrite requires --at/i);
+  });
+
+  it('places at the requested time when the slot is free', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 5,
+          duration: 5,
+          timelineStart: 0,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 10,
+    });
+
+    expect(result.placedAt).toBe(10);
+    expect(result.nudged).toBe(false);
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 10,
+      order: 1,
+    });
+  });
+
+  it('nudges past a collision and reports the actual placement', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+    });
+
+    expect(result.placedAt).toBe(10);
+    expect(result.requestedAt).toBe(3);
+    expect(result.nudged).toBe(true);
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 10,
+    });
+  });
+
+  it('overwrite trims and removes overlapped clips, then places exactly', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 4,
+          duration: 4,
+          timelineStart: 0,
+        },
+        {
+          id: 'c2',
+          TimelineTrackRef: 'track1',
+          order: 1,
+          start: 0,
+          end: 2,
+          duration: 2,
+          timelineStart: 4,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    // insert [3,8]: c1 keeps its head [0,3], c2 is fully covered
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+      overwrite: true,
+    });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][0]).toBe('c1');
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 0,
+      end: 3,
+      duration: 3,
+      timelineStart: 0,
+    });
+    expect(stubs.TimelineClips.delete).toHaveBeenCalledWith('c2');
+    expect(result.placedAt).toBe(3);
+    expect(result.trimmedClipIds).toEqual(['c1']);
+    expect(result.removedClipIds).toEqual(['c2']);
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 3,
+      order: 1, // dense renumber after removal
+    });
+  });
+
+  it('inherits trim window, label, and provenance from a MediaClip', async () => {
+    const stubs = timelineStubs({
+      mediaClip: {
+        id: 'mc1',
+        MediaRef: 'm1',
+        start: 5,
+        end: 15,
+        label: 'Interview A1',
+        description: 'best take',
+      },
+    });
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, { timelineId: 'tl1', clip: 'mc1' });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      MediaRef: 'm1',
+      MediaClipRef: 'mc1',
+      start: 5,
+      end: 15,
+      duration: 10,
+      label: 'Interview A1',
+      description: 'best take',
+    });
+  });
+
+  it('lets explicit flags override the MediaClip values', async () => {
+    const stubs = timelineStubs({
+      mediaClip: {
+        id: 'mc1',
+        MediaRef: 'm1',
+        start: 5,
+        end: 15,
+        label: 'Interview A1',
+      },
+    });
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, {
+      timelineId: 'tl1',
+      clip: 'mc1',
+      start: 6,
+      label: 'Best take',
+    });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      start: 6,
+      end: 15,
+      label: 'Best take',
+    });
+  });
+
+  it('resolves --track as a layer number', async () => {
+    const stubs = timelineStubs({
+      tracks: [
+        { id: 'track1', layer: 0, TimelineRef: 'tl1' },
+        { id: 'track2', layer: 1, TimelineRef: 'tl1' },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, { timelineId: 'tl1', media: 'm1', track: '1' });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      TimelineTrackRef: 'track2',
+    });
+  });
+});
+
+describe('resolveTrackRef', () => {
+  it('errors on a layer with no track', async () => {
+    const pb = fakePb(timelineStubs());
+    await expect(resolveTrackRef(pb, 'tl1', '3')).rejects.toThrow(
+      /no track with layer 3/i
+    );
+  });
+
+  it('errors on an ambiguous layer', async () => {
+    const pb = fakePb(
+      timelineStubs({
+        tracks: [
+          { id: 'a', layer: 1, TimelineRef: 'tl1' },
+          { id: 'b', layer: 1, TimelineRef: 'tl1' },
+        ],
+      })
+    );
+    await expect(resolveTrackRef(pb, 'tl1', '1')).rejects.toThrow(
+      /multiple tracks have layer 1/i
+    );
+  });
+
+  it('resolves a record id and verifies its timeline', async () => {
+    const pb = fakePb(
+      timelineStubs({
+        tracks: [{ id: 'trackxyz', layer: 0, TimelineRef: 'other' }],
+      })
+    );
+    await expect(resolveTrackRef(pb, 'tl1', 'trackxyz')).rejects.toThrow(
+      /different timeline/i
+    );
+  });
+
+  it('errors on a missing record id', async () => {
+    const pb = fakePb(timelineStubs({ tracks: [] }));
+    await expect(resolveTrackRef(pb, 'tl1', 'nosuchtrack')).rejects.toThrow(
+      /track not found/i
+    );
+  });
+});
+
+describe('createTimeline', () => {
+  it('creates a timeline with a default Main Track at layer 0', async () => {
+    const stubs = timelineStubs();
+    const pb = fakePb(stubs);
+
+    const result = await createTimeline(pb, {
+      workspaceId: 'ws1',
+      name: 'My Cut',
+      label: 'Rough cut',
+    });
+
+    expect(stubs.Timelines.create.mock.calls[0][0]).toMatchObject({
+      name: 'My Cut',
+      WorkspaceRef: 'ws1',
+      duration: 0,
+      version: 1,
+      label: 'Rough cut',
+    });
+    expect(stubs.TimelineTracks.create).toHaveBeenCalledOnce();
+    expect(stubs.TimelineTracks.create.mock.calls[0][0]).toMatchObject({
+      TimelineRef: 'tl1',
+      name: 'Main Track',
+      layer: 0,
+    });
+    expect(result.tracks).toHaveLength(1);
+  });
+
+  it('creates named tracks layered bottom-up from 0', async () => {
+    const stubs = timelineStubs();
+    const pb = fakePb(stubs);
+
+    await createTimeline(pb, {
+      workspaceId: 'ws1',
+      name: 'Ep 4',
+      tracks: ['Music', 'Interview', 'B-Roll'],
+    });
+
+    const calls = stubs.TimelineTracks.create.mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls[0][0]).toMatchObject({ name: 'Music', layer: 0 });
+    expect(calls[1][0]).toMatchObject({ name: 'Interview', layer: 1 });
+    expect(calls[2][0]).toMatchObject({ name: 'B-Roll', layer: 2 });
+  });
+
+  it('rejects more than MAX_TIMELINE_TRACKS tracks before creating anything', async () => {
+    const stubs = timelineStubs();
+    const pb = fakePb(stubs);
+
+    await expect(
+      createTimeline(pb, {
+        workspaceId: 'ws1',
+        name: 'Too many',
+        tracks: ['a', 'b', 'c', 'd', 'e'],
+      })
+    ).rejects.toThrow(/at most 4 tracks/i);
+    expect(stubs.Timelines.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncTimelineDuration', () => {
+  it('persists the computed duration (furthest end), not the clip sum', async () => {
+    const stubs = timelineStubs({
+      tracks: [
+        { id: 't0', layer: 0, TimelineRef: 'tl1' },
+        { id: 't1', layer: 1, TimelineRef: 'tl1' },
+      ],
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 't0',
+          MediaRef: 'm1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+        // overlapping overlay: sum would be 14, computed max end is 10
+        {
+          id: 'c2',
+          TimelineTrackRef: 't1',
+          MediaRef: 'm1',
+          order: 1,
+          start: 0,
+          end: 4,
+          duration: 4,
+          timelineStart: 2,
+        },
+      ],
+      timeline: { id: 'tl1', WorkspaceRef: 'ws1', duration: 14, version: 1 },
+    });
+    const pb = fakePb(stubs);
+
+    const duration = await syncTimelineDuration(pb, 'tl1');
+
+    expect(duration).toBe(10);
+    expect(stubs.Timelines.update.mock.calls[0][0]).toBe('tl1');
+    expect(stubs.Timelines.update.mock.calls[0][1]).toEqual({ duration: 10 });
+  });
+
+  it('skips the write when the stored duration is already accurate', async () => {
+    const stubs = timelineStubs({
+      timeline: { id: 'tl1', WorkspaceRef: 'ws1', duration: 0, version: 1 },
+    });
+    const pb = fakePb(stubs);
+
+    await syncTimelineDuration(pb, 'tl1');
+    expect(stubs.Timelines.update).not.toHaveBeenCalled();
   });
 });
 

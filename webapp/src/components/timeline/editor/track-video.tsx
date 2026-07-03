@@ -2,8 +2,12 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import pb from '@/lib/pocketbase-client';
-import type { Media, TimelineClip } from '@project/shared';
-import { findActiveClip, type PlaybackTrack } from './playback';
+import {
+  findActiveClip,
+  type Media,
+  type PlaybackTrack,
+  type TimelineClip,
+} from '@project/shared';
 
 // Proxy URL cache shared across track players (media id → URL, null if no proxy)
 const proxyUrlCache = new Map<string, Promise<string | null>>();

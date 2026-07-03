@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Popover,
   PopoverContent,
@@ -30,6 +31,8 @@ export function MediaDetailsEditor({
   const [date, setDate] = useState<Date | undefined>(
     media.mediaDate ? new Date(media.mediaDate) : undefined
   );
+  const [label, setLabel] = useState(media.label ?? '');
+  const [description, setDescription] = useState(media.description ?? '');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -37,6 +40,8 @@ export function MediaDetailsEditor({
       setIsSaving(true);
       await pb.collection('Media').update(media.id, {
         mediaDate: date,
+        label: label.trim(),
+        description: description.trim(),
       });
       toast.success('Media details updated');
       onUpdate();
@@ -54,6 +59,28 @@ export function MediaDetailsEditor({
         <CardTitle className="text-lg">Media Details</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="media-details-label">Label</Label>
+          <Input
+            id="media-details-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="A short, searchable name for this media"
+            maxLength={200}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="media-details-description">Description</Label>
+          <Textarea
+            id="media-details-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Notes about this media (searchable)"
+            rows={4}
+          />
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Media Date</Label>

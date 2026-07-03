@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,6 +30,7 @@ import {
   Scissors,
   Edit,
   AlertCircle,
+  AlignLeft,
   Check,
   Clock,
   Layers,
@@ -209,6 +211,10 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const [color, setColor] = useState('bg-blue-600');
   const [gain, setGain] = useState(1);
 
+  // Media-clip fields (create + edit-media-clip modes)
+  const [clipLabel, setClipLabel] = useState('');
+  const [clipDescription, setClipDescription] = useState('');
+
   // Reset timeline fields when clip changes
   useEffect(() => {
     if (mode === 'edit-timeline-clip' && open) {
@@ -222,6 +228,28 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
       setGain(typeof meta?.gain === 'number' ? meta.gain : 1);
     }
   }, [mode, open, props]);
+
+  // Reset media-clip fields when the modal opens
+  useEffect(() => {
+    if (!open) return;
+    if (mode === 'edit-media-clip') {
+      const clip = (props as ClipEditorEditMediaClipProps).clip;
+      setClipLabel(clip.label ?? '');
+      setClipDescription(clip.description ?? '');
+    } else if (mode === 'create') {
+      setClipLabel('');
+      setClipDescription('');
+    }
+  }, [mode, open, props]);
+
+  const fieldsChanged = useMemo(() => {
+    if (mode !== 'edit-media-clip') return false;
+    const clip = (props as ClipEditorEditMediaClipProps).clip;
+    return (
+      clipLabel !== (clip.label ?? '') ||
+      clipDescription !== (clip.description ?? '')
+    );
+  }, [mode, props, clipLabel, clipDescription]);
 
   const handleSave = useCallback(async () => {
     if (!editor.canSave) return;
@@ -245,6 +273,8 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           end: editor.endTime,
           duration,
           version: 1,
+          label: clipLabel.trim() || undefined,
+          description: clipDescription.trim() || undefined,
         });
         toast.success('Clip created');
         createProps.onClipCreated?.(newClip.id);
@@ -261,6 +291,8 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
         editor.setStartTime(nextStart);
         editor.setEndTime(editor.mediaDuration);
         editor.handleScrub(nextStart);
+        setClipLabel('');
+        setClipDescription('');
       } else if (mode === 'edit-media-clip') {
         const editProps = props as ClipEditorEditMediaClipProps;
         const mutator = new MediaClipMutator(pb);
@@ -276,6 +308,10 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
             start: Math.min(...sorted.map((s) => s.start)),
             end: Math.max(...sorted.map((s) => s.end)),
             duration: dur,
+            // Empty string intentionally clears the field (omitting the key
+            // would preserve the old value).
+            label: clipLabel.trim(),
+            description: clipDescription.trim(),
             clipData: {
               ...(editProps.clip.clipData &&
               typeof editProps.clip.clipData === 'object'
@@ -289,6 +325,8 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
             start: editor.startTime,
             end: editor.endTime,
             duration: editor.endTime - editor.startTime,
+            label: clipLabel.trim(),
+            description: clipDescription.trim(),
           });
         }
 
@@ -363,6 +401,8 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     title,
     color,
     gain,
+    clipLabel,
+    clipDescription,
     onOpenChange,
   ]);
 
@@ -530,7 +570,10 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                   disabled={
                     isSaving ||
                     !editor.canSave ||
-                    (mode !== 'create' && !editor.hasChanges && !isTimelineMode)
+                    (mode !== 'create' &&
+                      !editor.hasChanges &&
+                      !fieldsChanged &&
+                      !isTimelineMode)
                   }
                 >
                   {isSaving ? (
@@ -727,6 +770,35 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                     {formatClipTime(Math.max(0, editor.effectiveDuration))}
                   </span>
                 </div>
+
+                {/* Media-clip name + description */}
+                {!isTimelineMode && (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Type className="w-4 h-4" />
+                        Clip Name
+                      </Label>
+                      <Input
+                        value={clipLabel}
+                        onChange={(e) => setClipLabel(e.target.value)}
+                        placeholder="Untitled clip"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <AlignLeft className="w-4 h-4" />
+                        Description
+                      </Label>
+                      <Textarea
+                        value={clipDescription}
+                        onChange={(e) => setClipDescription(e.target.value)}
+                        placeholder="Notes about this clip…"
+                        rows={3}
+                      />
+                    </div>
+                  </>
+                )}
 
                 {/* Timeline-specific fields */}
                 {isTimelineMode && (

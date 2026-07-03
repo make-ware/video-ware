@@ -31,6 +31,13 @@ export const qk = {
   transcripts: {
     byMedia: (id: string) => ['transcripts', id] as const,
   },
+  labels: {
+    list: (
+      mediaId: string,
+      labelType: string,
+      filters: { minConfidence: number; minDuration: number; query: string }
+    ) => ['labels', 'list', mediaId, labelType, filters] as const,
+  },
   search: {
     results: (
       category: string,

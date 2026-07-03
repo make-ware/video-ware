@@ -81,6 +81,7 @@ export const MediaMetadataSchema = z.object({
 });
 
 export const MediaClipMetadataSchema = z.object({
+  confidence: z.number().optional(),
   labelType: z.string().optional(),
   rank: z.number().optional(),
   score: z.number().optional(),

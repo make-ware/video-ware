@@ -61,7 +61,7 @@ export function LabelInspectorPage({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[calc(100vh-12rem)]">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
       <Card className="md:col-span-1 flex flex-col h-full">
         <CardHeader className="space-y-3">
           <div>

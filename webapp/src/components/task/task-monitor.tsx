@@ -74,41 +74,11 @@ export function TaskMonitor({
     }
   };
 
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'success':
-        return 'bg-green-500';
-      case 'failed':
-        return 'bg-red-500';
-      case 'running':
-        return 'bg-blue-500';
-      case 'queued':
-        return 'bg-gray-400';
-      case 'canceled':
-        return 'bg-gray-500';
-      default:
-        return 'bg-gray-400';
-    }
-  };
-
   const formatTaskType = (type: string): string => {
     return type
       .split('_')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString();
   };
 
   const formatDateTime = (dateString: string): string => {
@@ -152,26 +122,30 @@ export function TaskMonitor({
 
   if (isLoading) {
     return (
-      <Card className={className}>
-        <CardHeader>
+      <Card className={cn('py-4 gap-3', className)}>
+        <CardHeader className="px-4">
           <Skeleton className="h-6 w-32" />
         </CardHeader>
-        <CardContent className="space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-2 w-full" />
-              <Skeleton className="h-3 w-1/2" />
-            </div>
-          ))}
+        <CardContent className="px-4">
+          <div className="border rounded-lg divide-y divide-gray-200">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                <Skeleton className="h-4 w-4 rounded-full flex-shrink-0" />
+                <Skeleton className="h-4 w-32 flex-shrink-0" />
+                <Skeleton className="h-4 w-16 flex-shrink-0 rounded-full" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-4 w-24 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className={className}>
-      <CardHeader>
+    <Card className={cn('py-4 gap-3', className)}>
+      <CardHeader className="px-4">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <span>Background Tasks</span>
@@ -180,7 +154,7 @@ export function TaskMonitor({
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="px-4">
         {tasks.length === 0 ? (
           <Empty>
             <EmptyHeader>
@@ -194,181 +168,117 @@ export function TaskMonitor({
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="space-y-4">
-            {tasks.map((task) => (
-              <div
-                key={task.id}
-                className={cn(
-                  'relative border rounded-lg cursor-pointer transition-colors hover:bg-gray-50 hover:border-gray-300 overflow-hidden',
-                  task.status === 'failed' &&
-                    'border-red-200 bg-red-50 hover:bg-red-100',
-                  'group'
-                )}
-                onClick={() => {
-                  setSelectedTask(task);
-                  setIsModalOpen(true);
-                }}
-              >
-                {/* Status indicator bar */}
+          <div className="border rounded-lg overflow-hidden">
+            {/* Column header row */}
+            <div className="hidden sm:flex items-center gap-3 px-3 py-1.5 bg-gray-50 border-b text-xs font-medium text-gray-500 uppercase tracking-wide">
+              <div className="w-4 flex-shrink-0" />
+              <div className="w-32 flex-shrink-0">Type</div>
+              <div className="w-20 flex-shrink-0">Status</div>
+              <div className="flex-1 min-w-0">Source</div>
+              <div className="w-36 flex-shrink-0 text-right">Created</div>
+              <div className="w-16 flex-shrink-0 text-right">Duration</div>
+              <div className="w-16 flex-shrink-0" />
+            </div>
+
+            <div className="divide-y divide-gray-200">
+              {tasks.map((task) => (
                 <div
+                  key={task.id}
                   className={cn(
-                    'absolute left-0 top-0 bottom-0 w-1',
-                    getStatusColor(task.status as string)
+                    'flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors hover:bg-gray-50 group',
+                    task.status === 'failed' && 'bg-red-50 hover:bg-red-100'
                   )}
-                />
-
-                <div className="p-4 pl-5">
-                  {/* Main content grid */}
-                  <div className="grid grid-cols-12 gap-4 items-start">
-                    {/* Left column: Status icon and task info */}
-                    <div className="col-span-8 flex items-start gap-3 min-w-0">
-                      {/* Status icon */}
-                      <div className="flex-shrink-0 mt-0.5">
-                        {getStatusIcon(task.status as string)}
-                      </div>
-
-                      {/* Task info */}
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900">
-                            {formatTaskType(task.type)}
-                          </p>
-                          <Badge
-                            variant={getStatusBadgeVariant(
-                              task.status as string
-                            )}
-                          >
-                            {task.status}
-                          </Badge>
-                        </div>
-
-                        {/* Source info */}
-                        <div className="text-sm text-gray-600">
-                          <span className="truncate">
-                            {task.sourceType}: {task.sourceId}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Right column: Date/Time, Duration, and Metadata */}
-                    <div className="col-span-4 flex flex-col items-end gap-1.5 text-right">
-                      {/* Date/Time */}
-                      <div className="text-sm text-gray-600">
-                        {formatDateTime(task.created)}
-                      </div>
-
-                      {/* Duration */}
-                      <div className="text-sm text-gray-600">
-                        <span>
-                          {formatDuration(task)}
-                          {task.status === 'running' ||
-                          task.status === 'queued' ? (
-                            <span className="text-gray-500 ml-1">
-                              (running)
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-
-                      {/* Metadata row */}
-                      <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-gray-600">
-                        <span>{formatDate(task.created)}</span>
-                        {task.updated !== task.created && (
-                          <>
-                            <span className="text-gray-400">•</span>
-                            <span>Updated {formatDate(task.updated)}</span>
-                          </>
-                        )}
-                        {task.attempts > 0 && (
-                          <>
-                            <span className="text-gray-400">•</span>
-                            <span>Attempt {task.attempts}</span>
-                          </>
-                        )}
-                        {task.priority !== undefined && task.priority > 0 && (
-                          <>
-                            <span className="text-gray-400">•</span>
-                            <span>Priority {task.priority}</span>
-                          </>
-                        )}
-                        {task.provider && (
-                          <>
-                            <span className="text-gray-400">•</span>
-                            <span className="capitalize">{task.provider}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+                  onClick={() => {
+                    setSelectedTask(task);
+                    setIsModalOpen(true);
+                  }}
+                >
+                  {/* Status icon */}
+                  <div className="flex-shrink-0 [&_svg]:h-4 [&_svg]:w-4">
+                    {getStatusIcon(task.status as string)}
                   </div>
 
-                  {/* Actions row */}
-                  <div className="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-gray-200">
-                    {/* Left: Progress or version */}
-                    <div className="flex-1 min-w-0">
-                      {task.status === 'running' && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600">Progress</span>
-                            <span className="font-medium text-gray-900">
-                              {task.progress}%
-                            </span>
-                          </div>
-                          <Progress value={task.progress} className="h-2" />
-                        </div>
-                      )}
-                      {task.status === 'success' && task.version && (
-                        <div className="text-sm text-gray-600">
-                          Processed with {task.version}
-                        </div>
-                      )}
-                      {task.status === 'failed' && task.errorLog && (
-                        <div className="flex items-start gap-2 text-sm text-red-700">
-                          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                          <span className="line-clamp-1">{task.errorLog}</span>
-                        </div>
-                      )}
-                    </div>
+                  {/* Type */}
+                  <p className="w-32 flex-shrink-0 truncate text-sm font-medium text-gray-900">
+                    {formatTaskType(task.type)}
+                  </p>
 
-                    {/* Right: Action buttons */}
-                    <div className="flex items-center gap-1">
-                      {(task.status === 'failed' ||
-                        task.status === 'canceled') && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-blue-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            retryTask(task.id);
-                          }}
-                          title="Retry task"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      )}
+                  {/* Status badge */}
+                  <Badge
+                    variant={getStatusBadgeVariant(task.status as string)}
+                    className="flex-shrink-0"
+                  >
+                    {task.status}
+                  </Badge>
 
-                      {(task.status === 'queued' ||
-                        task.status === 'running') && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-red-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cancelTask(task.id);
-                          }}
-                          title="Cancel task"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
-                    </div>
+                  {/* Source + inline progress/error */}
+                  <div className="flex-1 min-w-0 flex items-center gap-2 text-sm text-gray-600">
+                    <span className="truncate">
+                      {task.status === 'failed' && task.errorLog
+                        ? task.errorLog
+                        : `${task.sourceType}: ${task.sourceId}`}
+                    </span>
+                    {task.status === 'running' && (
+                      <span className="flex items-center gap-1.5 flex-shrink-0">
+                        <Progress
+                          value={task.progress}
+                          className="h-1.5 w-16"
+                        />
+                        <span className="text-xs text-gray-500">
+                          {task.progress}%
+                        </span>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Created */}
+                  <div className="hidden sm:block w-36 flex-shrink-0 text-right text-xs text-gray-500">
+                    {formatDateTime(task.created)}
+                  </div>
+
+                  {/* Duration */}
+                  <div className="w-16 flex-shrink-0 text-right text-xs text-gray-500">
+                    {formatDuration(task)}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    {(task.status === 'failed' ||
+                      task.status === 'canceled') && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-gray-500 hover:text-blue-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retryTask(task.id);
+                        }}
+                        title="Retry task"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+
+                    {(task.status === 'queued' ||
+                      task.status === 'running') && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-gray-500 hover:text-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelTask(task.id);
+                        }}
+                        title="Cancel task"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </CardContent>

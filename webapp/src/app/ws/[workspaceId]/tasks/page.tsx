@@ -68,13 +68,13 @@ function TasksPageContent() {
   const goTo = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="container mx-auto px-4 py-6 max-w-5xl">
       {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-foreground mb-2">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-foreground mb-1">
           Background Tasks
         </h1>
-        <p className="text-lg text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Monitor and manage background operations in {currentWorkspace.name}
         </p>
       </div>
@@ -86,7 +86,7 @@ function TasksPageContent() {
       />
 
       {totalPages > 1 && (
-        <Pagination className="mt-6">
+        <Pagination className="mt-4">
           <PaginationContent>
             <PaginationItem>
               <PaginationPrevious

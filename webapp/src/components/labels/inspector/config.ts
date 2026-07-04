@@ -79,7 +79,7 @@ export const OBJECTS_CONFIG: InspectorTypeConfig = {
   queryFields: ['entity'],
   preview: 'track',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: '-duration',
+  defaultSort: 'start',
   listTitle: (r) => (r as LabelObject).entity,
 };
 
@@ -93,7 +93,7 @@ export const FACES_CONFIG: InspectorTypeConfig = {
   queryFields: ['faceId'],
   preview: 'track',
   defaultFilters: { minConfidence: 0, minDuration: 2 },
-  defaultSort: '-duration',
+  defaultSort: 'start',
   listTitle: (r) => `Face ${(r as LabelFace).faceId || shortId(r)}`,
   detailExtras: (r) => {
     const face = r as LabelFace;
@@ -122,7 +122,7 @@ export const PEOPLE_CONFIG: InspectorTypeConfig = {
   queryFields: ['personId', 'upperBodyColor', 'lowerBodyColor'],
   preview: 'track',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: '-duration',
+  defaultSort: 'start',
   listTitle: (r) => `Person ${(r as LabelPerson).personId || shortId(r)}`,
   detailExtras: (r) => {
     const person = r as LabelPerson;
@@ -143,7 +143,7 @@ export const SHOTS_CONFIG: InspectorTypeConfig = {
   queryFields: ['entity'],
   preview: 'filmstrip',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: '-duration',
+  defaultSort: 'start',
   listTitle: (r) => (r as LabelShot).entity,
 };
 

@@ -111,7 +111,7 @@ export default function LabelTranscriptsPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-12rem)]">
+    <div className="h-full">
       <Card className="h-full flex flex-col">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>

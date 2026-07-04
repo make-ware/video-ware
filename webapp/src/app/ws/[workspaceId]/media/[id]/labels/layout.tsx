@@ -17,8 +17,9 @@ export default function LabelsLayout({
   const mediaId = params.id as string;
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex items-center justify-between mb-6">
+    // 2.5625rem = NavigationBar's fixed h-10 content + its border-b.
+    <div className="container mx-auto py-6 h-[calc(100vh-2.5625rem)] flex flex-col">
+      <div className="flex items-center justify-between mb-6 shrink-0">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -30,8 +31,10 @@ export default function LabelsLayout({
           <h1 className="text-3xl font-bold">Label Inspector</h1>
         </div>
       </div>
-      <LabelsNav />
-      {children}
+      <div className="shrink-0">
+        <LabelsNav />
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
     </div>
   );
 }

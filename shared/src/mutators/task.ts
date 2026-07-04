@@ -21,7 +21,7 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
 
   protected setDefaults(): MutatorOptions {
     return {
-      expand: ['WorkspaceRef', 'MediaRef', 'UserRef'],
+      expand: ['WorkspaceRef', 'UserRef'],
       filter: [],
       sort: ['-created'],
     };

@@ -276,7 +276,7 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
             }
           }
           this.logger.warn(
-            `Failed to insert label track: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to insert label track (trackHash=${track.trackHash}): ${this.formatPbError(error)}`
           );
         }
       }
@@ -323,6 +323,17 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
             continue;
           }
 
+          // A missing trackRef means the parent LabelTrack was never inserted
+          // (its create failed upstream). LabelTrackRef is required, so calling
+          // create() here would throw a misleading ZodError pointing at the
+          // object schema instead of the real upstream failure. Skip cleanly.
+          if (!trackRef) {
+            this.logger.warn(
+              `Skipping label object (objectHash=${obj.objectHash}): parent LabelTrack for originalTrackId "${obj.originalTrackId}" was not inserted`
+            );
+            continue;
+          }
+
           const created =
             await this.pocketBaseService.labelObjectMutator.create({
               ...obj,
@@ -342,7 +353,7 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
             }
           }
           this.logger.warn(
-            `Failed to insert label object: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to insert label object (objectHash=${obj.objectHash}): ${this.formatPbError(error)}`
           );
         }
       }
@@ -352,18 +363,45 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Check if an error is a unique constraint violation
+   * Build a log-friendly string from an error, including PocketBase's
+   * field-level validation detail.
+   *
+   * A PocketBase ClientResponseError's `.message` is always the generic
+   * envelope ("Failed to create record."); the actionable per-field reasons
+   * live in `error.response.data`. Logging only `.message` hides the real
+   * cause, so we append the response body when present.
+   */
+  private formatPbError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      return `${message} — ${JSON.stringify(data)}`;
+    }
+    return message;
+  }
+
+  /**
+   * Check if an error is a unique constraint violation.
+   *
+   * PocketBase surfaces the `validation_not_unique` code in
+   * `error.response.data.<field>.code`, NOT in `error.message` (which is the
+   * generic "Failed to create record."). We therefore search both the message
+   * and the serialized response body so genuine PB unique violations — not
+   * just raw SQLite ones — are recognized and recovered from.
    */
   private isUniqueConstraintError(error: unknown): boolean {
     if (!error) return false;
 
     const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    const haystack = `${message} ${data ? JSON.stringify(data) : ''}`;
+
     return (
-      message.includes('unique constraint') ||
-      message.includes('UNIQUE constraint') ||
-      message.includes('validation_not_unique') ||
-      message.includes('trackHash') ||
-      message.includes('objectHash')
+      haystack.includes('unique constraint') ||
+      haystack.includes('UNIQUE constraint') ||
+      haystack.includes('validation_not_unique') ||
+      haystack.includes('trackHash') ||
+      haystack.includes('objectHash')
     );
   }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.3...video-ware-v0.8.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* resolve label bugs ([a8bb00f](https://github.com/make-ware/video-ware/commit/a8bb00f9746561e8f6a59014ae08cfc028c5b3e8))
+
 ## [0.8.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.2...video-ware-v0.8.3) (2026-07-03)
 
 

@@ -65,6 +65,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
     RESOLUTIONS[initialOrientation][1].value
   );
   const [includeCaptions, setIncludeCaptions] = useState(true);
+  const [includeSubtitles, setIncludeSubtitles] = useState(false);
   const [includeTransitions, setIncludeTransitions] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -96,6 +97,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
         codec: 'libx264',
         format: 'mp4',
         includeCaptions,
+        includeSubtitles,
         includeTransitions,
       });
       toast.success('Render task created! Check Renders for progress.');
@@ -175,7 +177,25 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
                 htmlFor="captions"
                 className="font-normal text-muted-foreground"
               >
-                Include text tracks
+                Include titles &amp; caption clips
+              </Label>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="subtitles" className="text-right">
+              Subtitles
+            </Label>
+            <div className="col-span-3 flex items-center space-x-2">
+              <Switch
+                id="subtitles"
+                checked={includeSubtitles}
+                onCheckedChange={setIncludeSubtitles}
+              />
+              <Label
+                htmlFor="subtitles"
+                className="font-normal text-muted-foreground"
+              >
+                Burn in speech-to-text (skips muted tracks)
               </Label>
             </div>
           </div>

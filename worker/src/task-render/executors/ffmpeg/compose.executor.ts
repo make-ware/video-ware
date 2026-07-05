@@ -296,8 +296,15 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       // Visual Tracks (Video, Image, Text)
       for (const seg of track.segments) {
         if (seg.type === 'text') {
-          // Skip captions if disabled (default to true)
-          if (outputSettings.includeCaptions === false) {
+          // Text is gated by kind so the two toggles are independent:
+          //   - subtitles (auto speech-to-text) → includeSubtitles, default off
+          //   - captions/titles (placed CaptionRef) → includeCaptions, default on
+          // generateTracks already drops muted-track subtitles before this, so
+          // any subtitle segment here reflects an enabled, unmuted track.
+          const isSubtitle = seg.text?.role === 'subtitle';
+          if (isSubtitle) {
+            if (outputSettings.includeSubtitles !== true) continue;
+          } else if (outputSettings.includeCaptions === false) {
             continue;
           }
 

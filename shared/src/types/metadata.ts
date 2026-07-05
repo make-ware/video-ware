@@ -17,6 +17,7 @@ export const RenderTimelineConfigSchema = z.object({
   // preserved (not stripped) when stored on a TimelineRender / task payload.
   orientation: z.nativeEnum(TimelineOrientation).optional(),
   includeCaptions: z.boolean().optional(),
+  includeSubtitles: z.boolean().optional(),
   includeTransitions: z.boolean().optional(),
 }) satisfies z.ZodType<RenderTimelineConfig>;
 
@@ -270,6 +271,7 @@ const TimelineSegmentSchema = z.object({
   text: z
     .object({
       content: z.string(),
+      role: z.enum(['subtitle', 'caption', 'title']).optional(),
       cues: z
         .array(
           z.object({

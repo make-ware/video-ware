@@ -37,8 +37,17 @@ import { projectChildWindow, type NestedTimelineMap } from './nested-timeline';
 export interface GenerateTracksOptions {
   /** LabelSpeech-like transcript records keyed by media id */
   transcriptsByMedia?: Record<string, TranscriptLike[]>;
-  /** When false, no caption text segments are emitted (default true) */
+  /**
+   * When false, deliberately placed caption/title clips (CaptionRef) are not
+   * emitted. Default true. Does not affect auto subtitles (see includeSubtitles).
+   */
   includeCaptions?: boolean;
+  /**
+   * When true, auto subtitles derived from a clip's speech transcript are
+   * emitted. Default false. Muted tracks never contribute subtitles, since a
+   * subtitle transcribes that track's (now silenced) audio.
+   */
+  includeSubtitles?: boolean;
   /** Style applied to derived transcript captions (default DEFAULT_CAPTION_STYLE) */
   captionStyle?: CaptionStyle;
   /** Clips + tracks of timelines referenced by nested-timeline clips */
@@ -158,8 +167,14 @@ function captionStyleToText(style: CaptionStyle) {
 }
 
 /**
- * Build the auto-caption text segment for a media clip from its LabelSpeech
- * transcripts, or null when captions are disabled / no transcripts exist.
+ * Build the auto-subtitle text segment for a media clip from its LabelSpeech
+ * transcripts, or null when subtitles are disabled, the track is muted, or no
+ * transcripts exist.
+ *
+ * Subtitles transcribe the clip's spoken audio, so a muted track emits none —
+ * this is what keeps a muted B-roll cutaway from captioning itself. They are
+ * also opt-in (includeSubtitles, default off) and tagged `role: 'subtitle'` so
+ * the renderer can gate them independently of deliberately placed captions.
  *
  * Words live in absolute media time; clamping to [clip.start, clip.end] both
  * trims to the visible source window and re-bases cues to the clip start —
@@ -171,9 +186,11 @@ function buildTranscriptCaptionSegment(
   clip: TimelineClip,
   startTime: number,
   duration: number,
-  options?: GenerateTracksOptions
+  options?: GenerateTracksOptions,
+  isMuted?: boolean
 ): TimelineSegment | null {
-  if (!options || options.includeCaptions === false) return null;
+  if (!options?.includeSubtitles) return null;
+  if (isMuted) return null;
   if (!clip.MediaRef) return null;
 
   const transcripts = options.transcriptsByMedia?.[clip.MediaRef];
@@ -191,7 +208,7 @@ function buildTranscriptCaptionSegment(
     id: `${clip.id}-captions`,
     type: 'text',
     time: { start: startTime, duration },
-    text: { content: '', cues, ...captionStyleToText(style) },
+    text: { content: '', role: 'subtitle', cues, ...captionStyleToText(style) },
   };
 }
 
@@ -255,6 +272,9 @@ function generateSegmentsFromClip(
         },
         text: {
           content: caption?.text ?? clip.meta?.title ?? '',
+          // Deliberately placed captions/titles are gated by includeCaptions,
+          // never by includeSubtitles or track mute.
+          role: caption?.captionType === 'title' ? 'title' : 'caption',
           cues: cues.length > 0 ? cues : undefined,
           ...captionStyleToText(style),
         },
@@ -361,7 +381,8 @@ function generateSegmentsFromClip(
     clip,
     startTime,
     duration,
-    captionOptions
+    captionOptions,
+    trackSettings?.isMuted
   );
   if (captionSegment) segments.push(captionSegment);
 
@@ -475,6 +496,10 @@ function expandNestedClipToTracks(
   const audioFactor = effectiveVolume(trackSettings, clipGain);
   const parentOpacity = trackSettings?.opacity;
   const parentLayer = trackSettings?.layer ?? 0;
+  // A muted parent track silences the whole nested composition, so the child's
+  // auto subtitles (which transcribe that audio) drop too — mirroring the
+  // top-level mute rule. Deliberately placed captions/titles are unaffected.
+  const parentMuted = !!trackSettings?.isMuted;
 
   // Rank child visual tracks by layer for order-preserving fractional layers
   const videoRanks = new Map<string, number>();
@@ -490,6 +515,10 @@ function expandNestedClipToTracks(
 
     const segments: TimelineSegment[] = [];
     for (const seg of childTrack.segments) {
+      // Drop child auto subtitles under a muted parent (see parentMuted above).
+      if (parentMuted && seg.type === 'text' && seg.text?.role === 'subtitle') {
+        continue;
+      }
       const window = projectChildWindow(
         startTime,
         clip.start,

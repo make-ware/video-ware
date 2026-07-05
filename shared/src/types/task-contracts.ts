@@ -243,8 +243,17 @@ export interface RenderTimelineConfig {
   resolution: string;
   /** Output orientation; when set, target dimensions are normalized to match */
   orientation?: TimelineOrientation;
-  /** Whether to include captions (text tracks) in the output */
+  /**
+   * Whether to burn in caption/title clips (deliberately placed CaptionRef
+   * text) in the output. Default true.
+   */
   includeCaptions?: boolean;
+  /**
+   * Whether to burn in auto subtitles derived from each clip's speech
+   * transcript (LabelSpeech). Muted tracks never contribute subtitles.
+   * Default false.
+   */
+  includeSubtitles?: boolean;
   /** Whether to include transitions in the output */
   includeTransitions?: boolean;
 }
@@ -283,6 +292,13 @@ export interface TimelineSegment {
   /** Text specific properties */
   text?: {
     content: string;
+    /**
+     * What kind of text this is, so the renderer can gate it independently:
+     * `subtitle` = auto speech-to-text (gated by includeSubtitles), while
+     * `caption`/`title` = deliberately placed CaptionRef clips (gated by
+     * includeCaptions). Absent is treated as a non-subtitle caption.
+     */
+    role?: 'subtitle' | 'caption' | 'title';
     /**
      * Timed text changes (animated captions). Cue times are in seconds
      * relative to the segment start. When present, each cue's text is

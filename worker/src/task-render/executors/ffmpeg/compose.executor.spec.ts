@@ -319,6 +319,66 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toContain('shadowcolor=');
   });
 
+  describe('text gating by role', () => {
+    // A title/caption clip and an auto-subtitle segment on the same chain.
+    const gatingTracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'text',
+        layer: 0,
+        segments: [
+          {
+            id: 'title1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: { content: 'A Title', role: 'title', fontSize: 96 },
+          },
+          {
+            id: 'sub1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: { content: 'A Subtitle', role: 'subtitle', fontSize: 48 },
+          },
+        ],
+      },
+    ];
+
+    const runWith = async (
+      outputSettings: Record<string, unknown>
+    ): Promise<string> => {
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      await executor.execute(gatingTracks, {}, '/tmp/output.mp4', {
+        codec: 'libx264',
+        format: 'mp4',
+        resolution: '1920x1080',
+        ...outputSettings,
+      } as never);
+      const args = executeSpy.mock.calls[0][0] as string[];
+      return args[args.indexOf('-filter_complex') + 1];
+    };
+
+    it('draws captions but not subtitles by default (subtitles off, captions on)', async () => {
+      const fc = await runWith({});
+      expect(fc).toContain("drawtext=text='A Title'");
+      expect(fc).not.toContain("drawtext=text='A Subtitle'");
+    });
+
+    it('draws subtitles only when includeSubtitles is true', async () => {
+      const fc = await runWith({ includeSubtitles: true });
+      expect(fc).toContain("drawtext=text='A Subtitle'");
+      expect(fc).toContain("drawtext=text='A Title'");
+    });
+
+    it('gates captions and subtitles independently (captions off, subtitles on)', async () => {
+      const fc = await runWith({
+        includeCaptions: false,
+        includeSubtitles: true,
+      });
+      expect(fc).not.toContain("drawtext=text='A Title'");
+      expect(fc).toContain("drawtext=text='A Subtitle'");
+    });
+  });
+
   it('should build correct FFmpeg command for composite clip (multiple segments from same source)', async () => {
     // Simulates expanded composite clip: 4 segments stitched from same media
     // Segments: 1.8-8.7 (6.9s), 12.3-13.5 (1.2s), 14.8-23.1 (8.3s), 28.9-31.1 (2.2s)

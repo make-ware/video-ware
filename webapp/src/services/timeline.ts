@@ -737,10 +737,11 @@ export class TimelineService {
 
   /**
    * Fetch LabelSpeech transcripts for a set of media, keyed by media id.
-   * Used to burn auto-captions into renders (generateTracks derives single-line
-   * cues from each media's word timings).
+   * Used to burn auto subtitles into renders and to preview them live in the
+   * editor (generateTracks / the player derive single-line cues from each
+   * media's word timings). Only media with transcripts appear in the result.
    */
-  private async getTranscriptsByMedia(
+  async getTranscriptsByMedia(
     mediaIds: string[]
   ): Promise<Record<string, LabelSpeech[]>> {
     const entries = await Promise.all(
@@ -1137,8 +1138,8 @@ export class TimelineService {
     }
 
     // Generate tracks, feeding each media clip's transcripts so the renderer
-    // can burn auto-captions in alongside custom caption clips (gated by the
-    // includeCaptions toggle).
+    // can burn auto subtitles in alongside custom caption clips (subtitles
+    // gated by includeSubtitles, caption/title clips by includeCaptions).
     const clips = await this.timelineClipMutator.getByTimeline(timelineId);
     const tracksList =
       await this.timelineTrackMutator.getByTimeline(timelineId);
@@ -1156,13 +1157,15 @@ export class TimelineService {
         allClips.filter((c) => c.MediaRef).map((c) => c.MediaRef as string)
       ),
     ];
-    const transcriptsByMedia =
-      config.includeCaptions === false
-        ? {}
-        : await this.getTranscriptsByMedia(mediaIds);
+    // Transcripts drive auto subtitles only, which are opt-in — skip the
+    // fetch entirely when subtitles are off.
+    const transcriptsByMedia = config.includeSubtitles
+      ? await this.getTranscriptsByMedia(mediaIds)
+      : {};
     const tracks = generateTracks(clips, tracksList.items, {
       transcriptsByMedia,
       includeCaptions: config.includeCaptions,
+      includeSubtitles: config.includeSubtitles,
       nestedTimelines,
       rootTimelineId: timelineId,
     });

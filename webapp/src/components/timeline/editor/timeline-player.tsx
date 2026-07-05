@@ -9,18 +9,22 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
+  Captions,
+  CaptionsOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   MAX_PLAYBACK_CHANNELS,
   TimelineOrientation,
   buildPlaybackChannels,
+  findActiveClip,
   type Caption,
   type CaptionCue,
   type CaptionStyle,
   type TimelineClip,
 } from '@project/shared';
 import { CaptionOverlay } from '@/components/captions';
+import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TrackVideo } from './track-video';
 
 export function TimelinePlayer() {
@@ -31,6 +35,9 @@ export function TimelinePlayer() {
     isPlaying,
     setIsPlaying,
     duration,
+    showSubtitles,
+    setShowSubtitles,
+    transcriptsByMedia,
   } = useTimeline();
 
   const [isMuted, setIsMuted] = useState(false);
@@ -78,6 +85,34 @@ export function TimelinePlayer() {
     }
     return active;
   }, [playback, currentTime]);
+
+  // Auto subtitles active at the playhead: for each non-muted channel, the
+  // transcript of the clip playing there, at that clip's source time. Mirrors
+  // the render (buildTranscriptCaptionSegment) so preview matches the output —
+  // muted channels contribute nothing, exactly as they don't in the render.
+  const activeSubtitles = useMemo(() => {
+    if (!showSubtitles) return [];
+    const active: Array<{
+      channelId: string;
+      transcripts: (typeof transcriptsByMedia)[string];
+      mediaTime: number;
+    }> = [];
+    for (const channel of playback?.channels ?? []) {
+      if (channel.isMuted) continue;
+      const clip = findActiveClip(channel.mediaClips, currentTime);
+      const mediaId = clip?.clip.MediaRef;
+      if (!clip || !mediaId) continue;
+      const transcripts = transcriptsByMedia[mediaId];
+      if (!transcripts || transcripts.length === 0) continue;
+      active.push({
+        channelId: channel.trackId ?? `layer-${channel.layer}`,
+        transcripts,
+        // cuesFromTranscripts cues are in absolute media time
+        mediaTime: currentTime - clip.globalStart + clip.clip.start,
+      });
+    }
+    return active;
+  }, [showSubtitles, playback, currentTime, transcriptsByMedia]);
 
   // Playback loop
   useEffect(() => {
@@ -154,6 +189,17 @@ export function TimelinePlayer() {
           />
         ))}
 
+        {/* Auto subtitle overlays (speech-to-text), toggled + mute-aware */}
+        {activeSubtitles.map(({ channelId, transcripts, mediaTime }) => (
+          <TranscriptOverlay
+            key={`sub-${channelId}`}
+            className="z-10"
+            transcripts={transcripts}
+            currentTime={mediaTime}
+            isVisible
+          />
+        ))}
+
         {/* Overlay Controls */}
         <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
           <div className="flex items-center justify-center gap-4">
@@ -209,6 +255,23 @@ export function TimelinePlayer() {
               <VolumeX className="h-4 w-4" />
             ) : (
               <Volume2 className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowSubtitles((prev) => !prev)}
+            title={
+              showSubtitles
+                ? 'Hide auto subtitles'
+                : 'Show auto subtitles (skips muted tracks)'
+            }
+            aria-pressed={showSubtitles}
+          >
+            {showSubtitles ? (
+              <Captions className="h-4 w-4" />
+            ) : (
+              <CaptionsOff className="h-4 w-4 text-muted-foreground" />
             )}
           </Button>
         </div>

@@ -19,6 +19,7 @@ import {
   computeClipPlacement,
   computeTimelineDuration,
   planOverwriteAtTime,
+  type LabelSpeech,
 } from '@project/shared';
 
 interface TimelineContextType {
@@ -34,6 +35,13 @@ interface TimelineContextType {
   duration: number;
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Subtitle preview: whether to overlay auto speech-to-text captions in the
+  // player (default off, mirroring the render toggle), plus the transcripts
+  // (keyed by media id) they're derived from. Fetched only while shown.
+  showSubtitles: boolean;
+  setShowSubtitles: React.Dispatch<React.SetStateAction<boolean>>;
+  transcriptsByMedia: Record<string, LabelSpeech[]>;
 
   // Selected clip state (backward-compatible single + new multi-select)
   selectedClipId: string | null;
@@ -163,6 +171,12 @@ export function TimelineProvider({
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Subtitle preview state (auto speech-to-text overlay in the player)
+  const [showSubtitles, setShowSubtitles] = useState(false);
+  const [transcriptsByMedia, setTranscriptsByMedia] = useState<
+    Record<string, LabelSpeech[]>
+  >({});
+
   // Total duration: furthest clip end across all tracks (respects
   // timelineStart and overlapping multi-track clips)
   const duration = useMemo(() => {
@@ -177,6 +191,45 @@ export function TimelineProvider({
 
   // Create timeline service - memoized to prevent recreation
   const timelineService = useMemo(() => new TimelineService(pb), []);
+
+  // Media ids on the timeline (own tracks + nested timelines), used to load
+  // the transcripts that back the subtitle preview overlay.
+  const timelineMediaIds = useMemo(() => {
+    if (!timeline) return [] as string[];
+    const own = timeline.clips
+      .map((c) => c.MediaRef)
+      .filter((id): id is string => !!id);
+    const nested = Object.values(timeline.nestedTimelines ?? {}).flatMap((n) =>
+      n.clips.map((c) => c.MediaRef).filter((id): id is string => !!id)
+    );
+    return [...new Set([...own, ...nested])];
+  }, [timeline]);
+  const mediaIdsKey = timelineMediaIds.join(',');
+
+  // Fetch transcripts only while subtitles are shown; clear them when hidden so
+  // the overlay never draws stale cues. Keyed on the media-id set so it doesn't
+  // refetch on unrelated timeline edits.
+  useEffect(() => {
+    if (!showSubtitles || timelineMediaIds.length === 0) {
+      setTranscriptsByMedia({});
+      return;
+    }
+    let cancelled = false;
+    timelineService
+      .getTranscriptsByMedia(timelineMediaIds)
+      .then((map) => {
+        if (!cancelled) setTranscriptsByMedia(map);
+      })
+      .catch(() => {
+        if (!cancelled) setTranscriptsByMedia({});
+      });
+    return () => {
+      cancelled = true;
+    };
+    // timelineMediaIds is derived from mediaIdsKey; keying on the string avoids
+    // refetching when the timeline object identity changes but media doesn't.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSubtitles, mediaIdsKey, timelineService]);
 
   // Track unsaved changes
   const hasUnsavedChanges = useMemo(() => {
@@ -1077,6 +1130,11 @@ export function TimelineProvider({
       setCurrentTime,
       setIsPlaying,
 
+      // Subtitle preview
+      showSubtitles,
+      setShowSubtitles,
+      transcriptsByMedia,
+
       // Selected clip state
       selectedClipId,
       setSelectedClipId,
@@ -1134,6 +1192,8 @@ export function TimelineProvider({
       currentTime,
       isPlaying,
       duration,
+      showSubtitles,
+      transcriptsByMedia,
       selectedClipId,
       setSelectedClipId,
       selectedClipIds,

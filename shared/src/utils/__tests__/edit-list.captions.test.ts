@@ -66,6 +66,8 @@ describe('generateTracks with caption clips', () => {
     expect(seg.time).toEqual({ start: 10, duration: 4 });
     expect(seg.text).toMatchObject({
       content: 'Hello world',
+      // Placed caption clip → 'caption' (not a subtitle); gated by includeCaptions
+      role: 'caption',
       cues: [
         { text: 'Hello', start: 0, end: 2 },
         { text: 'world', start: 2, end: 4 },
@@ -142,10 +144,13 @@ function makeMediaClip(
   } as unknown as TimelineClipWithExpand;
 }
 
-describe('generateTracks with media-clip transcript captions', () => {
-  it('emits a single-line caption text segment alongside the video segment', () => {
+const mutedTrack = { ...track, isMuted: true } as TimelineTrackRecord;
+
+describe('generateTracks with media-clip transcript subtitles', () => {
+  it('emits a single-line subtitle text segment when includeSubtitles is true', () => {
     const tracks = generateTracks([makeMediaClip()], [track], {
       transcriptsByMedia,
+      includeSubtitles: true,
     });
 
     const segments = tracks.find((t) => t.id === 'track1')!.segments;
@@ -157,6 +162,7 @@ describe('generateTracks with media-clip transcript captions', () => {
     const textSeg = segments.find((s) => s.type === 'text');
     expect(textSeg?.id).toBe('mclip1-captions');
     expect(textSeg?.time).toEqual({ start: 10, duration: 4 });
+    expect(textSeg?.text?.role).toBe('subtitle');
     expect(textSeg?.text?.cues).toEqual([
       { text: 'Hello world foo bar', start: 0, end: 4 },
     ]);
@@ -167,11 +173,11 @@ describe('generateTracks with media-clip transcript captions', () => {
     });
   });
 
-  it('clamps and re-bases caption cues when the media clip is trimmed', () => {
+  it('clamps and re-bases subtitle cues when the media clip is trimmed', () => {
     const tracks = generateTracks(
       [makeMediaClip({ start: 1, end: 3, duration: 2 })],
       [track],
-      { transcriptsByMedia }
+      { transcriptsByMedia, includeSubtitles: true }
     );
 
     const textSeg = tracks
@@ -183,10 +189,9 @@ describe('generateTracks with media-clip transcript captions', () => {
     ]);
   });
 
-  it('omits transcript captions when includeCaptions is false', () => {
+  it('omits subtitles by default (includeSubtitles unset)', () => {
     const tracks = generateTracks([makeMediaClip()], [track], {
       transcriptsByMedia,
-      includeCaptions: false,
     });
 
     const segments = tracks.find((t) => t.id === 'track1')!.segments;
@@ -194,15 +199,42 @@ describe('generateTracks with media-clip transcript captions', () => {
     expect(segments.every((s) => s.type !== 'text')).toBe(true);
   });
 
-  it('omits transcript captions when the media has no transcripts', () => {
-    const tracks = generateTracks([makeMediaClip()], [track]);
+  it('suppresses subtitles on a muted track even when includeSubtitles is true', () => {
+    const tracks = generateTracks([makeMediaClip()], [mutedTrack], {
+      transcriptsByMedia,
+      includeSubtitles: true,
+    });
+
+    const segments = tracks.find((t) => t.id === 'track1')!.segments;
+    expect(segments).toHaveLength(1);
+    expect(segments.every((s) => s.type !== 'text')).toBe(true);
+  });
+
+  it('does not let includeCaptions gate subtitles (independent toggles)', () => {
+    // captions off, subtitles on → subtitle still emitted
+    const tracks = generateTracks([makeMediaClip()], [track], {
+      transcriptsByMedia,
+      includeCaptions: false,
+      includeSubtitles: true,
+    });
+
+    const textSeg = tracks
+      .find((t) => t.id === 'track1')!
+      .segments.find((s) => s.type === 'text');
+    expect(textSeg?.text?.role).toBe('subtitle');
+  });
+
+  it('omits subtitles when the media has no transcripts', () => {
+    const tracks = generateTracks([makeMediaClip()], [track], {
+      includeSubtitles: true,
+    });
 
     const segments = tracks.find((t) => t.id === 'track1')!.segments;
     expect(segments).toHaveLength(1);
     expect(segments[0].type).toBe('video');
   });
 
-  it('does not derive transcript captions for composite clips (v1 limitation)', () => {
+  it('does not derive subtitles for composite clips (v1 limitation)', () => {
     const composite = makeMediaClip({
       meta: {
         segments: [
@@ -212,15 +244,19 @@ describe('generateTracks with media-clip transcript captions', () => {
       },
     } as unknown as Partial<TimelineClip>);
 
-    const tracks = generateTracks([composite], [track], { transcriptsByMedia });
+    const tracks = generateTracks([composite], [track], {
+      transcriptsByMedia,
+      includeSubtitles: true,
+    });
 
     const segments = tracks.find((t) => t.id === 'track1')!.segments;
     expect(segments.every((s) => s.type !== 'text')).toBe(true);
   });
 
-  it('does not spawn an audio segment for the caption text segment', () => {
+  it('does not spawn an audio segment for the subtitle text segment', () => {
     const tracks = generateTracks([makeMediaClip()], [track], {
       transcriptsByMedia,
+      includeSubtitles: true,
     });
 
     const audioTrack = tracks.find((t) => t.id === 'track1-audio')!;

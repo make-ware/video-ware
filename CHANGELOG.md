@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.4...video-ware-v0.8.5) (2026-07-05)
+
+
+### Bug Fixes
+
+* Add additional toggle for captions ([6d3f254](https://github.com/make-ware/video-ware/commit/6d3f254d358bc20da2a1a36d46c26f9784f654b2))
+* add nested timelines ([310b8ea](https://github.com/make-ware/video-ware/commit/310b8eaf09b525c0c3a7f5346621d2b4e3d9b6c6))
+* add timeline overview page ([cb9976d](https://github.com/make-ware/video-ware/commit/cb9976d7d3e4b0459e58cf1c70a3b1c1d37f7466))
+* improve cli ([a1d1cb8](https://github.com/make-ware/video-ware/commit/a1d1cb8f7d144c1f43cadc5d9f6f9048376e76f0))
+* improve task and label layout ([889bc0e](https://github.com/make-ware/video-ware/commit/889bc0e3b1d7ccc3367f3cc80e68ec7ec71d7641))
+
 ## [0.8.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.3...video-ware-v0.8.4) (2026-07-04)
 
 

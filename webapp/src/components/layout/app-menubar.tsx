@@ -44,6 +44,7 @@ import {
   Check,
   Film,
   Clapperboard,
+  LayoutGrid,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +93,12 @@ export function AppMenubar({ className }: AppMenubarProps) {
           label: 'Timelines',
           icon: Clapperboard,
           match: `${wsPrefix}/timelines`,
+        },
+        {
+          href: `${wsPrefix}/timelines/overview`,
+          label: 'Overview',
+          icon: LayoutGrid,
+          match: `${wsPrefix}/timelines/overview`,
         },
       ]
     : [];
@@ -187,7 +194,16 @@ export function AppMenubar({ className }: AppMenubarProps) {
           <>
             <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
             {shortcuts.map((shortcut) => {
-              const isActive = pathname.startsWith(shortcut.match);
+              // A more specific sibling (e.g. /timelines/overview) wins over
+              // its parent (/timelines) so only one item highlights at a time.
+              const isActive =
+                pathname.startsWith(shortcut.match) &&
+                !shortcuts.some(
+                  (other) =>
+                    other !== shortcut &&
+                    other.match.length > shortcut.match.length &&
+                    pathname.startsWith(other.match)
+                );
               const Icon = shortcut.icon;
               return (
                 <Link

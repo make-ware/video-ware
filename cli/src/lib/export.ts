@@ -137,6 +137,32 @@ function listDoc<T>(items: T[]): { items: T[]; totalItems: number } {
 }
 
 /**
+ * Reduce a record's `expand` to an explicit whitelist before serializing.
+ * Shared mutators attach default relations we don't want in the snapshot — a
+ * Media (or a timeline clip's expanded MediaRef) carries its
+ * thumbnail/sprite/filmstrip/proxy file records, a Timeline its workspace,
+ * render task, and creator. The export owns its own shape, so it decides
+ * exactly which relations survive rather than inheriting the mutator
+ * defaults. Passing no keys (or matching none) drops `expand` entirely.
+ * Returns a shallow copy; the input record is left untouched.
+ */
+function stripExpand<T>(record: T, keep: readonly string[] = []): T {
+  const rec = record as { expand?: Record<string, unknown> } | null;
+  if (!rec || typeof rec !== 'object' || !rec.expand) return record;
+  const kept: Record<string, unknown> = {};
+  for (const key of keep) {
+    if (rec.expand[key] !== undefined) kept[key] = rec.expand[key];
+  }
+  const clone: Record<string, unknown> = { ...(rec as object) };
+  if (Object.keys(kept).length > 0) {
+    clone.expand = kept;
+  } else {
+    delete clone.expand;
+  }
+  return clone as T;
+}
+
+/**
  * Make `dir` ready to receive an export. A directory holding a previous
  * export (manifest present) is refreshed in place: the entries the exporter
  * owns are removed so records deleted since the last snapshot don't linger.
@@ -242,21 +268,31 @@ export async function exportWorkspace(
   for (const m of media) {
     const dir = join(mediaDir, m.id);
     mkdirSync(dir, { recursive: true });
-    writeJson(join(dir, 'media.json'), m);
+    // Keep only UploadRef (its .name is the original filename); drop the
+    // thumbnail/sprite/filmstrip/proxy expansions the mutator adds.
+    writeJson(join(dir, 'media.json'), stripExpand(m, ['UploadRef']));
 
+    // One file per clip, so every entity is addressable on its own.
     const mediaClips = clipsByMedia.get(m.id) ?? [];
     if (mediaClips.length > 0) {
-      writeJson(join(dir, 'clips.json'), listDoc(mediaClips));
+      const clipsDir = join(dir, 'clips');
+      mkdirSync(clipsDir, { recursive: true });
+      for (const clip of mediaClips) {
+        writeJson(join(clipsDir, `${clip.id}.json`), stripExpand(clip));
+      }
     }
 
+    // One file per label, foldered by type (labels/<type>/<id>.json).
     const labelCounts: Partial<Record<LabelType, number>> = {};
     const perMedia = labelsByMedia.get(m.id);
     if (perMedia) {
-      const labelsDir = join(dir, 'labels');
-      mkdirSync(labelsDir, { recursive: true });
       for (const [type, rows] of perMedia) {
         labelCounts[type] = rows.length;
-        writeJson(join(labelsDir, `${type}.json`), listDoc(rows));
+        const typeDir = join(dir, 'labels', type);
+        mkdirSync(typeDir, { recursive: true });
+        for (const row of rows) {
+          writeJson(join(typeDir, `${row.id}.json`), stripExpand(row));
+        }
       }
     }
 
@@ -301,7 +337,23 @@ export async function exportWorkspace(
   const timelineIndex: TimelineIndexEntry[] = [];
   for (const timeline of timelines) {
     const overview = await getTimelineOverview(pb, timeline.id);
-    writeJson(join(timelinesDir, `${timeline.id}.json`), overview);
+    // getTimelineOverview expands each clip's MediaRef (with its
+    // thumbnail/sprite/filmstrip file records) plus the timeline's workspace,
+    // render task, and creator for the live `timeline show`. The snapshot
+    // wants only the records themselves, so strip every nested expand.
+    const snapshot = {
+      ...overview,
+      timeline: stripExpand(overview.timeline),
+      tracks: overview.tracks.map((track) => ({
+        ...track,
+        track: stripExpand(track.track),
+        clips: track.clips.map((info) => ({
+          ...info,
+          clip: stripExpand(info.clip),
+        })),
+      })),
+    };
+    writeJson(join(timelinesDir, `${timeline.id}.json`), snapshot);
     timelineIndex.push({
       id: timeline.id,
       name: timeline.name,
@@ -320,7 +372,7 @@ export async function exportWorkspace(
   writeJson(join(timelinesDir, 'index.json'), listDoc(timelineIndex));
   report(`Fetched ${timelines.length} timelines`);
 
-  writeJson(join(opts.dir, 'workspace.json'), workspace);
+  writeJson(join(opts.dir, 'workspace.json'), stripExpand(workspace));
 
   const manifest: ExportManifest = {
     exportedAt: new Date().toISOString(),
@@ -388,9 +440,11 @@ media/
   <mediaId>/
     media.json          the Media record (expand.UploadRef.name is the
                         original filename)
-    clips.json          MediaClips cut from this media (absent = none)
-    labels/<type>.json  labels of one type, ordered by start time
-                        (absent = no labels of that type)
+    clips/<clipId>.json one MediaClip cut from this media, per file
+                        (folder absent = no clips)
+    labels/<type>/<labelId>.json
+                        one label per file, foldered by type (a type
+                        folder is absent when it has no labels)
 timelines/
   index.json            one row per timeline: name, duration, trackCount,
                         clipCount
@@ -398,8 +452,11 @@ timelines/
                         clips
 \`\`\`
 
-Every list file has the shape \`{ "items": [...], "totalItems": N }\` — the
-same documents \`vw ... --json\` commands print. All times are seconds.
+Every entity is its own file: \`media.json\`, each \`clips/<id>.json\`, each
+\`labels/<type>/<id>.json\`, and each \`timelines/<id>.json\` hold a single
+record — the same document \`vw ... --json\` prints for that record. The
+\`index.json\` files instead have the shape \`{ "items": [...], "totalItems":
+N }\`. All times are seconds.
 
 ## Data model
 
@@ -408,11 +465,11 @@ same documents \`vw ... --json\` commands print. All times are seconds.
 - **MediaClip** — a reusable, named sub-range of one media; \`start\`/\`end\`
   are positions in the source media. Created by hand
   (\`vw media clip create\`) or from a label (\`vw label clip\`).
-- **Labels** — machine annotations of a media, one file per type:
-  \`speech\` (transcripts), \`text\` (on-screen text), \`object\`, \`shot\`,
-  \`segment\`, \`person\`, \`face\`. Rows carry \`start\`/\`end\` in
-  source-media seconds plus a confidence. Search them for moments worth
-  turning into clips.
+- **Labels** — machine annotations of a media, one file per label under a
+  per-type folder: \`speech\` (transcripts), \`text\` (on-screen text),
+  \`object\`, \`shot\`, \`segment\`, \`person\`, \`face\`. Each carries
+  \`start\`/\`end\` in source-media seconds plus a confidence. Search them
+  for moments worth turning into clips.
 - **Timeline** — an edit. \`timelines/<id>.json\` holds
   \`{ timeline, computedDuration, clipCount, tracks }\`; \`tracks\` are
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
@@ -420,11 +477,15 @@ same documents \`vw ... --json\` commands print. All times are seconds.
   the timeline) while \`clip.start\`/\`clip.end\` are the trim window in the
   source media.
 
-Timeline placement semantics: clips without a stored \`timelineStart\` flow
-sequentially by \`order\`, butting against the previous clip on their track;
-clips with one are pinned to that absolute time. Clips on the same track
-never overlap — \`--at\` placements nudge forward past collisions unless
-\`--overwrite\` trims/removes what is in the way.
+Timeline placement semantics: every clip sits at an explicit
+\`timelineStart\`. \`vw timeline insert\` appends to the end of the target
+track by default; \`--after <clipId>\` places right after that clip and
+\`--at <seconds>\` places at an exact time. Clips on the same track never
+overlap — \`--at\` placements nudge forward past collisions unless
+\`--overwrite\` trims/removes what is in the way. \`vw timeline clips
+ripple <id> --by <±s>\` shifts a clip and everything after it, and
+\`vw timeline doctor <id>\` verifies the result (overlaps, gaps, stale
+durations).
 
 ## Editing the workspace with vw
 
@@ -443,14 +504,16 @@ vw media clip create -m ${mediaId} -s 5 -e 12.5 --label "Opening shot"
 vw timeline create "Episode 4" -w ${workspace.id} --tracks "Music,AV,B-Roll"
 vw timeline track update 0 -t ${timelineId} --volume 0.4   # duck the music
 
-# 3. Insert media or MediaClips (sequential unless --at pins a time)
-vw timeline insert -t ${timelineId} --clip MEDIACLIP_ID --track 1
+# 3. Insert media or MediaClips (appends to the track unless --at/--after)
+vw timeline insert -t ${timelineId} --clips MEDIACLIP_ID,MEDIACLIP_ID2 --track 1
 vw timeline insert -t ${timelineId} -m ${mediaId} --track 2 --at 12.5
 
 # 4. Verify and fine-tune
 vw timeline show ${timelineId} --json
+vw timeline doctor ${timelineId}
 vw timeline inspect -t ${timelineId} --at 14 --labels
 vw timeline clips move CLIP_ID --at 16 --overwrite
+vw timeline clips ripple CLIP_ID --by=-2.5   # pull this clip + later ones left
 
 # 5. Render, then refresh this snapshot
 vw timeline render -t ${timelineId} --download out.mp4

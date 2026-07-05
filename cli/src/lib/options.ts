@@ -89,6 +89,27 @@ export function parseSeconds(value: string): number {
   return n;
 }
 
+/** Parse a signed number of seconds (ripple offsets); rejects NaN. */
+export function parseSignedSeconds(value: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new InvalidArgumentError('expected a number of seconds');
+  }
+  return n;
+}
+
+/** Parse a comma-separated id list (e.g. `--clips a,b,c`). */
+export function parseIdList(value: string): string[] {
+  const ids = value
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.length === 0) {
+    throw new InvalidArgumentError('expected comma-separated record ids');
+  }
+  return ids;
+}
+
 /** Parse a 0..1 float (volume/opacity/gain); rejects values outside range. */
 export function parseUnitInterval(value: string): number {
   const n = Number(value);

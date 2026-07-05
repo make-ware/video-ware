@@ -42,8 +42,9 @@ vw timeline list               # list timelines in the active workspace
 vw timeline create <name>      # create a timeline (+ tracks via --tracks)
 vw timeline update <id>        # update name/label/description/orientation
 vw timeline show <id>          # inspect tracks, settings, and placed clips
+vw timeline doctor <id>        # health-check: overlaps, gaps, stale durations
 vw timeline inspect            # what plays on each track at --at <seconds>
-vw timeline insert             # add media (or a MediaClip) to a timeline track
+vw timeline insert             # append media/MediaClips to a track (--at/--after to place)
 vw timeline render             # render a timeline and wait for the output
 
 vw timeline track create       # add a track on the next layer up
@@ -55,8 +56,9 @@ vw timeline clips list         # list a timeline's clips with computed positions
 vw timeline clips show <id>    # one clip + placement (--labels adds label data)
 vw timeline clips update <id>  # label/description/trim/gain
 vw timeline clips move <id>    # change track and/or timeline position
-vw timeline clips remove <id>  # remove a clip (order renumbers densely)
-vw timeline clips reorder ...  # replace the sequential order (all clip ids)
+vw timeline clips ripple <id>  # shift a clip + everything after it by ±seconds
+vw timeline clips remove <id>  # remove a clip (--ripple closes the gap)
+vw timeline clips reorder ...  # replace the bookkeeping order (all clip ids)
 ```
 
 Any id omitted on the command line is chosen interactively. `--workspace <id>`
@@ -80,8 +82,8 @@ vw timeline create "Episode 4" --tracks "Music,Interview,B-Roll"
 vw timeline track list -t TIMELINE_ID
 vw timeline track update 0 -t TIMELINE_ID --volume 0.4   # duck the music bed
 
-# 3. Insert the core media (interview, montage, music) sequentially
-vw timeline insert -t TIMELINE_ID --clip MEDIACLIP_ID --track 1
+# 3. Append the core media (interview cuts in order, then the music bed)
+vw timeline insert -t TIMELINE_ID --clips MC_ID1,MC_ID2,MC_ID3 --track 1
 vw timeline insert -t TIMELINE_ID -m MUSIC_MEDIA_ID --track 0
 
 # 4. Add and fine-tune b-roll at exact times
@@ -89,9 +91,11 @@ vw timeline insert -t TIMELINE_ID -m BROLL_ID --track 2 --at 12.5
 vw timeline show TIMELINE_ID                 # verify the whole layout
 vw timeline inspect -t TIMELINE_ID --at 14 --labels   # what plays at 14s?
 vw timeline clips move CLIP_ID --at 16 --overwrite
+vw timeline clips ripple CLIP_ID --by=-2.5   # pull this clip + later ones left
 vw timeline clips update CLIP_ID --gain 0.5 -e 9
 
-# 5. Render
+# 5. Verify, then render
+vw timeline doctor TIMELINE_ID               # no overlaps/gaps/dangling refs?
 vw timeline render -t TIMELINE_ID --download out.mp4
 ```
 
@@ -114,8 +118,9 @@ media/
                         labelCounts
   <mediaId>/
     media.json          the Media record (expand.UploadRef.name = filename)
-    clips.json          MediaClips cut from this media (absent = none)
-    labels/<type>.json  labels of one type, by start time (absent = none)
+    clips/<clipId>.json one MediaClip per file (folder absent = none)
+    labels/<type>/<labelId>.json
+                        one label per file, foldered by type (absent = none)
 timelines/
   index.json            one row per timeline: name, duration, trackCount,
                         clipCount
@@ -123,9 +128,11 @@ timelines/
 ```
 
 Everything is fetched through the shared mutators (all pages, not just the
-first), list files use the same `{ items, totalItems }` shape as `--json`
-output, and `INSTRUCTIONS.md` embeds the workspace id plus real record ids
-in its examples so an agent can act on the snapshot immediately.
+first). Every entity is its own file holding a single record (the same shape
+`vw ... --json` prints for that record); only the `index.json` files use the
+`{ items, totalItems }` list shape. `INSTRUCTIONS.md` embeds the workspace id
+plus real record ids in its examples so an agent can act on the snapshot
+immediately.
 
 The export is a read-only snapshot: mutations go through the `vw` commands
 above, then re-running `export` into the same directory refreshes it in
@@ -144,15 +151,31 @@ and `--json` prints the manifest instead of progress lines.
 - **`--track` accepts a layer number or a track record id.** Bare integers
   resolve against the timeline's layers (ambiguous/missing layers error), so
   `--track 2` means "the b-roll layer" without an id lookup.
-- **Clips place sequentially unless pinned.** A clip without `timelineStart`
-  butts up against the preceding clips on its track (ordered by `order`). A
-  clip with `timelineStart` (set via `--at`) sits at that absolute time.
-  Clips on the same track never overlap.
-- **`--at` nudges by default.** If the requested time collides with an
-  existing clip, the new clip is placed at the next free time and the command
-  reports the actual placement. Pass `--overwrite` to instead trim/remove
-  whatever overlaps (like the editor's playhead insert).
-- **`clips move --sequential`** clears a clip's pin so it re-flows by order.
+- **Every clip has an explicit position.** All placement commands write
+  `timelineStart`; there is no implicit "flow" state. (PocketBase number
+  fields can't round-trip "unset" — an omitted value is stored and returned
+  as `0` — so unpinned clips would all collapse onto 0s after a reload.)
+- **`insert` appends by default.** Without a placement flag the clip lands
+  at the end of the target track — the same position the webapp computes.
+  `--after <clipId>` places right after that clip (and targets its track);
+  `--at <seconds>` places at an exact time. `--clips id1,id2,…` appends a
+  batch of MediaClips in order. Every insert reports where the clip landed.
+- **`--at`/`--after` nudge by default.** If the requested time collides with
+  an existing clip, the new clip is placed at the next free time and the
+  command reports the nudge. Pass `--overwrite` (with `--at`) to instead
+  trim/remove whatever overlaps (like the editor's playhead insert).
+- **`clips ripple <id> --by <±s>`** shifts a clip and everything after it on
+  its track, preserving spacing — leftward shifts clamp at the previous
+  clip. `clips remove --ripple` closes the gap the removed clip leaves.
+- **`--dry-run`** on `insert`, `clips move`, and `clips ripple` prints the
+  full plan (placement, trims, removals, shifts) without writing anything.
+- **`timeline doctor <id>`** verifies the layout: same-track overlaps
+  (errors), dangling media/caption refs (errors), stale stored durations
+  (warnings), and gaps (info). It exits non-zero when errors exist, so
+  agents can use it as an "am I done" gate. `timeline show` also warns
+  inline when a track has overlapping clips.
+- **`order` is bookkeeping, not placement.** It gives clips a stable listing
+  sequence; positions come from `timelineStart` alone.
 - **`track update --layer N` swaps** with the track currently holding layer N,
   keeping layers unique (two sequential updates, not a transaction).
 - **Durations self-heal.** Every clip mutation recomputes the timeline's
@@ -183,13 +206,19 @@ vw label clip speech LABEL_ID                  # clip from the label's time rang
 vw label clip face LABEL_ID --label "Hero face"
 
 vw timeline create "Ep 4" --tracks "Music,AV,B-Roll" --label "Rough cut"
-vw timeline insert -t TIMELINE_ID -m MEDIA_ID --start 0 --end 12.5
+vw timeline insert -t TIMELINE_ID -m MEDIA_ID --start 0 --end 12.5  # appends
 vw timeline insert -t TIMELINE_ID --clip MEDIACLIP_ID --track 1  # inherits trim+label
+vw timeline insert -t TIMELINE_ID --clips MC1,MC2,MC3 --track 1  # batch append
+vw timeline insert -t TIMELINE_ID --clip MEDIACLIP_ID --after CLIP_ID
 vw timeline insert -t TIMELINE_ID -m MEDIA_ID --track 2 --at 5 --gain 0.5
+vw timeline insert -t TIMELINE_ID -m MEDIA_ID --at 5 --overwrite --dry-run
 vw timeline track update 0 -t TIMELINE_ID --volume 0.3 --muted
 vw timeline track update TRACK_ID --opacity 0.8 --layer 2        # swaps layers
 vw timeline clips list -t TIMELINE_ID --track 2
 vw timeline clips move CLIP_ID --track 1 --at 8 --overwrite
+vw timeline clips ripple CLIP_ID --by=-2.5    # pull clip + later clips left
+vw timeline clips remove CLIP_ID --ripple     # delete and close the gap
+vw timeline doctor TIMELINE_ID                # verify layout invariants
 vw timeline inspect -t TIMELINE_ID --at 6 --labels
 vw timeline render -t TIMELINE_ID --resolution 1280x720 --download out.mp4
 vw timeline render -t TIMELINE_ID --no-wait   # queue only, don't poll
@@ -239,13 +268,26 @@ document on stdout with nothing else:
   trackName, volume, opacity, isMuted, isLocked, active, nextStart }] }`;
   `active` carries the full clip record plus `sourceTime`/`remaining`, and a
   `labels: { provenance, overlapping }` block with `--labels`
-- `timeline insert` / `clips move` → the full placement result
-  (`clip`, `placedAt`, `requestedAt`, `nudged`, `trimmedClipIds`,
-  `removedClipIds`)
+- `timeline insert` / `clips move` → the full placement result: `clip`
+  (null on `--dry-run`), `placedAt`/`placedEnd`, `mode`
+  (`append`/`after`/`at`, insert only), `afterClip`, `requestedAt`,
+  `nudged`, `trims`, `trimmedClipIds`, `removedClipIds`, `track`, `dryRun`;
+  batch `insert --clips` wraps the per-clip results in
+  `{ items, totalItems }`
+- `clips ripple` → `{ track, by, requestedBy, shifted: [{ clipId, from,
+  to }], dryRun }` (`by` differs from `requestedBy` when clamped)
+- `clips remove` → `{ clip, shifted }`; `clips reorder` →
+  `{ items, totalItems }`
+- `timeline doctor` → `{ timelineId, timelineName, computedDuration,
+  clipCount, trackCount, findings: [{ level, code, message, clipIds,
+  layer }], errors, warnings, ok }`; the process exits non-zero when
+  `ok` is false
 
 Non-interactive callers (AI agents, scripts) should always pass explicit ids
 (`-m`, `-t`, `-w`, positional ids) — commands fall back to interactive pickers
-when an id is omitted, which blocks without a TTY.
+when an id is omitted, which blocks without a TTY. `-w` and `-t` are accepted
+uniformly across the timeline/clips commands: where an id is redundant it is
+validated against the target record instead of rejected.
 
 ## Adding command options
 

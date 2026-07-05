@@ -3,6 +3,9 @@ import {
   clipLabelDetail,
   getTimelineOverview,
   inspectAtTime,
+  overlapClusters,
+  trackGaps,
+  type InspectClipInfo,
 } from '../lib/timeline-inspect.js';
 import type { TimelineClipExpanded } from '../lib/timeline-clip.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
@@ -336,5 +339,48 @@ describe('clipLabelDetail', () => {
 
     expect(detail.provenance).toEqual([]);
     expect(detail.overlapping).toEqual([]);
+  });
+});
+
+describe('overlapClusters / trackGaps', () => {
+  const placed = (id: string, start: number, end: number): InspectClipInfo =>
+    ({
+      clip: { id } as InspectClipInfo['clip'],
+      timelineStart: start,
+      timelineEnd: end,
+      labelHint: id,
+      kind: 'media',
+    }) as InspectClipInfo;
+
+  it('clusters chains of overlapping clips, ignoring touching ones', () => {
+    const clips = [
+      placed('a', 0, 10),
+      placed('b', 5, 12), // overlaps a
+      placed('c', 12, 15), // touches b — no overlap
+      placed('d', 20, 25),
+      placed('e', 24, 26), // overlaps d
+    ];
+    const clusters = overlapClusters(clips);
+    expect(clusters.map((c) => c.map((x) => x.clip.id))).toEqual([
+      ['a', 'b'],
+      ['d', 'e'],
+    ]);
+  });
+
+  it('flags the everything-at-zero corruption as one cluster', () => {
+    const clips = [placed('a', 0, 10), placed('b', 0, 5), placed('c', 0, 8)];
+    expect(overlapClusters(clips)).toHaveLength(1);
+    expect(overlapClusters(clips)[0]).toHaveLength(3);
+  });
+
+  it('reports gaps between consecutive clips only', () => {
+    const clips = [
+      placed('a', 0, 10),
+      placed('b', 10, 12), // flush
+      placed('c', 15, 18), // 3s gap
+    ];
+    expect(trackGaps(clips)).toEqual([
+      { start: 12, end: 15, beforeClipId: 'b', afterClipId: 'c' },
+    ]);
   });
 });

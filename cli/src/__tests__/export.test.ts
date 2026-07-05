@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe('exportWorkspace', () => {
-  it('writes the full directory tree with grouped clips and labels', async () => {
+  it('writes the full directory tree with one file per clip and label', async () => {
     const dir = join(tempDir(), 'export');
     const pb = fakePb(makeCollections());
 
@@ -167,20 +167,20 @@ describe('exportWorkspace', () => {
       labelCounts: {},
     });
 
-    // m1 gets its record, clips, and speech labels; m2 only its record.
+    // m1 gets its record plus one file per clip and per label; m2 only its
+    // record.
     expect(readJson(dir, 'media', 'm1', 'media.json').id).toBe('m1');
-    expect(readJson(dir, 'media', 'm1', 'clips.json')).toEqual({
-      items: [clip1],
-      totalItems: 1,
-    });
-    expect(readJson(dir, 'media', 'm1', 'labels', 'speech.json')).toEqual({
-      items: [speech1, speech2],
-      totalItems: 2,
-    });
-    expect(existsSync(join(dir, 'media', 'm1', 'labels', 'object.json'))).toBe(
+    expect(readJson(dir, 'media', 'm1', 'clips', 'c1.json')).toEqual(clip1);
+    expect(
+      readJson(dir, 'media', 'm1', 'labels', 'speech', 'ls1.json')
+    ).toEqual(speech1);
+    expect(
+      readJson(dir, 'media', 'm1', 'labels', 'speech', 'ls2.json')
+    ).toEqual(speech2);
+    expect(existsSync(join(dir, 'media', 'm1', 'labels', 'object'))).toBe(
       false
     );
-    expect(existsSync(join(dir, 'media', 'm2', 'clips.json'))).toBe(false);
+    expect(existsSync(join(dir, 'media', 'm2', 'clips'))).toBe(false);
     expect(existsSync(join(dir, 'media', 'm2', 'labels'))).toBe(false);
 
     // timeline snapshot matches the `timeline show --json` overview shape.
@@ -208,6 +208,60 @@ describe('exportWorkspace', () => {
     expect(instructions).toContain('ws1');
     expect(instructions).toContain('-m m1');
     expect(instructions).toContain('-t t1');
+  });
+
+  it('strips mutator-injected expand down to the whitelist', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+
+    // Media arrives with the file-ref expansions the MediaMutator adds.
+    collections.Media.getList = vi.fn(async () =>
+      listResult([
+        {
+          ...media1,
+          expand: {
+            UploadRef: { name: 'beach.mp4' },
+            thumbnailFileRef: { id: 'thumb1' },
+            spriteFileRef: { id: 'sprite1' },
+            filmstripFileRefs: [{ id: 'fs1' }],
+            proxyFileRef: { id: 'proxy1' },
+          },
+        },
+      ])
+    );
+    // The timeline clip arrives with a fat expanded MediaRef + MediaClipRef.
+    collections.TimelineClips.getList = vi.fn(async () =>
+      listResult([
+        {
+          ...timelineClip1,
+          expand: {
+            MediaRef: { id: 'm1', expand: { thumbnailFileRef: { id: 't' } } },
+            MediaClipRef: { id: 'mc1' },
+          },
+        },
+      ])
+    );
+    // The timeline itself arrives with workspace/creator expansions.
+    collections.Timelines.getOne = vi.fn(async () => ({
+      ...timeline1,
+      expand: { WorkspaceRef: { id: 'ws1' }, createdBy: { id: 'u1' } },
+    }));
+    const pb = fakePb(collections);
+
+    await exportWorkspace(pb, { workspaceId: 'ws1', dir });
+
+    // media.json keeps UploadRef only — the file refs are gone.
+    expect(readJson(dir, 'media', 'm1', 'media.json').expand).toEqual({
+      UploadRef: { name: 'beach.mp4' },
+    });
+
+    // The timeline snapshot drops expand on the timeline and every clip,
+    // while the reference ids (MediaRef) survive for cross-referencing.
+    const overview = readJson(dir, 'timelines', 't1.json');
+    expect(overview.timeline.expand).toBeUndefined();
+    const placed = overview.tracks[0].clips[0].clip;
+    expect(placed.expand).toBeUndefined();
+    expect(placed.MediaRef).toBe('m1');
   });
 
   it('scopes every fetch to the workspace', async () => {

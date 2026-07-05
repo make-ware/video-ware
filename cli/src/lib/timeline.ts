@@ -9,11 +9,15 @@ import {
   TimelineOrientation,
   TimelineRenderMutator,
   TimelineTrackMutator,
+  computeClipPlacement,
   computeTimelineDuration,
   findNonOverlappingTimelineStart,
   generateTracks,
+  getClipRanges,
+  getSortedTrackClips,
   planOverwriteAtTime,
   validateTimeRange,
+  type ClipTrim,
   type RenderTimelineConfig,
   type Timeline,
   type TimelineClip,
@@ -274,10 +278,14 @@ export interface InsertClipOptions {
   end?: number;
   /** Target track: layer number or record id. Defaults to (or creates) the layer-0 track. */
   track?: string;
-  /** Place at this timeline time (seconds); omitted = sequential append. */
+  /** Place at this timeline time (seconds); omitted = append to end of track. */
   at?: number;
+  /** Place right after this timeline clip; its track becomes the target. */
+  after?: string;
   /** With `at`: trim/remove overlapped clips instead of nudging forward. */
   overwrite?: boolean;
+  /** Compute and report the placement without writing anything. */
+  dryRun?: boolean;
   /** Editor-facing clip name; overrides the MediaClip's label. */
   label?: string;
   /** Editor-facing clip notes; overrides the MediaClip's description. */
@@ -312,8 +320,12 @@ export const insertOptions = {
   at: {
     flags: '--at <seconds>',
     description:
-      'place at this timeline time; nudges past collisions unless --overwrite',
+      'place at this exact timeline time; nudges past collisions unless --overwrite',
     parse: parseSeconds,
+  },
+  after: {
+    flags: '--after <clipId>',
+    description: 'place right after this timeline clip (implies its track)',
   },
   label: {
     flags: '--label <text>',
@@ -330,19 +342,40 @@ export const insertOptions = {
   },
 } satisfies OptionGroupOf<InsertClipOptions>;
 
+/** How an inserted clip's timeline position was chosen. */
+export type InsertPlacementMode = 'append' | 'after' | 'at';
+
 export interface InsertClipResult {
-  clip: TimelineClip;
-  /** Timeline time the clip landed at; undefined for sequential append. */
-  placedAt?: number;
-  /** Timeline time that was requested via `at`. */
+  /** The created clip, or null on a dry run (nothing was written). */
+  clip: TimelineClip | null;
+  /** Timeline time the clip starts at. Clips are always explicitly placed. */
+  placedAt: number;
+  /** Timeline time the clip ends at (placedAt + duration). */
+  placedEnd: number;
+  mode: InsertPlacementMode;
+  /** The clip this one lands after (append/after modes), if the track had one. */
+  afterClip?: TimelineClip;
+  /** Timeline time that was requested (`at`, or the after-clip's end). */
   requestedAt?: number;
   /** True when a collision nudged the clip past `requestedAt`. */
   nudged: boolean;
+  /** Trims applied (or planned, on a dry run) to overwritten clips. */
+  trims: ClipTrim[];
   trimmedClipIds: string[];
   removedClipIds: string[];
+  track: TimelineTrackRecord;
+  dryRun: boolean;
 }
 
-/** Insert a media clip into a timeline. Returns the created clip + placement. */
+/**
+ * Insert a media clip into a timeline. Returns the created clip + placement.
+ *
+ * Every clip is written with an explicit `timelineStart`: PocketBase number
+ * fields cannot round-trip "unset" (an omitted value is stored and returned
+ * as 0), so sequential-flow placement would collapse every clip onto 0s.
+ * Without `at`/`after` the clip is appended at the end of the target track —
+ * the same placement the webapp computes when a clip is added.
+ */
 export async function insertClip(
   pb: TypedPocketBase,
   opts: InsertClipOptions
@@ -352,6 +385,9 @@ export async function insertClip(
   }
   if (opts.media && opts.clip) {
     throw new Error('--media and --clip are mutually exclusive.');
+  }
+  if (opts.at !== undefined && opts.after) {
+    throw new Error('--at and --after are mutually exclusive.');
   }
   if (opts.overwrite && opts.at === undefined) {
     throw new Error('--overwrite requires --at <seconds>.');
@@ -390,11 +426,41 @@ export async function insertClip(
   const clipMutator = new TimelineClipMutator(pb);
 
   const trackList = (await trackMutator.getByTimeline(opts.timelineId)).items;
+  const allClips = await clipMutator.getByTimeline(opts.timelineId);
+  const defaultTrack = trackList.find((t) => t.layer === 0) ?? trackList[0];
+
+  let afterClip = opts.after
+    ? allClips.find((c) => c.id === opts.after)
+    : undefined;
+  if (opts.after && !afterClip) {
+    throw new Error(
+      `Clip ${opts.after} is not on timeline ${opts.timelineId} — ` +
+        `list clips with \`vw timeline clips list -t ${opts.timelineId}\`.`
+    );
+  }
+
   let targetTrack: TimelineTrackRecord | undefined;
   if (opts.track) {
     targetTrack = await resolveTrackRef(pb, opts.timelineId, opts.track);
-  } else {
-    targetTrack = trackList.find((t) => t.layer === 0) ?? trackList[0];
+  }
+  if (afterClip) {
+    const afterTrackId = afterClip.TimelineTrackRef ?? defaultTrack?.id;
+    const afterTrack = trackList.find((t) => t.id === afterTrackId);
+    if (!afterTrack) {
+      throw new Error(
+        `Clip ${afterClip.id} references missing track ${afterTrackId}.`
+      );
+    }
+    if (targetTrack && targetTrack.id !== afterTrack.id) {
+      throw new Error(
+        `--after clip ${afterClip.id} lives on track layer ${afterTrack.layer}, ` +
+          'not the requested --track — drop one of the two flags.'
+      );
+    }
+    targetTrack = afterTrack;
+  }
+  if (!targetTrack) {
+    targetTrack = defaultTrack;
     if (!targetTrack) {
       targetTrack = await trackMutator.create({
         TimelineRef: opts.timelineId,
@@ -405,33 +471,42 @@ export async function insertClip(
     }
   }
 
-  const allClips = await clipMutator.getByTimeline(opts.timelineId);
   let order = Math.max(-1, ...allClips.map((c) => c.order)) + 1;
+  const trackClips = clipsOnTrack(allClips, trackList, targetTrack.id);
 
-  let placedAt: number | undefined;
+  let placedAt: number;
+  let requestedAt: number | undefined;
+  let mode: InsertPlacementMode;
   let nudged = false;
+  const trims: ClipTrim[] = [];
   const trimmedClipIds: string[] = [];
   const removedClipIds: string[] = [];
 
   if (opts.at !== undefined) {
-    const trackClips = clipsOnTrack(allClips, trackList, targetTrack.id);
+    mode = 'at';
+    requestedAt = opts.at;
 
     if (opts.overwrite) {
       const plan = planOverwriteAtTime(trackClips, opts.at, duration);
+      trims.push(...plan.trims);
       for (const trim of plan.trims) {
-        await clipMutator.update(trim.clipId, {
-          start: trim.start,
-          end: trim.end,
-          duration: trim.end - trim.start,
-          timelineStart: trim.timelineStart,
-        });
+        if (!opts.dryRun) {
+          await clipMutator.update(trim.clipId, {
+            start: trim.start,
+            end: trim.end,
+            duration: trim.end - trim.start,
+            timelineStart: trim.timelineStart,
+          });
+        }
         trimmedClipIds.push(trim.clipId);
       }
       for (const clipId of plan.removals) {
-        await clipMutator.delete(clipId);
+        if (!opts.dryRun) {
+          await clipMutator.delete(clipId);
+        }
         removedClipIds.push(clipId);
       }
-      if (removedClipIds.length > 0) {
+      if (removedClipIds.length > 0 && !opts.dryRun) {
         const remaining = allClips.filter(
           (c) => !removedClipIds.includes(c.id)
         );
@@ -443,6 +518,32 @@ export async function insertClip(
       placedAt = findNonOverlappingTimelineStart(trackClips, opts.at, duration);
       nudged = placedAt !== opts.at;
     }
+  } else if (afterClip) {
+    mode = 'after';
+    const target = afterClip;
+    const sorted = getSortedTrackClips(trackClips);
+    const ranges = getClipRanges(trackClips);
+    const index = sorted.findIndex((c) => c.id === target.id);
+    requestedAt = ranges[index].end;
+    placedAt = findNonOverlappingTimelineStart(
+      trackClips,
+      requestedAt,
+      duration
+    );
+    nudged = placedAt !== requestedAt;
+  } else {
+    mode = 'append';
+    placedAt = computeClipPlacement(trackClips, null, duration);
+    // report which clip this one butts up against: the one ending last
+    const sorted = getSortedTrackClips(trackClips);
+    const ranges = getClipRanges(trackClips);
+    let furthestEnd = -1;
+    ranges.forEach((range, i) => {
+      if (range.end > furthestEnd) {
+        furthestEnd = range.end;
+        afterClip = sorted[i];
+      }
+    });
   }
 
   const label = opts.label ?? mediaClip?.label;
@@ -459,21 +560,62 @@ export async function insertClip(
     start,
     end,
     duration,
-    ...(placedAt !== undefined ? { timelineStart: placedAt } : {}),
+    timelineStart: placedAt,
     ...(opts.gain !== undefined ? { meta: { gain: opts.gain } } : {}),
   };
 
-  const clip = await clipMutator.create(input);
-  await syncTimelineDuration(pb, opts.timelineId);
+  let clip: TimelineClip | null = null;
+  if (!opts.dryRun) {
+    clip = await clipMutator.create(input);
+    await syncTimelineDuration(pb, opts.timelineId);
+  }
 
   return {
     clip,
     placedAt,
-    requestedAt: opts.at,
+    placedEnd: placedAt + duration,
+    mode,
+    ...(afterClip ? { afterClip } : {}),
+    requestedAt,
     nudged,
+    trims,
     trimmedClipIds,
     removedClipIds,
+    track: targetTrack,
+    dryRun: !!opts.dryRun,
   };
+}
+
+export interface InsertClipsOptions {
+  timelineId: string;
+  /** MediaClip ids to append, in order. */
+  clipIds: string[];
+  /** Target track: layer number or record id. Defaults to the layer-0 track. */
+  track?: string;
+  /** Per-clip audio gain multiplier (0..1), applied to every clip. */
+  gain?: number;
+}
+
+/**
+ * Append a batch of MediaClips to a timeline track, in order. Each insert
+ * re-reads the track state, so every clip butts up against the previous one.
+ */
+export async function insertClips(
+  pb: TypedPocketBase,
+  opts: InsertClipsOptions
+): Promise<InsertClipResult[]> {
+  const results: InsertClipResult[] = [];
+  for (const clipId of opts.clipIds) {
+    results.push(
+      await insertClip(pb, {
+        timelineId: opts.timelineId,
+        clip: clipId,
+        ...(opts.track !== undefined ? { track: opts.track } : {}),
+        ...(opts.gain !== undefined ? { gain: opts.gain } : {}),
+      })
+    );
+  }
+  return results;
 }
 
 /** Fail fast on the conditions that would make a render meaningless. */

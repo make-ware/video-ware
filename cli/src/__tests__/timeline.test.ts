@@ -4,6 +4,7 @@ import {
   createRender,
   createTimeline,
   insertClip,
+  insertClips,
   resolveTrackRef,
   syncTimelineDuration,
 } from '../lib/timeline.js';
@@ -65,7 +66,7 @@ function timelineStubs(opts: StubOptions = {}): Record<string, Stub> {
 }
 
 describe('insertClip', () => {
-  it('appends a media clip with computed order and full-media duration', async () => {
+  it('appends a media clip with an explicit position and computed order', async () => {
     const stubs = timelineStubs();
     const pb = fakePb(stubs);
 
@@ -80,10 +81,207 @@ describe('insertClip', () => {
       start: 0,
       end: 60,
       duration: 60,
+      // always written: PB number fields coerce an omitted value to 0, so
+      // "unset = sequential flow" cannot survive a round-trip
+      timelineStart: 0,
     });
-    expect(result.clip.id).toBe('newclip');
-    expect(result.placedAt).toBeUndefined();
+    expect(result.clip?.id).toBe('newclip');
+    expect(result.mode).toBe('append');
+    expect(result.placedAt).toBe(0);
+    expect(result.placedEnd).toBe(60);
     expect(result.nudged).toBe(false);
+  });
+
+  it('appends after the furthest clip end on the target track', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+        {
+          id: 'c2',
+          TimelineTrackRef: 'track1',
+          order: 1,
+          start: 0,
+          end: 5,
+          duration: 5,
+          timelineStart: 12,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+    });
+
+    expect(result.mode).toBe('append');
+    expect(result.placedAt).toBe(17);
+    expect(result.afterClip?.id).toBe('c2');
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 17,
+      order: 2,
+    });
+  });
+
+  it('places --after right at that clip end when the slot is free', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+        {
+          id: 'c2',
+          TimelineTrackRef: 'track1',
+          order: 1,
+          start: 0,
+          end: 5,
+          duration: 5,
+          timelineStart: 30,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      after: 'c1',
+    });
+
+    expect(result.mode).toBe('after');
+    expect(result.placedAt).toBe(10);
+    expect(result.nudged).toBe(false);
+    expect(result.afterClip?.id).toBe('c1');
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 10,
+    });
+  });
+
+  it('nudges an --after insert past a too-small gap', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+        {
+          id: 'c2',
+          TimelineTrackRef: 'track1',
+          order: 1,
+          start: 0,
+          end: 5,
+          duration: 5,
+          timelineStart: 12,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      after: 'c1',
+    });
+
+    expect(result.requestedAt).toBe(10);
+    expect(result.placedAt).toBe(17);
+    expect(result.nudged).toBe(true);
+  });
+
+  it('uses the --after clip track as the target track', async () => {
+    const stubs = timelineStubs({
+      tracks: [
+        { id: 'track1', layer: 0, TimelineRef: 'tl1' },
+        { id: 'track2', layer: 1, TimelineRef: 'tl1' },
+      ],
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track2',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      after: 'c1',
+    });
+
+    expect(result.track.id).toBe('track2');
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      TimelineTrackRef: 'track2',
+      timelineStart: 10,
+    });
+  });
+
+  it('rejects --after with --at, a conflicting --track, or an unknown clip', async () => {
+    const stubs = timelineStubs({
+      tracks: [
+        { id: 'track1', layer: 0, TimelineRef: 'tl1' },
+        { id: 'track2', layer: 1, TimelineRef: 'tl1' },
+      ],
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 10,
+          duration: 10,
+          timelineStart: 0,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', at: 3, after: 'c1' })
+    ).rejects.toThrow(/mutually exclusive/i);
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', after: 'zzz' })
+    ).rejects.toThrow(/not on timeline/i);
+    await expect(
+      insertClip(pb, {
+        timelineId: 'tl1',
+        media: 'm1',
+        after: 'c1',
+        track: '1',
+      })
+    ).rejects.toThrow(/lives on track layer 0/i);
   });
 
   it('rejects a time range beyond the media duration', async () => {
@@ -239,6 +437,54 @@ describe('insertClip', () => {
     });
   });
 
+  it('dry-run reports the overwrite plan without writing anything', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        {
+          id: 'c1',
+          TimelineTrackRef: 'track1',
+          order: 0,
+          start: 0,
+          end: 4,
+          duration: 4,
+          timelineStart: 0,
+        },
+        {
+          id: 'c2',
+          TimelineTrackRef: 'track1',
+          order: 1,
+          start: 0,
+          end: 2,
+          duration: 2,
+          timelineStart: 4,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+      overwrite: true,
+      dryRun: true,
+    });
+
+    expect(result.clip).toBeNull();
+    expect(result.dryRun).toBe(true);
+    expect(result.placedAt).toBe(3);
+    expect(result.trims).toEqual([
+      { clipId: 'c1', start: 0, end: 3, timelineStart: 0 },
+    ]);
+    expect(result.removedClipIds).toEqual(['c2']);
+    expect(stubs.TimelineClips.create).not.toHaveBeenCalled();
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+    expect(stubs.TimelineClips.delete).not.toHaveBeenCalled();
+    expect(stubs.Timelines.update).not.toHaveBeenCalled();
+  });
+
   it('inherits trim window, label, and provenance from a MediaClip', async () => {
     const stubs = timelineStubs({
       mediaClip: {
@@ -305,6 +551,111 @@ describe('insertClip', () => {
     expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
       TimelineTrackRef: 'track2',
     });
+  });
+});
+
+describe('insertClip after a PocketBase round-trip', () => {
+  /**
+   * PocketBase number fields cannot represent "unset": an omitted
+   * timelineStart is stored and returned as 0. These stubs persist created
+   * clips with that coercion applied, so each insert reads back exactly
+   * what a real PB would serve. The original bug: flag-less inserts
+   * relied on unset-means-flow and every clip came back pinned at 0s.
+   */
+  function roundTripStubs(mediaClips: Record<string, unknown>[] = []) {
+    const stored: Record<string, unknown>[] = [];
+    let seq = 0;
+    const stubs: Record<string, Stub> = {
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          duration: 60,
+          mediaType: 'video',
+        })),
+      },
+      MediaClips: {
+        getOne: vi.fn(async (id: string) => {
+          const found = mediaClips.find((c) => c.id === id);
+          if (!found) throw notFound();
+          return found;
+        }),
+      },
+      TimelineTracks: {
+        getList: vi.fn(async () =>
+          listResult([{ id: 'track1', layer: 0, TimelineRef: 'tl1' }])
+        ),
+      },
+      TimelineClips: {
+        getList: vi.fn(async () => listResult([...stored])),
+        create: vi.fn(async (data: Record<string, unknown>) => {
+          const record = {
+            ...data,
+            id: `c${++seq}`,
+            timelineStart: data.timelineStart ?? 0, // PB zero-coercion
+          };
+          stored.push(record);
+          return record;
+        }),
+      },
+      Timelines: {
+        getOne: vi.fn(async () => ({
+          id: 'tl1',
+          WorkspaceRef: 'ws1',
+          duration: 0,
+          version: 1,
+        })),
+        update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+      },
+    };
+    return stubs;
+  }
+
+  it('lands flag-less inserts back-to-back instead of stacking at 0s', async () => {
+    const stubs = roundTripStubs();
+    const pb = fakePb(stubs);
+
+    const first = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 10,
+    });
+    const second = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+    });
+    const third = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 20,
+      end: 28,
+    });
+
+    expect(first.placedAt).toBe(0);
+    expect(second.placedAt).toBe(10);
+    expect(second.afterClip?.id).toBe(first.clip?.id);
+    expect(third.placedAt).toBe(15);
+    expect(third.placedEnd).toBe(23);
+  });
+
+  it('appends a --clips batch in order, each after the previous', async () => {
+    const stubs = roundTripStubs([
+      { id: 'mc1', MediaRef: 'm1', start: 0, end: 10 },
+      { id: 'mc2', MediaRef: 'm1', start: 5, end: 12 },
+      { id: 'mc3', MediaRef: 'm1', start: 30, end: 33 },
+    ]);
+    const pb = fakePb(stubs);
+
+    const results = await insertClips(pb, {
+      timelineId: 'tl1',
+      clipIds: ['mc1', 'mc2', 'mc3'],
+    });
+
+    expect(results.map((r) => r.placedAt)).toEqual([0, 10, 17]);
+    expect(results.map((r) => r.placedEnd)).toEqual([10, 17, 20]);
+    expect(results.map((r) => r.clip?.order)).toEqual([0, 1, 2]);
   });
 });
 

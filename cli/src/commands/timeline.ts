@@ -1,11 +1,12 @@
 import type { Command } from 'commander';
-import { TaskStatus, TimelineMutator } from '@project/shared';
+import { TaskStatus, TimelineMutator, type ClipTrim } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { pickMedia, pickTimeline, resolveWorkspaceId } from '../lib/select.js';
 import {
   createRender,
   createTimeline,
   insertClip,
+  insertClips,
   insertOptions,
   timelineCreateOptions,
   timelineUpdateOptions,
@@ -13,14 +14,20 @@ import {
   type InsertClipResult,
 } from '../lib/timeline.js';
 import {
+  timelineClipLabelHint,
+  type TimelineClipExpanded,
+} from '../lib/timeline-clip.js';
+import {
   clipLabelDetail,
   getTimelineOverview,
   inspectAtTime,
+  overlapClusters,
   type ClipLabelDetail,
   type InspectClipInfo,
   type TrackAtTime,
   type TrackOverview,
 } from '../lib/timeline-inspect.js';
+import { doctorTimeline } from '../lib/timeline-doctor.js';
 import { LABEL_TYPE_CONFIG, confidenceOf } from '../lib/label.js';
 import {
   buildRenderConfig,
@@ -30,11 +37,13 @@ import {
 } from '../lib/render.js';
 import {
   applyOptions,
+  parseIdList,
   parseSeconds,
   pickOptions,
   withJsonOption,
 } from '../lib/options.js';
 import {
+  error,
   formatDuration,
   info,
   printList,
@@ -93,25 +102,45 @@ const showClipColumns = [
 
 /** Print an insert/move placement report under the success line. */
 export function reportPlacement(result: {
-  placedAt?: number;
+  placedAt: number;
   requestedAt?: number;
   nudged: boolean;
-  trimmedClipIds: string[];
+  trims: ClipTrim[];
   removedClipIds: string[];
+  dryRun: boolean;
 }): void {
-  if (result.placedAt !== undefined) {
-    const requested =
-      result.nudged && result.requestedAt !== undefined
-        ? ` (requested ${secs(result.requestedAt)} — nudged past existing clips)`
-        : '';
-    info(`  placed at ${secs(result.placedAt)}${requested}`);
+  const would = result.dryRun ? 'would be ' : '';
+  if (result.nudged && result.requestedAt !== undefined) {
+    info(
+      `  requested ${secs(result.requestedAt)} — nudged to ${secs(result.placedAt)} past existing clips`
+    );
   }
-  if (result.trimmedClipIds.length > 0) {
-    info(`  trimmed: ${result.trimmedClipIds.join(', ')}`);
+  for (const trim of result.trims) {
+    info(
+      `  ${would}trimmed: ${trim.clipId} → source ${range(trim.start, trim.end)}, timeline ${secs(trim.timelineStart)}`
+    );
   }
   if (result.removedClipIds.length > 0) {
-    info(`  removed: ${result.removedClipIds.join(', ')}`);
+    info(`  ${would}removed: ${result.removedClipIds.join(', ')}`);
   }
+}
+
+/** "10.00–15.00s on track 1 (appended after "…")" for insert summaries. */
+function placementPhrase(result: InsertClipResult): string {
+  const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer}`;
+  const afterHint = result.afterClip
+    ? `after "${truncate(
+        timelineClipLabelHint(result.afterClip as TimelineClipExpanded),
+        40
+      )}"`
+    : '';
+  if (result.mode === 'append') {
+    return `${where} (${afterHint ? `appended ${afterHint}` : 'track was empty'})`;
+  }
+  if (result.mode === 'after' && afterHint) {
+    return `${where} (${afterHint})`;
+  }
+  return where;
 }
 
 /** Print the `--labels` detail lines for one clip. */
@@ -234,12 +263,29 @@ export function registerTimelineCommands(program: Command): void {
 
   withJsonOption(
     timeline
-      .command('show <timelineId>')
+      .command('show [timelineId]')
       .description('Inspect a timeline: tracks, settings, and placed clips')
-  ).action(async (timelineId: string, opts) => {
+      .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
+      .option('-w, --workspace <id>', 'workspace id override')
+  ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
       const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
       const overview = await getTimelineOverview(pb, timelineId);
+      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
+        throw new Error(
+          `Timeline ${timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
+        );
+      }
       if (opts.json) {
         printRecord(overview, [], true);
         return;
@@ -267,6 +313,14 @@ export function registerTimelineCommands(program: Command): void {
         info('');
         info(trackHeaderLine(trackOverview));
         table(trackOverview.clips, showClipColumns);
+        for (const cluster of overlapClusters(trackOverview.clips)) {
+          info(
+            `!! ${cluster.length} clips overlap (${cluster
+              .map((c) => c.clip.id)
+              .join(', ')}) — same-track overlaps are invalid; ` +
+              `run \`vw timeline doctor ${t.id}\``
+          );
+        }
       }
       info('');
       info(
@@ -403,13 +457,22 @@ export function registerTimelineCommands(program: Command): void {
 
   const insert = timeline
     .command('insert')
-    .description('Insert media or a MediaClip into a timeline track')
+    .description(
+      'Insert media or a MediaClip into a timeline track ' +
+        '(appends to the end of the track unless --at/--after)'
+    )
     .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
     .option(
+      '--clips <ids>',
+      'comma-separated MediaClip ids to append in order (batch mode)',
+      parseIdList
+    )
+    .option(
       '--overwrite',
       'with --at: trim/remove overlapping clips instead of nudging forward'
-    );
+    )
+    .option('--dry-run', 'print the placement plan without writing anything');
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
@@ -419,6 +482,46 @@ export function registerTimelineCommands(program: Command): void {
         opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
 
       const picked = pickOptions(opts, insertOptions);
+
+      if (opts.clips) {
+        const incompatible: string[] = (
+          [
+            'media',
+            'clip',
+            'at',
+            'after',
+            'start',
+            'end',
+            'label',
+            'description',
+          ] as const
+        ).filter((key) => picked[key] !== undefined);
+        if (opts.overwrite) incompatible.push('overwrite');
+        if (opts.dryRun) incompatible.push('dry-run');
+        if (incompatible.length > 0) {
+          throw new Error(
+            '--clips appends whole MediaClips in order — drop ' +
+              `--${incompatible.join(', --')}.`
+          );
+        }
+        const results = await insertClips(pb, {
+          timelineId,
+          clipIds: opts.clips,
+          ...(picked.track !== undefined ? { track: picked.track } : {}),
+          ...(picked.gain !== undefined ? { gain: picked.gain } : {}),
+        });
+        if (opts.json) {
+          printRecord({ items: results, totalItems: results.length }, [], true);
+          return;
+        }
+        for (const result of results) {
+          success(
+            `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
+          );
+        }
+        return;
+      }
+
       if (!picked.media && !picked.clip) {
         picked.media = (await pickMedia(pb, workspaceId)).id;
       }
@@ -426,6 +529,7 @@ export function registerTimelineCommands(program: Command): void {
       const result: InsertClipResult = await insertClip(pb, {
         timelineId,
         overwrite: opts.overwrite,
+        dryRun: opts.dryRun,
         ...picked,
       });
 
@@ -433,10 +537,78 @@ export function registerTimelineCommands(program: Command): void {
         printRecord(result, [], true);
         return;
       }
-      success(
-        `Inserted clip ${result.clip.id} (order ${result.clip.order}, ${formatDuration(result.clip.duration)}) into timeline ${timelineId}`
-      );
+      if (result.dryRun) {
+        info(
+          `Dry run — nothing written. Clip would land at ${placementPhrase(result)}`
+        );
+      } else {
+        success(
+          `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
+        );
+      }
       reportPlacement(result);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  withJsonOption(
+    timeline
+      .command('doctor [timelineId]')
+      .description(
+        'Health-check a timeline: overlaps, gaps, stale durations, dangling refs'
+      )
+      .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
+      .option('-w, --workspace <id>', 'workspace id override')
+  ).action(async (timelineIdArg: string | undefined, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+
+      const report = await doctorTimeline(pb, timelineId);
+      if (!report.ok) {
+        process.exitCode = 1;
+      }
+      if (opts.json) {
+        printRecord(report, [], true);
+        return;
+      }
+
+      info(
+        `Timeline ${report.timelineId} "${report.timelineName}" — ` +
+          `${report.trackCount} track(s), ${report.clipCount} clip(s), ` +
+          formatDuration(report.computedDuration)
+      );
+      for (const finding of report.findings) {
+        const tag =
+          finding.level === 'error'
+            ? 'ERROR'
+            : finding.level === 'warning'
+              ? 'WARN '
+              : 'info ';
+        info(`${tag}  ${finding.message}`);
+      }
+      const infos = report.findings.length - report.errors - report.warnings;
+      if (report.findings.length === 0) {
+        success('No issues found.');
+      } else if (report.ok) {
+        success(
+          `No errors (${report.warnings} warning(s), ${infos} info note(s)).`
+        );
+      } else {
+        error(
+          `${report.errors} error(s), ${report.warnings} warning(s), ${infos} info note(s).`
+        );
+      }
     } catch (err) {
       handleError(err);
     }

@@ -3,6 +3,7 @@ import {
   moveTimelineClip,
   removeTimelineClip,
   reorderTimelineClips,
+  rippleTimelineClips,
   timelineClipLabelHint,
   updateTimelineClip,
   type TimelineClipExpanded,
@@ -323,7 +324,7 @@ describe('moveTimelineClip', () => {
     expect(result.trimmedClipIds).toEqual(['b']);
   });
 
-  it('clears the pin with --sequential', async () => {
+  it('dry-run computes the placement without writing', async () => {
     const clips = [
       {
         id: 'a',
@@ -340,25 +341,143 @@ describe('moveTimelineClip', () => {
     const stubs = clipStubs({ clips });
     const pb = fakePb(stubs);
 
-    await moveTimelineClip(pb, 'a', { sequential: true });
+    const result = await moveTimelineClip(pb, 'a', { at: 2, dryRun: true });
 
-    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
-      TimelineTrackRef: 'trk0',
-      timelineStart: null,
-    });
+    expect(result.clip).toBeNull();
+    expect(result.dryRun).toBe(true);
+    expect(result.placedAt).toBe(2);
+    expect(result.placedEnd).toBe(5);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
   });
 
-  it('validates its flag combinations', async () => {
-    const pb = fakePb(clipStubs());
+  it('validates its flag combinations and -t expectations', async () => {
+    const clips = [
+      {
+        id: 'a',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 3,
+        duration: 3,
+        timelineStart: 0,
+      },
+    ];
+    const pb = fakePb(clipStubs({ clips }));
     await expect(moveTimelineClip(pb, 'a', {})).rejects.toThrow(
-      /--track, --at/i
+      /--track and\/or --at/i
     );
-    await expect(
-      moveTimelineClip(pb, 'a', { sequential: true, at: 2 })
-    ).rejects.toThrow(/mutually exclusive/i);
     await expect(
       moveTimelineClip(pb, 'a', { overwrite: true })
     ).rejects.toThrow(/--overwrite requires --at/i);
+    await expect(
+      moveTimelineClip(pb, 'a', { at: 2, timelineId: 'other' })
+    ).rejects.toThrow(/belongs to timeline tl1/i);
+  });
+});
+
+describe('rippleTimelineClips', () => {
+  const clips = [
+    {
+      id: 'a',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 0,
+      start: 0,
+      end: 3,
+      duration: 3,
+      timelineStart: 0,
+    },
+    {
+      id: 'b',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 1,
+      start: 0,
+      end: 4,
+      duration: 4,
+      timelineStart: 5,
+    },
+    {
+      id: 'c',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 2,
+      start: 0,
+      end: 2,
+      duration: 2,
+      timelineStart: 9,
+    },
+    // other track: must not move
+    {
+      id: 'x',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk1',
+      MediaRef: 'm1',
+      order: 3,
+      start: 0,
+      end: 8,
+      duration: 8,
+      timelineStart: 6,
+    },
+  ];
+
+  it('shifts the clip and everything after it on its track', async () => {
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await rippleTimelineClips(pb, 'b', { by: 2.5 });
+
+    expect(result.by).toBe(2.5);
+    expect(result.shifted).toEqual([
+      { clipId: 'b', from: 5, to: 7.5 },
+      { clipId: 'c', from: 9, to: 11.5 },
+    ]);
+    type UpdateCall = [string, Record<string, unknown>];
+    const calls = stubs.TimelineClips.update.mock.calls as UpdateCall[];
+    expect(calls.map((call) => [call[0], call[1]])).toEqual([
+      ['b', { timelineStart: 7.5 }],
+      ['c', { timelineStart: 11.5 }],
+    ]);
+  });
+
+  it('clamps a leftward shift at the previous clip end', async () => {
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await rippleTimelineClips(pb, 'b', { by: -10 });
+
+    expect(result.requestedBy).toBe(-10);
+    expect(result.by).toBe(-2); // a ends at 3s; b sits at 5s
+    expect(result.shifted).toEqual([
+      { clipId: 'b', from: 5, to: 3 },
+      { clipId: 'c', from: 9, to: 7 },
+    ]);
+  });
+
+  it('dry-run computes the shifts without writing', async () => {
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await rippleTimelineClips(pb, 'b', { by: 1, dryRun: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.shifted).toHaveLength(2);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a zero shift and validates -t', async () => {
+    const pb = fakePb(clipStubs({ clips }));
+    await expect(rippleTimelineClips(pb, 'b', { by: 0 })).rejects.toThrow(
+      /non-zero/i
+    );
+    await expect(
+      rippleTimelineClips(pb, 'b', { by: 1, timelineId: 'other' })
+    ).rejects.toThrow(/belongs to timeline tl1/i);
   });
 });
 
@@ -401,11 +520,85 @@ describe('removeTimelineClip', () => {
     expect(stubs.Timelines.getOne).toHaveBeenCalled();
   });
 
-  it('errors on an unknown clip', async () => {
+  it('ripple-delete shifts later clips left by the removed length', async () => {
+    const clips = [
+      {
+        id: 'a',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 3,
+        duration: 3,
+        timelineStart: 0,
+      },
+      {
+        id: 'b',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 1,
+        start: 0,
+        end: 4,
+        duration: 4,
+        timelineStart: 3,
+      },
+      // 2s intentional gap before c — ripple preserves it
+      {
+        id: 'c',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 2,
+        start: 0,
+        end: 2,
+        duration: 2,
+        timelineStart: 9,
+      },
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await removeTimelineClip(pb, 'a', { ripple: true });
+
+    expect(stubs.TimelineClips.delete).toHaveBeenCalledWith('a');
+    expect(result.shifted).toEqual([
+      { clipId: 'b', from: 3, to: 0 },
+      { clipId: 'c', from: 9, to: 6 },
+    ]);
+    type UpdateCall = [string, Record<string, unknown>];
+    const positionWrites = (
+      stubs.TimelineClips.update.mock.calls as UpdateCall[]
+    ).filter((call) => 'timelineStart' in call[1]);
+    expect(positionWrites.map((call) => [call[0], call[1]])).toEqual([
+      ['b', { timelineStart: 0 }],
+      ['c', { timelineStart: 6 }],
+    ]);
+  });
+
+  it('errors on an unknown clip and validates -t', async () => {
     const pb = fakePb(clipStubs());
     await expect(removeTimelineClip(pb, 'nope')).rejects.toThrow(
       /clip not found/i
     );
+    const clips = [
+      {
+        id: 'a',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 3,
+        duration: 3,
+        timelineStart: 0,
+      },
+    ];
+    const pb2 = fakePb(clipStubs({ clips }));
+    await expect(
+      removeTimelineClip(pb2, 'a', { timelineId: 'other' })
+    ).rejects.toThrow(/belongs to timeline tl1/i);
   });
 });
 

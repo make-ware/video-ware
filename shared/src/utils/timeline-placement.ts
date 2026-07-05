@@ -217,8 +217,9 @@ export interface PlacedClip {
 
 /**
  * A track resolved for playback: its settings plus the placed clips it owns,
- * split into media clips (played via a <video> element) and caption clips
- * (rendered as overlays).
+ * split into media clips (played via a <video> element), caption clips
+ * (rendered as overlays), and nested-timeline clips (expanded into extra
+ * playback channels by buildPlaybackChannels).
  */
 export interface PlaybackTrack {
   trackId: string | null;
@@ -228,6 +229,7 @@ export interface PlaybackTrack {
   isMuted: boolean;
   mediaClips: PlacedClip[];
   captionClips: PlacedClip[];
+  timelineClips: PlacedClip[];
 }
 
 /**
@@ -280,6 +282,7 @@ export function buildPlaybackTracks(
       isMuted: track?.isMuted ?? false,
       mediaClips: placed.filter((p) => p.clip.MediaRef),
       captionClips: placed.filter((p) => p.clip.CaptionRef),
+      timelineClips: placed.filter((p) => p.clip.SourceTimelineRef),
     };
   };
 
@@ -323,7 +326,11 @@ export function computeTimelineDuration(
 ): number {
   let max = 0;
   for (const track of buildPlaybackTracks(clips, tracks)) {
-    for (const placed of [...track.mediaClips, ...track.captionClips]) {
+    for (const placed of [
+      ...track.mediaClips,
+      ...track.captionClips,
+      ...track.timelineClips,
+    ]) {
       max = Math.max(max, placed.globalEnd);
     }
   }

@@ -34,6 +34,7 @@ import {
 import {
   MAX_TIMELINE_TRACKS,
   findNonOverlappingTimelineStart,
+  computeNestedTimelineDuration,
 } from '@project/shared';
 import type { Caption, TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
@@ -376,10 +377,18 @@ export function LayerTimelineView() {
       e: React.MouseEvent | React.TouchEvent
     ): DragState => {
       const point = 'touches' in e ? e.touches[0] : e;
-      // Caption clips trim against the caption's own duration
-      const mediaDuration = clip.CaptionRef
-        ? clip.expand?.CaptionRef?.duration || clip.end
-        : clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
+      // Caption clips trim against the caption's own duration;
+      // nested-timeline clips against the source timeline's content duration
+      const nestedData = clip.SourceTimelineRef
+        ? timeline?.nestedTimelines?.[clip.SourceTimelineRef]
+        : undefined;
+      const mediaDuration = clip.SourceTimelineRef
+        ? nestedData
+          ? computeNestedTimelineDuration(nestedData)
+          : clip.end
+        : clip.CaptionRef
+          ? clip.expand?.CaptionRef?.duration || clip.end
+          : clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
       const trackId = clip.TimelineTrackRef || '';
 
       return {
@@ -405,7 +414,7 @@ export function LayerTimelineView() {
         previewEnd: clip.end,
       };
     },
-    [pixelsPerSecond]
+    [pixelsPerSecond, timeline]
   );
 
   const handleResizeStart = useCallback(

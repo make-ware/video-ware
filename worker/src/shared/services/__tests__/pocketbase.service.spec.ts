@@ -118,7 +118,7 @@ describe('PocketBaseService', () => {
 
       expect(mockGetList).toHaveBeenCalledWith(1, 100, {
         expand:
-          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef,CaptionRef',
+          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef,CaptionRef,SourceTimelineRef',
         filter: `TimelineRef = "${timelineId}"`,
         sort: 'order',
       });
@@ -147,7 +147,7 @@ describe('PocketBaseService', () => {
 
       expect(mockGetList).toHaveBeenCalledWith(2, 50, {
         expand:
-          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef,CaptionRef',
+          'TimelineRef,MediaRef,MediaRef.UploadRef,MediaRef.thumbnailFileRef,MediaRef.spriteFileRef,MediaRef.filmstripFileRefs,MediaClipRef,CaptionRef,SourceTimelineRef',
         filter: `TimelineRef = "${timelineId}"`,
         sort: 'order',
       });

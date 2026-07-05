@@ -10,6 +10,7 @@ import {
   type Caption,
   type ClipTrim,
   type MediaClip,
+  type Timeline,
   type TimelineClip,
   type TimelineTrackRecord,
   type TypedPocketBase,
@@ -36,6 +37,7 @@ export type TimelineClipExpanded = TimelineClip & {
     MediaRef?: MediaWithUpload;
     MediaClipRef?: MediaClip;
     CaptionRef?: Caption;
+    SourceTimelineRef?: Timeline;
   };
 };
 
@@ -51,6 +53,10 @@ export function timelineClipLabelHint(clip: TimelineClipExpanded): string {
   const media = clip.expand?.MediaRef;
   if (media) return mediaLabel(media);
   if (clip.CaptionRef) return 'Caption';
+  if (clip.SourceTimelineRef) {
+    const source = clip.expand?.SourceTimelineRef;
+    return source?.label || source?.name || 'Timeline';
+  }
   return clip.id;
 }
 

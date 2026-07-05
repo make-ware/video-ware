@@ -2,7 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FFmpegComposeExecutor } from './compose.executor';
 import { FFmpegService } from '../../../shared/services/ffmpeg.service';
-import { TimelineOrientation, type TimelineTrack } from '@project/shared';
+import {
+  TimelineOrientation,
+  generateTracks,
+  type TimelineClip,
+  type TimelineTrack,
+  type TimelineTrackRecord,
+} from '@project/shared';
 
 describe('FFmpegComposeExecutor', () => {
   let executor: FFmpegComposeExecutor;
@@ -869,5 +875,166 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).not.toContain('adelay');
     // Should use anullsrc fallback for the mix
     expect(filterComplex).toContain('anullsrc');
+  });
+
+  describe('nested timelines (flattened by generateTracks)', () => {
+    // End-to-end contract: flatten a timeline containing a nested-timeline
+    // clip with the real shared flattener, then verify the compose executor
+    // builds a coherent filter graph from the result (fractional layers,
+    // projected times, sourceStart offsets, projected audio).
+    function buildNestedTracks(): TimelineTrack[] {
+      const parentTrack = {
+        id: 'p0',
+        TimelineRef: 'root',
+        layer: 0,
+        volume: 1,
+        opacity: 1,
+        isMuted: false,
+        isLocked: false,
+      } as unknown as TimelineTrackRecord;
+
+      const childTrack = {
+        id: 'c0',
+        TimelineRef: 'sub',
+        layer: 0,
+        volume: 1,
+        opacity: 1,
+        isMuted: false,
+        isLocked: false,
+      } as unknown as TimelineTrackRecord;
+
+      const parentClips = [
+        {
+          id: 'own',
+          TimelineRef: 'root',
+          TimelineTrackRef: 'p0',
+          MediaRef: 'assetMain',
+          order: 0,
+          start: 0,
+          end: 4,
+          duration: 4,
+          timelineStart: 0,
+        },
+        // Nested clip at 4s, trimmed to child time [1, 5)
+        {
+          id: 'nest',
+          TimelineRef: 'root',
+          TimelineTrackRef: 'p0',
+          SourceTimelineRef: 'sub',
+          order: 1,
+          start: 1,
+          end: 5,
+          duration: 4,
+          timelineStart: 4,
+        },
+      ] as unknown as TimelineClip[];
+
+      const childClips = [
+        // 6s of assetNested starting at source 3s, placed at child 0s
+        {
+          id: 'subclip',
+          TimelineRef: 'sub',
+          TimelineTrackRef: 'c0',
+          MediaRef: 'assetNested',
+          order: 0,
+          start: 3,
+          end: 9,
+          duration: 6,
+          timelineStart: 0,
+        },
+      ] as unknown as TimelineClip[];
+
+      return generateTracks(parentClips, [parentTrack], {
+        rootTimelineId: 'root',
+        nestedTimelines: {
+          sub: { clips: childClips, tracks: [childTrack] },
+        },
+      });
+    }
+
+    const clipMediaMap = {
+      assetMain: {
+        media: { id: 'assetMain', mediaData: { audio: { codec: 'aac' } } },
+        filePath: '/tmp/main.mp4',
+      } as any,
+      assetNested: {
+        media: { id: 'assetNested', mediaData: { audio: { codec: 'aac' } } },
+        filePath: '/tmp/nested.mp4',
+      } as any,
+    };
+
+    const outputSettings = {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    };
+
+    it('renders projected nested video above the parent track content', async () => {
+      const tracks = buildNestedTracks();
+
+      await executor.execute(
+        tracks,
+        clipMediaMap,
+        '/tmp/output.mp4',
+        outputSettings
+      );
+
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      const args = executeSpy.mock.calls[0][0] as string[];
+      const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+      // Both source files are inputs
+      expect(args).toContain('/tmp/main.mp4');
+      expect(args).toContain('/tmp/nested.mp4');
+
+      // Parent clip plays [0,4)
+      expect(filterComplex).toContain("enable='between(t,0,4)'");
+      // Nested child clip [0,6) trimmed to [1,5) => parent window [4,8),
+      // source in-point 3 + 1 head-trim = 4
+      expect(filterComplex).toContain('trim=start=4:duration=4');
+      expect(filterComplex).toContain("enable='between(t,4,8)'");
+
+      // Canvas spans the full 8s composition
+      expect(filterComplex).toContain('d=8[base]');
+    });
+
+    it('mixes the nested timeline audio with projected timing', async () => {
+      const tracks = buildNestedTracks();
+
+      await executor.execute(
+        tracks,
+        clipMediaMap,
+        '/tmp/output.mp4',
+        outputSettings
+      );
+
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      const args = executeSpy.mock.calls[0][0] as string[];
+      const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+      // Nested audio: trimmed at source 4s for 4s, delayed to 4s
+      expect(filterComplex).toContain('atrim=start=4:duration=4');
+      expect(filterComplex).toContain('adelay=4000|4000');
+      // Parent audio + nested audio both feed the mix
+      expect(filterComplex).toMatch(/amix=inputs=2/);
+    });
+
+    it('orders fractional-layer nested tracks between integer layers', () => {
+      const tracks = buildNestedTracks();
+
+      const nestedVideo = tracks.find(
+        (t) => t.type === 'video' && t.id.startsWith('nest_')
+      );
+      expect(nestedVideo).toBeDefined();
+      expect(nestedVideo!.layer).toBeGreaterThan(0);
+      expect(nestedVideo!.layer).toBeLessThan(1);
+
+      // The compose sort places the nested track after the parent track
+      const sorted = [...tracks]
+        .filter((t) => t.type === 'video')
+        .sort((a, b) => (a.layer || 0) - (b.layer || 0));
+      expect(sorted[0].id).toBe('p0');
+      expect(sorted[1].id).toBe(nestedVideo!.id);
+    });
   });
 });

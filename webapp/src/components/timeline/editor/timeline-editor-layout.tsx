@@ -24,6 +24,7 @@ import {
   Heading1,
   ChevronDown,
   Search,
+  Layers,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CaptionEditorModal } from '@/components/captions';
 import { UniversalSearchModal } from './universal-search-modal';
+import { InsertTimelineDialog } from './insert-timeline-dialog';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
 import { TimelineOrientation, CaptionType } from '@project/shared';
@@ -67,6 +69,7 @@ export function TimelineEditorLayout() {
   const searchParams = useSearchParams();
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [insertTimelineOpen, setInsertTimelineOpen] = useState(false);
   const [captionEditorType, setCaptionEditorType] =
     useState<CaptionType | null>(null);
 
@@ -321,6 +324,16 @@ export function TimelineEditorLayout() {
             <Button
               variant="outline"
               size="sm"
+              className="h-8 px-2 lg:px-3"
+              title="Insert another timeline as a clip"
+              onClick={() => setInsertTimelineOpen(true)}
+            >
+              <Layers className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Timeline</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleExportFCPXML}
               disabled={isExporting}
               className="h-8 px-2 lg:px-3"
@@ -459,6 +472,10 @@ export function TimelineEditorLayout() {
         </div>
       )}
       <UniversalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
+      <InsertTimelineDialog
+        open={insertTimelineOpen}
+        onOpenChange={setInsertTimelineOpen}
+      />
       <RenderDialog
         open={renderDialogOpen}
         onOpenChange={setRenderDialogOpen}

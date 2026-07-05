@@ -38,7 +38,7 @@ export interface InspectClipInfo {
   timelineStart: number;
   timelineEnd: number;
   labelHint: string;
-  kind: 'media' | 'caption';
+  kind: 'media' | 'caption' | 'timeline';
 }
 
 export interface TrackOverview {
@@ -63,17 +63,24 @@ function toClipInfo(placed: PlacedClip): InspectClipInfo {
     timelineStart: placed.globalStart,
     timelineEnd: placed.globalEnd,
     labelHint: timelineClipLabelHint(clip),
-    kind: clip.CaptionRef ? 'caption' : 'media',
+    kind: clip.CaptionRef
+      ? 'caption'
+      : clip.SourceTimelineRef
+        ? 'timeline'
+        : 'media',
   };
 }
 
 function placedClipsOf(track: {
   mediaClips: PlacedClip[];
   captionClips: PlacedClip[];
+  timelineClips: PlacedClip[];
 }): PlacedClip[] {
-  return [...track.mediaClips, ...track.captionClips].sort(
-    (a, b) => a.globalStart - b.globalStart
-  );
+  return [
+    ...track.mediaClips,
+    ...track.captionClips,
+    ...track.timelineClips,
+  ].sort((a, b) => a.globalStart - b.globalStart);
 }
 
 /** Full timeline picture: tracks (layer ascending) with placed clips. */

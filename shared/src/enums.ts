@@ -149,6 +149,17 @@ export enum TimelineOrientation {
 // bounded number of simultaneous <video> elements.
 export const MAX_TIMELINE_TRACKS = 4;
 
+// Maximum number of inline media player channels the preview can drive at
+// once. Nested-timeline clips expand into extra channels beyond the parent's
+// own tracks; anything past this budget is dropped from preview (best effort)
+// and surfaced as a warning. Rendering is unaffected by this limit.
+export const MAX_PLAYBACK_CHANNELS = 6;
+
+// Maximum nesting depth for timeline-in-timeline clips (a timeline containing
+// a timeline containing a timeline = depth 3). Deeper references are ignored
+// by both preview and render flattening; cycles are always ignored.
+export const MAX_NESTED_TIMELINE_DEPTH = 3;
+
 export enum CaptionType {
   CAPTION = 'caption',
   TITLE = 'title',

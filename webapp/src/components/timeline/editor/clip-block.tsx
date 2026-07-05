@@ -2,8 +2,13 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Type } from 'lucide-react';
-import type { TimelineClip, MediaClip, Caption } from '@project/shared';
+import { Type, Layers } from 'lucide-react';
+import type {
+  TimelineClip,
+  MediaClip,
+  Caption,
+  Timeline,
+} from '@project/shared';
 import { CompositeClipOverlay } from './composite-clip-overlay';
 
 export interface ClipBlockProps {
@@ -39,15 +44,21 @@ export function ClipBlock({
 }: ClipBlockProps) {
   const clipDuration = clip.end - clip.start;
   const isCaption = !!clip.CaptionRef;
+  const isTimeline = !!clip.SourceTimelineRef;
   const caption = (clip as TimelineClip & { expand?: { CaptionRef?: Caption } })
     .expand?.CaptionRef;
+  const sourceTimeline = (
+    clip as TimelineClip & { expand?: { SourceTimelineRef?: Timeline } }
+  ).expand?.SourceTimelineRef;
   const clipColor =
     clip.meta?.color ||
     (isCaption
       ? 'bg-purple-600/60'
-      : isSelected
-        ? 'bg-primary'
-        : 'bg-blue-600/60');
+      : isTimeline
+        ? 'bg-emerald-700/60'
+        : isSelected
+          ? 'bg-primary'
+          : 'bg-blue-600/60');
 
   // Extract composite clip data
   const mediaClip = (
@@ -122,6 +133,19 @@ export function ClipBlock({
             {Math.round(clipDuration * 10) / 10}s
           </div>
         </>
+      )}
+
+      {/* Nested-timeline clips show a layers icon + the source timeline name */}
+      {isTimeline && (
+        <div className="absolute inset-0 flex items-center gap-1 px-1.5 pointer-events-none overflow-hidden">
+          <Layers className="h-3 w-3 shrink-0 text-white/80" />
+          <span className="text-[10px] text-white truncate drop-shadow-md">
+            {clip.meta?.title ||
+              sourceTimeline?.label ||
+              sourceTimeline?.name ||
+              'Timeline'}
+          </span>
+        </div>
       )}
 
       {/* Caption clips show an icon + their text */}

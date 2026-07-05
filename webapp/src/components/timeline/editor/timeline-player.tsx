@@ -12,9 +12,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  MAX_TIMELINE_TRACKS,
+  MAX_PLAYBACK_CHANNELS,
   TimelineOrientation,
-  buildPlaybackTracks,
+  buildPlaybackChannels,
   type Caption,
   type CaptionCue,
   type CaptionStyle,
@@ -36,54 +36,48 @@ export function TimelinePlayer() {
   const [isMuted, setIsMuted] = useState(false);
   const lastUpdateRef = useRef<number>(0);
 
-  // Resolve clips to absolute timeline positions, grouped per track
-  // (layer ascending — index 0 is the bottom layer)
-  const playbackTracks = useMemo(() => {
-    if (!timeline) return [];
-    return buildPlaybackTracks(timeline.clips, timeline.tracks || []);
+  // Resolve clips (including nested-timeline clips, expanded into extra
+  // channels) to the bounded set of media player channels the preview drives
+  // (layer ascending — index 0 is the bottom layer). Best effort: channels
+  // beyond the budget are dropped and surfaced as a warning.
+  const playback = useMemo(() => {
+    if (!timeline) return null;
+    return buildPlaybackChannels({
+      clips: timeline.clips,
+      tracks: timeline.tracks || [],
+      nestedTimelines: timeline.nestedTimelines,
+      rootTimelineId: timeline.id,
+    });
   }, [timeline]);
 
-  // One <video> element per track with media, capped for performance
-  const mediaTracks = useMemo(
-    () => playbackTracks.filter((t) => t.mediaClips.length > 0),
-    [playbackTracks]
-  );
-  const videoTracks = useMemo(
-    () => mediaTracks.slice(0, MAX_TIMELINE_TRACKS),
-    [mediaTracks]
-  );
-  const hiddenTrackCount = mediaTracks.length - videoTracks.length;
+  const videoTracks = useMemo(() => playback?.channels ?? [], [playback]);
+  const droppedChannelCount = playback?.droppedChannelCount ?? 0;
 
-  // Caption clips active at the playhead, across all tracks (bottom layer
-  // first so higher layers render on top)
+  // Caption clips active at the playhead, across all tracks including nested
+  // timelines (bottom layer first so higher layers render on top)
   const activeCaptions = useMemo(() => {
     const active: Array<{
       clipId: string;
       caption: Caption;
       localTime: number;
     }> = [];
-    for (const track of playbackTracks) {
-      for (const placed of track.captionClips) {
-        if (
-          currentTime < placed.globalStart ||
-          currentTime >= placed.globalEnd
-        ) {
-          continue;
-        }
-        const caption = (
-          placed.clip as TimelineClip & { expand?: { CaptionRef?: Caption } }
-        ).expand?.CaptionRef;
-        if (!caption) continue;
-        // Map timeline time into the caption's own (possibly trimmed) timeline
-        active.push({
-          clipId: placed.clip.id,
-          caption,
-          localTime: currentTime - placed.globalStart + placed.clip.start,
-        });
+    for (const placed of playback?.captionClips ?? []) {
+      if (currentTime < placed.globalStart || currentTime >= placed.globalEnd) {
+        continue;
       }
+      const caption = (
+        placed.clip as TimelineClip & { expand?: { CaptionRef?: Caption } }
+      ).expand?.CaptionRef;
+      if (!caption) continue;
+      // Map timeline time into the caption's own (possibly trimmed) timeline
+      active.push({
+        clipId: placed.clip.id,
+        caption,
+        localTime: currentTime - placed.globalStart + placed.clip.start,
+      });
     }
     return active;
-  }, [playbackTracks, currentTime]);
+  }, [playback, currentTime]);
 
   // Playback loop
   useEffect(() => {
@@ -220,9 +214,14 @@ export function TimelinePlayer() {
         </div>
 
         <div className="flex items-center gap-2">
-          {hiddenTrackCount > 0 && (
-            <div className="text-xs font-medium text-amber-600 bg-amber-100 dark:bg-amber-950 px-2 py-1 rounded">
-              Preview limited to {MAX_TIMELINE_TRACKS} tracks
+          {droppedChannelCount > 0 && (
+            <div
+              className="text-xs font-medium text-amber-600 bg-amber-100 dark:bg-amber-950 px-2 py-1 rounded"
+              title="Nested timelines need one player per inner track. Tracks beyond the limit are muted and hidden in the preview only — renders always include everything."
+            >
+              Preview limited to {MAX_PLAYBACK_CHANNELS} players —{' '}
+              {droppedChannelCount} track
+              {droppedChannelCount === 1 ? '' : 's'} not shown
             </div>
           )}
           <div className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">

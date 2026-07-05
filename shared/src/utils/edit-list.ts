@@ -24,6 +24,8 @@ import {
   type CaptionCue,
   type CaptionStyle,
 } from '../types/captions';
+import { MAX_NESTED_TIMELINE_DEPTH } from '../enums';
+import { projectChildWindow, type NestedTimelineMap } from './nested-timeline';
 
 /**
  * Optional inputs that let generateTracks burn auto-captions into the render.
@@ -39,6 +41,10 @@ export interface GenerateTracksOptions {
   includeCaptions?: boolean;
   /** Style applied to derived transcript captions (default DEFAULT_CAPTION_STYLE) */
   captionStyle?: CaptionStyle;
+  /** Clips + tracks of timelines referenced by nested-timeline clips */
+  nestedTimelines?: NestedTimelineMap;
+  /** The timeline being flattened; guards against self-reference cycles */
+  rootTimelineId?: string;
 }
 /**
  * Validation result for validation
@@ -209,6 +215,13 @@ function generateSegmentsFromClip(
 ): ClipSegmentResult {
   const clipWithExpand = clip as TimelineClipWithExpand;
   const mediaClip = clipWithExpand.expand?.MediaClipRef;
+
+  // Nested-timeline clips expand into whole tracks, not segments — the track
+  // loop diverts them to expandNestedClipToTracks before reaching here. Keep
+  // layout stable if one slips through (e.g. legacy orphan path).
+  if (clip.SourceTimelineRef) {
+    return { segments: [], totalDuration: clip.end - clip.start };
+  }
 
   // Per-clip audio gain (0.0–1.0, attenuate-only). Folded into the track
   // volume so a clip can be quieter than its track without affecting siblings.
@@ -404,6 +417,147 @@ function buildOrphanSegments(
 }
 
 /**
+ * Result of expanding one nested-timeline clip into render tracks.
+ */
+interface NestedClipTracksResult {
+  tracks: TimelineTrack[];
+  totalDuration: number;
+}
+
+/**
+ * Expand a nested-timeline clip into render tracks.
+ *
+ * The child timeline is flattened with the same generateTracks pipeline
+ * (recursively, so nested-in-nested works), then every segment is projected
+ * through the clip's trim window [clip.start, clip.end) onto the parent
+ * timeline at startTime. Child tracks keep their relative ordering via
+ * fractional layers between the parent track's layer and the next integer
+ * layer, so the renderer's layer sort composites them exactly where the clip
+ * sits in the parent's stack.
+ *
+ * Unresolvable children (missing data, cycle, depth cap) expand to nothing
+ * but still occupy the clip's trimmed duration so sequential layout holds.
+ */
+function expandNestedClipToTracks(
+  clip: TimelineClip,
+  startTime: number,
+  trackSettings:
+    | { opacity?: number; isMuted?: boolean; volume?: number; layer?: number }
+    | undefined,
+  options: GenerateTracksOptions | undefined,
+  depth: number,
+  visited: ReadonlySet<string>
+): NestedClipTracksResult {
+  const totalDuration = clip.end - clip.start;
+  const childId = clip.SourceTimelineRef;
+  const childData = childId ? options?.nestedTimelines?.[childId] : undefined;
+  if (
+    !childId ||
+    !childData ||
+    visited.has(childId) ||
+    depth >= MAX_NESTED_TIMELINE_DEPTH
+  ) {
+    return { tracks: [], totalDuration };
+  }
+
+  const childTracks = generateTracksInternal(
+    childData.clips,
+    childData.tracks,
+    options,
+    depth + 1,
+    new Set([...visited, childId])
+  );
+
+  // The whole child composition behaves like one clip on the parent track:
+  // parent track volume × the clip's own gain scale every child audio
+  // segment (whose volume already folds the child's track/clip levels).
+  const clipGain = clip.meta?.gain ?? 1;
+  const audioFactor = effectiveVolume(trackSettings, clipGain);
+  const parentOpacity = trackSettings?.opacity;
+  const parentLayer = trackSettings?.layer ?? 0;
+
+  // Rank child visual tracks by layer for order-preserving fractional layers
+  const videoRanks = new Map<string, number>();
+  childTracks
+    .filter((t) => t.type !== 'audio')
+    .sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0))
+    .forEach((t, i) => videoRanks.set(t.id, i));
+
+  const projected: TimelineTrack[] = [];
+
+  for (const childTrack of childTracks) {
+    if (childTrack.type === 'audio' && audioFactor === 0) continue;
+
+    const segments: TimelineSegment[] = [];
+    for (const seg of childTrack.segments) {
+      const window = projectChildWindow(
+        startTime,
+        clip.start,
+        clip.end,
+        seg.time.start,
+        seg.time.start + seg.time.duration
+      );
+      if (!window) continue;
+      const duration = window.parentEnd - window.parentStart;
+
+      // '_' separator: segment ids become ffmpeg filter link labels, where
+      // ':' is unsafe.
+      const next: TimelineSegment = {
+        ...seg,
+        id: `${clip.id}_${seg.id}`,
+        time: {
+          start: window.parentStart,
+          duration,
+          ...(seg.time.sourceStart !== undefined
+            ? { sourceStart: seg.time.sourceStart + window.headTrim }
+            : {}),
+        },
+      };
+
+      if (seg.audio) {
+        next.audio = {
+          ...seg.audio,
+          volume: (seg.audio.volume ?? 1) * audioFactor,
+        };
+      }
+      if (
+        seg.video &&
+        (seg.video.opacity !== undefined || parentOpacity !== undefined)
+      ) {
+        next.video = {
+          ...seg.video,
+          opacity: (seg.video.opacity ?? 1) * (parentOpacity ?? 1),
+        };
+      }
+      // Cues are relative to the segment start; head-trimming the segment
+      // shifts and clips them the same way caption clips trim their cues.
+      if (seg.type === 'text' && seg.text?.cues && seg.text.cues.length > 0) {
+        next.text = {
+          ...seg.text,
+          cues: clampCuesToWindow(
+            seg.text.cues,
+            window.headTrim,
+            window.headTrim + duration
+          ),
+        };
+      }
+      segments.push(next);
+    }
+    if (segments.length === 0) continue;
+
+    const rank = videoRanks.get(childTrack.id) ?? 0;
+    projected.push({
+      id: `${clip.id}_${childTrack.id}`,
+      type: childTrack.type,
+      layer: parentLayer + (rank + 1) / 64,
+      segments,
+    });
+  }
+
+  return { tracks: projected, totalDuration };
+}
+
+/**
  * Generate Tracks from timeline clips and track definitions
  *
  * Converts TimelineClip records into a multi-track structure suitable for rendering.
@@ -417,8 +571,27 @@ export function generateTracks(
   timelineTracks: TimelineTrackRecord[] = [],
   options?: GenerateTracksOptions
 ): TimelineTrack[] {
+  return generateTracksInternal(
+    timelineClips,
+    timelineTracks,
+    options,
+    0,
+    new Set(options?.rootTimelineId ? [options.rootTimelineId] : [])
+  );
+}
+
+function generateTracksInternal(
+  timelineClips: TimelineClip[],
+  timelineTracks: TimelineTrackRecord[] = [],
+  options: GenerateTracksOptions | undefined,
+  depth: number,
+  visited: ReadonlySet<string>
+): TimelineTrack[] {
   // Map standard tracks from entities to worker format
   const tracks: TimelineTrack[] = [];
+
+  // Tracks produced by expanding nested-timeline clips (fractional layers)
+  const nestedTracks: TimelineTrack[] = [];
 
   // Group clips by TimelineTrackRef
   const clipsByTrack = new Map<string, TimelineClip[]>();
@@ -463,6 +636,26 @@ export function generateTracks(
       // caused by incorrect timelineStart values (e.g., 0)
       if (trackEntity.layer === 0 && startTime < currentTimelineTime) {
         startTime = currentTimelineTime;
+      }
+
+      // Nested-timeline clips expand into their own render tracks
+      if (clip.SourceTimelineRef) {
+        const nestedResult = expandNestedClipToTracks(
+          clip,
+          startTime,
+          {
+            opacity: trackEntity.opacity,
+            isMuted: trackEntity.isMuted,
+            volume: trackEntity.volume,
+            layer: trackEntity.layer,
+          },
+          options,
+          depth,
+          visited
+        );
+        nestedTracks.push(...nestedResult.tracks);
+        currentTimelineTime = startTime + nestedResult.totalDuration;
+        continue;
       }
 
       // Generate segments (handles both regular and composite clips)
@@ -547,7 +740,9 @@ export function generateTracks(
     });
   }
 
-  return [...tracks, ...audioTracks];
+  // Nested tracks carry their own audio tracks (projected from the child
+  // timeline's), so they are appended as-is rather than paired above.
+  return [...tracks, ...audioTracks, ...nestedTracks];
 }
 
 /**

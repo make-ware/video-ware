@@ -10,7 +10,8 @@ import { z } from 'zod';
 import { TimelineClipMetadataSchema } from '../types/metadata';
 
 // Define the Zod schema
-// A clip references either media (MediaRef) or a caption (CaptionRef).
+// A clip references media (MediaRef), a caption (CaptionRef), or another
+// timeline (SourceTimelineRef — a nested/precomposed timeline).
 export const TimelineClipSchema = z
   .object({
     TimelineRef: RelationField({ collection: 'Timelines' }),
@@ -20,6 +21,7 @@ export const TimelineClipSchema = z
     MediaRef: RelationField({ collection: 'Media' }).optional(),
     MediaClipRef: RelationField({ collection: 'MediaClips' }).optional(),
     CaptionRef: RelationField({ collection: 'Captions' }).optional(),
+    SourceTimelineRef: RelationField({ collection: 'Timelines' }).optional(), // nested timeline played as a single trimmable clip
     label: TextField().optional(), // editor-facing name, overrides source clip label; searchable
     description: TextField().optional(), // editor-facing notes, overrides source clip description; searchable
     order: NumberField({ min: 0 }), // position in timeline sequence
@@ -39,6 +41,7 @@ export const TimelineClipInputSchema = z
     MediaRef: z.string().optional(),
     MediaClipRef: z.string().optional(),
     CaptionRef: z.string().optional(),
+    SourceTimelineRef: z.string().optional(),
     label: z.string().optional(),
     description: z.string().optional(),
     order: z.number().min(0),
@@ -48,10 +51,14 @@ export const TimelineClipInputSchema = z
     duration: z.number().min(0).default(0),
     meta: JSONField(TimelineClipMetadataSchema).optional(),
   })
-  .refine((input) => !!input.MediaRef || !!input.CaptionRef, {
-    message: 'Either MediaRef or CaptionRef is required',
-    path: ['MediaRef'],
-  });
+  .refine(
+    (input) =>
+      !!input.MediaRef || !!input.CaptionRef || !!input.SourceTimelineRef,
+    {
+      message: 'Either MediaRef, CaptionRef or SourceTimelineRef is required',
+      path: ['MediaRef'],
+    }
+  );
 
 // Define the collection with workspace-scoped permissions
 export const TimelineClipCollection = defineCollection({

@@ -76,6 +76,11 @@ interface TimelineContextType {
     trackId?: string,
     timelineStart?: number
   ) => Promise<void>;
+  addTimelineClip: (
+    sourceTimelineId: string,
+    trackId?: string,
+    timelineStart?: number
+  ) => Promise<void>;
   removeClip: (clipId: string) => Promise<void>;
   reorderClips: (clipOrders: { id: string; order: number }[]) => Promise<void>;
   updateClipTimes: (
@@ -623,6 +628,96 @@ export function TimelineProvider({
     ]
   );
 
+  // Insert another timeline as a nested-timeline clip - same placement rules
+  // as media clips. Always reloads so the nestedTimelines map picks up the
+  // newly referenced timeline's clips/tracks for preview.
+  const addTimelineClip = useCallback(
+    async (
+      sourceTimelineId: string,
+      trackId?: string,
+      timelineStart?: number
+    ) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        let targetTrackId = trackId ?? selectedTrackId ?? null;
+        if (!targetTrackId) {
+          const defaultTrack =
+            timeline.tracks.find((t) => t.layer === 0) || timeline.tracks[0];
+          targetTrackId = defaultTrack?.id ?? null;
+        }
+
+        let resolvedTimelineStart = timelineStart;
+
+        if (resolvedTimelineStart === undefined) {
+          const duration =
+            await timelineService.getTimelineContentDuration(sourceTimelineId);
+          const trackClips = (timeline.clips || []).filter(
+            (c) => c.TimelineTrackRef === targetTrackId
+          );
+          const selectedTrack = selectedTrackId
+            ? timeline.tracks.find((t) => t.id === selectedTrackId)
+            : undefined;
+
+          if (
+            selectedTrack &&
+            selectedTrack.id === targetTrackId &&
+            !selectedTrack.isLocked
+          ) {
+            // A lane is selected: insert at the playhead, truncating overlaps
+            resolvedTimelineStart = Math.max(0, currentTime);
+            const plan = planOverwriteAtTime(
+              trackClips,
+              resolvedTimelineStart,
+              duration
+            );
+            if (plan.trims.length > 0 || plan.removals.length > 0) {
+              await timelineService.applyClipTruncations(
+                plan.trims,
+                plan.removals
+              );
+            }
+          } else {
+            resolvedTimelineStart = computeClipPlacement(
+              trackClips,
+              selectedClipId,
+              duration
+            );
+          }
+        }
+
+        await timelineService.addTimelineToTimeline(
+          timeline.id,
+          sourceTimelineId,
+          targetTrackId ?? undefined,
+          resolvedTimelineStart
+        );
+
+        await loadTimeline(timeline.id);
+      } catch (error) {
+        handleError(error, 'insert timeline');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      timeline,
+      timelineService,
+      selectedClipId,
+      selectedTrackId,
+      currentTime,
+      loadTimeline,
+      clearError,
+      handleError,
+    ]
+  );
+
   // Remove clip from timeline
   const removeClip = useCallback(
     async (clipId: string) => {
@@ -1009,6 +1104,7 @@ export function TimelineProvider({
       // Clip operations
       addClip,
       addCaptionClip,
+      addTimelineClip,
       removeClip,
       reorderClips,
       updateClipTimes,
@@ -1057,6 +1153,7 @@ export function TimelineProvider({
       updateTimelineOrientation,
       addClip,
       addCaptionClip,
+      addTimelineClip,
       removeClip,
       reorderClips,
       updateClipTimes,

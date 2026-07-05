@@ -9,14 +9,17 @@ import {
   AlertTriangle,
   Film,
   Type,
+  Layers,
+  ExternalLink,
   MousePointerClick,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { CaptionEditorModal } from '@/components/captions';
+import { useRouter } from 'next/navigation';
 import type { ExpandedTimelineClip } from '@/types/expanded-types';
-import type { Caption, TimelineClip } from '@project/shared';
+import type { Caption, Timeline, TimelineClip } from '@project/shared';
 
 function formatTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
@@ -51,6 +54,7 @@ export function SelectedClipView() {
     refreshTimeline,
   } = useTimeline();
 
+  const router = useRouter();
   const [isHovering, setIsHovering] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -93,19 +97,35 @@ export function SelectedClipView() {
   }
 
   const isCaption = !!clip.CaptionRef;
+  const isTimelineClip = !!clip.SourceTimelineRef;
   const caption = (clip as TimelineClip & { expand?: { CaptionRef?: Caption } })
     .expand?.CaptionRef;
-  const mediaMissing = !isCaption && clip.meta?.mediaMissing === true;
+  const sourceTimeline = (
+    clip as TimelineClip & { expand?: { SourceTimelineRef?: Timeline } }
+  ).expand?.SourceTimelineRef;
+  const sourceMissing = isTimelineClip && !sourceTimeline;
+  const mediaMissing =
+    !isCaption && !isTimelineClip && clip.meta?.mediaMissing === true;
   const media = clip.expand?.MediaRef;
   const mediaName = isCaption
     ? caption?.name || caption?.text || 'Caption'
-    : mediaMissing
-      ? 'Media Deleted'
-      : clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
+    : isTimelineClip
+      ? sourceMissing
+        ? 'Timeline Deleted'
+        : sourceTimeline?.label || sourceTimeline?.name || 'Timeline'
+      : mediaMissing
+        ? 'Media Deleted'
+        : clip.expand?.MediaRef?.expand?.UploadRef?.name || 'Clip';
   const displayTitle = clip.meta?.title || mediaName;
-  const clipColor = mediaMissing
-    ? 'bg-destructive/60'
-    : clip.meta?.color || (isCaption ? 'bg-purple-600/80' : 'bg-blue-600/80');
+  const clipColor =
+    mediaMissing || sourceMissing
+      ? 'bg-destructive/60'
+      : clip.meta?.color ||
+        (isCaption
+          ? 'bg-purple-600/80'
+          : isTimelineClip
+            ? 'bg-emerald-700/80'
+            : 'bg-blue-600/80');
   const clipDuration = clip.end - clip.start;
 
   return (
@@ -119,6 +139,19 @@ export function SelectedClipView() {
         {isCaption ? (
           <div className="flex items-center justify-center h-full bg-purple-600/10">
             <Type className="h-10 w-10 text-purple-400/40" />
+          </div>
+        ) : isTimelineClip ? (
+          <div
+            className={cn(
+              'flex items-center justify-center h-full',
+              sourceMissing ? 'bg-destructive/10' : 'bg-emerald-600/10'
+            )}
+          >
+            {sourceMissing ? (
+              <AlertTriangle className="h-10 w-10 text-destructive/40" />
+            ) : (
+              <Layers className="h-10 w-10 text-emerald-500/40" />
+            )}
           </div>
         ) : mediaMissing ? (
           <div className="flex items-center justify-center h-full bg-destructive/10">
@@ -159,20 +192,42 @@ export function SelectedClipView() {
               )}
             </div>
             <span className="text-xs text-muted-foreground truncate">
-              {isCaption ? caption?.text || 'Caption' : mediaName}
+              {isCaption
+                ? caption?.text || 'Caption'
+                : isTimelineClip
+                  ? 'Nested timeline — trim on the track, edit in its own editor'
+                  : mediaName}
             </span>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="default"
-              size="sm"
-              className="h-8 px-2 lg:px-3"
-              onClick={() => setIsEditing(true)}
-            >
-              <Pencil className="h-3.5 w-3.5 lg:mr-2" />
-              <span className="hidden lg:inline">Edit Clip</span>
-            </Button>
+            {isTimelineClip ? (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 px-2 lg:px-3"
+                disabled={sourceMissing}
+                title="Open the source timeline to edit its contents"
+                onClick={() =>
+                  router.push(
+                    `/ws/${timeline.WorkspaceRef}/timelines/${clip.SourceTimelineRef}`
+                  )
+                }
+              >
+                <ExternalLink className="h-3.5 w-3.5 lg:mr-2" />
+                <span className="hidden lg:inline">Open Timeline</span>
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 px-2 lg:px-3"
+                onClick={() => setIsEditing(true)}
+              >
+                <Pencil className="h-3.5 w-3.5 lg:mr-2" />
+                <span className="hidden lg:inline">Edit Clip</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -203,7 +258,9 @@ export function SelectedClipView() {
           />
           <DetailItem
             label="Type"
-            value={isCaption ? 'Caption' : 'Media Clip'}
+            value={
+              isCaption ? 'Caption' : isTimelineClip ? 'Timeline' : 'Media Clip'
+            }
           />
         </div>
       </div>

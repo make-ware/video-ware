@@ -28,6 +28,11 @@ export const qk = {
       ['directories', workspaceId, parentId] as const,
     detail: (id: string) => ['directories', 'detail', id] as const,
   },
+  timelines: {
+    all: ['timelines'] as const,
+    overview: (workspaceId: string, page: number, perPage: number) =>
+      ['timelines', 'overview', workspaceId, page, perPage] as const,
+  },
   transcripts: {
     byMedia: (id: string) => ['transcripts', id] as const,
   },

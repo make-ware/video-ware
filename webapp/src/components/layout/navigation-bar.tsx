@@ -11,7 +11,6 @@ import {
   Upload,
   Film,
   Clapperboard,
-  LayoutGrid,
   Activity,
   BarChart,
   FileCode,
@@ -283,19 +282,8 @@ export function NavigationBar({ className }: NavigationBarProps) {
                           href={`${wsPrefix}/timelines`}
                           icon={Clapperboard}
                           label="Timelines"
-                          isActive={
-                            pathname.startsWith(`${wsPrefix}/timelines`) &&
-                            !pathname.startsWith(
-                              `${wsPrefix}/timelines/overview`
-                            )
-                          }
-                        />
-                        <MobileNavLink
-                          href={`${wsPrefix}/timelines/overview`}
-                          icon={LayoutGrid}
-                          label="Overview"
                           isActive={pathname.startsWith(
-                            `${wsPrefix}/timelines/overview`
+                            `${wsPrefix}/timelines`
                           )}
                         />
                       </div>

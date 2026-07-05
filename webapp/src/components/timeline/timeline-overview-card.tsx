@@ -20,21 +20,21 @@ import {
   Film,
   Loader2,
   Play,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
-import type { File, Timeline, TimelineRender } from '@project/shared';
-
-export type OverviewRender = TimelineRender & {
-  expand?: { FileRef?: File };
-};
+import type { Timeline } from '@project/shared';
+import type { OverviewRender } from '@/hooks/use-timelines-overview';
 
 interface TimelineOverviewCardProps {
   timeline: Timeline;
   renders: OverviewRender[];
   workspaceId: string;
+  /** When provided, shows a delete button; confirmation is the caller's job. */
+  onDelete?: (timeline: Timeline) => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -95,6 +95,7 @@ export function TimelineOverviewCard({
   timeline,
   renders,
   workspaceId,
+  onDelete,
 }: TimelineOverviewCardProps) {
   const editorHref = `/ws/${workspaceId}/timelines/${timeline.id}`;
   const rendersHref = `${editorHref}/renders`;
@@ -166,12 +167,26 @@ export function TimelineOverviewCard({
               )}
             </CardDescription>
           </div>
-          <Button asChild size="sm" className="shrink-0">
-            <Link href={editorHref}>
-              <Play className="h-4 w-4 mr-1.5" />
-              View
-            </Link>
-          </Button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button asChild size="sm">
+              <Link href={editorHref}>
+                <Play className="h-4 w-4 mr-1.5" />
+                View
+              </Link>
+            </Button>
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => onDelete(timeline)}
+                title="Delete timeline"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="sr-only">Delete timeline</span>
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
 

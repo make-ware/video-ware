@@ -2,16 +2,29 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
+import { useTimelinesOverview } from '@/hooks/use-timelines-overview';
+import { qk } from '@/lib/query-keys';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Film, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { TimelineList } from '@/components/timeline/timeline-list';
+import { TimelineOverviewCard } from '@/components/timeline/timeline-overview-card';
 import { TimelineService } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
 import type { Timeline } from '@project/shared';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -20,44 +33,65 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 
+const PAGE_SIZE = 12;
+
+function getPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
 function TimelinesPageContent() {
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
-  const [timelines, setTimelines] = useState<Timeline[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newTimelineName, setNewTimelineName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [timelineToDelete, setTimelineToDelete] = useState<Timeline | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Create timeline service - memoized to prevent recreation
   const timelineService = useMemo(() => new TimelineService(pb), []);
 
-  // Load timelines for current workspace
-  const loadTimelines = useCallback(async () => {
-    if (!currentWorkspace) return;
+  const { items, totalPages, isLoading, error } = useTimelinesOverview(
+    currentWorkspace?.id,
+    page,
+    PAGE_SIZE
+  );
 
-    setIsLoading(true);
-    try {
-      const workspaceTimelines = await timelineService.getTimelinesByWorkspace(
-        currentWorkspace.id
-      );
-      setTimelines(workspaceTimelines);
-    } catch (error) {
-      console.error('Failed to load timelines:', error);
-      toast.error('Failed to load timelines');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentWorkspace, timelineService]);
-
-  // Load timelines on mount and when workspace changes
+  // If the current page disappears (e.g. the last item on it was deleted),
+  // fall back to the new last page.
   useEffect(() => {
-    loadTimelines();
-  }, [loadTimelines]);
+    if (!isLoading && totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [isLoading, totalPages, page]);
+
+  const invalidateTimelines = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.timelines.all }),
+    [queryClient]
+  );
 
   // Handle create timeline
   const handleCreateTimeline = useCallback(() => {
@@ -77,8 +111,7 @@ function TimelinesPageContent() {
       toast.success(`Timeline "${timeline.name}" created`);
       setCreateDialogOpen(false);
       setNewTimelineName('');
-      // Reload timelines
-      await loadTimelines();
+      await invalidateTimelines();
       // Navigate to the new timeline editor
       router.push(`/ws/${currentWorkspace.id}/timelines/${timeline.id}`);
     } catch (error) {
@@ -91,51 +124,52 @@ function TimelinesPageContent() {
     currentWorkspace,
     newTimelineName,
     timelineService,
-    loadTimelines,
+    invalidateTimelines,
     router,
   ]);
 
   // Handle delete timeline
-  const handleDeleteTimeline = useCallback(
-    async (timelineId: string) => {
-      try {
-        await timelineService.deleteTimeline(timelineId);
-        toast.success('Timeline deleted');
-        // Reload timelines
-        await loadTimelines();
-      } catch (error) {
-        console.error('Failed to delete timeline:', error);
-        toast.error('Failed to delete timeline');
-        throw error; // Re-throw to let the component handle it
-      }
-    },
-    [timelineService, loadTimelines]
-  );
+  const handleConfirmDelete = useCallback(async () => {
+    if (!timelineToDelete) return;
 
-  // Handle timeline click
-  const handleTimelineClick = useCallback(
-    (timeline: Timeline) => {
-      router.push(`/ws/${currentWorkspace?.id}/timelines/${timeline.id}`);
-    },
-    [router, currentWorkspace]
-  );
+    setIsDeleting(true);
+    try {
+      await timelineService.deleteTimeline(timelineToDelete.id);
+      toast.success('Timeline deleted');
+      setTimelineToDelete(null);
+      await invalidateTimelines();
+    } catch (error) {
+      console.error('Failed to delete timeline:', error);
+      toast.error('Failed to delete timeline');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [timelineToDelete, timelineService, invalidateTimelines]);
 
   if (!currentWorkspace) {
     return null;
   }
 
+  const goTo = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
+
+  const pageNumbers = getPageNumbers(page, totalPages);
+  const showStartEllipsis = pageNumbers.length > 0 && pageNumbers[0] > 1;
+  const showEndEllipsis =
+    pageNumbers.length > 0 && pageNumbers[pageNumbers.length - 1] < totalPages;
+
   return (
     <div className="container mx-auto px-4 pt-6 pb-8 max-w-7xl">
       {/* Page Header */}
       <div className="mb-8">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-4xl font-bold text-foreground mb-2 flex items-center gap-3">
               <Film className="h-8 w-8" />
               Timelines
             </h1>
             <p className="text-lg text-muted-foreground">
-              Create and manage video timelines in {currentWorkspace.name}
+              Create timelines and review recent renders in{' '}
+              {currentWorkspace.name}
             </p>
           </div>
           <Button onClick={handleCreateTimeline} size="default">
@@ -145,14 +179,150 @@ function TimelinesPageContent() {
         </div>
       </div>
 
-      {/* Timeline List */}
-      <TimelineList
-        timelines={timelines}
-        isLoading={isLoading}
-        onCreateTimeline={handleCreateTimeline}
-        onDeleteTimeline={handleDeleteTimeline}
-        onTimelineClick={handleTimelineClick}
-      />
+      {isLoading ? (
+        <div className="grid gap-6 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader>
+                <div className="h-5 w-1/2 rounded bg-muted" />
+                <div className="mt-2 h-4 w-1/3 rounded bg-muted" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-10 rounded bg-muted" />
+                <div className="h-10 rounded bg-muted" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : error ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Failed to load timelines</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : items.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Film className="mb-3 h-10 w-10 text-muted-foreground" />
+            <h3 className="mb-1 text-lg font-semibold">No timelines yet</h3>
+            <p className="mb-4 text-muted-foreground">
+              Create your first timeline to start assembling clips into a video
+              sequence.
+            </p>
+            <Button onClick={handleCreateTimeline}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Timeline
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid gap-6 md:grid-cols-2">
+            {items.map(({ timeline, renders }) => (
+              <TimelineOverviewCard
+                key={timeline.id}
+                timeline={timeline}
+                renders={renders}
+                workspaceId={currentWorkspace.id}
+                onDelete={setTimelineToDelete}
+              />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <Pagination className="mt-8">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    aria-disabled={page === 1}
+                    className={
+                      page === 1 ? 'pointer-events-none opacity-50' : undefined
+                    }
+                    onClick={(e) => {
+                      e.preventDefault();
+                      goTo(page - 1);
+                    }}
+                  />
+                </PaginationItem>
+
+                {showStartEllipsis && (
+                  <>
+                    <PaginationItem>
+                      <PaginationLink
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          goTo(1);
+                        }}
+                      >
+                        1
+                      </PaginationLink>
+                    </PaginationItem>
+                    {pageNumbers[0] > 2 && (
+                      <PaginationItem>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    )}
+                  </>
+                )}
+
+                {pageNumbers.map((p) => (
+                  <PaginationItem key={p}>
+                    <PaginationLink
+                      href="#"
+                      isActive={p === page}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        goTo(p);
+                      }}
+                    >
+                      {p}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+
+                {showEndEllipsis && (
+                  <>
+                    {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && (
+                      <PaginationItem>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    )}
+                    <PaginationItem>
+                      <PaginationLink
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          goTo(totalPages);
+                        }}
+                      >
+                        {totalPages}
+                      </PaginationLink>
+                    </PaginationItem>
+                  </>
+                )}
+
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    aria-disabled={page === totalPages}
+                    className={
+                      page === totalPages
+                        ? 'pointer-events-none opacity-50'
+                        : undefined
+                    }
+                    onClick={(e) => {
+                      e.preventDefault();
+                      goTo(page + 1);
+                    }}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
+        </>
+      )}
 
       {/* Create Timeline Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -197,6 +367,35 @@ function TimelinesPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!timelineToDelete}
+        onOpenChange={(open) => {
+          if (!open) setTimelineToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Timeline</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{timelineToDelete?.name}
+              &quot;? This will also remove all clips and renders from this
+              timeline. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

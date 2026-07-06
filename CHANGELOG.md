@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.5...video-ware-v0.8.6) (2026-07-06)
+
+
+### Bug Fixes
+
+* add elevenlabs stt for speakers and cli captions ([94579dd](https://github.com/make-ware/video-ware/commit/94579dd5b1c7b231db30eec4f25e97b52ed1d8a4))
+* keep media tabbing on the same subpage ([52cd2a7](https://github.com/make-ware/video-ware/commit/52cd2a7fa023160ca36ecf7dd46dc6334dfe1497))
+* update timeline and render page ([3b443e4](https://github.com/make-ware/video-ware/commit/3b443e41651fd1e6e2962e9af297a686c1095aa9))
+
 ## [0.8.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.4...video-ware-v0.8.5) (2026-07-05)
 
 

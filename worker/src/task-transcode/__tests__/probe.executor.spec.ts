@@ -5,6 +5,9 @@ import { FFmpegService } from '../../shared/services/ffmpeg.service';
 import { StorageService } from '../../shared/services/storage.service';
 import { StorageBackendType } from '@project/shared';
 import { vi, describe, beforeEach, it, expect, type Mock } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Mock StorageBackend
 const mockStorageBackend = {
@@ -49,27 +52,19 @@ describe('Probe Step Storage Integration', () => {
     vi.clearAllMocks();
     (mockStorageBackend.exists as Mock).mockResolvedValue(true);
 
-    // Mock download to return a stream (Web Stream compatible for StorageService)
-    (mockStorageBackend.download as Mock).mockImplementation(() => {
-      return Promise.resolve({
-        getReader: () => {
-          let done = false;
-          return {
-            read: () => {
-              if (done)
-                return Promise.resolve({ done: true, value: undefined });
-              done = true;
-              // Return a chunk
-              return Promise.resolve({
-                done: false,
-                value: Buffer.from('dummy data'),
-              });
-            },
-            releaseLock: () => {},
-          };
-        },
-      });
-    });
+    // Mock download to return a real web ReadableStream — downloadToTemp pipes
+    // it through stream.pipeline via Readable.fromWeb, which rejects
+    // hand-rolled getReader() fakes with ERR_INVALID_ARG_TYPE.
+    (mockStorageBackend.download as Mock).mockImplementation(() =>
+      Promise.resolve(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('dummy data'));
+            controller.close();
+          },
+        })
+      )
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -215,35 +210,36 @@ describe('Probe Step Storage Integration', () => {
       const testFile = 's3-video.mp4';
       const recordId = '12345';
 
-      // Note: Since we haven't mocked fs.existsSync inside StorageService here (unlike my new test),
-      // if the temp file happens to exist, download won't be called.
-      // But we typically get a random/unique path or clean env.
-      // However, to be safe, we can try to rely on download being called.
+      // This test uses the real fs, and downloadToTemp writes to a
+      // deterministic path under os.tmpdir(). Remove any leftover from a
+      // previous run so the download branch (not the cached-file branch) is
+      // always the one exercised.
+      const tempDir = path.join(os.tmpdir(), 'worker-temp', recordId);
+      fs.rmSync(tempDir, { recursive: true, force: true });
 
-      // Act: Resolve path
-      const resolvedPath = await storageService.resolveFilePath({
-        storagePath: testFile,
-        recordId,
-      });
+      try {
+        // Act: Resolve path
+        const resolvedPath = await storageService.resolveFilePath({
+          storagePath: testFile,
+          recordId,
+        });
 
-      // Assert:
-      // 2. Resolved path should be in temp dir
-      expect(resolvedPath).toContain('worker-temp');
-      expect(resolvedPath).toContain(recordId);
-      expect(resolvedPath).toContain(testFile);
+        // Assert: resolved path is in the temp dir, and the download was
+        // actually streamed to disk
+        expect(resolvedPath).toContain('worker-temp');
+        expect(resolvedPath).toContain(recordId);
+        expect(resolvedPath).toContain(testFile);
+        expect(mockStorageBackend.download).toHaveBeenCalledWith(testFile);
+        expect(fs.readFileSync(resolvedPath, 'utf8')).toBe('dummy data');
 
-      // If the file didn't exist, download should have been called.
-      // If it did exist, we can't assert download call without mocking fs.
-      // But let's assume it doesn't exist for now or check if we can mock fs.
+        // Act: Run Probe
+        await probeExecutor.execute(resolvedPath);
 
-      // We can try to unlink the file if it exists before running, but we don't know the path yet.
-      // Or we just assert that probe is called with the resolved path.
-
-      // Act: Run Probe
-      await probeExecutor.execute(resolvedPath);
-
-      // Assert Probe call
-      expect(ffmpegService.probe).toHaveBeenCalledWith(resolvedPath);
+        // Assert Probe call
+        expect(ffmpegService.probe).toHaveBeenCalledWith(resolvedPath);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 });

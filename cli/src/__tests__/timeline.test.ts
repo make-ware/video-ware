@@ -17,6 +17,7 @@ const OUTPUT = { resolution: '1920x1080', codec: 'h264', format: 'mp4' };
 interface StubOptions {
   media?: Record<string, unknown>;
   mediaClip?: Record<string, unknown>;
+  caption?: Record<string, unknown>;
   tracks?: Record<string, unknown>[];
   clips?: Record<string, unknown>[];
   timeline?: Record<string, unknown>;
@@ -27,6 +28,7 @@ function timelineStubs(opts: StubOptions = {}): Record<string, Stub> {
   const {
     media = { id: 'm1', duration: 60, mediaType: 'video' },
     mediaClip,
+    caption,
     tracks = [{ id: 'track1', layer: 0, TimelineRef: 'tl1' }],
     clips = [],
     timeline = { id: 'tl1', WorkspaceRef: 'ws1', duration: 0, version: 1 },
@@ -37,6 +39,12 @@ function timelineStubs(opts: StubOptions = {}): Record<string, Stub> {
       getOne: vi.fn(async () => {
         if (!mediaClip) throw notFound();
         return mediaClip;
+      }),
+    },
+    Captions: {
+      getOne: vi.fn(async () => {
+        if (!caption) throw notFound();
+        return caption;
       }),
     },
     TimelineTracks: {
@@ -304,10 +312,10 @@ describe('insertClip', () => {
     ).rejects.toThrow(/explicit --end/i);
   });
 
-  it('requires exactly one of media and clip', async () => {
+  it('requires exactly one of media, clip, and caption', async () => {
     const pb = fakePb(timelineStubs());
     await expect(insertClip(pb, { timelineId: 'tl1' })).rejects.toThrow(
-      /--media <id> or --clip/i
+      /--media <id>, --clip <mediaClipId>, or --caption/i
     );
     await expect(
       insertClip(pb, { timelineId: 'tl1', media: 'm1', clip: 'mc1' })
@@ -551,6 +559,119 @@ describe('insertClip', () => {
     expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
       TimelineTrackRef: 'track2',
     });
+  });
+});
+
+describe('insertClip with a caption', () => {
+  const caption = {
+    id: 'cap1',
+    duration: 3,
+    text: 'Welcome',
+    name: 'Intro title',
+    captionType: 'title',
+  };
+
+  it('appends a caption clip with CaptionRef and a title in meta', async () => {
+    const stubs = timelineStubs({ caption });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, { timelineId: 'tl1', caption: 'cap1' });
+
+    const input = stubs.TimelineClips.create.mock.calls[0][0];
+    expect(input).toMatchObject({
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'track1',
+      CaptionRef: 'cap1',
+      order: 0,
+      start: 0,
+      end: 3,
+      duration: 3,
+      timelineStart: 0,
+      meta: { title: 'Intro title' },
+    });
+    // caption clips carry no media reference
+    expect(input.MediaRef).toBeUndefined();
+    expect(input.MediaClipRef).toBeUndefined();
+    expect(result.placedAt).toBe(0);
+    expect(result.placedEnd).toBe(3);
+    expect(result.mode).toBe('append');
+  });
+
+  it('places a caption at an exact time on a chosen track', async () => {
+    const stubs = timelineStubs({
+      caption,
+      tracks: [
+        { id: 'track1', layer: 0, TimelineRef: 'tl1' },
+        { id: 'track2', layer: 1, TimelineRef: 'tl1' },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      caption: 'cap1',
+      track: '1',
+      at: 8,
+    });
+
+    expect(result.placedAt).toBe(8);
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      TimelineTrackRef: 'track2',
+      CaptionRef: 'cap1',
+      timelineStart: 8,
+    });
+  });
+
+  it('trims the caption cue timeline with --start/--end', async () => {
+    const stubs = timelineStubs({ caption });
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, {
+      timelineId: 'tl1',
+      caption: 'cap1',
+      start: 1,
+      end: 2,
+    });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      start: 1,
+      end: 2,
+      duration: 1,
+    });
+  });
+
+  it('falls back to the text when the caption has no name', async () => {
+    const stubs = timelineStubs({
+      caption: { id: 'cap1', duration: 2, text: 'Just text' },
+    });
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, { timelineId: 'tl1', caption: 'cap1' });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0].meta).toEqual({
+      title: 'Just text',
+    });
+  });
+
+  it('rejects an invalid caption time range', async () => {
+    const pb = fakePb(timelineStubs({ caption }));
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', caption: 'cap1', start: 2, end: 2 })
+    ).rejects.toThrow(/invalid caption time range/i);
+  });
+
+  it('errors when the caption does not exist', async () => {
+    const pb = fakePb(timelineStubs());
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', caption: 'nope' })
+    ).rejects.toThrow(/caption not found/i);
+  });
+
+  it('rejects combining --caption with --media or --clip', async () => {
+    const pb = fakePb(timelineStubs({ caption }));
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', caption: 'cap1', media: 'm1' })
+    ).rejects.toThrow(/mutually exclusive/i);
   });
 });
 

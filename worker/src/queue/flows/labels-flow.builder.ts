@@ -13,11 +13,12 @@
  * Resulting tree (children run before parents):
  *
  *   parent (aggregates results)
- *   ├── LABEL_DETECTION      ── UPLOAD_TO_GCS
- *   ├── OBJECT_TRACKING      ── UPLOAD_TO_GCS
- *   ├── FACE_DETECTION       ── UPLOAD_TO_GCS
- *   ├── PERSON_DETECTION     ── UPLOAD_TO_GCS
- *   └── SPEECH_TRANSCRIPTION ── UPLOAD_TO_GCS
+ *   ├── LABEL_DETECTION       ── UPLOAD_TO_GCS
+ *   ├── OBJECT_TRACKING       ── UPLOAD_TO_GCS
+ *   ├── FACE_DETECTION        ── UPLOAD_TO_GCS
+ *   ├── PERSON_DETECTION      ── UPLOAD_TO_GCS
+ *   ├── SPEECH_TRANSCRIPTION  ── UPLOAD_TO_GCS
+ *   └── SPEAKER_TRANSCRIPTION            (ElevenLabs; reads app storage, no GCS)
  *
  * A detection step is added only when its deployment-level ENABLE_* flag is on
  * AND the task payload requests it. The steps actually added are recorded in
@@ -42,6 +43,7 @@ export interface EnabledLabelProcessors {
   faceDetection: boolean;
   personDetection: boolean;
   speechTranscription: boolean;
+  speakerTranscription: boolean;
 }
 
 export class LabelsFlowBuilder {
@@ -94,16 +96,20 @@ export class LabelsFlowBuilder {
     };
 
     // Effective gating: ENABLE_* env flag AND payload config. Labels/objects
-    // default on when the payload is silent; faces/persons/speech default off.
+    // default on when the payload is silent; faces/persons/speech/speakers
+    // default off. GCVI steps need the file in GCS first; speaker
+    // transcription (ElevenLabs) reads from app storage and skips the upload.
     const detectionSteps: Array<{
       stepType: DetectLabelsStepType;
       enabled: boolean;
+      needsGcsUpload: boolean;
       input: Record<string, unknown>;
     }> = [
       {
         stepType: DetectLabelsStepType.LABEL_DETECTION,
         enabled:
           enabled.labelDetection && payload.config?.detectLabels !== false,
+        needsGcsUpload: true,
         input: {
           type: 'label_detection',
           ...detectionInputBase,
@@ -116,24 +122,42 @@ export class LabelsFlowBuilder {
         stepType: DetectLabelsStepType.OBJECT_TRACKING,
         enabled:
           enabled.objectTracking && payload.config?.detectObjects !== false,
+        needsGcsUpload: true,
         input: { type: 'object_tracking', ...detectionInputBase },
       },
       {
         stepType: DetectLabelsStepType.FACE_DETECTION,
         enabled: enabled.faceDetection && payload.config?.detectFaces === true,
+        needsGcsUpload: true,
         input: { type: 'face_detection', ...detectionInputBase },
       },
       {
         stepType: DetectLabelsStepType.PERSON_DETECTION,
         enabled:
           enabled.personDetection && payload.config?.detectPersons === true,
+        needsGcsUpload: true,
         input: { type: 'person_detection', ...detectionInputBase },
       },
       {
         stepType: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
         enabled:
           enabled.speechTranscription && payload.config?.detectSpeech === true,
+        needsGcsUpload: true,
         input: { type: 'speech_transcription', ...detectionInputBase },
+      },
+      {
+        stepType: DetectLabelsStepType.SPEAKER_TRANSCRIPTION,
+        enabled:
+          enabled.speakerTranscription &&
+          payload.config?.detectSpeakers === true,
+        needsGcsUpload: false,
+        // The step streams the file to ElevenLabs itself, so it carries the
+        // storage fileRef the GCVI steps leave to their upload child.
+        input: {
+          type: 'speaker_transcription',
+          ...detectionInputBase,
+          fileRef,
+        },
       },
     ];
 
@@ -154,7 +178,7 @@ export class LabelsFlowBuilder {
           // not block the parent from aggregating the other steps' results.
           ignoreDependencyOnFailure: true,
         },
-        children: [buildUploadChild()],
+        children: step.needsGcsUpload ? [buildUploadChild()] : [],
       }));
 
     return {

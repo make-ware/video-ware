@@ -10,6 +10,7 @@ export * from './label-objects.js';
 export * from './label-person.js';
 export * from './label-segment.js';
 export * from './label-shot.js';
+export * from './label-speaker.js';
 export * from './label-speech.js';
 export * from './label-text.js';
 export * from './label-track.js';

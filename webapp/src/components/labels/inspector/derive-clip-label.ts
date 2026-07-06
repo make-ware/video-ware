@@ -58,6 +58,14 @@ export function deriveClipMeta(
         description: truncateChars(transcript) || undefined,
       };
     }
+    case LabelType.SPEAKER: {
+      const transcript = 'transcript' in record ? record.transcript : '';
+      const speakerId = 'speakerId' in record ? record.speakerId : '';
+      return {
+        label: truncateWords(transcript) || `Speaker ${speakerId || shortId}`,
+        description: truncateChars(transcript) || undefined,
+      };
+    }
     case LabelType.TEXT: {
       const text = 'text' in record ? record.text : '';
       return {

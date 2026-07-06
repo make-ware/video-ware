@@ -8,6 +8,7 @@ import type {
   LabelPerson,
   LabelObject,
   LabelFace,
+  LabelSpeaker,
   LabelSpeech,
   LabelSegment,
   LabelText,
@@ -22,6 +23,7 @@ export type ActualizableLabel =
   | LabelPerson
   | LabelObject
   | LabelFace
+  | LabelSpeaker
   | LabelSpeech
   | LabelSegment
   | LabelText;
@@ -225,6 +227,7 @@ export class MediaClipMutator extends BaseMutator<MediaClip, MediaClipInput> {
       [LabelType.SHOT]: ClipType.SHOT,
       [LabelType.PERSON]: ClipType.PERSON,
       [LabelType.SPEECH]: ClipType.SPEECH,
+      [LabelType.SPEAKER]: ClipType.SPEECH,
       [LabelType.FACE]: ClipType.FACE,
       [LabelType.SEGMENT]: ClipType.RANGE,
       [LabelType.TEXT]: ClipType.SPEECH,

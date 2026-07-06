@@ -28,6 +28,7 @@ const JOB_TYPES = [
   { id: 'face', label: 'Face Detection' },
   { id: 'person', label: 'Person Detection' },
   { id: 'speech', label: 'Speech Transcription' },
+  { id: 'speaker', label: 'Speaker Transcription' },
 ];
 
 // Map job type IDs to detect labels step types
@@ -37,6 +38,7 @@ const JOB_TYPE_TO_STEP: Record<string, string> = {
   face: 'labels:face_detection',
   person: 'labels:person_detection',
   speech: 'labels:speech_transcription',
+  speaker: 'labels:speaker_transcription',
 };
 
 // Map job type IDs to payload config keys
@@ -46,6 +48,7 @@ const JOB_TYPE_TO_CONFIG: Record<string, string> = {
   face: 'detectFaces',
   person: 'detectPersons',
   speech: 'detectSpeech',
+  speaker: 'detectSpeakers',
 };
 
 function getCountFromStepOutput(
@@ -88,6 +91,15 @@ function getCountFromStepOutput(
         return `${counts.wordCount} words`;
       if (typeof counts.labelSpeechCount === 'number')
         return `${counts.labelSpeechCount} words`;
+      return '-';
+    case 'speaker':
+      if (
+        typeof counts.speakerCount === 'number' &&
+        typeof counts.labelSpeakerCount === 'number'
+      )
+        return `${counts.speakerCount} speakers, ${counts.labelSpeakerCount} utterances`;
+      if (typeof counts.labelSpeakerCount === 'number')
+        return `${counts.labelSpeakerCount} utterances`;
       return '-';
     default:
       return '-';
@@ -253,7 +265,14 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
         const payload = latestTask.payload as Record<string, unknown>;
         const config = payload?.config as Record<string, unknown> | undefined;
         const configKey = JOB_TYPE_TO_CONFIG[typeId];
-        if (!config || config[configKey] !== false) {
+        // Speaker transcription is opt-in (legacy tasks never ran it), so it
+        // only counts as run when explicitly enabled; the GCVI steps default
+        // to enabled unless explicitly disabled.
+        const impliedEnabled =
+          typeId === 'speaker'
+            ? config?.[configKey] === true
+            : !config || config[configKey] !== false;
+        if (impliedEnabled) {
           status = 'success';
 
           // Try legacy summary format

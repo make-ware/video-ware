@@ -11,6 +11,7 @@ import {
   FaceDetectionStepProcessor,
   PersonDetectionStepProcessor,
   SpeechTranscriptionStepProcessor,
+  SpeakerTranscriptionStepProcessor,
 } from './processors/index';
 import {
   LabelDetectionExecutor,
@@ -18,6 +19,7 @@ import {
   FaceDetectionExecutor,
   PersonDetectionExecutor,
   SpeechTranscriptionExecutor,
+  SpeakerTranscriptionExecutor,
 } from './executors/index';
 
 import { LabelCacheService } from './services/label-cache.service';
@@ -28,6 +30,7 @@ import {
   FaceDetectionNormalizer,
   PersonDetectionNormalizer,
   SpeechTranscriptionNormalizer,
+  SpeakerTranscriptionNormalizer,
 } from './normalizers/index';
 
 @Module({
@@ -45,6 +48,7 @@ import {
     FaceDetectionExecutor,
     PersonDetectionExecutor,
     SpeechTranscriptionExecutor,
+    SpeakerTranscriptionExecutor,
 
     // Services
     LabelCacheService,
@@ -56,6 +60,7 @@ import {
     FaceDetectionNormalizer,
     PersonDetectionNormalizer,
     SpeechTranscriptionNormalizer,
+    SpeakerTranscriptionNormalizer,
 
     // Processors
     DetectLabelsParentProcessor,
@@ -65,6 +70,7 @@ import {
     FaceDetectionStepProcessor,
     PersonDetectionStepProcessor,
     SpeechTranscriptionStepProcessor,
+    SpeakerTranscriptionStepProcessor,
   ],
   exports: [
     LabelsService,

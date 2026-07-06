@@ -69,6 +69,10 @@ export const validationSchema = Joi.object({
   ENABLE_PERSON_DETECTION: Joi.string().optional(),
   ENABLE_SPEECH_TRANSCRIPTION: Joi.string().optional(),
 
+  // ElevenLabs speaker transcription (STT + diarization)
+  ENABLE_SPEAKER_TRANSCRIPTION: Joi.string().optional(),
+  ELEVENLABS_API_KEY: Joi.string().optional(),
+
   // Google Cloud configuration
   GOOGLE_PROJECT_ID: Joi.string().optional(),
   GOOGLE_CLOUD_KEY_FILE: Joi.string().optional(),

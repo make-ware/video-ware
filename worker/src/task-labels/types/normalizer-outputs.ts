@@ -87,6 +87,39 @@ export interface LabelSpeechData {
 }
 
 /**
+ * LabelSpeaker data ready for database insertion
+ *
+ * One row per continuous utterance by a single speaker (speaker-diarized STT,
+ * e.g. ElevenLabs Scribe). Shape matches LabelSpeakerInputSchema in shared.
+ */
+export interface LabelSpeakerData {
+  WorkspaceRef: string;
+  MediaRef: string;
+  LabelEntityRef?: string; // Link to LabelEntity (the speaker)
+  LabelTrackRef?: string; // Link to LabelTrack (the speaker's timeline)
+
+  transcript: string;
+
+  start: number;
+  end: number;
+  duration: number;
+  confidence: number;
+
+  speakerId: string; // Provider speaker id (e.g. "speaker_0")
+  languageCode?: string;
+
+  words: Array<{
+    text: string;
+    start: number;
+    end: number;
+    speakerId?: string;
+  }>;
+
+  metadata?: Record<string, unknown>;
+  speakerHash: string;
+}
+
+/**
  * Keyframe data for tracks
  */
 export interface KeyframeData {
@@ -272,6 +305,11 @@ export interface LabelMediaData {
   transcript?: string;
   transcriptLength?: number;
   wordCount?: number;
+
+  // Speaker Transcription results
+  speakerTranscriptionProcessedAt?: string;
+  speakerTranscriptionProcessor?: string;
+  speakerCount?: number;
 }
 
 /**
@@ -281,6 +319,7 @@ export interface NormalizerOutput {
   labelEntities: LabelEntityData[];
   labelFaces?: LabelFaceData[];
   labelSpeech?: LabelSpeechData[];
+  labelSpeakers?: LabelSpeakerData[];
   labelTracks: LabelTrackData[];
   labelClips?: LabelClipData[];
   labelObjects?: LabelObjectData[];

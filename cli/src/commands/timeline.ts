@@ -458,7 +458,7 @@ export function registerTimelineCommands(program: Command): void {
   const insert = timeline
     .command('insert')
     .description(
-      'Insert media or a MediaClip into a timeline track ' +
+      'Insert media, a MediaClip, or a caption into a timeline track ' +
         '(appends to the end of the track unless --at/--after)'
     )
     .option('-w, --workspace <id>', 'workspace id override')
@@ -488,6 +488,7 @@ export function registerTimelineCommands(program: Command): void {
           [
             'media',
             'clip',
+            'caption',
             'at',
             'after',
             'start',
@@ -522,7 +523,7 @@ export function registerTimelineCommands(program: Command): void {
         return;
       }
 
-      if (!picked.media && !picked.clip) {
+      if (!picked.media && !picked.clip && !picked.caption) {
         picked.media = (await pickMedia(pb, workspaceId)).id;
       }
 

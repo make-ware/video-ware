@@ -1,5 +1,6 @@
 import { InvalidArgumentError } from 'commander';
 import {
+  CaptionMutator,
   MAX_TIMELINE_TRACKS,
   MediaClipMutator,
   MediaMutator,
@@ -268,13 +269,15 @@ export async function syncTimelineDuration(
 
 export interface InsertClipOptions {
   timelineId: string;
-  /** Media id to insert (mutually exclusive with `clip`). */
+  /** Media id to insert (mutually exclusive with `clip`/`caption`). */
   media?: string;
   /** MediaClip id to insert; inherits its trim window, label, description. */
   clip?: string;
-  /** Trim start in source media (seconds). Defaults to 0 (or the MediaClip's). */
+  /** Caption id to insert as a text/title clip (mutually exclusive with media/clip). */
+  caption?: string;
+  /** Trim start in the source (seconds). For captions, into the caption's cue timeline. Defaults to 0 (or the MediaClip's). */
   start?: number;
-  /** Trim end in source media (seconds). Defaults to the media duration (or the MediaClip's). */
+  /** Trim end in the source (seconds). Defaults to the media/caption duration (or the MediaClip's). */
   end?: number;
   /** Target track: layer number or record id. Defaults to (or creates) the layer-0 track. */
   track?: string;
@@ -302,14 +305,19 @@ export const insertOptions = {
     description:
       'MediaClip id to insert (inherits its trim window, label, description)',
   },
+  caption: {
+    flags: '--caption <id>',
+    description: 'Caption id to insert as a text/title clip',
+  },
   start: {
     flags: '-s, --start <seconds>',
-    description: 'trim start in source media',
+    description:
+      'trim start in the source (caption cue timeline for --caption)',
     parse: parseSeconds,
   },
   end: {
     flags: '-e, --end <seconds>',
-    description: 'trim end in source media',
+    description: 'trim end in the source (caption cue timeline for --caption)',
     parse: parseSeconds,
   },
   track: {
@@ -380,11 +388,14 @@ export async function insertClip(
   pb: TypedPocketBase,
   opts: InsertClipOptions
 ): Promise<InsertClipResult> {
-  if (!opts.media && !opts.clip) {
-    throw new Error('Pass --media <id> or --clip <mediaClipId>.');
+  const sources = [opts.media, opts.clip, opts.caption].filter(Boolean);
+  if (sources.length === 0) {
+    throw new Error(
+      'Pass --media <id>, --clip <mediaClipId>, or --caption <captionId>.'
+    );
   }
-  if (opts.media && opts.clip) {
-    throw new Error('--media and --clip are mutually exclusive.');
+  if (sources.length > 1) {
+    throw new Error('--media, --clip, and --caption are mutually exclusive.');
   }
   if (opts.at !== undefined && opts.after) {
     throw new Error('--at and --after are mutually exclusive.');
@@ -393,32 +404,63 @@ export async function insertClip(
     throw new Error('--overwrite requires --at <seconds>.');
   }
 
-  const mediaClip = opts.clip
-    ? await new MediaClipMutator(pb).getById(opts.clip)
-    : undefined;
-  if (opts.clip && !mediaClip) {
-    throw new Error(`MediaClip not found: ${opts.clip}`);
-  }
+  // Resolve the clip's source (media/MediaClip or caption): its trim window,
+  // duration, provenance ref, and default label/description. Placement below
+  // is identical for every source — it only needs `duration`.
+  let mediaId: string | undefined;
+  let mediaClip: Awaited<ReturnType<MediaClipMutator['getById']>> | undefined;
+  let caption: Awaited<ReturnType<CaptionMutator['getById']>> | undefined;
+  let start: number;
+  let end: number;
+  let defaultLabel: string | undefined;
+  let defaultDescription: string | undefined;
 
-  const mediaId = mediaClip ? mediaClip.MediaRef : opts.media!;
-  const media = await new MediaMutator(pb).getById(mediaId);
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
-  }
-
-  const start = opts.start ?? mediaClip?.start ?? 0;
-  const end = opts.end ?? mediaClip?.end ?? media.duration;
-  const mediaType = singleMediaType(media.mediaType);
-
-  if (!validateTimeRange(start, end, media.duration, mediaType)) {
-    if (mediaType === 'image' && opts.end === undefined && !mediaClip) {
+  if (opts.caption) {
+    caption = await new CaptionMutator(pb).getById(opts.caption);
+    if (!caption) {
+      throw new Error(`Caption not found: ${opts.caption}`);
+    }
+    // start/end trim the caption's own cue timeline (mirroring how a media
+    // clip trims source media). A fresh caption clip spans [0, duration].
+    start = opts.start ?? 0;
+    end = opts.end ?? caption.duration;
+    if (!(start >= 0 && start < end)) {
       throw new Error(
-        'Image media has no intrinsic duration — pass an explicit --end (seconds to display).'
+        `Invalid caption time range: start=${start}, end=${end}.`
       );
     }
-    throw new Error(
-      `Invalid time range: start=${start}, end=${end}, media duration=${media.duration}`
-    );
+    defaultLabel = opts.label;
+    defaultDescription = opts.description;
+  } else {
+    mediaClip = opts.clip
+      ? await new MediaClipMutator(pb).getById(opts.clip)
+      : undefined;
+    if (opts.clip && !mediaClip) {
+      throw new Error(`MediaClip not found: ${opts.clip}`);
+    }
+
+    mediaId = mediaClip ? mediaClip.MediaRef : opts.media!;
+    const media = await new MediaMutator(pb).getById(mediaId);
+    if (!media) {
+      throw new Error(`Media not found: ${mediaId}`);
+    }
+
+    start = opts.start ?? mediaClip?.start ?? 0;
+    end = opts.end ?? mediaClip?.end ?? media.duration;
+    const mediaType = singleMediaType(media.mediaType);
+
+    if (!validateTimeRange(start, end, media.duration, mediaType)) {
+      if (mediaType === 'image' && opts.end === undefined && !mediaClip) {
+        throw new Error(
+          'Image media has no intrinsic duration — pass an explicit --end (seconds to display).'
+        );
+      }
+      throw new Error(
+        `Invalid time range: start=${start}, end=${end}, media duration=${media.duration}`
+      );
+    }
+    defaultLabel = opts.label ?? mediaClip?.label;
+    defaultDescription = opts.description ?? mediaClip?.description;
   }
   const duration = end - start;
 
@@ -546,22 +588,28 @@ export async function insertClip(
     });
   }
 
-  const label = opts.label ?? mediaClip?.label;
-  const description = opts.description ?? mediaClip?.description;
+  // Caption clips carry the display title in meta (matching the webapp's
+  // addCaptionToTimeline); gain applies to either kind of clip.
+  const meta: NonNullable<TimelineClipInput['meta']> = {};
+  if (caption) meta.title = caption.name || caption.text;
+  if (opts.gain !== undefined) meta.gain = opts.gain;
 
   const input: TimelineClipInput = {
     TimelineRef: opts.timelineId,
     TimelineTrackRef: targetTrack.id,
-    MediaRef: mediaId,
+    ...(mediaId ? { MediaRef: mediaId } : {}),
     ...(mediaClip ? { MediaClipRef: mediaClip.id } : {}),
-    ...(label !== undefined ? { label } : {}),
-    ...(description !== undefined ? { description } : {}),
+    ...(caption ? { CaptionRef: caption.id } : {}),
+    ...(defaultLabel !== undefined ? { label: defaultLabel } : {}),
+    ...(defaultDescription !== undefined
+      ? { description: defaultDescription }
+      : {}),
     order,
     start,
     end,
     duration,
     timelineStart: placedAt,
-    ...(opts.gain !== undefined ? { meta: { gain: opts.gain } } : {}),
+    ...(Object.keys(meta).length > 0 ? { meta } : {}),
   };
 
   let clip: TimelineClip | null = null;

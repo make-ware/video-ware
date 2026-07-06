@@ -466,10 +466,11 @@ N }\`. All times are seconds.
   are positions in the source media. Created by hand
   (\`vw media clip create\`) or from a label (\`vw label clip\`).
 - **Labels** — machine annotations of a media, one file per label under a
-  per-type folder: \`speech\` (transcripts), \`text\` (on-screen text),
-  \`object\`, \`shot\`, \`segment\`, \`person\`, \`face\`. Each carries
-  \`start\`/\`end\` in source-media seconds plus a confidence. Search them
-  for moments worth turning into clips.
+  per-type folder: \`speech\` (transcripts), \`speaker\` (diarized
+  per-speaker utterances; each carries a \`speakerId\` and word timings),
+  \`text\` (on-screen text), \`object\`, \`shot\`, \`segment\`, \`person\`,
+  \`face\`. Each carries \`start\`/\`end\` in source-media seconds plus a
+  confidence. Search them for moments worth turning into clips.
 - **Timeline** — an edit. \`timelines/<id>.json\` holds
   \`{ timeline, computedDuration, clipCount, tracks }\`; \`tracks\` are
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each

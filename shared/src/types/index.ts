@@ -20,6 +20,7 @@ import type { TimelineRender } from '../schema/timeline-render';
 import type { LabelEntity } from '../schema/label-entity';
 import type { Artifact } from '../schema/artifact';
 import { LabelTrack } from '../schema/label-track';
+import { LabelSpeaker } from '../schema/label-speaker';
 import { LabelSpeech } from '../schema/label-speech';
 import { LabelFace } from '../schema/label-face';
 import { LabelPerson } from '../schema/label-person';
@@ -54,6 +55,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'LabelPerson'): RecordService<LabelPerson>;
   collection(idOrName: 'LabelSegments'): RecordService<LabelSegment>;
   collection(idOrName: 'LabelShots'): RecordService<LabelShot>;
+  collection(idOrName: 'LabelSpeaker'): RecordService<LabelSpeaker>;
   collection(idOrName: 'LabelSpeech'): RecordService<LabelSpeech>;
   collection(idOrName: 'LabelText'): RecordService<LabelText>;
   collection(idOrName: 'LabelTrack'): RecordService<LabelTrack>;

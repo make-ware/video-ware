@@ -68,6 +68,7 @@ export class JobService {
       faceDetection: cfg.enableFaceDetection,
       personDetection: cfg.enablePersonDetection,
       speechTranscription: cfg.enableSpeechTranscription,
+      speakerTranscription: cfg.enableSpeakerTranscription,
     };
   }
 }

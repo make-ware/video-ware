@@ -14,6 +14,7 @@ export type {
   FaceDetectionStepInput,
   PersonDetectionStepInput,
   SpeechTranscriptionStepInput,
+  SpeakerTranscriptionStepInput,
 } from './step-inputs';
 
 // Step Output Types
@@ -25,6 +26,7 @@ export type {
   FaceDetectionStepOutput,
   PersonDetectionStepOutput,
   SpeechTranscriptionStepOutput,
+  SpeakerTranscriptionStepOutput,
   StepOutput,
 } from './step-outputs';
 
@@ -44,6 +46,8 @@ export type {
   PersonDetectionResponse,
   TranscribedWord,
   SpeechTranscriptionResponse,
+  SpeakerTranscribedWord,
+  SpeakerTranscriptionResponse,
   ExecutorResponse,
 } from './executor-responses';
 
@@ -55,6 +59,7 @@ export type {
   LabelEntityData,
   LabelFaceData,
   LabelSpeechData,
+  LabelSpeakerData,
   KeyframeData,
   LabelTrackData,
   LabelClipData,

@@ -20,6 +20,7 @@ import {
   FileMutator,
   LabelEntityMutator,
   LabelFaceMutator,
+  LabelSpeakerMutator,
   LabelSpeechMutator,
   LabelTrackMutator,
   LabelSegmentMutator,
@@ -60,6 +61,7 @@ export class PocketBaseService implements OnModuleInit {
   public workspaceMutator!: WorkspaceMutator;
   public labelTrackMutator!: LabelTrackMutator;
   public labelFaceMutator!: LabelFaceMutator;
+  public labelSpeakerMutator!: LabelSpeakerMutator;
   public labelSpeechMutator!: LabelSpeechMutator;
   public labelSegmentMutator!: LabelSegmentMutator;
   public labelShotMutator!: LabelShotMutator;
@@ -120,6 +122,7 @@ export class PocketBaseService implements OnModuleInit {
     this.labelEntityMutator = new LabelEntityMutator(this.pb);
     this.labelTrackMutator = new LabelTrackMutator(this.pb);
     this.labelFaceMutator = new LabelFaceMutator(this.pb);
+    this.labelSpeakerMutator = new LabelSpeakerMutator(this.pb);
     this.labelSpeechMutator = new LabelSpeechMutator(this.pb);
     this.labelSegmentMutator = new LabelSegmentMutator(this.pb);
     this.labelShotMutator = new LabelShotMutator(this.pb);

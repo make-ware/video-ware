@@ -38,13 +38,19 @@ vw label list                  # list labels for one media
 vw label show <type> <id>      # show one label record (--clips lists linked clips)
 vw label clip <type> <id>      # create a media clip from a label
 
+vw caption create              # create a caption (subtitle) or title card
+vw caption list                # list captions in the active workspace
+vw caption show <id>           # show one caption (text, cues, style)
+vw caption update <id>         # edit text/type/duration/style (updates placed clips)
+vw caption delete <id>         # delete a caption (--force if placed on a timeline)
+
 vw timeline list               # list timelines in the active workspace
 vw timeline create <name>      # create a timeline (+ tracks via --tracks)
 vw timeline update <id>        # update name/label/description/orientation
 vw timeline show <id>          # inspect tracks, settings, and placed clips
 vw timeline doctor <id>        # health-check: overlaps, gaps, stale durations
 vw timeline inspect            # what plays on each track at --at <seconds>
-vw timeline insert             # append media/MediaClips to a track (--at/--after to place)
+vw timeline insert             # append media/MediaClips/captions to a track (--at/--after to place)
 vw timeline render             # render a timeline and wait for the output
 
 vw timeline track create       # add a track on the next layer up
@@ -93,6 +99,10 @@ vw timeline inspect -t TIMELINE_ID --at 14 --labels   # what plays at 14s?
 vw timeline clips move CLIP_ID --at 16 --overwrite
 vw timeline clips ripple CLIP_ID --by=-2.5   # pull this clip + later ones left
 vw timeline clips update CLIP_ID --gain 0.5 -e 9
+
+# 4b. Drop a title card / caption on an upper track (create, then place)
+vw caption create --type title --text "Chapter 1" --duration 3   # → cap_id
+vw timeline insert -t TIMELINE_ID --caption CAP_ID --track 3 --at 0
 
 # 5. Verify, then render
 vw timeline doctor TIMELINE_ID               # no overlaps/gaps/dangling refs?
@@ -224,6 +234,66 @@ vw timeline render -t TIMELINE_ID --resolution 1280x720 --download out.mp4
 vw timeline render -t TIMELINE_ID --no-wait   # queue only, don't poll
 ```
 
+## Captions and title cards
+
+Captions are on-screen text overlays. There are two kinds, distinguished by
+`--type`:
+
+- **`caption`** (default) — a subtitle-style overlay (small, bottom, boxed).
+- **`title`** — a title card (large, centered, bold) for chapter titles,
+  lower-thirds, and intro/outro cards.
+
+Both are the same data model the webapp editor uses, so a caption created here
+shows up in the editor and vice-versa. The flow is two steps — **create** the
+caption, then **place** it on a timeline track — mirroring `media clip create`
+→ `timeline insert --clip`:
+
+```bash
+# 1. Create a title card (5s by default; --type title = big centered text)
+vw caption create --type title --text "Chapter 1: Arrival" --duration 3
+#   ✓ Created title cap_xxx "Chapter 1: Arrival" (3.00s)
+
+# 2. Place it on a track like any other clip — all insert flags apply
+vw timeline insert -t TIMELINE_ID --caption cap_xxx --track 2 --at 0
+vw timeline insert -t TIMELINE_ID --caption cap_xxx --track 2 --at 0 --overwrite
+```
+
+A caption becomes a normal timeline clip (`CaptionRef`), so **every placement
+flag works the same** as for media: `--at`/`--after`/append, `--overwrite`,
+`--dry-run`, `--track`, `--label`. `--start`/`--end` trim the caption's own cue
+timeline rather than a source media. Put title cards and captions on their own
+upper track so they overlay the video below.
+
+Captions render only when the timeline is rendered with captions enabled
+(`includeCaptions`, on by default) — distinct from auto speech-to-text
+subtitles (`includeSubtitles`, off by default).
+
+```bash
+vw caption create --text "Filmed in Iceland"            # subtitle-style caption
+vw caption create --type title --text "The End" --duration 4 --position middle
+vw caption create --type title --text "Big News" \
+  --font-size 120 --color "#FFCC00" --position top       # tweak the preset style
+vw caption create --text "Line one\nLine two" --duration 6 --animate
+                                                          # split lines into timed cues
+vw caption create --text "Custom" --style '{"fontSize":72,"bold":true,"outline":true}'
+                                                          # full style as JSON (flags override)
+
+vw caption list                                          # ad-hoc captions in the workspace
+vw caption list --all                                    # include media transcript captions
+vw caption show cap_xxx                                  # text, cues, and resolved style
+vw caption update cap_xxx --text "Chapter 1: Departure"  # updates every clip that uses it
+vw caption update cap_xxx --type title                   # re-base style on the title preset
+vw caption delete cap_xxx                                # refuses if placed; --force overrides
+```
+
+Style flags (`--font-size`, `--color`, `--bg-color`, `--bg-opacity`,
+`--position top|middle|bottom`, `--align left|center|right`) layer on top of the
+type's default preset; `--style <json>` sets a full base and the individual
+flags override it. `--animate` splits the text (one cue per line, else per
+sentence) evenly across the duration; without it the whole text shows for the
+clip's length. Editing a caption updates every timeline clip that references it,
+so a title-card typo is one `caption update` away — no re-placement needed.
+
 ## Label search
 
 `vw label search` fans out one query per label type and merges the results
@@ -232,6 +302,7 @@ best-confidence-first. What the free-text query matches depends on the type:
 | type      | collection    | query matches (`~`)              | exact-id flag |
 | --------- | ------------- | -------------------------------- | ------------- |
 | `speech`  | LabelSpeech   | `transcript`                     | —             |
+| `speaker` | LabelSpeaker  | `transcript, speakerId`          | —             |
 | `text`    | LabelText     | `text`                           | —             |
 | `object`  | LabelObjects  | `entity`                         | `--track-id`  |
 | `shot`    | LabelShots    | `entity`                         | —             |

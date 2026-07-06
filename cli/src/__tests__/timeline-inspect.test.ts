@@ -25,13 +25,14 @@ function listStub(items: unknown[] = []) {
   };
 }
 
-/** Empty stubs for all 7 label collections (override per test). */
+/** Empty stubs for all 8 label collections (override per test). */
 function allLabelCollections(overrides: Record<string, Stub> = {}) {
   return {
     LabelObjects: listStub(),
     LabelShots: listStub(),
     LabelPerson: listStub(),
     LabelSpeech: listStub(),
+    LabelSpeaker: listStub(),
     LabelFaces: listStub(),
     LabelSegments: listStub(),
     LabelText: listStub(),

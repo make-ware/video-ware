@@ -121,6 +121,24 @@ export const UploadMetadataSchema = z.object({
 // Task Metadata
 // ============================================================================
 
+// Detection toggles for label jobs. `.passthrough()` so a newly added detector
+// flag is never silently stripped before it reaches the worker's flow builder
+// (the real gate) — the class of bug where a new step is enqueued but dropped
+// at task-creation validation. Keep the explicit fields in sync with
+// DetectLabelsConfig; the canonical "enable all" values live in
+// ALL_LABEL_DETECTIONS (task-contracts.ts).
+const LabelsDetectionConfigSchema = z
+  .object({
+    confidenceThreshold: z.number().optional(),
+    detectObjects: z.boolean().optional(),
+    detectLabels: z.boolean().optional(),
+    detectFaces: z.boolean().optional(),
+    detectPersons: z.boolean().optional(),
+    detectSpeech: z.boolean().optional(),
+    detectSpeakers: z.boolean().optional(),
+  })
+  .passthrough();
+
 // Task payload schemas (union based on task type)
 export const TaskPayloadSchema = z.union([
   // ProcessUploadPayload
@@ -128,16 +146,7 @@ export const TaskPayloadSchema = z.union([
     uploadId: z.string(),
     mediaId: z.string(),
     provider: z.string().optional(),
-    labels: z
-      .object({
-        confidenceThreshold: z.number().optional(),
-        detectObjects: z.boolean().optional(),
-        detectLabels: z.boolean().optional(),
-        detectFaces: z.boolean().optional(),
-        detectPersons: z.boolean().optional(),
-        detectSpeech: z.boolean().optional(),
-      })
-      .optional(),
+    labels: LabelsDetectionConfigSchema.optional(),
     sprite: SpriteConfigSchema.optional(),
     filmstrip: FilmstripConfigSchema.optional(),
     thumbnail: z
@@ -170,14 +179,7 @@ export const TaskPayloadSchema = z.union([
     mediaId: z.string(),
     fileRef: z.string(),
     provider: z.string(),
-    config: z.object({
-      confidenceThreshold: z.number().optional(),
-      detectObjects: z.boolean().optional(),
-      detectLabels: z.boolean().optional(),
-      detectFaces: z.boolean().optional(),
-      detectPersons: z.boolean().optional(),
-      detectSpeech: z.boolean().optional(),
-    }),
+    config: LabelsDetectionConfigSchema,
   }),
   // RenderTimelinePayload
   z.object({

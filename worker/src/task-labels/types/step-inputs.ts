@@ -5,6 +5,7 @@ import {
   TaskDetectLabelsFaceDetectionStep,
   TaskDetectLabelsPersonDetectionStep,
   TaskDetectLabelsSpeechTranscriptionStep,
+  TaskDetectLabelsSpeakerTranscriptionStep,
 } from '@project/shared/jobs';
 
 /**
@@ -52,3 +53,12 @@ export type PersonDetectionStepInput = TaskDetectLabelsPersonDetectionStep;
  */
 export type SpeechTranscriptionStepInput =
   TaskDetectLabelsSpeechTranscriptionStep;
+
+/**
+ * Speaker Transcription Step Input
+ *
+ * Processes media for speaker-diarized STT (ElevenLabs Scribe).
+ * Features: SPEAKER_TRANSCRIPTION
+ */
+export type SpeakerTranscriptionStepInput =
+  TaskDetectLabelsSpeakerTranscriptionStep;

@@ -179,7 +179,31 @@ export interface DetectLabelsConfig {
   detectPersons?: boolean;
   /** Whether to detect speech */
   detectSpeech?: boolean;
+  /** Whether to transcribe speech with speaker diarization (ElevenLabs) */
+  detectSpeakers?: boolean;
 }
+
+/**
+ * Canonical "run every detector" config used by the full-detection callers:
+ * the webapp "Detect Labels" button (services/media.ts) and the worker ingest
+ * orchestrator. Typed as `Required` so that adding a new detection toggle to
+ * DetectLabelsConfig breaks the build here until it is set — guaranteeing new
+ * steps are enqueued automatically instead of being silently skipped.
+ *
+ * These flags are an *intent* layer only. LabelsFlowBuilder gates each step by
+ * `ENABLE_* env AND this config`, so a deployment's env flags decide what
+ * actually runs; enabling everything here can never force a disabled step on.
+ */
+export const ALL_LABEL_DETECTIONS: Required<
+  Omit<DetectLabelsConfig, 'confidenceThreshold'>
+> = {
+  detectObjects: true,
+  detectLabels: true,
+  detectFaces: true,
+  detectPersons: true,
+  detectSpeech: true,
+  detectSpeakers: true,
+};
 
 /**
  * Payload for detect_labels task

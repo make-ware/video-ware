@@ -6,6 +6,7 @@ import {
   TaskDetectLabelsFaceDetectionStepOutput,
   TaskDetectLabelsPersonDetectionStepOutput,
   TaskDetectLabelsSpeechTranscriptionStepOutput,
+  TaskDetectLabelsSpeakerTranscriptionStepOutput,
 } from '@project/shared/jobs';
 
 /**
@@ -56,6 +57,14 @@ export type SpeechTranscriptionStepOutput =
   TaskDetectLabelsSpeechTranscriptionStepOutput;
 
 /**
+ * Speaker Transcription Step Output
+ *
+ * Results from speaker-diarized STT processing.
+ */
+export type SpeakerTranscriptionStepOutput =
+  TaskDetectLabelsSpeakerTranscriptionStepOutput;
+
+/**
  * Union type for all step outputs
  */
 export type StepOutput =
@@ -63,4 +72,5 @@ export type StepOutput =
   | ObjectTrackingStepOutput
   | FaceDetectionStepOutput
   | PersonDetectionStepOutput
-  | SpeechTranscriptionStepOutput;
+  | SpeechTranscriptionStepOutput
+  | SpeakerTranscriptionStepOutput;

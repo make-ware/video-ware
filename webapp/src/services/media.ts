@@ -18,7 +18,7 @@ import type {
   ProcessUploadPayload,
   LabelJob,
 } from '@project/shared';
-import { ProcessingProvider } from '@project/shared';
+import { ProcessingProvider, ALL_LABEL_DETECTIONS } from '@project/shared';
 
 /**
  * Media with preview assets
@@ -213,6 +213,7 @@ export class MediaService {
       detectFaces: type === 'face',
       detectPersons: type === 'person',
       detectSpeech: type === 'speech',
+      detectSpeakers: type === 'speaker',
     };
 
     const task = await this.createTaskForLabel(mediaId, undefined, config);
@@ -395,14 +396,12 @@ export class MediaService {
       throw new Error('User context required for task creation');
     }
 
-    // Default configuration if none provided
+    // Default configuration if none provided: request every detector so the
+    // "Detect Labels" button runs all steps, including newly added ones.
+    // ALL_LABEL_DETECTIONS is `Required`, so a new toggle forces this to update.
     const defaultConfig: LabelsFlowConfig = {
       confidenceThreshold: 0.5,
-      detectObjects: true,
-      detectLabels: true,
-      detectFaces: true,
-      detectPersons: true,
-      detectSpeech: true,
+      ...ALL_LABEL_DETECTIONS,
     };
 
     const payload: DetectLabelsPayload = {

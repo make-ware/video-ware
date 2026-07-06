@@ -1,0 +1,339 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Job } from 'bullmq';
+import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
+import { ProcessingProvider } from '@project/shared';
+import { LabelCacheService } from '../services/label-cache.service';
+import { LabelEntityService } from '../services/label-entity.service';
+import { SpeakerTranscriptionExecutor } from '../executors/speaker-transcription.executor';
+import { SpeakerTranscriptionNormalizer } from '../normalizers/speaker-transcription.normalizer';
+import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import type { StepJobData } from '../../queue/types/job.types';
+import type { SpeakerTranscriptionStepInput } from '../types/step-inputs';
+import type { SpeakerTranscriptionStepOutput } from '../types/step-outputs';
+import type { SpeakerTranscriptionResponse } from '../types/executor-responses';
+import type {
+  LabelTrackData,
+  LabelSpeakerData,
+} from '../types/normalizer-outputs';
+
+// Re-export types for parent processor
+export type { SpeakerTranscriptionStepInput, SpeakerTranscriptionStepOutput };
+
+/**
+ * Step processor for SPEAKER_TRANSCRIPTION in detect_labels flow
+ *
+ * This processor:
+ * 1. Checks cache before calling executor
+ * 2. Calls SpeakerTranscriptionExecutor (ElevenLabs Scribe, diarize: true)
+ * 3. Calls SpeakerTranscriptionNormalizer to transform response
+ * 4. Batch inserts LabelEntity records (one per speaker)
+ * 5. Batch inserts LabelTrack records (one per speaker)
+ * 6. Batch inserts LabelSpeaker records (per-utterance, word-precise timing)
+ * 7. Stores normalized response to cache
+ */
+@Injectable()
+export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
+  SpeakerTranscriptionStepInput,
+  SpeakerTranscriptionStepOutput
+> {
+  protected readonly logger = new Logger(
+    SpeakerTranscriptionStepProcessor.name
+  );
+  private readonly processorVersion = 'speaker-transcription:1.0.0';
+
+  constructor(
+    private readonly labelCacheService: LabelCacheService,
+    private readonly labelEntityService: LabelEntityService,
+    private readonly speakerTranscriptionExecutor: SpeakerTranscriptionExecutor,
+    private readonly speakerTranscriptionNormalizer: SpeakerTranscriptionNormalizer,
+    private readonly pocketBaseService: PocketBaseService
+  ) {
+    super();
+  }
+
+  /**
+   * Process speaker transcription with cache awareness
+   */
+  async process(
+    input: SpeakerTranscriptionStepInput,
+    _job: Job<StepJobData>
+  ): Promise<SpeakerTranscriptionStepOutput> {
+    const startTime = Date.now();
+
+    this.logger.log(
+      `Processing speaker transcription for media ${input.mediaId}, version ${input.version}`
+    );
+
+    try {
+      // Step 0: Check if media has audio
+      const media = await this.pocketBaseService.getMedia(input.mediaId);
+      if (media.hasAudio === false) {
+        this.logger.log(
+          `Media ${input.mediaId} has no audio track, skipping speaker transcription`
+        );
+        return {
+          success: true,
+          cacheHit: false,
+          processorVersion: this.processorVersion,
+          processingTimeMs: Date.now() - startTime,
+          counts: {
+            transcriptLength: 0,
+            wordCount: 0,
+            speakerCount: 0,
+            labelEntityCount: 0,
+            labelTrackCount: 0,
+            labelClipCount: 0,
+            labelObjectCount: 0,
+            labelFaceCount: 0,
+            labelPersonCount: 0,
+            labelSpeechCount: 0,
+            labelSpeakerCount: 0,
+            labelSegmentCount: 0,
+            labelShotCount: 0,
+          },
+        };
+      }
+
+      // Step 1: Check cache before calling executor
+      const cached = await this.labelCacheService.getCachedLabels(
+        input.workspaceRef,
+        input.mediaId,
+        input.version,
+        ProcessingProvider.ELEVENLABS,
+        this.processorVersion
+      );
+
+      let response: unknown;
+      let cacheHit = false;
+
+      if (
+        cached &&
+        this.labelCacheService.isCacheValid(cached, this.processorVersion)
+      ) {
+        this.logger.log(
+          `Using cached speaker transcription for media ${input.mediaId}`
+        );
+        response = cached.response;
+        cacheHit = true;
+      } else {
+        // Step 2: Cache miss - call executor
+        this.logger.log(
+          `Cache miss for media ${input.mediaId}, calling ElevenLabs STT API`
+        );
+
+        response = await this.speakerTranscriptionExecutor.execute(
+          input.workspaceRef,
+          input.mediaId,
+          input.fileRef,
+          input.config
+        );
+
+        // Step 7: Store normalized response to cache
+        await this.labelCacheService.storeLabelCache(
+          input.workspaceRef,
+          input.mediaId,
+          input.version,
+          ProcessingProvider.ELEVENLABS,
+          response,
+          this.processorVersion,
+          ['SPEAKER_TRANSCRIPTION']
+        );
+
+        this.logger.log(
+          `Speaker transcription completed for media ${input.mediaId}, stored to cache`
+        );
+      }
+
+      // Step 3: Call normalizer to transform response
+      const normalizedData =
+        await this.speakerTranscriptionNormalizer.normalize({
+          response: response as SpeakerTranscriptionResponse,
+          mediaId: input.mediaId,
+          workspaceRef: input.workspaceRef,
+          taskRef: input.taskRef,
+          version: input.version,
+          processor: 'speaker-transcription',
+          processorVersion: this.processorVersion,
+        });
+
+      // Step 4: Batch insert LabelEntity records
+      // Map provider speaker ids to entity IDs
+      const entityMap = new Map<string, string>();
+      for (const entity of normalizedData.labelEntities) {
+        const entityId = await this.labelEntityService.getOrCreateLabelEntity(
+          entity.WorkspaceRef,
+          entity.labelType,
+          entity.canonicalName,
+          entity.provider as ProcessingProvider.ELEVENLABS,
+          entity.processor,
+          entity.metadata
+        );
+        const speakerId =
+          (entity.metadata as { speakerId?: string })?.speakerId ?? '';
+        entityMap.set(speakerId, entityId);
+      }
+      this.logger.debug(`Processed ${entityMap.size} speaker entities`);
+
+      // Step 5: Batch insert LabelTrack records
+      // Link tracks to entities
+      const trackMap = new Map<string, string>();
+      const tracksToInsert = (normalizedData.labelTracks || []).map((track) => {
+        const speakerId =
+          (track.trackData as { speakerId?: string })?.speakerId ?? '';
+        return {
+          ...track,
+          LabelEntityRef: entityMap.get(speakerId),
+        };
+      });
+
+      const trackIds = await this.batchInsertLabelTracks(tracksToInsert);
+
+      // Map speaker ids to track IDs (using tracksToInsert to maintain order)
+      tracksToInsert.forEach((track, index) => {
+        const speakerId =
+          (track.trackData as { speakerId?: string })?.speakerId ?? '';
+        if (trackIds[index]) {
+          trackMap.set(speakerId, trackIds[index]);
+        }
+      });
+      this.logger.debug(`Inserted ${trackIds.length} speaker tracks`);
+
+      // Step 6: Batch insert LabelSpeaker records
+      // Link utterances to entities and tracks
+      const speakersToInsert = (normalizedData.labelSpeakers || []).map(
+        (speaker) => ({
+          ...speaker,
+          LabelEntityRef: entityMap.get(speaker.speakerId),
+          LabelTrackRef: trackMap.get(speaker.speakerId),
+        })
+      );
+
+      const speakerIds = await this.batchInsertLabelSpeakers(speakersToInsert);
+      this.logger.debug(`Inserted ${speakerIds.length} speaker utterances`);
+
+      // Clear entity cache after processing
+      this.labelEntityService.clearCache();
+
+      const processingTimeMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        cacheHit,
+        processorVersion: this.processorVersion,
+        processingTimeMs,
+        counts: {
+          transcriptLength:
+            normalizedData.labelMediaUpdate.transcriptLength || 0,
+          wordCount: normalizedData.labelMediaUpdate.wordCount || 0,
+          speakerCount: normalizedData.labelMediaUpdate.speakerCount || 0,
+          labelEntityCount: entityMap.size,
+          labelTrackCount: trackIds.length,
+          labelClipCount: 0,
+          labelObjectCount: 0,
+          labelFaceCount: 0,
+          labelPersonCount: 0,
+          labelSpeechCount: 0,
+          labelSpeakerCount: speakerIds.length,
+          labelSegmentCount: 0,
+          labelShotCount: 0,
+        },
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Speaker transcription failed for media ${input.mediaId}: ${errorMessage}`
+      );
+
+      // Rethrow so processStepJob produces a status: 'failed' StepResult.
+      // Swallowing this into a success:false output makes the parent's
+      // partial-success accounting count a failed step as completed.
+      throw error;
+    }
+  }
+
+  /**
+   * Batch insert LabelTrack records
+   */
+  private async batchInsertLabelTracks(
+    tracks: LabelTrackData[]
+  ): Promise<string[]> {
+    const trackIds: string[] = [];
+    for (const track of tracks) {
+      try {
+        const existing = await this.pocketBaseService.labelTrackMutator.getList(
+          1,
+          1,
+          `trackHash = "${track.trackHash}"`
+        );
+        if (existing.items.length > 0) {
+          trackIds.push(existing.items[0].id);
+        } else {
+          const created =
+            await this.pocketBaseService.labelTrackMutator.create(track);
+          trackIds.push(created.id);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to insert track: ${error}`);
+      }
+    }
+    return trackIds;
+  }
+
+  /**
+   * Batch insert LabelSpeaker records
+   */
+  private async batchInsertLabelSpeakers(
+    utterances: LabelSpeakerData[]
+  ): Promise<string[]> {
+    const speakerIds: string[] = [];
+    const batchSize = 100;
+
+    for (let i = 0; i < utterances.length; i += batchSize) {
+      const batch = utterances.slice(i, i + batchSize);
+      for (const speakerData of batch) {
+        try {
+          const existing =
+            await this.pocketBaseService.labelSpeakerMutator.getList(
+              1,
+              1,
+              `speakerHash = "${speakerData.speakerHash}"`
+            );
+          if (existing.items.length > 0) {
+            speakerIds.push(existing.items[0].id);
+          } else {
+            const created =
+              await this.pocketBaseService.labelSpeakerMutator.create(
+                speakerData
+              );
+            speakerIds.push(created.id);
+          }
+        } catch (error) {
+          if (this.isUniqueConstraintErrorForSpeaker(error)) {
+            const existing =
+              await this.pocketBaseService.labelSpeakerMutator.getList(
+                1,
+                1,
+                `speakerHash = "${speakerData.speakerHash}"`
+              );
+            if (existing.items.length > 0) {
+              speakerIds.push(existing.items[0].id);
+              continue;
+            }
+          }
+          this.logger.error(`Failed to insert speaker utterance: ${error}`);
+        }
+      }
+    }
+    return speakerIds;
+  }
+
+  private isUniqueConstraintErrorForSpeaker(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('unique constraint') ||
+      message.includes('validation_not_unique') ||
+      message.includes('speakerHash')
+    );
+  }
+}

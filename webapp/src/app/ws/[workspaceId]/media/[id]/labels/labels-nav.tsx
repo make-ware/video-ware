@@ -18,6 +18,7 @@ export function LabelsNav() {
       href: `${base}/${config.key}`,
     })),
     { name: 'Transcripts', href: `${base}/transcripts` },
+    { name: 'Speakers', href: `${base}/speakers` },
   ];
 
   return (

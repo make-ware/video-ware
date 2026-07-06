@@ -36,6 +36,9 @@ export const qk = {
   transcripts: {
     byMedia: (id: string) => ['transcripts', id] as const,
   },
+  speakers: {
+    byMedia: (id: string) => ['speakers', id] as const,
+  },
   labels: {
     list: (
       mediaId: string,

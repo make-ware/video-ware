@@ -88,6 +88,7 @@ export enum LabelType {
   SHOT = 'shot',
   PERSON = 'person',
   SPEECH = 'speech',
+  SPEAKER = 'speaker',
   FACE = 'face',
   SEGMENT = 'segment',
   TEXT = 'text',
@@ -131,6 +132,7 @@ export enum ProcessingProvider {
   GOOGLE_TRANSCODER = 'google_transcoder',
   GOOGLE_VIDEO_INTELLIGENCE = 'google_video_intelligence',
   GOOGLE_SPEECH = 'google_speech',
+  ELEVENLABS = 'elevenlabs',
 }
 
 export enum WorkspaceRole {

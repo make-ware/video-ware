@@ -110,6 +110,14 @@ export default () => {
       enablePersonDetection: process.env.ENABLE_PERSON_DETECTION === 'true',
       enableSpeechTranscription:
         process.env.ENABLE_SPEECH_TRANSCRIPTION === 'true',
+
+      // Speaker-diarized STT via ElevenLabs (requires ELEVENLABS_API_KEY)
+      enableSpeakerTranscription:
+        process.env.ENABLE_SPEAKER_TRANSCRIPTION === 'true',
+    },
+
+    elevenlabs: {
+      apiKey: process.env.ELEVENLABS_API_KEY,
     },
 
     google: {

@@ -13,6 +13,7 @@ export enum DetectLabelsStepType {
   FACE_DETECTION = 'labels:face_detection',
   PERSON_DETECTION = 'labels:person_detection',
   SPEECH_TRANSCRIPTION = 'labels:speech_transcription',
+  SPEAKER_TRANSCRIPTION = 'labels:speaker_transcription',
 }
 
 /**
@@ -89,6 +90,24 @@ export interface TaskDetectLabelsSpeechTranscriptionStep extends TaskDetectLabel
 }
 
 /**
+ * Input for SPEAKER_TRANSCRIPTION step
+ *
+ * Speaker-diarized STT (first provider: ElevenLabs Scribe). Unlike the GCVI
+ * steps, the provider receives the media file directly from app storage, so
+ * the step carries its own `fileRef` and has no UPLOAD_TO_GCS dependency.
+ */
+export interface TaskDetectLabelsSpeakerTranscriptionStep extends TaskDetectLabelsBaseStep {
+  type: 'speaker_transcription';
+  fileRef: string;
+  config?: {
+    modelId?: string;
+    languageCode?: string;
+    numSpeakers?: number;
+    tagAudioEvents?: boolean;
+  };
+}
+
+/**
  * Union type for all detect labels step inputs
  */
 export type TaskDetectLabelsInput =
@@ -97,7 +116,8 @@ export type TaskDetectLabelsInput =
   | TaskDetectLabelsObjectTrackingStep
   | TaskDetectLabelsFaceDetectionStep
   | TaskDetectLabelsPersonDetectionStep
-  | TaskDetectLabelsSpeechTranscriptionStep;
+  | TaskDetectLabelsSpeechTranscriptionStep
+  | TaskDetectLabelsSpeakerTranscriptionStep;
 
 /**
  * Base output type shared by all label step processors
@@ -123,6 +143,9 @@ export interface TaskDetectLabelsEntityCounts {
   labelSpeechCount: number;
   labelSegmentCount: number;
   labelShotCount: number;
+  // Optional: only produced by the SPEAKER_TRANSCRIPTION step; the GCVI step
+  // outputs predate it and are left untouched.
+  labelSpeakerCount?: number;
 }
 
 /**
@@ -186,6 +209,17 @@ export interface TaskDetectLabelsSpeechTranscriptionStepOutput extends TaskDetec
 }
 
 /**
+ * Output for SPEAKER_TRANSCRIPTION step
+ */
+export interface TaskDetectLabelsSpeakerTranscriptionStepOutput extends TaskDetectLabelsBaseStepOutput {
+  counts: {
+    transcriptLength: number;
+    wordCount: number;
+    speakerCount: number;
+  } & TaskDetectLabelsEntityCounts;
+}
+
+/**
  * Union type for all detect labels step outputs
  */
 export type TaskDetectLabelsResult =
@@ -194,4 +228,5 @@ export type TaskDetectLabelsResult =
   | TaskDetectLabelsObjectTrackingStepOutput
   | TaskDetectLabelsFaceDetectionStepOutput
   | TaskDetectLabelsPersonDetectionStepOutput
-  | TaskDetectLabelsSpeechTranscriptionStepOutput;
+  | TaskDetectLabelsSpeechTranscriptionStepOutput
+  | TaskDetectLabelsSpeakerTranscriptionStepOutput;

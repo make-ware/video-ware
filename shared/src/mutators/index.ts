@@ -17,6 +17,10 @@ export {
   type LinkLabelParams,
 } from './media-clip-label';
 export { LabelFaceMutator } from './label-face';
+export {
+  LabelSpeakerMutator,
+  type LabelSpeakerRelations,
+} from './label-speaker';
 export { LabelSpeechMutator } from './label-speech';
 export { LabelEntityMutator } from './label-entity';
 export { LabelSegmentMutator } from './label-segment';

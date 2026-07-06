@@ -17,12 +17,17 @@ import {
   deriveMergedSpeechMeta,
   truncateChars,
 } from './derive-clip-label';
+import {
+  deriveMergedSpeakerMeta,
+  type SpeakerUtterance,
+} from '../speakers/speaker-utils';
 
 const PROCESSOR = 'inspector';
 
 export type CreateClipRequest =
   | { kind: 'single'; labelType: LabelType; record: ActualizableLabel }
-  | { kind: 'merge-speech'; segments: LabelSpeech[] };
+  | { kind: 'merge-speech'; segments: LabelSpeech[] }
+  | { kind: 'merge-speaker'; segments: SpeakerUtterance[] };
 
 interface CreateClipResult {
   clip: MediaClip;
@@ -32,8 +37,9 @@ interface CreateClipResult {
 /**
  * One-click clip creation from label rows. Single labels go through the
  * shared createFromLabel (which also writes the MediaClipLabels provenance
- * edge); merged speech selections create the clip manually and link every
- * source segment. Success shows a toast with "View clip" and "Undo" actions.
+ * edge); merged speech/speaker selections create the clip manually and link
+ * every source segment. Success shows a toast with "View clip" and "Undo"
+ * actions.
  */
 export function useCreateClipFromLabel() {
   const { pb } = usePocketBase();
@@ -70,14 +76,21 @@ export function useCreateClipFromLabel() {
         return { clip, label: meta.label };
       }
 
-      const segments = [...req.segments].sort((a, b) => a.start - b.start);
+      const labelType =
+        req.kind === 'merge-speaker' ? LabelType.SPEAKER : LabelType.SPEECH;
+      const meta =
+        req.kind === 'merge-speaker'
+          ? deriveMergedSpeakerMeta(req.segments)
+          : deriveMergedSpeechMeta(req.segments);
+      const segments: Array<LabelSpeech | SpeakerUtterance> = [
+        ...req.segments,
+      ].sort((a, b) => a.start - b.start);
       if (segments.length === 0) {
         throw new Error('No segments selected');
       }
       const first = segments[0];
       const start = first.start;
       const end = Math.max(...segments.map((s) => s.end));
-      const meta = deriveMergedSpeechMeta(segments);
       const confidence = Math.min(...segments.map((s) => s.confidence));
 
       const clip = await mutator.create({
@@ -93,7 +106,7 @@ export function useCreateClipFromLabel() {
         description: meta.description,
         clipData: {
           sourceType: 'label',
-          labelType: LabelType.SPEECH,
+          labelType,
           confidence,
         },
       });
@@ -103,10 +116,13 @@ export function useCreateClipFromLabel() {
         await linkMutator.linkLabel({
           workspaceId: first.WorkspaceRef,
           clipId: clip.id,
-          labelType: LabelType.SPEECH,
+          labelType,
           labelId: segment.id,
           confidence: segment.confidence,
-          metadata: { transcript: truncateChars(segment.transcript, 200) },
+          metadata: {
+            transcript: truncateChars(segment.transcript, 200),
+            ...('speakerId' in segment ? { speakerId: segment.speakerId } : {}),
+          },
         });
       }
       return { clip, label: meta.label };

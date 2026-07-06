@@ -17,6 +17,7 @@ const LABEL_COLLECTIONS = [
   'LabelShots',
   'LabelPerson',
   'LabelSpeech',
+  'LabelSpeaker',
   'LabelFaces',
   'LabelSegments',
   'LabelText',
@@ -67,6 +68,19 @@ const speech2 = {
   end: 4,
   confidence: 0.8,
 };
+const speaker1 = {
+  id: 'lk1',
+  WorkspaceRef: 'ws1',
+  MediaRef: 'm1',
+  transcript: 'hello there',
+  speakerId: 'speaker_0',
+  start: 0,
+  end: 2,
+  duration: 2,
+  confidence: 0.95,
+  words: [{ text: 'hello', start: 0, end: 1, speakerId: 'speaker_0' }],
+  speakerHash: 'hash-lk1',
+};
 const timeline1 = {
   id: 't1',
   WorkspaceRef: 'ws1',
@@ -103,9 +117,11 @@ function makeCollections(): Record<string, Stub> {
   };
   for (const name of LABEL_COLLECTIONS) {
     collections[name] = {
-      getList: vi.fn(async () =>
-        listResult(name === 'LabelSpeech' ? [speech1, speech2] : [])
-      ),
+      getList: vi.fn(async () => {
+        if (name === 'LabelSpeech') return listResult([speech1, speech2]);
+        if (name === 'LabelSpeaker') return listResult([speaker1]);
+        return listResult([]);
+      }),
     };
   }
   return collections;
@@ -140,7 +156,7 @@ describe('exportWorkspace', () => {
     expect(result.counts).toEqual({
       media: 2,
       mediaClips: 1,
-      labels: 2,
+      labels: 3,
       timelines: 1,
     });
     expect(Number.isNaN(Date.parse(result.exportedAt))).toBe(false);
@@ -158,7 +174,7 @@ describe('exportWorkspace', () => {
       name: 'beach.mp4',
       label: 'Beach',
       clipCount: 1,
-      labelCounts: { speech: 2 },
+      labelCounts: { speech: 2, speaker: 1 },
     });
     expect(mediaIndex.items[1]).toMatchObject({
       id: 'm2',
@@ -177,6 +193,10 @@ describe('exportWorkspace', () => {
     expect(
       readJson(dir, 'media', 'm1', 'labels', 'speech', 'ls2.json')
     ).toEqual(speech2);
+    // Speaker (diarization) labels export into their own per-type folder.
+    expect(
+      readJson(dir, 'media', 'm1', 'labels', 'speaker', 'lk1.json')
+    ).toEqual(speaker1);
     expect(existsSync(join(dir, 'media', 'm1', 'labels', 'object'))).toBe(
       false
     );

@@ -16,6 +16,7 @@ const ALL_ENABLED: EnabledLabelProcessors = {
   faceDetection: true,
   personDetection: true,
   speechTranscription: true,
+  speakerTranscription: true,
 };
 
 const NONE_ENABLED: EnabledLabelProcessors = {
@@ -24,6 +25,7 @@ const NONE_ENABLED: EnabledLabelProcessors = {
   faceDetection: false,
   personDetection: false,
   speechTranscription: false,
+  speakerTranscription: false,
 };
 
 const ALL_REQUESTED: DetectLabelsConfig = {
@@ -33,6 +35,7 @@ const ALL_REQUESTED: DetectLabelsConfig = {
   detectFaces: true,
   detectPersons: true,
   detectSpeech: true,
+  detectSpeakers: true,
 };
 
 function makeTask(config: DetectLabelsConfig): Task {
@@ -84,17 +87,22 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
       ).toContain(expectedStep);
     }
 
-    // 5 detection steps at the top level
-    expect(flow.children).toHaveLength(5);
+    // 6 detection steps at the top level
+    expect(flow.children).toHaveLength(6);
   });
 
-  it('should give every detection step its own real UPLOAD_TO_GCS child', () => {
+  it('should give every GCVI detection step its own real UPLOAD_TO_GCS child', () => {
     const flow = LabelsFlowBuilder.buildFlow(
       makeTask(ALL_REQUESTED),
       ALL_ENABLED
     );
 
-    for (const step of detectionChildren(flow)) {
+    const gcviSteps = detectionChildren(flow).filter(
+      (step) => step.data.stepType !== LABELS_FLOW_STEPS.SPEAKER_TRANSCRIPTION
+    );
+    expect(gcviSteps).toHaveLength(5);
+
+    for (const step of gcviSteps) {
       expect(step.children).toHaveLength(1);
       const upload = step.children?.[0] as LabelsChildJobDefinition;
 
@@ -112,6 +120,27 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
       // Upload failure must fail the detection step, not strand it
       expect(upload.opts?.failParentOnFailure).toBe(true);
     }
+  });
+
+  it('should give speaker transcription no upload child and its own fileRef', () => {
+    const flow = LabelsFlowBuilder.buildFlow(
+      makeTask(ALL_REQUESTED),
+      ALL_ENABLED
+    );
+
+    const speaker = detectionChildren(flow).find(
+      (step) => step.data.stepType === LABELS_FLOW_STEPS.SPEAKER_TRANSCRIPTION
+    );
+    expect(speaker).toBeDefined();
+
+    // ElevenLabs reads the file from app storage — no GCS dependency
+    expect(speaker!.children).toHaveLength(0);
+    expect(speaker!.data.input).toMatchObject({
+      type: 'speaker_transcription',
+      mediaId: 'test-media-id',
+      fileRef: 'test-file-ref',
+      workspaceRef: 'test-workspace-id',
+    });
   });
 
   it('should allow partial success via ignoreDependencyOnFailure on detection steps', () => {
@@ -135,8 +164,11 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
 
     for (const step of detectionChildren(flow)) {
       expect(step.data.parentJobId).toBe(flow.opts?.jobId);
-      const upload = step.children?.[0] as LabelsChildJobDefinition;
-      expect(upload.data.parentJobId).toBe(flow.opts?.jobId);
+      for (const nested of step.children ?? []) {
+        expect((nested as LabelsChildJobDefinition).data.parentJobId).toBe(
+          flow.opts?.jobId
+        );
+      }
     }
   });
 
@@ -152,6 +184,7 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
       LABELS_FLOW_STEPS.FACE_DETECTION,
       LABELS_FLOW_STEPS.PERSON_DETECTION,
       LABELS_FLOW_STEPS.SPEECH_TRANSCRIPTION,
+      LABELS_FLOW_STEPS.SPEAKER_TRANSCRIPTION,
     ]);
   });
 
@@ -212,5 +245,6 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
     expect(stepTypes.FACE_DETECTION).toBeDefined();
     expect(stepTypes.PERSON_DETECTION).toBeDefined();
     expect(stepTypes.SPEECH_TRANSCRIPTION).toBeDefined();
+    expect(stepTypes.SPEAKER_TRANSCRIPTION).toBeDefined();
   });
 });

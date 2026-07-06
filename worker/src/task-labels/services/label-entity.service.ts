@@ -89,7 +89,7 @@ export class LabelEntityService {
    * @param workspaceRef The workspace reference
    * @param labelType The label type
    * @param canonicalName The canonical name of the label
-   * @param provider The processing provider (must be GOOGLE_VIDEO_INTELLIGENCE or GOOGLE_SPEECH)
+   * @param provider The processing provider (GOOGLE_VIDEO_INTELLIGENCE, GOOGLE_SPEECH, or ELEVENLABS)
    * @param processor The processor version string (e.g., "object-tracking:1.0.0")
    * @param metadata Optional provider-specific metadata
    * @returns The entity ID
@@ -100,7 +100,8 @@ export class LabelEntityService {
     canonicalName: string,
     provider:
       | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      | ProcessingProvider.GOOGLE_SPEECH,
+      | ProcessingProvider.GOOGLE_SPEECH
+      | ProcessingProvider.ELEVENLABS,
     processor: string,
     metadata?: Record<string, unknown>
   ): Promise<string> {
@@ -274,7 +275,8 @@ export class LabelEntityService {
       canonicalName: string;
       provider:
         | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-        | ProcessingProvider.GOOGLE_SPEECH;
+        | ProcessingProvider.GOOGLE_SPEECH
+        | ProcessingProvider.ELEVENLABS;
       processor: string;
       metadata?: Record<string, unknown>;
     }>

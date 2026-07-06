@@ -18,6 +18,7 @@ export const LabelEntitySchema = z
       LabelType.SHOT,
       LabelType.PERSON,
       LabelType.SPEECH,
+      LabelType.SPEAKER,
       LabelType.FACE,
       LabelType.SEGMENT,
       LabelType.TEXT,
@@ -26,6 +27,7 @@ export const LabelEntitySchema = z
     provider: SelectField([
       ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
       ProcessingProvider.GOOGLE_SPEECH,
+      ProcessingProvider.ELEVENLABS,
     ]),
     processor: TextField(), // e.g., "object-tracking:1.0.0"
     metadata: JSONField().optional(), // Provider-specific data
@@ -41,6 +43,7 @@ export const LabelEntityInputSchema = z.object({
     LabelType.SHOT,
     LabelType.PERSON,
     LabelType.SPEECH,
+    LabelType.SPEAKER,
     LabelType.FACE,
     LabelType.SEGMENT,
     LabelType.TEXT,
@@ -49,6 +52,7 @@ export const LabelEntityInputSchema = z.object({
   provider: z.enum([
     ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
     ProcessingProvider.GOOGLE_SPEECH,
+    ProcessingProvider.ELEVENLABS,
   ]),
   processor: z.string().min(1, 'Processor is required'),
   metadata: JSONField().optional(),

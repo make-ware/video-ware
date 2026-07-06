@@ -33,6 +33,10 @@ import {
   SpeechTranscriptionStepProcessor,
   type SpeechTranscriptionStepInput,
 } from './speech-transcription-step.processor';
+import {
+  SpeakerTranscriptionStepProcessor,
+  type SpeakerTranscriptionStepInput,
+} from './speaker-transcription-step.processor';
 
 import type {
   ParentJobData,
@@ -57,6 +61,8 @@ import { queueWorkerOptions } from '../../queue/worker-options';
  *   - FACE_DETECTION (tracked faces with attributes)
  *   - PERSON_DETECTION (tracked persons with landmarks)
  *   - SPEECH_TRANSCRIPTION (speech-to-text)
+ * - SPEAKER_TRANSCRIPTION (ElevenLabs diarized STT) runs alongside them but
+ *   reads the media from app storage directly (no UPLOAD_TO_GCS child)
  * - Each processor processes and writes its own data independently
  * - The parent aggregates over the steps the flow builder enqueued
  *   (job.data.expectedSteps); task succeeds if at least one succeeds
@@ -78,7 +84,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     private readonly objectTrackingStepProcessor: ObjectTrackingStepProcessor,
     private readonly faceDetectionStepProcessor: FaceDetectionStepProcessor,
     private readonly personDetectionStepProcessor: PersonDetectionStepProcessor,
-    private readonly speechTranscriptionStepProcessor: SpeechTranscriptionStepProcessor
+    private readonly speechTranscriptionStepProcessor: SpeechTranscriptionStepProcessor,
+    private readonly speakerTranscriptionStepProcessor: SpeakerTranscriptionStepProcessor
   ) {
     super();
     this.pocketbaseService = pocketbaseService;
@@ -359,6 +366,13 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
             job
           );
           break;
+
+        case DetectLabelsStepType.SPEAKER_TRANSCRIPTION:
+          output = await this.speakerTranscriptionStepProcessor.process(
+            input as SpeakerTranscriptionStepInput,
+            job
+          );
+          break;
         default:
           throw new Error(`Unknown step type: ${stepType}`);
       }
@@ -396,7 +410,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
         stepType === DetectLabelsStepType.OBJECT_TRACKING ||
         stepType === DetectLabelsStepType.FACE_DETECTION ||
         stepType === DetectLabelsStepType.PERSON_DETECTION ||
-        stepType === DetectLabelsStepType.SPEECH_TRANSCRIPTION
+        stepType === DetectLabelsStepType.SPEECH_TRANSCRIPTION ||
+        stepType === DetectLabelsStepType.SPEAKER_TRANSCRIPTION
       ) {
         this.logger.warn(
           `Step ${stepType} failed but allowing partial success`
@@ -432,6 +447,9 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     if (cfg.enableSpeechTranscription) {
       steps.push(DetectLabelsStepType.SPEECH_TRANSCRIPTION);
     }
+    if (cfg.enableSpeakerTranscription) {
+      steps.push(DetectLabelsStepType.SPEAKER_TRANSCRIPTION);
+    }
     return steps;
   }
 
@@ -444,7 +462,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     const cfg = this.processorsConfigService;
     switch (stepType) {
       case DetectLabelsStepType.UPLOAD_TO_GCS:
-        return cfg.hasEnabledProcessors;
+        // Only GCVI processors consume the GCS temp upload.
+        return cfg.hasEnabledGcviProcessors;
       case DetectLabelsStepType.LABEL_DETECTION:
         return cfg.enableLabelDetection;
       case DetectLabelsStepType.OBJECT_TRACKING:
@@ -455,6 +474,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
         return cfg.enablePersonDetection;
       case DetectLabelsStepType.SPEECH_TRANSCRIPTION:
         return cfg.enableSpeechTranscription;
+      case DetectLabelsStepType.SPEAKER_TRANSCRIPTION:
+        return cfg.enableSpeakerTranscription;
       default:
         // Non-label step types are unaffected by these flags.
         return true;

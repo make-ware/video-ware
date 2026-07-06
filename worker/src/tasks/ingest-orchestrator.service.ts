@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  ALL_LABEL_DETECTIONS,
   MediaType,
   ProcessingProvider,
   TaskStatus,
@@ -193,15 +194,12 @@ export class IngestOrchestratorService {
       // config` (see worker/src/queue/flows/labels-flow.builder.ts), sourcing
       // the env side from ProcessorsConfigService. So the deployment's ENABLE_*
       // flags decide what actually runs; setting these false here would veto
-      // detection regardless of env. Keep in sync with the regenerate default
-      // in webapp/src/services/media.ts.
+      // detection regardless of env. ALL_LABEL_DETECTIONS is the single source
+      // of truth for "run everything" (shared with the webapp Detect Labels
+      // button) and is `Required`, so a new detector forces this to update.
       const defaultLabels: LabelsFlowConfig = {
         confidenceThreshold: 0.5,
-        detectObjects: true,
-        detectLabels: true,
-        detectFaces: true,
-        detectPersons: true,
-        detectSpeech: true,
+        ...ALL_LABEL_DETECTIONS,
       };
 
       const processPayload: ProcessUploadPayload = {

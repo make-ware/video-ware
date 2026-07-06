@@ -149,6 +149,15 @@ export type LabelsFlowSteps = {
     required: true;
     dependsOn: ['uploadToGcs'];
   };
+  /**
+   * SPEAKER_TRANSCRIPTION step - speaker-diarized STT (ElevenLabs).
+   * Reads the media file straight from app storage, so no uploadToGcs
+   * dependency.
+   */
+  speakerTranscription: {
+    type: 'speaker_transcription';
+    required: true;
+  };
 };
 
 /**
@@ -161,6 +170,7 @@ export const LABELS_FLOW_STEPS = {
   FACE_DETECTION: 'labels:face_detection' as const,
   PERSON_DETECTION: 'labels:person_detection' as const,
   SPEECH_TRANSCRIPTION: 'labels:speech_transcription' as const,
+  SPEAKER_TRANSCRIPTION: 'labels:speaker_transcription' as const,
 } as const;
 
 /**

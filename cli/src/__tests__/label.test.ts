@@ -23,13 +23,14 @@ function listStub(items: unknown[] = []) {
   };
 }
 
-/** Empty stubs for all 7 label collections (override per test). */
+/** Empty stubs for all 8 label collections (override per test). */
 function allLabelCollections(overrides: Record<string, Stub> = {}) {
   return {
     LabelObjects: listStub(),
     LabelShots: listStub(),
     LabelPerson: listStub(),
     LabelSpeech: listStub(),
+    LabelSpeaker: listStub(),
     LabelFaces: listStub(),
     LabelSegments: listStub(),
     LabelText: listStub(),
@@ -84,6 +85,33 @@ describe('searchLabels', () => {
       },
     ]);
     expect(totalItems).toBe(1);
+  });
+
+  it('searches speaker labels across transcript and speakerId', async () => {
+    const speaker = listStub([
+      {
+        id: 'sk1',
+        MediaRef: 'm1',
+        speakerId: 'speaker_0',
+        transcript: 'hello there',
+        start: 0,
+        end: 2,
+        confidence: 0.95,
+      },
+    ]);
+    const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
+
+    const { hits } = await searchLabels(pb, {
+      workspaceId: 'ws1',
+      query: 'hello',
+      types: [LabelType.SPEAKER],
+    });
+
+    expect(speaker.getList).toHaveBeenCalledOnce();
+    const options = speaker.getList.mock.calls[0][2];
+    expect(options.filter).toContain('transcript ~ hello');
+    expect(options.filter).toContain('speakerId ~ hello');
+    expect(hits[0].type).toBe(LabelType.SPEAKER);
   });
 
   it('matches faces by exact faceId with avgConfidence threshold and sort', async () => {

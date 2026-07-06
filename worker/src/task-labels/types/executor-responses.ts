@@ -176,6 +176,33 @@ export interface SpeechTranscriptionResponse {
 }
 
 /**
+ * Diarized word (or non-word token) with timing information.
+ *
+ * Mirrors the ElevenLabs Scribe `words` array: spoken words, the spacing
+ * between them, and (when tagging is enabled) audio events are all discrete
+ * entries; normalizers filter on `type`.
+ */
+export interface SpeakerTranscribedWord {
+  text: string;
+  type: 'word' | 'spacing' | 'audio_event';
+  start: number; // seconds (float)
+  end: number; // seconds (float)
+  speakerId?: string; // e.g. "speaker_0"
+}
+
+/**
+ * Speaker Transcription Response
+ *
+ * Response from a diarized STT provider (ElevenLabs Scribe).
+ */
+export interface SpeakerTranscriptionResponse {
+  transcript: string;
+  languageCode: string;
+  languageProbability: number; // 0-1
+  words: SpeakerTranscribedWord[];
+}
+
+/**
  * Union type for all executor responses
  */
 export type ExecutorResponse =
@@ -183,4 +210,5 @@ export type ExecutorResponse =
   | ObjectTrackingResponse
   | FaceDetectionResponse
   | PersonDetectionResponse
-  | SpeechTranscriptionResponse;
+  | SpeechTranscriptionResponse
+  | SpeakerTranscriptionResponse;

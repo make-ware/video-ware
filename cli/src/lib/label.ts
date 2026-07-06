@@ -6,6 +6,7 @@ import {
   LabelPersonMutator,
   LabelSegmentMutator,
   LabelShotMutator,
+  LabelSpeakerMutator,
   LabelSpeechMutator,
   LabelTextMutator,
   MediaClipMutator,
@@ -88,6 +89,14 @@ export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
     confidenceField: 'confidence',
     snippet: (r) => textField(r, 'transcript'),
   },
+  [LabelType.SPEAKER]: {
+    queryFields: ['transcript', 'speakerId'],
+    confidenceField: 'confidence',
+    snippet: (r) =>
+      [textField(r, 'speakerId'), textField(r, 'transcript')]
+        .filter(Boolean)
+        .join(': '),
+  },
   [LabelType.FACE]: {
     queryFields: ['faceId'],
     confidenceField: 'avgConfidence',
@@ -144,6 +153,8 @@ export function labelMutator(
       return new LabelPersonMutator(pb);
     case LabelType.SPEECH:
       return new LabelSpeechMutator(pb);
+    case LabelType.SPEAKER:
+      return new LabelSpeakerMutator(pb);
     case LabelType.FACE:
       return new LabelFaceMutator(pb);
     case LabelType.SEGMENT:

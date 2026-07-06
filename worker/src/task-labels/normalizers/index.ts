@@ -14,3 +14,4 @@ export { ObjectTrackingNormalizer } from './object-tracking.normalizer';
 export { FaceDetectionNormalizer } from './face-detection.normalizer';
 export { PersonDetectionNormalizer } from './person-detection.normalizer';
 export { SpeechTranscriptionNormalizer } from './speech-transcription.normalizer';
+export { SpeakerTranscriptionNormalizer } from './speaker-transcription.normalizer';

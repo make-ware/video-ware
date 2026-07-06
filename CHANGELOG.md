@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.6...video-ware-v0.8.7) (2026-07-06)
+
+
+### Bug Fixes
+
+* add entity link for labels ([f1a6a81](https://github.com/make-ware/video-ware/commit/f1a6a81b5c0163a542164ced6640ec55fc93ba48))
+* LabelTrack data overflow ([c2bf91d](https://github.com/make-ware/video-ware/commit/c2bf91d9f7f1dac3abaaf65f0da48a5bf168d6d3))
+
 ## [0.8.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.5...video-ware-v0.8.6) (2026-07-06)
 
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -11,6 +12,8 @@ import {
 import { Loader2, Scissors } from 'lucide-react';
 import { TracksAnimator } from '@/components/labels/tracks-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
+import { EntityPicker } from '@/components/labels/entity/entity-picker';
+import { useAssignTrackEntity } from '@/hooks/use-entities';
 import { useTimeAnimation } from '@/hooks/use-time-animation';
 import type { Media } from '@project/shared';
 import { formatClipTime } from '@/utils/format-clip-time';
@@ -63,6 +66,7 @@ export function LabelDetailPanel({
         {record ? (
           <div className="space-y-4">
             <LabelPreview config={config} record={record} />
+            <EntityLinkSection record={record} />
             <StatTiles config={config} record={record} />
           </div>
         ) : (
@@ -130,6 +134,40 @@ function LabelRangeFilmstrip({
       currentTime={currentTime}
       className="w-full h-full"
     />
+  );
+}
+
+/**
+ * Link the label's track to a real-world Entity. The track is the per-media
+ * cluster (one face track, one object track), so the link identifies every
+ * detection in the track — here and via cross-media entity queries.
+ */
+function EntityLinkSection({ record }: { record: InspectorLabelRecord }) {
+  const params = useParams();
+  const workspaceId = params.workspaceId as string;
+  const assign = useAssignTrackEntity();
+
+  const trackId = (record as { LabelTrackRef?: string }).LabelTrackRef;
+  const track = record.expand?.LabelTrackRef;
+  if (!trackId || !workspaceId) return null;
+
+  return (
+    <div className="p-3 border rounded bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <h4 className="text-xs font-medium uppercase text-muted-foreground mb-1">
+          Entity
+        </h4>
+        <p className="text-sm text-muted-foreground">
+          Identify this track across media
+        </p>
+      </div>
+      <EntityPicker
+        workspaceId={workspaceId}
+        value={track?.EntityRef}
+        onChange={(entityId) => assign.mutate({ trackId, entityId })}
+        disabled={assign.isPending}
+      />
+    </div>
   );
 }
 

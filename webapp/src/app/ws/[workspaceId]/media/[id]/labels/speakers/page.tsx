@@ -4,6 +4,9 @@ import { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { LabelType } from '@project/shared';
 import { useMediaSpeakers } from '@/hooks/use-media-speakers';
+import { useMediaLabelTracks } from '@/hooks/use-media-label-tracks';
+import { useAssignTrackEntity } from '@/hooks/use-entities';
+import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
 import {
   deriveSpeakerSummaries,
@@ -37,7 +40,10 @@ const GAP_THRESHOLD_SECONDS = 1;
 export default function LabelSpeakersPage() {
   const params = useParams();
   const mediaId = params.id as string;
+  const workspaceId = params.workspaceId as string;
   const { utterances, isLoading } = useMediaSpeakers(mediaId);
+  const { byTrackId } = useMediaLabelTracks(mediaId);
+  const assignEntity = useAssignTrackEntity();
   const createClip = useCreateClipFromLabel();
 
   const [query, setQuery] = useState('');
@@ -159,6 +165,7 @@ export default function LabelSpeakersPage() {
               <TabsList>
                 <TabsTrigger value="conversation">Conversation</TabsTrigger>
                 <TabsTrigger value="raw">Raw Text</TabsTrigger>
+                <TabsTrigger value="identify">Identify</TabsTrigger>
               </TabsList>
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -282,6 +289,73 @@ export default function LabelSpeakersPage() {
                       </span>
                     )}
                   </div>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent
+              value="identify"
+              className="flex-1 overflow-hidden mt-2"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-6 pt-0 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Link each diarized speaker to an entity to identify them
+                    across media. Assigning the same entity in other media (or
+                    to another speaker id in this one) merges their words and
+                    appearances everywhere.
+                  </p>
+                  {speakers.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">
+                      No speakers detected in this media.
+                    </p>
+                  ) : (
+                    speakers.map((s) => {
+                      const track = byTrackId.get(s.speakerId);
+                      return (
+                        <div
+                          key={s.speakerId}
+                          className="flex items-center justify-between gap-3 p-4 border rounded-lg flex-wrap"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={cn(
+                                'h-2.5 w-2.5 rounded-full',
+                                speakerDotClass(s.colorIndex)
+                              )}
+                            />
+                            <div>
+                              <div className="font-medium">{s.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {s.speakerId} · {s.utteranceCount}{' '}
+                                {s.utteranceCount === 1
+                                  ? 'utterance'
+                                  : 'utterances'}{' '}
+                                · {formatClipTime(s.totalDuration)} speaking
+                              </div>
+                            </div>
+                          </div>
+                          {track ? (
+                            <EntityPicker
+                              workspaceId={workspaceId}
+                              value={track.EntityRef}
+                              onChange={(entityId) =>
+                                assignEntity.mutate({
+                                  trackId: track.id,
+                                  entityId,
+                                })
+                              }
+                              disabled={assignEntity.isPending}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              No track record for this speaker.
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </ScrollArea>
             </TabsContent>

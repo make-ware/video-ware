@@ -44,6 +44,7 @@ import {
   Check,
   Film,
   Clapperboard,
+  UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +93,12 @@ export function AppMenubar({ className }: AppMenubarProps) {
           label: 'Timelines',
           icon: Clapperboard,
           match: `${wsPrefix}/timelines`,
+        },
+        {
+          href: `${wsPrefix}/entities`,
+          label: 'Entities',
+          icon: UsersRound,
+          match: `${wsPrefix}/entities`,
         },
       ]
     : [];

@@ -1,5 +1,6 @@
 import type { ListResult } from 'pocketbase';
 import { BaseMutator } from './base';
+import { entityAttributionFilter } from './entity';
 import {
   LabelSpeaker,
   LabelSpeakerInput,
@@ -61,6 +62,21 @@ export class LabelSpeakerMutator extends BaseMutator<
       perPage,
       `MediaRef = "${mediaId}" && speakerId = "${speakerId}"`,
       'start'
+    );
+  }
+
+  /**
+   * All utterances attributed to a real-world Entity, across media: rows
+   * whose speaker track (preferred) or provider LabelEntity is linked to it.
+   * Sorted by media then start so consecutive rows read as a transcript.
+   */
+  async getByEntity(entityId: string, page = 1, perPage = 200) {
+    return this.getList(
+      page,
+      perPage,
+      entityAttributionFilter(entityId),
+      'MediaRef,start',
+      ['MediaRef']
     );
   }
 }

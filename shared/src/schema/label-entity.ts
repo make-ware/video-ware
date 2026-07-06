@@ -32,6 +32,10 @@ export const LabelEntitySchema = z
     processor: TextField(), // e.g., "object-tracking:1.0.0"
     metadata: JSONField().optional(), // Provider-specific data
     entityHash: TextField({ min: 1 }), // Unique constraint for deduplication
+    // Manual link to a real-world Entity ("every label in this cluster is
+    // this product/person"). Workspace-wide semantic identity — a track-level
+    // LabelTrack.EntityRef takes precedence over this fallback.
+    EntityRef: RelationField({ collection: 'Entities' }).optional(),
   })
   .extend(baseSchema);
 
@@ -57,6 +61,7 @@ export const LabelEntityInputSchema = z.object({
   processor: z.string().min(1, 'Processor is required'),
   metadata: JSONField().optional(),
   entityHash: z.string().min(1, 'Entity hash is required'),
+  EntityRef: z.string().optional(),
 });
 
 // Define the collection with workspace-scoped permissions
@@ -82,6 +87,8 @@ export const LabelEntityCollection = defineCollection({
     'CREATE INDEX idx_label_entity_workspace_type ON LabelEntity (WorkspaceRef, labelType)',
     // Index for canonicalName searches
     'CREATE INDEX idx_label_entity_canonical_name ON LabelEntity (canonicalName)',
+    // Index for entity queries ("all label clusters linked to this entity")
+    'CREATE INDEX idx_label_entity_entity ON LabelEntity (EntityRef)',
   ],
 });
 

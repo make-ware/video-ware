@@ -6,6 +6,7 @@ import { registerAuthCommands } from './commands/login.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
 import { registerMediaCommands } from './commands/media.js';
 import { registerLabelCommands } from './commands/label.js';
+import { registerEntityCommands } from './commands/entity.js';
 import { registerCaptionCommands } from './commands/caption.js';
 import { registerTimelineCommands } from './commands/timeline.js';
 
@@ -41,6 +42,7 @@ registerAuthCommands(program);
 registerWorkspaceCommands(program);
 registerMediaCommands(program);
 registerLabelCommands(program);
+registerEntityCommands(program);
 registerCaptionCommands(program);
 registerTimelineCommands(program);
 

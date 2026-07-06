@@ -163,4 +163,40 @@ export class LabelEntityMutator extends BaseMutator<
       ['WorkspaceRef']
     );
   }
+
+  /**
+   * Link (or, with null, unlink) a provider label cluster to a real-world
+   * Entity — the workspace-wide "every label in this cluster is this
+   * product/person" operation. A per-media LabelTrack.EntityRef takes
+   * precedence over this fallback.
+   * @param labelEntityId The label entity ID
+   * @param entityId The entity ID, or null to unlink
+   */
+  async setEntity(
+    labelEntityId: string,
+    entityId: string | null
+  ): Promise<LabelEntity> {
+    return this.update(labelEntityId, {
+      EntityRef: entityId ?? '',
+    } as Partial<LabelEntity>);
+  }
+
+  /**
+   * All provider label clusters linked to an entity
+   * @param entityId The entity ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 100)
+   */
+  async getByEntity(
+    entityId: string,
+    page = 1,
+    perPage = 100
+  ): Promise<ListResult<LabelEntity>> {
+    return this.getList(
+      page,
+      perPage,
+      `EntityRef = "${entityId}"`,
+      'canonicalName'
+    );
+  }
 }

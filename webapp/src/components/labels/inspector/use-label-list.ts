@@ -59,10 +59,9 @@ export function useLabelList(
         params.q = query;
       }
 
-      const expand =
-        config.preview === 'track'
-          ? 'LabelTrackRef,MediaRef,MediaRef.filmstripFileRefs'
-          : 'MediaRef,MediaRef.filmstripFileRefs';
+      // LabelTrackRef is always expanded: the entity-link control reads the
+      // track's EntityRef even for types whose preview doesn't animate it.
+      const expand = 'LabelTrackRef,MediaRef,MediaRef.filmstripFileRefs';
 
       // TypedPocketBase's collection() overloads reject a union of names;
       // the explicit getList generic restores the record type.

@@ -1,4 +1,5 @@
 import { BaseMutator } from './base';
+import { entityAttributionFilter } from './entity';
 import {
   LabelFaceInput,
   LabelFace,
@@ -23,5 +24,20 @@ export class LabelFaceMutator extends BaseMutator<LabelFace, LabelFaceInput> {
 
   async getByMedia(mediaId: string, page = 1, perPage = 100) {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
+  }
+
+  /**
+   * All face detections attributed to a real-world Entity, across media:
+   * rows whose face track (preferred) or provider LabelEntity is linked to
+   * it — "when is this person on screen".
+   */
+  async getByEntity(entityId: string, page = 1, perPage = 200) {
+    return this.getList(
+      page,
+      perPage,
+      entityAttributionFilter(entityId),
+      'MediaRef,start',
+      ['MediaRef', 'LabelTrackRef']
+    );
   }
 }

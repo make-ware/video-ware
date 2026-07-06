@@ -15,6 +15,9 @@ export const LabelTrackSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     MediaRef: RelationField({ collection: 'Media' }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
+    // Manual link to a real-world Entity ("this track is Erik"). Per-media
+    // instance identity — takes precedence over LabelEntity.EntityRef.
+    EntityRef: RelationField({ collection: 'Entities' }).optional(),
 
     // --- Identification ---
     trackId: TextField(), // The stable ID from the provider (e.g., "0")
@@ -48,6 +51,7 @@ export const LabelTrackInputSchema = z.object({
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   MediaRef: z.string().min(1, 'Media is required'),
   LabelEntityRef: z.string().optional(),
+  EntityRef: z.string().optional(),
 
   // --- Identification ---
   trackId: z.string().min(1, 'Track ID is required'),
@@ -87,6 +91,8 @@ export const LabelTrackCollection = defineCollection({
     'CREATE INDEX idx_label_track_media_entity ON LabelTrack (MediaRef, LabelEntityRef)',
     // Index for workspace + media queries
     'CREATE INDEX idx_label_track_workspace_media ON LabelTrack (WorkspaceRef, MediaRef)',
+    // Index for entity queries ("all tracks linked to this entity")
+    'CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)',
   ],
 });
 

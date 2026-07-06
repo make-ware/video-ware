@@ -23,6 +23,11 @@ export {
 } from './label-speaker';
 export { LabelSpeechMutator } from './label-speech';
 export { LabelEntityMutator } from './label-entity';
+export {
+  EntityMutator,
+  entityAttributionFilter,
+  trackEntityAttributionFilter,
+} from './entity';
 export { LabelSegmentMutator } from './label-segment';
 export { LabelShotMutator } from './label-shot';
 export { LabelTextMutator } from './label-text';

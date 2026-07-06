@@ -94,6 +94,16 @@ export enum LabelType {
   TEXT = 'text',
 }
 
+// Kind of real-world Entity that provider label clusters (LabelTrack,
+// LabelEntity) can be linked to. An Entity is the stable cross-media
+// identity; label rows only carry provider-generated ids.
+export enum EntityKind {
+  PERSON = 'person',
+  PRODUCT = 'product',
+  PLACE = 'place',
+  THING = 'thing',
+}
+
 export enum TaskStatus {
   QUEUED = 'queued',
   RUNNING = 'running',

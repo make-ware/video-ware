@@ -39,6 +39,17 @@ export const qk = {
   speakers: {
     byMedia: (id: string) => ['speakers', id] as const,
   },
+  entities: {
+    all: ['entities'] as const,
+    byWorkspace: (workspaceId: string) =>
+      ['entities', 'workspace', workspaceId] as const,
+    detail: (id: string) => ['entities', 'detail', id] as const,
+    appearances: (id: string) => ['entities', 'appearances', id] as const,
+    words: (id: string) => ['entities', 'words', id] as const,
+  },
+  labelTracks: {
+    byMedia: (id: string) => ['label-tracks', id] as const,
+  },
   labels: {
     list: (
       mediaId: string,

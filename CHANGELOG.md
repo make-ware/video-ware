@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.7...video-ware-v0.8.8) (2026-07-06)
+
+
+### Bug Fixes
+
+* add ripple delete ([d62dab4](https://github.com/make-ware/video-ware/commit/d62dab49a401fda9693b9792a6a5ece743f07b4d))
+* reduce memory usage in docker ([1d2e11a](https://github.com/make-ware/video-ware/commit/1d2e11a2b196a084dd4414ba924a6549aebaa07b))
+
 ## [0.8.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.6...video-ware-v0.8.7) (2026-07-06)
 
 

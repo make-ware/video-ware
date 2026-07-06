@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useMedia } from '@/hooks/use-media';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ export function MediaNavigationPanel({
 }: MediaNavigationPanelProps) {
   const router = useRouter();
   const params = useParams();
+  const pathname = usePathname();
   const workspaceId = params.workspaceId as string;
   const { media, isLoading } = useMedia();
 
@@ -23,15 +24,27 @@ export function MediaNavigationPanel({
     return media.findIndex((m) => m.id === currentMediaId);
   }, [media, currentMediaId]);
 
+  // Capture the subpage suffix after the current media id (e.g.
+  // "/labels/speakers", "/details", or "") so it can be preserved when
+  // tabbing between media items.
+  const subPath = React.useMemo(() => {
+    const basePath = `/ws/${workspaceId}/media/${currentMediaId}`;
+    return pathname.startsWith(basePath) ? pathname.slice(basePath.length) : '';
+  }, [pathname, workspaceId, currentMediaId]);
+
   const handlePrev = () => {
     if (currentIndex > 0) {
-      router.push(`/ws/${workspaceId}/media/${media[currentIndex - 1].id}`);
+      router.push(
+        `/ws/${workspaceId}/media/${media[currentIndex - 1].id}${subPath}`
+      );
     }
   };
 
   const handleNext = () => {
     if (currentIndex < media.length - 1) {
-      router.push(`/ws/${workspaceId}/media/${media[currentIndex + 1].id}`);
+      router.push(
+        `/ws/${workspaceId}/media/${media[currentIndex + 1].id}${subPath}`
+      );
     }
   };
 

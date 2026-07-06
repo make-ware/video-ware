@@ -25,6 +25,12 @@ export WORKER_DATA_DIR="${WORKER_DATA_DIR:-/data/storage}"
 # Storage backend type (local or s3)
 export STORAGE_TYPE="${STORAGE_TYPE:-local}"
 
+# Scratch directory for temporary processing files (Node's os.tmpdir() and
+# ffmpeg temp files). Kept on the /data volume so large intermediate
+# render/transcode files never land in the container's writable layer
+# (e.g. Unraid's docker.img, or RAM when /tmp is tmpfs-mounted).
+export TMPDIR="${TMPDIR:-/data/tmp}"
+
 
 
 # Redis Configuration for NestJS worker
@@ -72,6 +78,12 @@ REDIS_DATA_DIR="${REDIS_DATA_DIR:-/data/redis}"
 if [ ! -d "$REDIS_DATA_DIR" ]; then
     [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating REDIS_DATA_DIR: $REDIS_DATA_DIR"
     mkdir -p "$REDIS_DATA_DIR"
+fi
+
+# Create scratch directory (bind mounts start empty, hiding the image's /data/tmp)
+if [ ! -d "$TMPDIR" ]; then
+    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating TMPDIR: $TMPDIR"
+    mkdir -p "$TMPDIR"
 fi
 
 
@@ -150,7 +162,7 @@ if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
   echo ""
   echo "Normalizing /data ownership for nextjs:nodejs (uid 1001)..."
 fi
-for _data_dir in "$PB_DATA_DIR" "$WORKER_DATA_DIR" "$REDIS_DATA_DIR"; do
+for _data_dir in "$PB_DATA_DIR" "$WORKER_DATA_DIR" "$REDIS_DATA_DIR" "$TMPDIR"; do
     chown -R nextjs:nodejs "$_data_dir" 2>/dev/null \
         || echo "⚠️  Could not change ownership of $_data_dir — services run as nextjs (uid 1001) and may fail to write. Ensure the mounted volume is writable/chownable by uid 1001." >&2
     # Ensure the owner can read/write (and traverse dirs); leaves group/other and

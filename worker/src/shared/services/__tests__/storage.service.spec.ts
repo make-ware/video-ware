@@ -3,6 +3,7 @@ import { StorageService } from '../storage.service';
 import { StorageBackendType } from '@project/shared';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Writable } from 'stream';
 import { createMockConfigService } from '@/__mocks__/config.service';
 
 // Hoisted mock storage backend (vi.mock is hoisted, so we need hoisted variables)
@@ -51,6 +52,7 @@ vi.mock('fs', () => ({
     mkdir: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn().mockResolvedValue(Buffer.from('test data')),
     rm: vi.fn().mockResolvedValue(undefined),
+    rename: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -163,33 +165,23 @@ describe('StorageService', () => {
       // Mock backend type as S3
       getMockStorageBackend().type = StorageBackendType.S3;
 
-      // Mock fs operations
+      // Mock fs operations. downloadToTemp pipes the download through
+      // stream.pipeline, which needs a real Writable and a real web
+      // ReadableStream (Readable.fromWeb rejects hand-rolled fakes).
       vi.mocked(fs.existsSync).mockReturnValue(false);
-      const mockWriteStream = {
-        write: vi.fn(),
-        end: vi.fn(),
-        on: vi.fn((event, callback) => {
-          if (event === 'finish') {
-            setTimeout(callback, 0);
-          }
-        }),
-      };
-      vi.mocked(fs.createWriteStream).mockReturnValue(mockWriteStream as any);
+      const discardStream = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback();
+        },
+      });
+      vi.mocked(fs.createWriteStream).mockReturnValue(discardStream as any);
 
-      // Mock ReadableStream
-      const mockReader = {
-        read: vi
-          .fn()
-          .mockResolvedValueOnce({
-            done: false,
-            value: new Uint8Array([1, 2, 3]),
-          })
-          .mockResolvedValueOnce({ done: true }),
-        releaseLock: vi.fn(),
-      };
-      const mockStream = {
-        getReader: vi.fn().mockReturnValue(mockReader),
-      };
+      const mockStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]));
+          controller.close();
+        },
+      });
       getMockStorageBackend().download.mockResolvedValue(mockStream);
 
       const result = await service.resolveFilePath(params);

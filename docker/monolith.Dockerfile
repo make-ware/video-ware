@@ -171,9 +171,16 @@ COPY --from=builder --chown=nextjs:nodejs /app/pb/pb_migrations ./pb/pb_migratio
 # owned by nextjs:nodejs (uid/gid 1001). Named volumes inherit this ownership;
 # for bind mounts, start.sh re-asserts it at runtime (the monolith runs start.sh
 # as root, so it can chown). See docker/README.md ("Data directory & permissions").
-RUN mkdir -p /data/pb_data /data/storage /data/redis && \
+RUN mkdir -p /data/pb_data /data/storage /data/redis /data/tmp && \
     chown -R nextjs:nodejs /data
 
+# Route ALL scratch I/O (Node's os.tmpdir() — used for worker-temp S3 download
+# staging — and ffmpeg temp files) to the /data volume instead of the
+# container's writable layer. Without this, large intermediate render/transcode
+# files land in /tmp inside the container filesystem (e.g. Unraid's docker.img,
+# or RAM when /tmp is tmpfs-mounted) and can exhaust it. /data is expected to
+# be a volume/bind mount backed by real disk.
+ENV TMPDIR=/data/tmp
 
 
 # Copy workspace package.json files

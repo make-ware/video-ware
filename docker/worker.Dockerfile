@@ -162,8 +162,16 @@ ENV RENDER_FONT_FILE_BOLD=/opt/fonts/bold.ttf
 # Create the worker's storage dir and own the /data tree as nextjs:nodejs (uid
 # 1001). Named volumes inherit this ownership; bind mounts must be chowned to
 # 1001 on the host (see docker/README.md "Data directory & permissions").
-RUN mkdir -p /data/storage && \
+RUN mkdir -p /data/storage /data/tmp && \
     chown -R nextjs:nodejs /data
+
+# Route ALL scratch I/O (Node's os.tmpdir() — used for worker-temp S3 download
+# staging — and ffmpeg temp files) to the /data volume instead of the
+# container's writable layer. Without this, large intermediate render/transcode
+# files land in /tmp inside the container filesystem (e.g. Unraid's docker.img,
+# or RAM when /tmp is tmpfs-mounted) and can exhaust it. /data is expected to
+# be a volume/bind mount backed by real disk.
+ENV TMPDIR=/data/tmp
 
 # Copy necessary package.json
 COPY --from=builder --chown=nextjs:nodejs /app/worker/package.json ./worker/

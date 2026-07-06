@@ -186,6 +186,7 @@ Each release produces multiple tags for version pinning:
 |----------|---------|-------------|
 | `REDIS_URL` | `redis://redis:6379` | Redis connection URL (Docker Compose only) |
 | `WORKER_DATA_DIR` | `/data/storage` | Directory for local processing files |
+| `TMPDIR` | `/data/tmp` | Scratch directory for temporary processing files (S3 download staging, ffmpeg temp files). Kept on the `/data` volume so large intermediates never fill the container's writable layer |
 | `BULL_BOARD_PORT` | `3002` | Bull Board dashboard port |
 | `STORAGE_TYPE` | `local` | Storage backend (`local` or `s3`) |
 
@@ -251,6 +252,7 @@ Map a single host directory (e.g., `./data`) to `/data` in the container. This r
 - `/data/pb_data` — PocketBase database (`data.db`) and uploaded files
 - `/data/storage` — media storage, **shared** by the worker (processing) and the webapp (SSR uploads)
 - `/data/redis` — Redis append-only file (AOF) for the BullMQ queue (**monolith only**; the bundled Redis persists here)
+- `/data/tmp` — scratch space for in-flight processing (S3 download staging, ffmpeg temp files). Contents are disposable; stale entries are reaped by the weekly cleanup task. Deliberately on the volume so multi-gigabyte intermediates never land in the container's writable layer (which on hosts like Unraid lives inside the size-capped `docker.img`)
 
 **Docker Run:**
 ```bash
@@ -341,6 +343,15 @@ ownership self-heals on startup — no manual chown is required. If you ever see
 SQLite locking errors (distinct from the readonly error above), point the
 appdata share at a cache pool / direct disk path rather than the FUSE
 `/mnt/user` path, which is a known SQLite-on-network-share gotcha.
+
+**Scratch space and RAM.** The images pin `TMPDIR=/data/tmp`, so all render and
+transcode scratch follows the `/data` mount onto real disk. Do **not** add an
+extra path mapping for the container's `/tmp` pointing at the host's `/tmp` (a
+common pattern for Plex transcode-to-RAM): Unraid's host root filesystem is a
+ramdisk, so that mapping turns every intermediate video file into RAM usage.
+Also note the Unraid dashboard counts the Linux page cache as used memory —
+heavy render I/O will show a large, temporary "RAM" spike even when scratch is
+on disk. That cache is reclaimable and is not the container leaking memory.
 
 
 ## Updating

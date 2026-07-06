@@ -10,6 +10,9 @@ import { StorageBackendType, FileSource, FileType } from '@project/shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 
 /**
  * Parameters for resolving a file path from storage
@@ -325,30 +328,26 @@ export class StorageService implements OnModuleInit {
         return tempFilePath;
       }
 
-      // Download file
+      // Download file. Stream to disk via pipeline() for backpressure: it
+      // pauses the source whenever the disk write buffer is full, so a fast
+      // source (S3 over LAN) feeding a slow disk can't accumulate the
+      // difference in process memory. Write to a .part file and rename so the
+      // "already downloaded" check above never picks up a partial download
+      // left behind by a failed or interrupted attempt.
       this.logger.log(`Downloading ${storagePath} to ${tempFilePath}`);
       const stream = await this.backend.download(storagePath);
-
-      // Write to temp file
-      const writeStream = fs.createWriteStream(tempFilePath);
-      const reader = stream.getReader();
+      const partFilePath = `${tempFilePath}.part`;
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          writeStream.write(Buffer.from(value));
-        }
-      } finally {
-        reader.releaseLock();
-        writeStream.end();
+        await pipeline(
+          Readable.fromWeb(stream as unknown as WebReadableStream),
+          fs.createWriteStream(partFilePath)
+        );
+        await fs.promises.rename(partFilePath, tempFilePath);
+      } catch (error) {
+        await fs.promises.rm(partFilePath, { force: true });
+        throw error;
       }
-
-      // Wait for write to complete
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on('finish', resolve);
-        writeStream.on('error', reject);
-      });
 
       this.logger.log(
         `Downloaded ${storagePath} to temp file: ${tempFilePath}`

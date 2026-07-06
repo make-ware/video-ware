@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { createReadStream, createWriteStream } from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 import { StorageBackendType } from '../enums';
 import type {
   StorageBackend,
@@ -151,42 +154,15 @@ export class LocalStorageBackend implements StorageBackend {
           });
         }
       } else if (file instanceof ReadableStream) {
-        // Handle ReadableStream
-        const writeStream = createWriteStream(fullPath);
-        const reader = file.getReader();
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            uploadedSize += value.length;
-            writeStream.write(value);
-
-            if (onProgress && totalSize > 0) {
-              const elapsed = (Date.now() - startTime) / 1000;
-              const speed = elapsed > 0 ? uploadedSize / elapsed : 0;
-              const remaining = totalSize - uploadedSize;
-              const eta = speed > 0 ? remaining / speed : 0;
-
-              onProgress({
-                loaded: uploadedSize,
-                total: totalSize,
-                percentage: (uploadedSize / totalSize) * 100,
-                speed,
-                estimatedTimeRemaining: eta,
-              });
-            }
-          }
-
-          writeStream.end();
-          await new Promise<void>((resolve, reject) => {
-            writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
-          });
-        } finally {
-          reader.releaseLock();
-        }
+        // Handle ReadableStream. pipeline() applies backpressure: it pauses
+        // the source whenever the disk write buffer is full, so a fast source
+        // feeding a slow disk can't accumulate the difference in process
+        // memory. No progress reporting here — a stream's total size is
+        // unknown, and onProgress requires a total to compute percentage.
+        await pipeline(
+          Readable.fromWeb(file as unknown as WebReadableStream),
+          createWriteStream(fullPath)
+        );
       } else {
         // Handle File (browser environment)
         totalSize = (file as File).size;
@@ -249,28 +225,17 @@ export class LocalStorageBackend implements StorageBackend {
     await mkdir(directory, { recursive: true });
 
     try {
-      // For first chunk, create/overwrite file; for subsequent chunks, append
+      // For first chunk, create/overwrite file; for subsequent chunks, append.
+      // pipeline() applies backpressure so a fast client upload can't outrun
+      // the disk and pile up in process memory.
       const writeStream = isFirstChunk
         ? createWriteStream(fullPath)
         : createWriteStream(fullPath, { flags: 'a' });
 
-      const reader = chunk.getReader();
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          writeStream.write(value);
-        }
-
-        writeStream.end();
-        await new Promise<void>((resolve, reject) => {
-          writeStream.on('finish', resolve);
-          writeStream.on('error', reject);
-        });
-      } finally {
-        reader.releaseLock();
-      }
+      await pipeline(
+        Readable.fromWeb(chunk as unknown as WebReadableStream),
+        writeStream
+      );
 
       // Only return result on last chunk
       if (isLastChunk) {

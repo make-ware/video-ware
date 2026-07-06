@@ -11,6 +11,12 @@ import type {
   KeyframeData,
 } from '../types';
 
+/** Round a number to `decimals` places (used to trim keyframe JSON size). */
+function round(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
 /**
  * Object Tracking Normalizer
  *
@@ -89,16 +95,20 @@ export class ObjectTrackingNormalizer {
         seenLabels.add(entityHash);
       }
 
-      // Extract keyframes from frames
+      // Extract keyframes from frames.
+      // Round the normalized (0-1) bbox coords and confidence: full-precision
+      // provider floats bloat the keyframes JSON (one entry per frame), and
+      // 4-decimal precision is sub-pixel even at 4K, so it's invisible to the
+      // webapp's linear interpolation while cutting payload size meaningfully.
       const keyframes: KeyframeData[] = obj.frames.map((frame) => ({
         t: frame.timeOffset,
         bbox: {
-          left: frame.boundingBox.left,
-          top: frame.boundingBox.top,
-          right: frame.boundingBox.right,
-          bottom: frame.boundingBox.bottom,
+          left: round(frame.boundingBox.left, 4),
+          top: round(frame.boundingBox.top, 4),
+          right: round(frame.boundingBox.right, 4),
+          bottom: round(frame.boundingBox.bottom, 4),
         },
-        confidence: frame.confidence,
+        confidence: round(frame.confidence, 3),
       }));
 
       // Calculate track start, end, and duration

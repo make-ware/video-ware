@@ -53,7 +53,7 @@ interface TimelineContextType {
   clearClipSelection: () => void;
   isClipSelected: (clipId: string) => boolean;
   handleClipSelect: (clipId: string, e: React.MouseEvent) => void;
-  removeSelectedClips: () => Promise<void>;
+  removeSelectedClips: (ripple?: boolean) => Promise<void>;
 
   // Track state
   tracks: TimelineTrackRecord[];
@@ -89,7 +89,7 @@ interface TimelineContextType {
     trackId?: string,
     timelineStart?: number
   ) => Promise<void>;
-  removeClip: (clipId: string) => Promise<void>;
+  removeClip: (clipId: string, ripple?: boolean) => Promise<void>;
   reorderClips: (clipOrders: { id: string; order: number }[]) => Promise<void>;
   updateClipTimes: (
     clipId: string,
@@ -439,40 +439,44 @@ export function TimelineProvider({
     [toggleClipSelection, selectClipRange, setSelectedClipId]
   );
 
-  const removeSelectedClips = useCallback(async () => {
-    if (!timeline || selectedClipIds.size === 0) return;
+  const removeSelectedClips = useCallback(
+    async (ripple = false) => {
+      if (!timeline || selectedClipIds.size === 0) return;
 
-    const clipIdsToRemove = Array.from(selectedClipIds);
-    clearClipSelection();
+      const clipIdsToRemove = Array.from(selectedClipIds);
+      clearClipSelection();
 
-    setIsLoading(true);
-    clearError();
+      setIsLoading(true);
+      clearError();
 
-    try {
-      const result =
-        await timelineService.bulkRemoveClipsFromTimeline(clipIdsToRemove);
+      try {
+        const result = ripple
+          ? await timelineService.rippleRemoveClipsFromTimeline(clipIdsToRemove)
+          : await timelineService.bulkRemoveClipsFromTimeline(clipIdsToRemove);
 
-      // Reload to get updated state
-      await loadTimeline(timeline.id);
+        // Reload to get updated state
+        await loadTimeline(timeline.id);
 
-      if (result.failed.length > 0) {
-        throw new Error(`Failed to delete ${result.failed.length} clip(s)`);
+        if (result.failed.length > 0) {
+          throw new Error(`Failed to delete ${result.failed.length} clip(s)`);
+        }
+      } catch (error) {
+        handleError(error, 'remove selected clips');
+        throw error;
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      handleError(error, 'remove selected clips');
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    timeline,
-    selectedClipIds,
-    timelineService,
-    loadTimeline,
-    clearClipSelection,
-    clearError,
-    handleError,
-  ]);
+    },
+    [
+      timeline,
+      selectedClipIds,
+      timelineService,
+      loadTimeline,
+      clearClipSelection,
+      clearError,
+      handleError,
+    ]
+  );
 
   // Add clip to timeline - places after selected clip or at end of track, never overlapping
   const addClip = useCallback(
@@ -771,9 +775,10 @@ export function TimelineProvider({
     ]
   );
 
-  // Remove clip from timeline
+  // Remove clip from timeline; ripple shifts the following clips on the
+  // clip's track left to close the gap
   const removeClip = useCallback(
-    async (clipId: string) => {
+    async (clipId: string, ripple = false) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
       }
@@ -782,7 +787,11 @@ export function TimelineProvider({
       clearError();
 
       try {
-        await timelineService.removeClipFromTimeline(clipId);
+        if (ripple) {
+          await timelineService.rippleRemoveClipsFromTimeline([clipId]);
+        } else {
+          await timelineService.removeClipFromTimeline(clipId);
+        }
 
         // Reload to get updated clip orders
         await loadTimeline(timeline.id);

@@ -120,6 +120,8 @@ interface ClipEditorEditTimelineClipProps extends ClipEditorModalBase {
   clip: ExpandedTimelineClip;
   onSave: (updates: Record<string, unknown>) => Promise<void>;
   onDelete?: () => Promise<void>;
+  /** Delete and shift the following clips left to close the gap */
+  onRippleDelete?: () => Promise<void>;
   onClipUpdated?: () => void;
 }
 
@@ -477,25 +479,29 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, editor, isComposite, handleSave]);
 
-  const handleDelete = useCallback(async () => {
-    if (mode !== 'edit-timeline-clip') return;
-    const tlProps = props as ClipEditorEditTimelineClipProps;
-    if (!tlProps.onDelete) return;
+  const handleDelete = useCallback(
+    async (ripple: boolean) => {
+      if (mode !== 'edit-timeline-clip') return;
+      const tlProps = props as ClipEditorEditTimelineClipProps;
+      const remove = ripple ? tlProps.onRippleDelete : tlProps.onDelete;
+      if (!remove) return;
 
-    setIsDeleting(true);
-    try {
-      await tlProps.onDelete();
-      toast.success('Clip removed');
-      setDeleteConfirmOpen(false);
-      onOpenChange(false);
-    } catch (err) {
-      console.error('Failed to remove clip:', err);
-      toast.error('Failed to remove clip');
-      setDeleteConfirmOpen(false);
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [mode, props, onOpenChange]);
+      setIsDeleting(true);
+      try {
+        await remove();
+        toast.success('Clip removed');
+        setDeleteConfirmOpen(false);
+        onOpenChange(false);
+      } catch (err) {
+        console.error('Failed to remove clip:', err);
+        toast.error('Failed to remove clip');
+        setDeleteConfirmOpen(false);
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [mode, props, onOpenChange]
+  );
 
   const dialogTitle = useMemo(() => {
     if (mode === 'create') return 'Create Clip';
@@ -513,6 +519,9 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
 
   const saveLabel = mode === 'create' ? 'Create' : 'Save';
   const isTimelineMode = mode === 'edit-timeline-clip';
+  const hasRippleDelete =
+    isTimelineMode &&
+    !!(props as ClipEditorEditTimelineClipProps).onRippleDelete;
 
   return (
     <>
@@ -522,12 +531,23 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
             <AlertDialogTitle>Remove Clip</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to remove this clip from the timeline?
+              {hasRippleDelete &&
+                ' Ripple remove also shifts the following clips on the track left to close the gap.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            {hasRippleDelete && (
+              <AlertDialogAction
+                onClick={() => handleDelete(true)}
+                disabled={isDeleting}
+                className="bg-destructive/80 text-destructive-foreground hover:bg-destructive/70"
+              >
+                {isDeleting ? 'Removing...' : 'Ripple Remove'}
+              </AlertDialogAction>
+            )}
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={() => handleDelete(false)}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

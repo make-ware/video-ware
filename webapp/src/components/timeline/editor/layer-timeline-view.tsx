@@ -750,19 +750,22 @@ export function LayerTimelineView() {
     }
   }, [trackToDelete, deleteTrack]);
 
-  // Bulk clip delete handler
-  const handleConfirmClipDelete = useCallback(async () => {
-    setIsDeletingClips(true);
-    try {
-      await removeSelectedClips();
-      setClipDeleteDialogOpen(false);
-    } catch (error) {
-      console.error('Failed to delete clips', error);
-      setClipDeleteDialogOpen(false);
-    } finally {
-      setIsDeletingClips(false);
-    }
-  }, [removeSelectedClips]);
+  // Bulk clip delete handler; ripple closes the gaps the clips leave behind
+  const handleConfirmClipDelete = useCallback(
+    async (ripple: boolean) => {
+      setIsDeletingClips(true);
+      try {
+        await removeSelectedClips(ripple);
+        setClipDeleteDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to delete clips', error);
+        setClipDeleteDialogOpen(false);
+      } finally {
+        setIsDeletingClips(false);
+      }
+    },
+    [removeSelectedClips]
+  );
 
   // Drag and drop from the media library (HTML5 drag events)
   const handleTrackDragOver = useCallback(
@@ -1052,7 +1055,9 @@ export function LayerTimelineView() {
             <AlertDialogTitle>Delete Clips</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete {selectionCount} clip
-              {selectionCount === 1 ? '' : 's'}? This action cannot be undone.
+              {selectionCount === 1 ? '' : 's'}? Ripple delete also shifts the
+              following clips on each track left to close the gap. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1060,7 +1065,14 @@ export function LayerTimelineView() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleConfirmClipDelete}
+              onClick={() => handleConfirmClipDelete(true)}
+              disabled={isDeletingClips}
+              className="bg-destructive/80 text-destructive-foreground hover:bg-destructive/70"
+            >
+              {isDeletingClips ? 'Deleting...' : 'Ripple Delete'}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => handleConfirmClipDelete(false)}
               disabled={isDeletingClips}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

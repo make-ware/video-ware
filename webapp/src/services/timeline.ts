@@ -31,6 +31,7 @@ import {
   collectNestedTimelineIds,
   computeNestedTimelineDuration,
   wouldCreateTimelineCycle,
+  planRippleDelete,
   type NestedTimelineMap,
 } from '@project/shared';
 
@@ -544,6 +545,58 @@ export class TimelineService {
     }
 
     return { succeeded, failed };
+  }
+
+  /**
+   * Remove clips and close the gaps they leave (ripple delete): on each
+   * affected track, the clips positioned after a removed clip shift left by
+   * the removed clip's duration. Other tracks are untouched.
+   */
+  async rippleRemoveClipsFromTimeline(clipIds: string[]): Promise<{
+    succeeded: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    if (clipIds.length === 0) return { succeeded: [], failed: [] };
+
+    const firstClip = await this.timelineClipMutator.getById(clipIds[0]);
+    if (!firstClip) {
+      throw new Error(`Timeline clip not found: ${clipIds[0]}`);
+    }
+
+    // Snapshot placement before deleting — the ripple shifts are computed
+    // from the clips' current effective positions.
+    const allClips = await this.timelineClipMutator.getByTimeline(
+      firstClip.TimelineRef
+    );
+
+    const result = await this.bulkRemoveClipsFromTimeline(clipIds);
+
+    // Plan shifts per track from the clips that actually got deleted, so a
+    // partial failure never moves clips into a still-occupied range.
+    if (result.succeeded.length > 0) {
+      const removedIds = new Set(result.succeeded);
+      const clipsByTrack = new Map<string, TimelineClip[]>();
+      for (const clip of allClips) {
+        const trackId = clip.TimelineTrackRef || '';
+        const trackClips = clipsByTrack.get(trackId) ?? [];
+        trackClips.push(clip);
+        clipsByTrack.set(trackId, trackClips);
+      }
+
+      const moves = Array.from(clipsByTrack.values())
+        .filter((trackClips) => trackClips.some((c) => removedIds.has(c.id)))
+        .flatMap((trackClips) =>
+          planRippleDelete(trackClips, result.succeeded)
+        );
+
+      await Promise.all(
+        moves.map(({ clipId, timelineStart }) =>
+          this.timelineClipMutator.update(clipId, { timelineStart })
+        )
+      );
+    }
+
+    return result;
   }
 
   /**

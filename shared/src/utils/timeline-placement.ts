@@ -169,6 +169,63 @@ export function planOverwriteAtTime(
 }
 
 /**
+ * A shift to apply to a clip left behind by a ripple delete, pinning it at
+ * its new (earlier) timeline position.
+ */
+export interface RippleDeleteMove {
+  clipId: string;
+  timelineStart: number;
+}
+
+/**
+ * Plan how the remaining clips on a track move when clips are ripple
+ * deleted: each remaining clip shifts left by the total duration of the
+ * deleted clips positioned before it, closing the gaps they leave. Gaps that
+ * already existed between clips are preserved, and clips before the deleted
+ * clips are untouched.
+ *
+ * Moves pin clips via timelineStart (even previously sequential ones) so the
+ * result is deterministic regardless of how each clip was placed.
+ *
+ * @param trackClips - Clips on the affected track (deleted ones included)
+ * @param deletedClipIds - Clips being removed from this track
+ * @returns timelineStart updates to apply after deleting the clips
+ */
+export function planRippleDelete(
+  trackClips: TimelineClip[],
+  deletedClipIds: string[]
+): RippleDeleteMove[] {
+  const deletedIds = new Set(deletedClipIds);
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+
+  const deletedRanges = sorted
+    .map((clip, i) => ({ clip, range: ranges[i] }))
+    .filter(({ clip }) => deletedIds.has(clip.id))
+    .map(({ range }) => range);
+
+  const moves: RippleDeleteMove[] = [];
+
+  sorted.forEach((clip, i) => {
+    if (deletedIds.has(clip.id)) return;
+    const { start } = ranges[i];
+    // Clips on a track never overlap, so each deleted range is either
+    // entirely before this clip (its length collapses) or after (no effect).
+    const shift = deletedRanges
+      .filter((r) => r.end <= start + OVERLAP_EPSILON)
+      .reduce((sum, r) => sum + (r.end - r.start), 0);
+    if (shift > OVERLAP_EPSILON) {
+      moves.push({
+        clipId: clip.id,
+        timelineStart: Math.max(0, start - shift),
+      });
+    }
+  });
+
+  return moves;
+}
+
+/**
  * Compute the placement for a new clip: after the selected clip or at the end of the track.
  *
  * @param trackClips - Clips on the target track

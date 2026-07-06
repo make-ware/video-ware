@@ -8,6 +8,7 @@ import {
   findActiveClip,
   findNonOverlappingTimelineStart,
   planOverwriteAtTime,
+  planRippleDelete,
 } from '../timeline-placement.js';
 
 function makeClip(
@@ -266,6 +267,89 @@ describe('planOverwriteAtTime', () => {
       trims: [],
       removals: [],
     });
+  });
+});
+
+describe('planRippleDelete', () => {
+  it('returns no moves when the deleted clip is last on the track', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 3, start: 0, end: 2, duration: 2 }),
+    ];
+    expect(planRippleDelete(clips, ['c2'])).toEqual([]);
+  });
+
+  it('shifts following clips left by the deleted clip duration', () => {
+    // c1 [0,3], c2 [3,8], c3 [8,10]; delete c2 → c3 moves to 3
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 3, start: 0, end: 5, duration: 5 }),
+      makeClip({ id: 'c3', timelineStart: 8, start: 0, end: 2, duration: 2 }),
+    ];
+    expect(planRippleDelete(clips, ['c2'])).toEqual([
+      { clipId: 'c3', timelineStart: 3 },
+    ]);
+  });
+
+  it('preserves gaps that already existed between clips', () => {
+    // c1 [0,3], gap, c2 [5,8], gap, c3 [10,12]; delete c2 → c3 keeps its
+    // 2s lead-in gap and only closes c2's 3s extent
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 5, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c3', timelineStart: 10, start: 0, end: 2, duration: 2 }),
+    ];
+    expect(planRippleDelete(clips, ['c2'])).toEqual([
+      { clipId: 'c3', timelineStart: 7 },
+    ]);
+  });
+
+  it('does not move clips positioned before the deleted clip', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 5, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c3', timelineStart: 8, start: 0, end: 2, duration: 2 }),
+    ];
+    expect(planRippleDelete(clips, ['c2'])).toEqual([
+      { clipId: 'c3', timelineStart: 5 },
+    ]);
+  });
+
+  it('accumulates shifts when multiple clips are deleted', () => {
+    // c1 [0,2], c2 [2,5], c3 [5,6], c4 [6,10]; delete c1+c3 →
+    // c2 closes c1's 2s, c4 closes c1's 2s + c3's 1s
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 2, duration: 2 }),
+      makeClip({ id: 'c2', timelineStart: 2, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c3', timelineStart: 5, start: 0, end: 1, duration: 1 }),
+      makeClip({ id: 'c4', timelineStart: 6, start: 0, end: 4, duration: 4 }),
+    ];
+    expect(planRippleDelete(clips, ['c1', 'c3'])).toEqual([
+      { clipId: 'c2', timelineStart: 0 },
+      { clipId: 'c4', timelineStart: 3 },
+    ]);
+  });
+
+  it('pins sequential clips (no timelineStart) at their shifted position', () => {
+    // Sequential clips occupy [0,3], [3,6], [6,8]; delete the middle one
+    const clips = [
+      makeClip({ id: 'c1', start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c3', start: 0, end: 2, duration: 2 }),
+    ];
+    // getClipRanges places them in array order (all default to position 0
+    // when sorting), so c3 sits at [6,8] and shifts to 3
+    expect(planRippleDelete(clips, ['c2'])).toEqual([
+      { clipId: 'c3', timelineStart: 3 },
+    ]);
+  });
+
+  it('ignores deleted ids that are not on the track', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 3, start: 0, end: 2, duration: 2 }),
+    ];
+    expect(planRippleDelete(clips, ['other-track-clip'])).toEqual([]);
   });
 });
 

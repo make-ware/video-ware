@@ -12,8 +12,15 @@ import {
   Layers,
   ExternalLink,
   MousePointerClick,
+  ArrowLeftToLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { CaptionEditorModal } from '@/components/captions';
@@ -228,15 +235,34 @@ export function SelectedClipView() {
                 <span className="hidden lg:inline">Edit Clip</span>
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-destructive hover:text-destructive"
-              title="Remove clip from timeline"
-              onClick={() => removeClip(clip.id)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-destructive hover:text-destructive"
+                  title="Remove clip from timeline"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => removeClip(clip.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => removeClip(clip.id, true)}
+                >
+                  <ArrowLeftToLine className="h-3.5 w-3.5" />
+                  Ripple Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -293,6 +319,10 @@ export function SelectedClipView() {
             }}
             onDelete={async () => {
               await removeClip(clip.id);
+              setIsEditing(false);
+            }}
+            onRippleDelete={async () => {
+              await removeClip(clip.id, true);
               setIsEditing(false);
             }}
           />

@@ -88,6 +88,29 @@ const timeline1 = {
   duration: 5,
   version: 1,
 };
+const entity1 = {
+  id: 'e1',
+  WorkspaceRef: 'ws1',
+  name: 'Erik',
+  kind: 'person',
+};
+const taggedTrack1 = {
+  id: 'lt1',
+  WorkspaceRef: 'ws1',
+  MediaRef: 'm1',
+  trackId: 'speaker_0',
+  EntityRef: 'e1',
+  start: 0,
+  end: 2,
+  duration: 2,
+};
+const taggedCluster1 = {
+  id: 'le1',
+  WorkspaceRef: 'ws1',
+  canonicalName: 'iPhone',
+  labelType: 'object',
+  EntityRef: 'e1',
+};
 const track1 = { id: 'tr1', TimelineRef: 't1', name: 'Main Track', layer: 0 };
 const timelineClip1 = {
   id: 'tc1',
@@ -114,6 +137,9 @@ function makeCollections(): Record<string, Stub> {
     },
     TimelineClips: { getList: vi.fn(async () => listResult([timelineClip1])) },
     TimelineTracks: { getList: vi.fn(async () => listResult([track1])) },
+    Entities: { getList: vi.fn(async () => listResult([entity1])) },
+    LabelTrack: { getList: vi.fn(async () => listResult([taggedTrack1])) },
+    LabelEntity: { getList: vi.fn(async () => listResult([taggedCluster1])) },
   };
   for (const name of LABEL_COLLECTIONS) {
     collections[name] = {
@@ -158,6 +184,7 @@ describe('exportWorkspace', () => {
       mediaClips: 1,
       labels: 3,
       timelines: 1,
+      entities: 1,
     });
     expect(Number.isNaN(Date.parse(result.exportedAt))).toBe(false);
 
@@ -223,11 +250,28 @@ describe('exportWorkspace', () => {
       clipCount: 1,
     });
 
+    // entities index joins each entity to its tagged tracks and clusters,
+    // so agents can resolve label attribution offline.
+    const entitiesIndex = readJson(dir, 'entities', 'index.json');
+    expect(entitiesIndex.totalItems).toBe(1);
+    expect(entitiesIndex.items[0]).toEqual({
+      id: 'e1',
+      name: 'Erik',
+      kind: 'person',
+      linkedTracks: [
+        { id: 'lt1', MediaRef: 'm1', trackId: 'speaker_0', start: 0, end: 2 },
+      ],
+      linkedClusters: [
+        { id: 'le1', canonicalName: 'iPhone', labelType: 'object' },
+      ],
+    });
+
     const instructions = readFileSync(join(dir, 'INSTRUCTIONS.md'), 'utf8');
     expect(instructions).toContain('Test WS');
     expect(instructions).toContain('ws1');
     expect(instructions).toContain('-m m1');
     expect(instructions).toContain('-t t1');
+    expect(instructions).toContain('vw label tag');
   });
 
   it('strips mutator-injected expand down to the whitelist', async () => {
@@ -291,7 +335,15 @@ describe('exportWorkspace', () => {
 
     await exportWorkspace(pb, { workspaceId: 'ws1', dir });
 
-    for (const name of ['Media', 'MediaClips', 'Timelines', 'LabelSpeech']) {
+    for (const name of [
+      'Media',
+      'MediaClips',
+      'Timelines',
+      'LabelSpeech',
+      'Entities',
+      'LabelTrack',
+      'LabelEntity',
+    ]) {
       const options = collections[name].getList.mock.calls[0][2];
       expect(options.filter).toContain('WorkspaceRef = ');
       expect(options.filter).toContain('ws1');

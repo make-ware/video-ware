@@ -8,11 +8,15 @@ import {
 import { join } from 'node:path';
 import type { ListResult } from 'pocketbase';
 import {
+  EntityMutator,
+  LabelEntityMutator,
+  LabelTrackMutator,
   LabelType,
   MediaClipMutator,
   MediaMutator,
   TimelineMutator,
   WorkspaceMutator,
+  type Entity,
   type Media,
   type Timeline,
   type TypedPocketBase,
@@ -42,6 +46,7 @@ const OWNED_ENTRIES = [
   'workspace.json',
   'media',
   'timelines',
+  'entities',
 ];
 
 export interface ExportWorkspaceOptions {
@@ -59,6 +64,7 @@ export interface ExportCounts {
   mediaClips: number;
   labels: number;
   timelines: number;
+  entities: number;
 }
 
 /** Written to manifest.json and returned (plus `dir`) as the JSON result. */
@@ -86,6 +92,35 @@ export interface MediaIndexEntry {
   clipCount: number;
   /** Rows per label type; only types with at least one row appear. */
   labelCounts: Partial<Record<LabelType, number>>;
+}
+
+/**
+ * One row of entities/index.json: a real-world entity plus the attribution
+ * link points tagged as it. Label rows never store their entity directly —
+ * a label resolves through its LabelTrackRef (wins) or its LabelEntityRef
+ * provider cluster — so the linked ids exported here are what lets an agent
+ * join labels to entities offline.
+ */
+export interface EntityIndexEntry {
+  id: string;
+  name: string;
+  kind: Entity['kind'];
+  aliases?: string[];
+  description?: string;
+  /** Tagged tracks: a label whose LabelTrackRef is listed is this entity. */
+  linkedTracks: Array<{
+    id: string;
+    MediaRef: string;
+    trackId: string;
+    start: number;
+    end: number;
+  }>;
+  /** Tagged clusters: fallback match on a label's LabelEntityRef. */
+  linkedClusters: Array<{
+    id: string;
+    canonicalName: string;
+    labelType: string;
+  }>;
 }
 
 /** One row of timelines/index.json. */
@@ -372,6 +407,68 @@ export async function exportWorkspace(
   writeJson(join(timelinesDir, 'index.json'), listDoc(timelineIndex));
   report(`Fetched ${timelines.length} timelines`);
 
+  // entities/index.json: entities plus the tracks/clusters tagged as them,
+  // so label EntityRefs resolve to names without hitting the live workspace.
+  const entities = await fetchAll((page) =>
+    new EntityMutator(pb).getByWorkspace(
+      opts.workspaceId,
+      undefined,
+      page,
+      PER_PAGE
+    )
+  );
+  const linkedFilter = pb.filter('WorkspaceRef = {:ws} && EntityRef != ""', {
+    ws: opts.workspaceId,
+  });
+  const linkedTracks = await fetchAll((page) =>
+    new LabelTrackMutator(pb, { expand: [] }).getList(
+      page,
+      PER_PAGE,
+      linkedFilter,
+      'MediaRef,start'
+    )
+  );
+  const linkedClusters = await fetchAll((page) =>
+    new LabelEntityMutator(pb, { expand: [] }).getList(
+      page,
+      PER_PAGE,
+      linkedFilter,
+      'canonicalName'
+    )
+  );
+  const tracksByEntity = groupBy(linkedTracks, (t) => t.EntityRef ?? '');
+  const clustersByEntity = groupBy(linkedClusters, (c) => c.EntityRef ?? '');
+  const entityIndex: EntityIndexEntry[] = entities.map((e) => ({
+    id: e.id,
+    name: e.name,
+    kind: e.kind,
+    ...(Array.isArray(e.aliases) && e.aliases.length > 0
+      ? { aliases: e.aliases as string[] }
+      : {}),
+    ...(e.description ? { description: e.description } : {}),
+    linkedTracks: (tracksByEntity.get(e.id) ?? []).map((t) => ({
+      id: t.id,
+      MediaRef: t.MediaRef,
+      trackId: t.trackId,
+      start: t.start,
+      end: t.end,
+    })),
+    linkedClusters: (clustersByEntity.get(e.id) ?? []).map((c) => ({
+      id: c.id,
+      canonicalName: c.canonicalName,
+      labelType: Array.isArray(c.labelType)
+        ? c.labelType.join(',')
+        : String(c.labelType ?? ''),
+    })),
+  }));
+  const entitiesDir = join(opts.dir, 'entities');
+  mkdirSync(entitiesDir, { recursive: true });
+  writeJson(join(entitiesDir, 'index.json'), listDoc(entityIndex));
+  report(
+    `Fetched ${entities.length} entities ` +
+      `(${linkedTracks.length} tagged tracks, ${linkedClusters.length} tagged clusters)`
+  );
+
   writeJson(join(opts.dir, 'workspace.json'), stripExpand(workspace));
 
   const manifest: ExportManifest = {
@@ -383,6 +480,7 @@ export async function exportWorkspace(
       mediaClips: clips.length,
       labels: labelCount,
       timelines: timelines.length,
+      entities: entities.length,
     },
   };
   writeJson(join(opts.dir, EXPORT_MANIFEST_FILE), manifest);
@@ -421,7 +519,7 @@ Read-only snapshot of the video-ware workspace **${workspace.name}**
 (\`${workspace.id}\`), exported ${manifest.exportedAt} by
 \`vw workspace export\`. Contents: ${counts.media} media,
 ${counts.mediaClips} media clips, ${labelsLine},
-${counts.timelines} timelines.
+${counts.timelines} timelines, ${counts.entities} entities.
 
 **These files are a snapshot, not the live workspace.** Editing them changes
 nothing. To change the workspace, run \`vw\` commands (below), then re-run
@@ -450,6 +548,10 @@ timelines/
                         clipCount
   <timelineId>.json     full structure: tracks (layer-ordered) with placed
                         clips
+entities/
+  index.json            one row per real-world entity (person, product,
+                        place, thing) with the label tracks/clusters tagged
+                        as it — join labels to identities through this
 \`\`\`
 
 Every entity is its own file: \`media.json\`, each \`clips/<id>.json\`, each
@@ -471,6 +573,13 @@ N }\`. All times are seconds.
   \`text\` (on-screen text), \`object\`, \`shot\`, \`segment\`, \`person\`,
   \`face\`. Each carries \`start\`/\`end\` in source-media seconds plus a
   confidence. Search them for moments worth turning into clips.
+- **Entities** — real-world identities (\`entities/index.json\`) that label
+  data is attributed to ("speaker_0 in this media is Erik"). A label never
+  stores its entity directly; it resolves through its \`LabelTrackRef\`
+  (listed in an entity's \`linkedTracks\` — the per-media instance link,
+  wins) or its \`LabelEntityRef\` (\`linkedClusters\` — the workspace-wide
+  provider-cluster fallback). Use \`vw label tag\` /
+  \`vw label search --entity\` to write and query these live.
 - **Timeline** — an edit. \`timelines/<id>.json\` holds
   \`{ timeline, computedDuration, clipCount, tracks }\`; \`tracks\` are
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
@@ -500,6 +609,12 @@ TTY. Add \`--json\` for machine-readable output.
 vw label search "sunset" -w ${workspace.id} --min-confidence 0.8 --json
 vw label clip speech LABEL_ID --label "Intro quote"
 vw media clip create -m ${mediaId} -s 5 -e 12.5 --label "Opening shot"
+
+# 1b. Identify who/what labels show (entity tags), then search by identity
+vw entity create "Erik" -w ${workspace.id}
+vw label tag speaker LABEL_ID "Erik"            # tags the row's track/cluster
+vw label search --entity "Erik" -w ${workspace.id} -t speaker,face --json
+vw entity labels "Erik" -w ${workspace.id} -m ${mediaId}
 
 # 2. Create a timeline and organize tracks (layer 0 = bottom)
 vw timeline create "Episode 4" -w ${workspace.id} --tracks "Music,AV,B-Roll"

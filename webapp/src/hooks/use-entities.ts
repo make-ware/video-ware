@@ -97,6 +97,9 @@ export function useAssignTrackEntity() {
       void queryClient.invalidateQueries({ queryKey: qk.entities.all });
       void queryClient.invalidateQueries({ queryKey: ['label-tracks'] });
       void queryClient.invalidateQueries({ queryKey: ['labels'] });
+      // Speaker utterances expand LabelTrackRef.EntityRef for transcript
+      // labels, so a re-link makes that cached expand stale.
+      void queryClient.invalidateQueries({ queryKey: ['speakers'] });
     },
     onError: (error) => {
       toast.error(

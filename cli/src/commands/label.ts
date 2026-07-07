@@ -7,8 +7,8 @@ import {
   confidenceOf,
   createClipFromLabel,
   getLabel,
+  hitColumns,
   LABEL_TYPE_CONFIG,
-  labelMediaName,
   labelSearchOptions,
   listLabels,
   parseLabelType,
@@ -16,30 +16,27 @@ import {
   searchLabels,
   type LabelHit,
 } from '../lib/label.js';
+import { resolveEntity, tagLabel } from '../lib/entity.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
   printList,
   printRecord,
+  success,
   truncate,
-  type Column,
 } from '../lib/output.js';
 
-/** Shared column layout for `label search` (MEDIA) and `label list` (TEXT). */
-const hitColumns = (withMedia: boolean): Column<LabelHit>[] => [
-  { header: 'TYPE', value: (h) => h.type },
-  { header: 'ID', value: (h) => h.record.id },
-  ...(withMedia
-    ? [{ header: 'MEDIA', value: (h: LabelHit) => labelMediaName(h) }]
-    : []),
-  { header: 'START', value: (h) => `${h.record.start.toFixed(2)}s` },
-  { header: 'END', value: (h) => `${h.record.end.toFixed(2)}s` },
-  { header: 'CONF', value: (h) => confidenceOf(h).toFixed(2) },
-  {
-    header: withMedia ? 'MATCH' : 'TEXT',
-    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record)),
-  },
-];
+/** Human summary of what a tag/untag write actually landed on. */
+function tagScopeLine(result: {
+  via: 'track' | 'cluster';
+  targetName: string;
+}): string {
+  return result.via === 'track'
+    ? `via its track (trackId ${result.targetName}) — identifies this ` +
+        `instance across the whole media`
+    : `via its provider cluster "${result.targetName}" — applies to every ` +
+        `label in the cluster, workspace-wide`;
+}
 
 export function registerLabelCommands(program: Command): void {
   const label = program
@@ -52,17 +49,25 @@ export function registerLabelCommands(program: Command): void {
     .command('search [query]')
     .alias('find')
     .description(
-      'Search workspace labels by text (transcript/entity) or exact id'
+      'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
     )
-    .option('-w, --workspace <id>', 'workspace id override');
+    .option('-w, --workspace <id>', 'workspace id override')
+    .option(
+      '--entity <nameOrId>',
+      'only labels attributed to this entity (tagged track or cluster)'
+    );
   applyOptions(search, labelSearchOptions);
   withJsonOption(search).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const entityId = opts.entity
+        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
+        : undefined;
       const { hits, totalItems } = await searchLabels(pb, {
         workspaceId,
         query,
+        entityId,
         ...pickOptions(opts, labelSearchOptions),
       });
       printList(hits, hitColumns(true), {
@@ -87,6 +92,10 @@ export function registerLabelCommands(program: Command): void {
       parseLabelTypes
     )
     .option(
+      '--entity <nameOrId>',
+      'only labels attributed to this entity (tagged track or cluster)'
+    )
+    .option(
       '-n, --limit <count>',
       'max results per label type (default: 100)',
       (v) => parseInt(v, 10)
@@ -100,10 +109,14 @@ export function registerLabelCommands(program: Command): void {
       if (!mediaId) {
         mediaId = (await pickMedia(pb, workspaceId)).id;
       }
+      const entityId = opts.entity
+        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
+        : undefined;
 
       const { hits, totalItems } = await listLabels(pb, {
         mediaId,
         types: opts.types,
+        entityId,
         limit: opts.limit,
       });
       printList(hits, hitColumns(false), {
@@ -152,6 +165,61 @@ export function registerLabelCommands(program: Command): void {
         }
         lines.push('(add --json for the full record)');
         printRecord(links ? { ...record, links } : record, lines, opts.json);
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+  const tag = label
+    .command('tag <type> <labelId> <entityNameOrId>')
+    .description(
+      "Attribute a label to a real-world entity — writes the label's track " +
+        'when it has one (this instance across the media), else its ' +
+        'provider cluster (workspace-wide)'
+    )
+    .option('-w, --workspace <id>', 'workspace id override');
+  withJsonOption(tag).action(
+    async (typeArg: string, labelId: string, entityNameOrId: string, opts) => {
+      try {
+        const pb = await requireClient();
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const type = parseLabelType(typeArg);
+        const entity = await resolveEntity(pb, workspaceId, entityNameOrId);
+        const result = await tagLabel(pb, type, labelId, entity.id);
+        if (opts.json) {
+          printRecord({ ...result, entity }, [], true);
+          return;
+        }
+        success(
+          `Tagged ${type} label ${labelId} → ${entity.kind} "${entity.name}" ` +
+            tagScopeLine(result)
+        );
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+  const untag = label
+    .command('untag <type> <labelId>')
+    .description(
+      "Clear a label's entity attribution (from its track, or its provider cluster when trackless)"
+    );
+  withJsonOption(untag).action(
+    async (typeArg: string, labelId: string, opts) => {
+      try {
+        const pb = await requireClient();
+        const type = parseLabelType(typeArg);
+        const result = await tagLabel(pb, type, labelId, null);
+        if (opts.json) {
+          printRecord(result, [], true);
+          return;
+        }
+        success(
+          `Removed entity tag from ${type} label ${labelId} ` +
+            tagScopeLine(result)
+        );
       } catch (err) {
         handleError(err);
       }

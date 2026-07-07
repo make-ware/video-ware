@@ -25,6 +25,7 @@ export { LabelSpeechMutator } from './label-speech';
 export { LabelEntityMutator } from './label-entity';
 export {
   EntityMutator,
+  clusterEntityAttributionFilter,
   entityAttributionFilter,
   trackEntityAttributionFilter,
 } from './entity';

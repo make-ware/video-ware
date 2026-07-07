@@ -32,6 +32,17 @@ export function trackEntityAttributionFilter(entityId: string): string {
   );
 }
 
+/**
+ * Attribution filter for label collections that have no LabelTrackRef field
+ * (LabelShot, LabelSegment): the provider cluster's Entity link is the only
+ * link point, so referencing LabelTrackRef there would be a PocketBase
+ * unknown-field error. Use entityAttributionFilter for collections that
+ * carry a track.
+ */
+export function clusterEntityAttributionFilter(entityId: string): string {
+  return `LabelEntityRef.EntityRef = "${entityId}"`;
+}
+
 export class EntityMutator extends BaseMutator<Entity, EntityInput> {
   constructor(pb: TypedPocketBase, options?: Partial<MutatorOptions>) {
     super(pb, options);

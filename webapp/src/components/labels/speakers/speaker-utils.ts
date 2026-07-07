@@ -1,30 +1,32 @@
-import type { LabelEntity, LabelSpeaker } from '@project/shared';
+import type {
+  Entity,
+  LabelEntity,
+  LabelSpeaker,
+  LabelTrack,
+} from '@project/shared';
+import { prettySpeakerId, speakerTranscriptLabel } from '@project/shared';
 import {
   truncateChars,
   truncateWords,
   type DerivedClipMeta,
 } from '../inspector/derive-clip-label';
 
-/**
- * LabelSpeaker row with the optional LabelEntity expand requested by
- * useMediaSpeakers. PocketBase omits `expand` when the relation is unset,
- * so both levels are optional here.
- */
-export type SpeakerUtterance = LabelSpeaker & {
-  expand?: { LabelEntityRef?: LabelEntity };
-};
+// Re-exported so speaker UI code has one import site; the format itself lives
+// in @project/shared so the CLI renders speaker names identically.
+export { prettySpeakerId, speakerTranscriptLabel };
 
 /**
- * Human-readable name for a provider speaker id — mirrors the worker
- * normalizer's rule: "speaker_0" -> "Speaker 1"; other ids pass through.
+ * LabelSpeaker row with the optional expands requested by useMediaSpeakers.
+ * PocketBase omits `expand` when a relation is unset, so every level is
+ * optional. `LabelTrackRef.EntityRef` carries the manual "this speaker is
+ * Erik" link, resolved live for transcript labels (never baked into text).
  */
-export function prettySpeakerId(speakerId: string): string {
-  const match = /^speaker_(\d+)$/.exec(speakerId);
-  if (match) {
-    return `Speaker ${parseInt(match[1], 10) + 1}`;
-  }
-  return speakerId;
-}
+export type SpeakerUtterance = LabelSpeaker & {
+  expand?: {
+    LabelEntityRef?: LabelEntity;
+    LabelTrackRef?: LabelTrack & { expand?: { EntityRef?: Entity } };
+  };
+};
 
 /**
  * Display name for an utterance's speaker: the linked LabelEntity's
@@ -35,6 +37,28 @@ export function speakerNameOf(utterance: SpeakerUtterance): string {
   return (
     utterance.expand?.LabelEntityRef?.canonicalName ||
     prettySpeakerId(utterance.speakerId)
+  );
+}
+
+/**
+ * Name of the workspace Entity this speaker's track is linked to, read live
+ * from the expanded LabelTrack.EntityRef — the "matched" identity. Null when
+ * the speaker has not been identified.
+ */
+export function speakerEntityName(utterance: SpeakerUtterance): string | null {
+  return utterance.expand?.LabelTrackRef?.expand?.EntityRef?.name || null;
+}
+
+/**
+ * Transcript-facing speaker label: "Speaker 1 (Erik)" once the speaker is
+ * linked to an Entity, else "Speaker 1". The name is resolved live from the
+ * DB via the expand, so it stays current and is never persisted into
+ * generated text.
+ */
+export function speakerTranscriptLabelFor(utterance: SpeakerUtterance): string {
+  return speakerTranscriptLabel(
+    utterance.speakerId,
+    speakerEntityName(utterance)
   );
 }
 
@@ -108,9 +132,15 @@ export function speakerDotClass(colorIndex: number): string {
  * Plain-text diarized transcript: consecutive utterances by the same
  * speaker merge into one "Name: text" paragraph, paragraphs separated by
  * blank lines.
+ *
+ * `labelOf` picks the speaker prefix. It defaults to speakerNameOf so
+ * persisted output (e.g. generated clip descriptions) is never tagged with a
+ * live entity name; pass speakerTranscriptLabelFor for ephemeral output
+ * (copy/preview) that should show "Speaker 1 (Erik)".
  */
 export function formatDiarizedTranscript(
-  utterances: SpeakerUtterance[]
+  utterances: SpeakerUtterance[],
+  labelOf: (utterance: SpeakerUtterance) => string = speakerNameOf
 ): string {
   const paragraphs: string[] = [];
   let currentSpeakerId: string | null = null;
@@ -119,7 +149,7 @@ export function formatDiarizedTranscript(
     if (u.speakerId === currentSpeakerId && paragraphs.length > 0) {
       paragraphs[paragraphs.length - 1] += ` ${u.transcript}`;
     } else {
-      paragraphs.push(`${speakerNameOf(u)}: ${u.transcript}`);
+      paragraphs.push(`${labelOf(u)}: ${u.transcript}`);
       currentSpeakerId = u.speakerId;
     }
   }

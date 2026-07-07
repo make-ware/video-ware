@@ -16,7 +16,7 @@ export class TimelineMutator extends BaseMutator<Timeline, TimelineInput> {
 
   protected setDefaults(): MutatorOptions {
     return {
-      expand: ['WorkspaceRef', 'renderTaskRef', 'createdBy'],
+      expand: ['WorkspaceRef', 'UserRef'],
       filter: [],
       sort: ['-created'], // Sort by created date descending by default
     };

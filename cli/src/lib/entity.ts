@@ -5,6 +5,7 @@ import {
   LabelEntityMutator,
   LabelSpeakerMutator,
   LabelTrackMutator,
+  LabelType,
   entityAttributionFilter,
   trackEntityAttributionFilter,
   type Entity,
@@ -13,7 +14,13 @@ import {
   type LabelTrack,
   type TypedPocketBase,
 } from '@project/shared';
-import { labelMutator, parseLabelType } from './label.js';
+import {
+  attributionExpands,
+  labelAttributionFilter,
+  labelMutator,
+  parseLabelType,
+  type LabelHit,
+} from './label.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import type { OptionGroupOf } from './options.js';
 
@@ -186,10 +193,79 @@ async function trackOfLabelPair(
   if (typeof trackRef !== 'string' || !trackRef) {
     throw new Error(
       `${type} label ${labelId} has no track — link its provider cluster ` +
-        `instead: vw entity link <entity> --cluster <labelEntityId>`
+        `instead (vw entity link <entity> --cluster <labelEntityId>), or ` +
+        `let vw label tag ${type} ${labelId} <entity> resolve that for you`
     );
   }
   return trackRef;
+}
+
+/** What `tagLabel` wrote: which link point the tag landed on, and its name. */
+export interface TagLabelResult {
+  type: LabelType;
+  labelId: string;
+  /** 'track': this instance across one media; 'cluster': workspace-wide. */
+  via: 'track' | 'cluster';
+  /** Record id of the LabelTrack / LabelEntity that was written. */
+  targetId: string;
+  /** Provider trackId (via=track) or cluster canonicalName (via=cluster). */
+  targetName: string;
+}
+
+/**
+ * Tag (or, with null, untag) the Entity a label row is attributed to. Tags
+ * live on the row's link points, never on the row itself: its track when it
+ * has one (identifies that speaker/face/object across the whole media),
+ * else its provider cluster (applies to every label in the cluster,
+ * workspace-wide). Link points are stable across label re-runs, so tags
+ * survive regeneration and always resolve live.
+ */
+export async function tagLabel(
+  pb: TypedPocketBase,
+  type: LabelType,
+  labelId: string,
+  entityId: string | null
+): Promise<TagLabelResult> {
+  const record = await labelMutator(pb, type).getById(labelId);
+  if (!record) {
+    throw new Error(
+      `No ${type} label with id ${labelId} ` +
+        `(a wrong type/id pairing also reads as not found — check the type)`
+    );
+  }
+  const row = record as Record<string, unknown>;
+
+  const trackRef = row.LabelTrackRef;
+  if (typeof trackRef === 'string' && trackRef) {
+    const track = await new LabelTrackMutator(pb).setEntity(trackRef, entityId);
+    return {
+      type,
+      labelId,
+      via: 'track',
+      targetId: track.id,
+      targetName: track.trackId,
+    };
+  }
+
+  const clusterRef = row.LabelEntityRef;
+  if (typeof clusterRef === 'string' && clusterRef) {
+    const cluster = await new LabelEntityMutator(pb).setEntity(
+      clusterRef,
+      entityId
+    );
+    return {
+      type,
+      labelId,
+      via: 'cluster',
+      targetId: cluster.id,
+      targetName: cluster.canonicalName,
+    };
+  }
+
+  throw new Error(
+    `${type} label ${labelId} has neither a track nor a provider cluster — ` +
+      `nothing to attach an entity tag to`
+  );
 }
 
 /** The two concrete link points a set of target options resolves to. */
@@ -297,6 +373,61 @@ export async function getEntityAppearances(
     };
   });
   return { appearances, totalItems: result.totalItems };
+}
+
+export interface EntityLabelsOptions {
+  /** Label types to include. Defaults to all types. */
+  types?: LabelType[];
+  /** Restrict to one media. */
+  media?: string;
+  /** Max rows per label type. Defaults to 100. */
+  limit?: number;
+}
+
+/**
+ * Every label attributed to an entity, across label types: rows whose track
+ * (preferred) or provider cluster is linked to it. One query per type with
+ * that type's attribution filter — shot/segment rows have no track, so
+ * theirs matches on the cluster link alone — merged in media/start order.
+ */
+export async function getEntityLabels(
+  pb: TypedPocketBase,
+  entityId: string,
+  opts: EntityLabelsOptions = {}
+): Promise<{ hits: LabelHit[]; totalItems: number }> {
+  const types = opts.types ?? Object.values(LabelType);
+  const limit = opts.limit ?? 100;
+
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const clauses = [labelAttributionFilter(type, entityId)];
+      if (opts.media) {
+        clauses.push(pb.filter('MediaRef = {:media}', { media: opts.media }));
+      }
+      const result = await labelMutator(pb, type).getList(
+        1,
+        limit,
+        clauses.join(' && '),
+        'MediaRef,start',
+        ['MediaRef.UploadRef', ...attributionExpands(type)]
+      );
+      return { type, result };
+    })
+  );
+
+  const hits: LabelHit[] = results.flatMap(({ type, result }) =>
+    result.items.map((record) => ({ type, record }))
+  );
+  hits.sort(
+    (a, b) =>
+      a.record.MediaRef.localeCompare(b.record.MediaRef) ||
+      a.record.start - b.record.start
+  );
+  const totalItems = results.reduce(
+    (sum, { result }) => sum + result.totalItems,
+    0
+  );
+  return { hits, totalItems };
 }
 
 /** One utterance attributed to an entity, with its media expanded. */

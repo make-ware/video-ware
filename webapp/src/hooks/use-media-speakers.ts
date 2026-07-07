@@ -6,8 +6,10 @@ import { useAuth } from './use-auth';
 import type { SpeakerUtterance } from '@/components/labels/speakers/speaker-utils';
 
 /**
- * Diarized speaker utterances for a media, sorted by start time, with the
- * per-speaker LabelEntity expanded so display names survive entity renames.
+ * Diarized speaker utterances for a media, sorted by start time. Expands the
+ * per-speaker LabelEntity (display names survive entity renames) and the
+ * track's linked Entity (LabelTrackRef.EntityRef) so transcript labels can
+ * resolve the matched identity live without a second query.
  */
 export function useMediaSpeakers(mediaId: string) {
   const { isAuthenticated } = useAuth();
@@ -21,11 +23,13 @@ export function useMediaSpeakers(mediaId: string) {
     queryFn: async () => {
       const mutator = new LabelSpeakerMutator(pb);
       // Fetching up to 500 items for now (matches useMediaTranscripts).
-      const result = await mutator.getByMedia(
-        mediaId,
+      // getList (not getByMedia) so we can pass the dotted expand path.
+      const result = await mutator.getList(
         1,
         500,
-        'LabelEntityRef'
+        `MediaRef = "${mediaId}"`,
+        'start',
+        ['LabelEntityRef', 'LabelTrackRef.EntityRef']
       );
       return result.items.sort((a, b) => a.start - b.start);
     },

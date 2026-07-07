@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   prettySpeakerId,
   speakerNameOf,
+  speakerEntityName,
+  speakerTranscriptLabelFor,
   deriveSpeakerSummaries,
   formatDiarizedTranscript,
   deriveMergedSpeakerMeta,
@@ -9,6 +11,15 @@ import {
   speakerDotClass,
   type SpeakerUtterance,
 } from '../speaker-utils';
+
+/** Attach a linked-Entity expand (LabelTrackRef.EntityRef) to an utterance. */
+function withEntity(u: SpeakerUtterance, name: string): SpeakerUtterance {
+  u.expand = {
+    ...u.expand,
+    LabelTrackRef: { expand: { EntityRef: { name } } } as never,
+  };
+  return u;
+}
 
 function utterance(
   fields: Partial<SpeakerUtterance> & { speakerId: string; transcript: string }
@@ -51,6 +62,23 @@ describe('speakerNameOf', () => {
   it('falls back to the prettified provider id', () => {
     const u = utterance({ speakerId: 'speaker_1', transcript: 'hi' });
     expect(speakerNameOf(u)).toBe('Speaker 2');
+  });
+});
+
+describe('speakerEntityName / speakerTranscriptLabelFor', () => {
+  it('resolves the linked entity name from the track expand', () => {
+    const u = withEntity(
+      utterance({ speakerId: 'speaker_0', transcript: 'hi' }),
+      'Erik'
+    );
+    expect(speakerEntityName(u)).toBe('Erik');
+    expect(speakerTranscriptLabelFor(u)).toBe('Speaker 1 (Erik)');
+  });
+
+  it('falls back to just the pretty id when no entity is linked', () => {
+    const u = utterance({ speakerId: 'speaker_1', transcript: 'hi' });
+    expect(speakerEntityName(u)).toBeNull();
+    expect(speakerTranscriptLabelFor(u)).toBe('Speaker 2');
   });
 });
 
@@ -125,6 +153,26 @@ describe('formatDiarizedTranscript', () => {
 
   it('returns empty string for no utterances', () => {
     expect(formatDiarizedTranscript([])).toBe('');
+  });
+
+  it('tags speakers with the linked entity only when given the resolver', () => {
+    const utterances = [
+      withEntity(
+        utterance({ speakerId: 'speaker_0', transcript: 'Hello there.' }),
+        'Erik'
+      ),
+      utterance({ speakerId: 'speaker_1', transcript: 'Fine, thanks.' }),
+    ];
+
+    // Default resolver: never leaks the live entity name into (persisted) text.
+    expect(formatDiarizedTranscript(utterances)).toBe(
+      'Speaker 1: Hello there.\n\nSpeaker 2: Fine, thanks.'
+    );
+
+    // Entity-aware resolver: parenthesizes identified speakers.
+    expect(
+      formatDiarizedTranscript(utterances, speakerTranscriptLabelFor)
+    ).toBe('Speaker 1 (Erik): Hello there.\n\nSpeaker 2: Fine, thanks.');
   });
 });
 

@@ -7,6 +7,7 @@ import {
   distinctMedia,
   formatEntityTranscript,
   getEntityAppearances,
+  getEntityLabels,
   getEntityWords,
   linkTargetOptions,
   mediaNameOf,
@@ -17,6 +18,7 @@ import {
   type EntityAppearance,
   type EntityUtterance,
 } from '../lib/entity.js';
+import { hitColumns, parseLabelTypes } from '../lib/label.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
@@ -83,6 +85,7 @@ export function registerEntityCommands(program: Command): void {
         [
           `✓ Created ${created.kind} entity ${created.id} "${created.name}"`,
           `vw entity link "${created.name}" --speaker <mediaId>:<speakerId> (or --face/--track/--cluster/--label) attributes labels to it`,
+          `vw label tag <type> <labelId> "${created.name}" tags a single label's track/cluster; vw label search --entity "${created.name}" finds everything attributed to it`,
         ],
         opts.json
       );
@@ -252,6 +255,43 @@ export function registerEntityCommands(program: Command): void {
         json: opts.json,
         totalItems,
         hint: 'add --text for a plain transcript',
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  const labels = entity
+    .command('labels <nameOrId>')
+    .description(
+      'Every label attributed to the entity across media, all label types (tagged tracks and clusters)'
+    )
+    .option('-w, --workspace <id>', 'workspace id override')
+    .option('-m, --media <id>', 'restrict to one media')
+    .option(
+      '-t, --types <types>',
+      'comma-separated label types (default: all)',
+      parseLabelTypes
+    )
+    .option(
+      '-n, --limit <count>',
+      'max rows per label type (default: 100)',
+      (v) => parseInt(v, 10)
+    );
+  withJsonOption(labels).action(async (nameOrId: string, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const found = await resolveEntity(pb, workspaceId, nameOrId);
+      const { hits, totalItems } = await getEntityLabels(pb, found.id, {
+        types: opts.types,
+        media: opts.media,
+        limit: opts.limit,
+      });
+      printList(hits, hitColumns(true), {
+        json: opts.json,
+        totalItems,
+        hint: 'vw label clip <type> <labelId> turns a label into a clip',
       });
     } catch (err) {
       handleError(err);

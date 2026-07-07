@@ -146,19 +146,6 @@ export type TaskRecord = {
   updated: string;
 };
 
-export type TimelineRecord = {
-  id: string;
-  workspaceRef: string;
-  name: string;
-  duration?: number;
-  version?: number;
-  tracks?: unknown[]; // Using unknown[] for tracks to avoid circular dependency or complex types here
-  renderTaskRef?: string;
-  createdBy?: string;
-  created: string;
-  updated: string;
-};
-
 // ============================================================================
 // Google detection response fragments (stored in labelData)
 // ============================================================================

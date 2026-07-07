@@ -1105,7 +1105,6 @@ export function TimelineProvider({
           user.id
         );
 
-        // Reload timeline to get updated renderTaskRef
         await loadTimeline(timeline.id);
       } catch (error) {
         handleError(error, 'create render task');

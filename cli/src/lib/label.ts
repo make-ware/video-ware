@@ -10,16 +10,28 @@ import {
   LabelSpeechMutator,
   LabelTextMutator,
   MediaClipMutator,
+  clusterEntityAttributionFilter,
+  entityAttributionFilter,
+  speakerTranscriptLabel,
   type ActualizableLabel,
+  type Entity,
   type MediaClip,
   type TypedPocketBase,
 } from '@project/shared';
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import type { OptionGroupOf } from './options.js';
+import { truncate, type Column } from './output.js';
 
-/** A label row, possibly expanded with its media (and that media's upload). */
+/**
+ * A label row, possibly expanded with its media (and that media's upload)
+ * and the two entity link points its attribution resolves through.
+ */
 export type LabelRecord = ActualizableLabel & {
-  expand?: { MediaRef?: MediaWithUpload };
+  expand?: {
+    MediaRef?: MediaWithUpload;
+    LabelTrackRef?: { expand?: { EntityRef?: Entity } };
+    LabelEntityRef?: { expand?: { EntityRef?: Entity } };
+  };
 };
 
 /** One search/list result: a label row tagged with its label type. */
@@ -51,6 +63,20 @@ function textField(record: LabelRecord, key: string): string {
   return value == null ? '' : String(value);
 }
 
+/**
+ * The Entity a label row is attributed to, resolved from the expanded link
+ * points with the model's precedence: the row's track link wins, the
+ * provider cluster's link is the fallback. Null when unattributed (or when
+ * the query didn't request the attribution expands).
+ */
+export function attributedEntityOf(record: LabelRecord): Entity | null {
+  return (
+    record.expand?.LabelTrackRef?.expand?.EntityRef ??
+    record.expand?.LabelEntityRef?.expand?.EntityRef ??
+    null
+  );
+}
+
 export interface LabelTypeConfig {
   /** Fields matched (`~`) by the free-text search query. */
   queryFields: string[];
@@ -58,6 +84,13 @@ export interface LabelTypeConfig {
   confidenceField: 'confidence' | 'avgConfidence';
   /** Short text for the MATCH/TEXT column. */
   snippet: (record: LabelRecord) => string;
+  /**
+   * Whether rows carry a LabelTrackRef link point. Shots and segments are
+   * classifications, not tracked instances, so their only entity link is
+   * the provider cluster — filters referencing LabelTrackRef would be a
+   * PocketBase unknown-field error there.
+   */
+  hasTrack: boolean;
 }
 
 /** Per-type search contract: which fields a query matches, per collection. */
@@ -65,16 +98,19 @@ export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
   [LabelType.OBJECT]: {
     queryFields: ['entity'],
     confidenceField: 'confidence',
+    hasTrack: true,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.SHOT]: {
     queryFields: ['entity'],
     confidenceField: 'confidence',
+    hasTrack: false,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.PERSON]: {
     queryFields: ['upperBodyColor', 'lowerBodyColor'],
     confidenceField: 'confidence',
+    hasTrack: true,
     snippet: (r) =>
       [
         textField(r, 'personId'),
@@ -87,32 +123,67 @@ export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
   [LabelType.SPEECH]: {
     queryFields: ['transcript'],
     confidenceField: 'confidence',
+    hasTrack: true,
     snippet: (r) => textField(r, 'transcript'),
   },
   [LabelType.SPEAKER]: {
     queryFields: ['transcript', 'speakerId'],
     confidenceField: 'confidence',
+    hasTrack: true,
     snippet: (r) =>
-      [textField(r, 'speakerId'), textField(r, 'transcript')]
+      [
+        speakerTranscriptLabel(
+          textField(r, 'speakerId'),
+          attributedEntityOf(r)?.name
+        ),
+        textField(r, 'transcript'),
+      ]
         .filter(Boolean)
         .join(': '),
   },
   [LabelType.FACE]: {
     queryFields: ['faceId'],
     confidenceField: 'avgConfidence',
+    hasTrack: true,
     snippet: (r) => textField(r, 'faceId') || textField(r, 'faceHash'),
   },
   [LabelType.SEGMENT]: {
     queryFields: ['entity'],
     confidenceField: 'confidence',
+    hasTrack: false,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.TEXT]: {
     queryFields: ['text'],
     confidenceField: 'confidence',
+    hasTrack: true,
     snippet: (r) => textField(r, 'text'),
   },
 };
+
+/**
+ * PB filter matching one label type's rows attributed to an entity, using
+ * the link points that type actually has (track > cluster, or cluster only).
+ */
+export function labelAttributionFilter(
+  type: LabelType,
+  entityId: string
+): string {
+  return LABEL_TYPE_CONFIG[type].hasTrack
+    ? entityAttributionFilter(entityId)
+    : clusterEntityAttributionFilter(entityId);
+}
+
+/**
+ * Expand paths that resolve a label row's attributed Entity (for the ENTITY
+ * column and speaker snippets): the row's track link and its provider
+ * cluster's link, skipping LabelTrackRef where the collection lacks it.
+ */
+export function attributionExpands(type: LabelType): string[] {
+  return LABEL_TYPE_CONFIG[type].hasTrack
+    ? ['LabelTrackRef.EntityRef', 'LabelEntityRef.EntityRef']
+    : ['LabelEntityRef.EntityRef'];
+}
 
 /** Exact-id flags: each implies a label type and matches one field exactly. */
 const ID_FLAGS = {
@@ -177,6 +248,30 @@ export function labelMediaName(hit: LabelHit): string {
   return media ? mediaLabel(media) : hit.record.MediaRef;
 }
 
+/**
+ * Shared column layout for label hits (`label search`/`list`, `entity
+ * labels`). ENTITY is the attributed real-world Entity, resolved live from
+ * the expands attributionExpands requests — blank when unattributed.
+ */
+export const hitColumns = (withMedia: boolean): Column<LabelHit>[] => [
+  { header: 'TYPE', value: (h) => h.type },
+  { header: 'ID', value: (h) => h.record.id },
+  ...(withMedia
+    ? [{ header: 'MEDIA', value: (h: LabelHit) => labelMediaName(h) }]
+    : []),
+  { header: 'START', value: (h) => `${h.record.start.toFixed(2)}s` },
+  { header: 'END', value: (h) => `${h.record.end.toFixed(2)}s` },
+  { header: 'CONF', value: (h) => confidenceOf(h).toFixed(2) },
+  {
+    header: 'ENTITY',
+    value: (h) => attributedEntityOf(h.record)?.name ?? '',
+  },
+  {
+    header: withMedia ? 'MATCH' : 'TEXT',
+    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record)),
+  },
+];
+
 export interface SearchLabelsOptions {
   workspaceId: string;
   /** Free-text query matched against each type's search fields. */
@@ -185,6 +280,8 @@ export interface SearchLabelsOptions {
   types?: LabelType[];
   /** Restrict results to one media. */
   media?: string;
+  /** Only labels attributed to this Entity (resolved record id). */
+  entityId?: string;
   /** Exact faceId match (implies types = [face]). */
   faceId?: string;
   /** Exact personId match (implies types = [person]). */
@@ -245,9 +342,10 @@ export async function searchLabels(
     (key) => opts[key] !== undefined
   );
 
-  if (!opts.query && idFlags.length === 0) {
+  if (!opts.query && idFlags.length === 0 && !opts.entityId) {
     throw new Error(
-      'Provide a search query or an exact-id flag (--face-id, --person-id, --track-id)'
+      'Provide a search query, --entity, or an exact-id flag ' +
+        '(--face-id, --person-id, --track-id)'
     );
   }
 
@@ -298,6 +396,11 @@ export async function searchLabels(
         clauses.push(`${config.confidenceField} >= {:minConfidence}`);
         params.minConfidence = opts.minConfidence;
       }
+      if (opts.entityId) {
+        // Record-id from resolveEntity, so safe to embed directly (the
+        // shared attribution filters are string templates, not bound).
+        clauses.push(labelAttributionFilter(type, opts.entityId));
+      }
 
       const filter = pb.filter(clauses.join(' && '), params);
       const result = await labelMutator(pb, type).getList(
@@ -305,7 +408,7 @@ export async function searchLabels(
         limit,
         filter,
         `-${config.confidenceField}`,
-        ['MediaRef.UploadRef']
+        ['MediaRef.UploadRef', ...attributionExpands(type)]
       );
       return { type, result };
     })
@@ -326,6 +429,8 @@ export interface ListLabelsOptions {
   mediaId: string;
   /** Label types to list. Defaults to all types. */
   types?: LabelType[];
+  /** Only labels attributed to this Entity (resolved record id). */
+  entityId?: string;
   /** Max results per label type. Defaults to 100. */
   limit?: number;
   /** Only labels overlapping this source-media window (seconds). */
@@ -346,15 +451,19 @@ export async function listLabels(
     params.wStart = opts.window.start;
     params.wEnd = opts.window.end;
   }
-  const filter = pb.filter(clauses.join(' && '), params);
 
   const results = await Promise.all(
     types.map(async (type) => {
+      const typeClauses = opts.entityId
+        ? [...clauses, labelAttributionFilter(type, opts.entityId)]
+        : clauses;
+      const filter = pb.filter(typeClauses.join(' && '), params);
       const result = await labelMutator(pb, type).getList(
         1,
         limit,
         filter,
-        'start'
+        'start',
+        attributionExpands(type)
       );
       return { type, result };
     })

@@ -11,9 +11,11 @@ import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create
 import {
   deriveSpeakerSummaries,
   formatDiarizedTranscript,
+  prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
   speakerNameOf,
+  speakerTranscriptLabelFor,
   type SpeakerUtterance,
 } from '@/components/labels/speakers/speaker-utils';
 import {
@@ -71,7 +73,7 @@ export default function LabelSpeakersPage() {
   }, [utterances, query, speakerFilter]);
 
   const fullTranscript = useMemo(
-    () => formatDiarizedTranscript(utterances),
+    () => formatDiarizedTranscript(utterances, speakerTranscriptLabelFor),
     [utterances]
   );
 
@@ -157,15 +159,69 @@ export default function LabelSpeakersPage() {
           </Button>
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
+          {speakers.length > 0 && (
+            <div className="shrink-0 border-b px-6 pb-3">
+              <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-medium">Identify speakers</h3>
+                <span className="text-xs text-muted-foreground">
+                  Link a speaker to an entity to identify them here and across
+                  media.
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {speakers.map((s) => {
+                  const track = byTrackId.get(s.speakerId);
+                  return (
+                    <div
+                      key={s.speakerId}
+                      className="flex items-center gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5"
+                    >
+                      <span
+                        className={cn(
+                          'h-2.5 w-2.5 rounded-full shrink-0',
+                          speakerDotClass(s.colorIndex)
+                        )}
+                      />
+                      <span
+                        className="text-sm font-medium whitespace-nowrap"
+                        title={`${s.utteranceCount} ${
+                          s.utteranceCount === 1 ? 'utterance' : 'utterances'
+                        } · ${formatClipTime(s.totalDuration)} speaking`}
+                      >
+                        {prettySpeakerId(s.speakerId)}
+                      </span>
+                      {track ? (
+                        <EntityPicker
+                          workspaceId={workspaceId}
+                          value={track.EntityRef}
+                          onChange={(entityId) =>
+                            assignEntity.mutate({
+                              trackId: track.id,
+                              entityId,
+                            })
+                          }
+                          disabled={assignEntity.isPending}
+                          className="w-44"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No track record
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Tabs
             defaultValue="conversation"
             className="flex-1 flex flex-col min-h-0"
           >
-            <div className="px-6 flex items-center gap-3 flex-wrap">
+            <div className="px-6 pt-3 flex items-center gap-3 flex-wrap">
               <TabsList>
                 <TabsTrigger value="conversation">Conversation</TabsTrigger>
                 <TabsTrigger value="raw">Raw Text</TabsTrigger>
-                <TabsTrigger value="identify">Identify</TabsTrigger>
               </TabsList>
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -289,73 +345,6 @@ export default function LabelSpeakersPage() {
                       </span>
                     )}
                   </div>
-                </div>
-              </ScrollArea>
-            </TabsContent>
-
-            <TabsContent
-              value="identify"
-              className="flex-1 overflow-hidden mt-2"
-            >
-              <ScrollArea className="h-full">
-                <div className="p-6 pt-0 space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Link each diarized speaker to an entity to identify them
-                    across media. Assigning the same entity in other media (or
-                    to another speaker id in this one) merges their words and
-                    appearances everywhere.
-                  </p>
-                  {speakers.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">
-                      No speakers detected in this media.
-                    </p>
-                  ) : (
-                    speakers.map((s) => {
-                      const track = byTrackId.get(s.speakerId);
-                      return (
-                        <div
-                          key={s.speakerId}
-                          className="flex items-center justify-between gap-3 p-4 border rounded-lg flex-wrap"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={cn(
-                                'h-2.5 w-2.5 rounded-full',
-                                speakerDotClass(s.colorIndex)
-                              )}
-                            />
-                            <div>
-                              <div className="font-medium">{s.name}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {s.speakerId} · {s.utteranceCount}{' '}
-                                {s.utteranceCount === 1
-                                  ? 'utterance'
-                                  : 'utterances'}{' '}
-                                · {formatClipTime(s.totalDuration)} speaking
-                              </div>
-                            </div>
-                          </div>
-                          {track ? (
-                            <EntityPicker
-                              workspaceId={workspaceId}
-                              value={track.EntityRef}
-                              onChange={(entityId) =>
-                                assignEntity.mutate({
-                                  trackId: track.id,
-                                  entityId,
-                                })
-                              }
-                              disabled={assignEntity.isPending}
-                            />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              No track record for this speaker.
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
                 </div>
               </ScrollArea>
             </TabsContent>

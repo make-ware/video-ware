@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EntityKind } from '@project/shared';
+import { EntityKind, LabelType } from '@project/shared';
 import {
   applyEntityLinks,
   formatEntityTranscript,
   getEntityAppearances,
+  getEntityLabels,
   getEntityWords,
   parseEntityKind,
   resolveEntity,
   resolveLinkTargets,
+  tagLabel,
 } from '../lib/entity.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
 
@@ -199,6 +201,150 @@ describe('applyEntityLinks', () => {
       { EntityRef: '' },
       expect.anything()
     );
+  });
+});
+
+describe('tagLabel', () => {
+  it('writes the track link when the label row has a track', async () => {
+    const tracks = {
+      update: vi.fn(async (id: string, data: object) => ({
+        id,
+        trackId: 'speaker_0',
+        ...data,
+      })),
+    };
+    const pb = fakePb({
+      LabelSpeaker: {
+        getOne: vi.fn(async () => ({ id: 'sk1', LabelTrackRef: 't7' })),
+      },
+      LabelTrack: tracks,
+    });
+
+    const result = await tagLabel(pb, LabelType.SPEAKER, 'sk1', 'e1');
+
+    expect(tracks.update).toHaveBeenCalledWith(
+      't7',
+      { EntityRef: 'e1' },
+      expect.anything()
+    );
+    expect(result).toMatchObject({
+      via: 'track',
+      targetId: 't7',
+      targetName: 'speaker_0',
+    });
+  });
+
+  it('falls back to the provider cluster for trackless rows', async () => {
+    const clusters = {
+      update: vi.fn(async (id: string, data: object) => ({
+        id,
+        canonicalName: 'Interview',
+        ...data,
+      })),
+    };
+    const pb = fakePb({
+      LabelShots: {
+        getOne: vi.fn(async () => ({ id: 'sh1', LabelEntityRef: 'le3' })),
+      },
+      LabelEntity: clusters,
+    });
+
+    const result = await tagLabel(pb, LabelType.SHOT, 'sh1', 'e1');
+
+    expect(clusters.update).toHaveBeenCalledWith(
+      'le3',
+      { EntityRef: 'e1' },
+      expect.anything()
+    );
+    expect(result).toMatchObject({
+      via: 'cluster',
+      targetId: 'le3',
+      targetName: 'Interview',
+    });
+  });
+
+  it('clears the link when untagging (entity null)', async () => {
+    const tracks = {
+      update: vi.fn(async (id: string, data: object) => ({
+        id,
+        trackId: '0',
+        ...data,
+      })),
+    };
+    const pb = fakePb({
+      LabelFaces: {
+        getOne: vi.fn(async () => ({ id: 'lf1', LabelTrackRef: 't2' })),
+      },
+      LabelTrack: tracks,
+    });
+
+    await tagLabel(pb, LabelType.FACE, 'lf1', null);
+
+    expect(tracks.update).toHaveBeenCalledWith(
+      't2',
+      { EntityRef: '' },
+      expect.anything()
+    );
+  });
+
+  it('rejects labels with neither link point', async () => {
+    const pb = fakePb({
+      LabelText: { getOne: vi.fn(async () => ({ id: 'tx1' })) },
+    });
+    await expect(tagLabel(pb, LabelType.TEXT, 'tx1', 'e1')).rejects.toThrow(
+      /neither a track nor a provider cluster/i
+    );
+  });
+
+  it('reports a not-found label with a type-mismatch hint', async () => {
+    const pb = fakePb({
+      LabelSpeaker: { getOne: vi.fn().mockRejectedValue(notFound()) },
+    });
+    await expect(tagLabel(pb, LabelType.SPEAKER, 'nope', 'e1')).rejects.toThrow(
+      /no speaker label with id nope/i
+    );
+  });
+});
+
+describe('getEntityLabels', () => {
+  it('fans out per type with track-aware and cluster-only filters', async () => {
+    const speakers = listStub([
+      { id: 'sk1', MediaRef: 'm2', start: 5 },
+      { id: 'sk2', MediaRef: 'm1', start: 3 },
+    ]);
+    const shots = listStub([{ id: 'sh1', MediaRef: 'm1', start: 0 }]);
+    const pb = fakePb({ LabelSpeaker: speakers, LabelShots: shots });
+
+    const { hits, totalItems } = await getEntityLabels(pb, 'e1', {
+      types: [LabelType.SPEAKER, LabelType.SHOT],
+    });
+
+    const speakerOptions = speakers.getList.mock.calls[0][2];
+    expect(speakerOptions.filter).toContain('LabelTrackRef.EntityRef = "e1"');
+    expect(speakerOptions.sort).toBe('MediaRef,start');
+    expect(speakerOptions.expand).toBe(
+      'MediaRef.UploadRef,LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+    );
+
+    const shotOptions = shots.getList.mock.calls[0][2];
+    expect(shotOptions.filter).toContain('LabelEntityRef.EntityRef = "e1"');
+    expect(shotOptions.filter).not.toContain('LabelTrackRef');
+
+    // Merged hits are ordered by media, then start.
+    expect(hits.map((h) => h.record.id)).toEqual(['sh1', 'sk2', 'sk1']);
+    expect(totalItems).toBe(3);
+  });
+
+  it('restricts to one media when asked', async () => {
+    const speakers = listStub([]);
+    const pb = fakePb({ LabelSpeaker: speakers });
+
+    await getEntityLabels(pb, 'e1', {
+      types: [LabelType.SPEAKER],
+      media: 'm1',
+    });
+
+    expect(speakers.getList.mock.calls[0][2].filter).toContain('MediaRef = m1');
   });
 });
 

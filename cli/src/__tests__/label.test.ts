@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ClipType, LabelType } from '@project/shared';
 import {
+  attributedEntityOf,
   createClipFromLabel,
   getLabel,
   listLabels,
   parseLabelType,
   parseLabelTypes,
   searchLabels,
+  type LabelRecord,
 } from '../lib/label.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
 
@@ -77,7 +79,10 @@ describe('searchLabels', () => {
     expect(options.filter).toContain('WorkspaceRef = ws1');
     expect(options.filter).toContain('transcript ~ hello');
     expect(options.sort).toBe('-confidence');
-    expect(options.expand).toBe('MediaRef.UploadRef');
+    // Attribution expands ride along so the ENTITY column resolves live.
+    expect(options.expand).toBe(
+      'MediaRef.UploadRef,LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+    );
     expect(hits).toEqual([
       {
         type: LabelType.SPEECH,
@@ -179,11 +184,45 @@ describe('searchLabels', () => {
     expect(totalItems).toBe(2);
   });
 
-  it('requires a query or an exact-id flag', async () => {
+  it('requires a query, an entity, or an exact-id flag', async () => {
     const pb = fakePb(allLabelCollections());
     await expect(searchLabels(pb, { workspaceId: 'ws1' })).rejects.toThrow(
-      /query or an exact-id flag/i
+      /query, --entity, or an exact-id flag/i
     );
+  });
+
+  it('filters by attributed entity with the track-aware precedence clause', async () => {
+    const speaker = listStub();
+    const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
+
+    // No query needed — the entity is the selector.
+    await searchLabels(pb, {
+      workspaceId: 'ws1',
+      entityId: 'e1',
+      types: [LabelType.SPEAKER],
+    });
+
+    const options = speaker.getList.mock.calls[0][2];
+    expect(options.filter).toContain('LabelTrackRef.EntityRef = "e1"');
+    expect(options.filter).toContain('LabelEntityRef.EntityRef = "e1"');
+  });
+
+  it('uses the cluster-only clause for track-less types', async () => {
+    const shots = listStub();
+    const pb = fakePb(allLabelCollections({ LabelShots: shots }));
+
+    await searchLabels(pb, {
+      workspaceId: 'ws1',
+      entityId: 'e1',
+      types: [LabelType.SHOT],
+    });
+
+    // LabelShot has no LabelTrackRef field — referencing it would be a
+    // PocketBase unknown-field error, in both the filter and the expand.
+    const options = shots.getList.mock.calls[0][2];
+    expect(options.filter).toContain('LabelEntityRef.EntityRef = "e1"');
+    expect(options.filter).not.toContain('LabelTrackRef');
+    expect(options.expand).toBe('MediaRef.UploadRef,LabelEntityRef.EntityRef');
   });
 
   it('rejects an id flag conflicting with explicit --types', async () => {
@@ -213,6 +252,57 @@ describe('listLabels', () => {
     expect(options.filter).toContain('MediaRef = m1');
     expect(options.sort).toBe('start');
     expect(hits).toHaveLength(1);
+  });
+
+  it('scopes to an entity with per-type attribution clauses', async () => {
+    const speaker = listStub();
+    const shots = listStub();
+    const pb = fakePb(
+      allLabelCollections({ LabelSpeaker: speaker, LabelShots: shots })
+    );
+
+    await listLabels(pb, {
+      mediaId: 'm1',
+      entityId: 'e1',
+      types: [LabelType.SPEAKER, LabelType.SHOT],
+    });
+
+    const speakerFilter = speaker.getList.mock.calls[0][2].filter;
+    expect(speakerFilter).toContain('MediaRef = m1');
+    expect(speakerFilter).toContain('LabelTrackRef.EntityRef = "e1"');
+
+    const shotFilter = shots.getList.mock.calls[0][2].filter;
+    expect(shotFilter).toContain('LabelEntityRef.EntityRef = "e1"');
+    expect(shotFilter).not.toContain('LabelTrackRef');
+  });
+});
+
+describe('attributedEntityOf', () => {
+  const entity = (name: string) => ({ id: `id-${name}`, name });
+
+  it('prefers the track link over the cluster link', () => {
+    const record = {
+      expand: {
+        LabelTrackRef: { expand: { EntityRef: entity('Erik') } },
+        LabelEntityRef: { expand: { EntityRef: entity('Dana') } },
+      },
+    } as unknown as LabelRecord;
+    expect(attributedEntityOf(record)?.name).toBe('Erik');
+  });
+
+  it('falls back to the provider cluster link', () => {
+    const record = {
+      expand: { LabelEntityRef: { expand: { EntityRef: entity('Dana') } } },
+    } as unknown as LabelRecord;
+    expect(attributedEntityOf(record)?.name).toBe('Dana');
+  });
+
+  it('returns null when unattributed', () => {
+    expect(attributedEntityOf({} as LabelRecord)).toBeNull();
+    const unlinked = {
+      expand: { LabelTrackRef: { expand: {} }, LabelEntityRef: {} },
+    } as unknown as LabelRecord;
+    expect(attributedEntityOf(unlinked)).toBeNull();
   });
 });
 

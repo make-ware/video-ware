@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { exec, spawn } from 'child_process';
+import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import { exec, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -62,17 +62,63 @@ export interface TranscodeOptions {
 }
 
 @Injectable()
-export class FFmpegService {
+export class FFmpegService implements OnApplicationShutdown {
   private readonly logger = new Logger(FFmpegService.name);
 
   /**
-   * Execute a command using spawn and capture the output.
-   * This function also manages a capped stderr buffer to prevent memory leaks.
+   * Live ffmpeg/ffprobe children. Tracked so worker shutdown can kill them —
+   * an orphaned encoder would otherwise keep consuming CPU/RAM with no job
+   * left to consume its output.
    */
+  private readonly activeChildren = new Set<ChildProcess>();
+
+  /**
+   * Watchdog defaults. FFmpeg prints a stats line roughly every second while
+   * frames are flowing, so prolonged total silence means the pipeline is
+   * wedged (deadlocked filtergraph, blocked I/O) — waiting longer never
+   * helps, it just holds the queue slot and the process's memory. The hard
+   * ceiling bounds even a slowly-progressing run.
+   */
+  private static readonly DEFAULT_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+  private static readonly DEFAULT_HARD_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+  /** Grace between SIGTERM and SIGKILL when the watchdog fires. */
+  private static readonly KILL_ESCALATION_MS = 10 * 1000;
+
+  private static timeoutFromEnv(name: string, fallbackMs: number): number {
+    const raw = process.env[name];
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
+  }
+
+  /**
+   * Kill any still-running children on worker shutdown (SIGTERM first, then
+   * SIGKILL) so no encoder outlives the job that spawned it.
+   */
+  onApplicationShutdown(): void {
+    for (const child of this.activeChildren) {
+      this.logger.warn(
+        `Worker shutting down — killing ffmpeg child pid ${child.pid}`
+      );
+      child.kill('SIGTERM');
+      setTimeout(
+        () => child.kill('SIGKILL'),
+        FFmpegService.KILL_ESCALATION_MS
+      ).unref();
+    }
+  }
 
   /**
    * Execute a command using spawn and capture the output.
    * This function also manages a capped stderr buffer to prevent memory leaks.
+   *
+   * Stability guards:
+   * - stdin is closed (plus `-nostdin` at the command level for renders), so
+   *   ffmpeg can never block waiting for interactive keyboard input.
+   * - A stall watchdog kills the child if it produces no output at all for
+   *   FFMPEG_STALL_TIMEOUT_MS, and a hard ceiling (FFMPEG_HARD_TIMEOUT_MS)
+   *   bounds total runtime. Both are env-overridable.
+   * - An externally SIGKILLed child (exit 137) is reported as a likely
+   *   kernel OOM kill so the failure is diagnosable from the job error.
    */
   private async executeWithCappedStderr(
     command: string,
@@ -80,19 +126,70 @@ export class FFmpegService {
     totalDuration: number = 0,
     onProgress?: (progress: number) => void
   ): Promise<{ stdout: string; stderr: string }> {
+    const stallTimeoutMs = FFmpegService.timeoutFromEnv(
+      'FFMPEG_STALL_TIMEOUT_MS',
+      FFmpegService.DEFAULT_STALL_TIMEOUT_MS
+    );
+    const hardTimeoutMs = FFmpegService.timeoutFromEnv(
+      'FFMPEG_HARD_TIMEOUT_MS',
+      FFmpegService.DEFAULT_HARD_TIMEOUT_MS
+    );
+
     return new Promise((resolve, reject) => {
       this.logger.debug(`FFmpeg spawn: ${command} ${args.join(' ')}`);
-      const process = spawn(command, args);
+      const child = spawn(command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      this.activeChildren.add(child);
 
       let stdout = '';
       const stderrLines: string[] = [];
       const maxStderrLines = 20;
 
-      process.stdout?.on('data', (data: Buffer) => {
+      const startedAt = Date.now();
+      let lastActivityAt = startedAt;
+      let killReason: string | null = null;
+      let sigkillTimer: NodeJS.Timeout | undefined;
+
+      const kill = (reason: string) => {
+        if (killReason) return;
+        killReason = reason;
+        this.logger.error(
+          `Killing ${command} (pid ${child.pid}): ${reason}\nargs: ${args.join(' ')}`
+        );
+        child.kill('SIGTERM');
+        sigkillTimer = setTimeout(
+          () => child.kill('SIGKILL'),
+          FFmpegService.KILL_ESCALATION_MS
+        );
+        sigkillTimer.unref();
+      };
+
+      const watchdog = setInterval(() => {
+        const now = Date.now();
+        if (now - lastActivityAt > stallTimeoutMs) {
+          kill(`stalled — no output for ${Math.round(stallTimeoutMs / 1000)}s`);
+        } else if (now - startedAt > hardTimeoutMs) {
+          kill(
+            `exceeded hard timeout of ${Math.round(hardTimeoutMs / 1000)}s`
+          );
+        }
+      }, 15_000);
+      watchdog.unref();
+
+      const finalize = () => {
+        clearInterval(watchdog);
+        if (sigkillTimer) clearTimeout(sigkillTimer);
+        this.activeChildren.delete(child);
+      };
+
+      child.stdout?.on('data', (data: Buffer) => {
+        lastActivityAt = Date.now();
         stdout += data.toString();
       });
 
-      process.stderr?.on('data', (data: Buffer) => {
+      child.stderr?.on('data', (data: Buffer) => {
+        lastActivityAt = Date.now();
         const dataStr = data.toString();
         const lines = dataStr.split('\n').filter((line) => line.length > 0);
         stderrLines.push(...lines);
@@ -116,18 +213,37 @@ export class FFmpegService {
         }
       });
 
-      process.on('close', (code) => {
+      child.on('close', (code, signal) => {
+        finalize();
         const stderr = stderrLines.join('\n');
         if (code === 0) {
           resolve({ stdout, stderr });
+        } else if (killReason) {
+          reject(
+            new Error(`${command} was killed: ${killReason}. stderr: ${stderr}`)
+          );
+        } else if (signal === 'SIGKILL' || code === 137) {
+          // We didn't send this SIGKILL — the kernel OOM killer targets the
+          // largest process (ffmpeg) when the container hits its memory limit.
+          reject(
+            new Error(
+              `${command} was killed with SIGKILL — likely out of memory ` +
+                `(kernel OOM kill). Reduce render resolution/complexity or ` +
+                `raise the container memory limit. stderr: ${stderr}`
+            )
+          );
         } else {
           reject(
-            new Error(`FFmpeg exited with code ${code}. stderr: ${stderr}`)
+            new Error(
+              `${command} exited with code ${code}` +
+                `${signal ? ` (signal ${signal})` : ''}. stderr: ${stderr}`
+            )
           );
         }
       });
 
-      process.on('error', (error) => {
+      child.on('error', (error) => {
+        finalize();
         reject(error);
       });
     });
@@ -507,15 +623,21 @@ export class FFmpegService {
   /**
    * Execute FFmpeg command with progress tracking
    * This is a public wrapper around executeWithCappedStderr for direct command execution
+   *
+   * @param totalDurationSec Expected output duration in seconds. Pass it when
+   * known (e.g. a timeline render, where the first input's duration says
+   * nothing about the output length); only when omitted does progress fall
+   * back to probing the first input.
    */
   async executeWithProgress(
     args: string[],
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    totalDurationSec?: number
   ): Promise<void> {
     try {
-      // Try to extract input file path from args for duration calculation
-      let totalDuration = 0;
-      if (onProgress) {
+      let totalDuration = totalDurationSec ?? 0;
+      // Fall back to probing the first input for duration calculation
+      if (onProgress && totalDuration <= 0) {
         const inputIndex = args.indexOf('-i');
         if (inputIndex >= 0 && inputIndex < args.length - 1) {
           const inputPath = args[inputIndex + 1];

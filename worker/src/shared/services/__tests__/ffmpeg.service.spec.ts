@@ -122,7 +122,12 @@ describe('FFmpegService', () => {
 
       expect(result).toEqual(mockProbeResult);
       expect(fs.existsSync).toHaveBeenCalledWith('/path/to/video.mp4');
-      expect(spawnMock).toHaveBeenCalledWith('ffprobe', expect.any(Array));
+      expect(spawnMock).toHaveBeenCalledWith(
+        'ffprobe',
+        expect.any(Array),
+        // stdin is ignored so children can never block waiting for input
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
+      );
     });
 
     it('should throw error if file does not exist', async () => {
@@ -243,7 +248,8 @@ describe('FFmpegService', () => {
           '-update',
           '1',
           '/output.jpg',
-        ])
+        ]),
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
       );
       expect(fs.promises.mkdir).toHaveBeenCalled();
     });
@@ -347,7 +353,8 @@ describe('FFmpegService', () => {
           '-q:v',
           '2',
           '/output.jpg',
-        ])
+        ]),
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
       );
     });
 
@@ -606,7 +613,57 @@ describe('FFmpegService', () => {
           '-f',
           'wav',
           '/output.wav',
-        ])
+        ]),
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
+      );
+    });
+  });
+
+  describe('executeWithProgress', () => {
+    it('reports an external SIGKILL (exit 137) as a likely OOM kill', async () => {
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: { on: vi.fn() },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            // Killed from outside (kernel OOM killer) — not by our watchdog
+            setTimeout(() => callback(null, 'SIGKILL'), 10);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      spawnMock.mockReturnValueOnce(mockProcess as any);
+
+      await expect(
+        service.executeWithProgress(['-i', '/input.mp4', '/out.mp4'])
+      ).rejects.toThrow(/likely out of memory/);
+    });
+
+    it('skips probing the first input when totalDuration is provided', async () => {
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: { on: vi.fn() },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      spawnMock.mockReturnValueOnce(mockProcess as any);
+
+      await service.executeWithProgress(
+        ['-i', '/input.mp4', '/out.mp4'],
+        vi.fn(),
+        60
+      );
+
+      // Exactly one spawn: the ffmpeg run itself, no ffprobe for duration
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock).toHaveBeenCalledWith(
+        'ffmpeg',
+        expect.any(Array),
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
       );
     });
   });

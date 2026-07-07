@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import * as path from 'path';
 import { FFmpegService } from '../../../shared/services/ffmpeg.service';
 import type { IRenderExecutor, RenderExecutorResult } from '../interfaces';
 import type {
@@ -8,8 +9,52 @@ import type {
 } from '@project/shared';
 
 /**
+ * Renders are tuned for stability over speed: decode, filtergraph and encode
+ * thread pools are all capped to this count so peak memory stays flat and
+ * predictable regardless of host core count (every extra thread holds extra
+ * in-flight frames). Override via RENDER_FFMPEG_THREADS when a deployment has
+ * memory headroom to trade for speed.
+ */
+const FFMPEG_THREADS = (() => {
+  const parsed = parseInt(process.env.RENDER_FFMPEG_THREADS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+})();
+
+/**
+ * Every segment branch is normalized to this constant frame rate and the black
+ * base canvas generates at it too, so the overlay chain's framesync always
+ * sees aligned timestamps. A VFR source (or a source at a different rate than
+ * the base) otherwise makes framesync buffer frames while waiting for a
+ * partner timestamp — one of the unbounded-memory paths in a long timeline.
+ * Note: the base `color` source previously ran at its 25fps default, so this
+ * is also an explicit output-rate bump from 25 to 30.
+ */
+const RENDER_FPS = 30;
+
+/**
+ * Image formats safe for `-loop 1` input-level looping (image2 demuxer).
+ * Anything else typed as an image (e.g. gif — its demuxer rejects `-loop`)
+ * keeps the loop-filter chain instead.
+ */
+const STATIC_IMAGE_EXTENSIONS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.bmp',
+  '.tif',
+  '.tiff',
+]);
+
+/**
  * FFmpeg-based executor for composing timelines
  * Pure operation - builds and executes FFmpeg command
+ *
+ * Memory-stability contract (the render OOM fixes live here):
+ * - One seeked input (`-ss`/`-t` before `-i`) per segment, so FFmpeg decodes
+ *   only each segment's window instead of whole sources through `trim`.
+ * - All thread pools capped (FFMPEG_THREADS) and branches fps-normalized
+ *   (RENDER_FPS) so filtergraph buffering stays bounded.
  */
 @Injectable()
 export class FFmpegComposeExecutor implements IRenderExecutor {
@@ -42,17 +87,19 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
     try {
       // Build FFmpeg command for timeline composition
-      const ffmpegArgs = this.buildFFmpegCommand(
+      const { args: ffmpegArgs, totalDuration } = this.buildFFmpegCommand(
         tracks,
         clipMediaMap,
         outputPath,
         outputSettings
       );
 
-      // Execute FFmpeg with progress tracking
+      // Execute FFmpeg with progress tracking against the known timeline
+      // duration (the first input's duration is meaningless for a composition)
       await this.ffmpegService.executeWithProgress(
         ffmpegArgs,
-        onProgress || (() => {})
+        onProgress || (() => {}),
+        totalDuration
       );
 
       // Probe the rendered video to get metadata
@@ -105,31 +152,68 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
   }
 
   /**
-   * Build FFmpeg command for timeline composition
+   * Build FFmpeg command for timeline composition.
+   * Returns the args plus the computed timeline duration (for progress
+   * tracking and stall detection in the caller).
    */
   private buildFFmpegCommand(
     tracks: TimelineTrack[],
     clipMediaMap: Record<string, { media: Media; filePath: string }>,
     outputPath: string,
     outputSettings: RenderTimelinePayload['outputSettings']
-  ): string[] {
-    // Start with -y to overwrite output without prompting
-    const args: string[] = ['-y'];
+  ): { args: string[]; totalDuration: number } {
+    // -y: overwrite output without prompting. -nostdin: never read stdin, so
+    // ffmpeg can't pause waiting for interactive input under a job runner.
+    const args: string[] = [
+      '-y',
+      '-nostdin',
+      '-filter_complex_threads',
+      String(FFMPEG_THREADS),
+    ];
     const filterComplex: string[] = [];
-    const inputFileMap = new Map<string, number>();
     let inputCounter = 0;
 
-    // Helper to get input index
-    const getInputIndex = (assetId: string): number => {
-      if (!inputFileMap.has(assetId)) {
-        const clip = clipMediaMap[assetId];
-        if (!clip) {
-          throw new Error(`Media not found for asset ID: ${assetId}`);
-        }
-        args.push('-i', clip.filePath);
-        inputFileMap.set(assetId, inputCounter++);
+    // One seeked input PER SEGMENT (not per asset): `-ss`/`-t` before `-i`
+    // seeks the demuxer to the keyframe before the window and stops after
+    // `duration`, so frames outside the window never enter the filtergraph.
+    // The previous model (`-i` per asset + `trim` filters) decoded every
+    // source in full from t=0 and fanned the frames into every segment
+    // branch — the dominant render OOM driver. N segments of one asset now
+    // open N window-bounded demuxers instead, which is far cheaper.
+    // Values are expected to be fmtTime-rounded by the caller.
+    const addSeekedInput = (
+      filePath: string,
+      sourceStart: number,
+      duration: number
+    ): number => {
+      args.push('-threads', String(FFMPEG_THREADS));
+      if (sourceStart > 0) {
+        args.push('-ss', String(sourceStart));
       }
-      return inputFileMap.get(assetId) as number;
+      args.push('-t', String(duration), '-i', filePath);
+      return inputCounter++;
+    };
+
+    // Static images loop one frame at input level for the segment duration.
+    const addImageInput = (filePath: string, duration: number): number => {
+      args.push(
+        '-threads',
+        String(FFMPEG_THREADS),
+        '-loop',
+        '1',
+        '-t',
+        String(duration),
+        '-i',
+        filePath
+      );
+      return inputCounter++;
+    };
+
+    // Unbounded input for formats whose demuxer rejects `-loop` (e.g. gif);
+    // the branch's loop/trim filters bound it instead.
+    const addPlainInput = (filePath: string): number => {
+      args.push('-threads', String(FFMPEG_THREADS), '-i', filePath);
+      return inputCounter++;
     };
 
     // Calculate output dimensions
@@ -172,18 +256,21 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
     // Escape literal text for the drawtext filter. The value is wrapped in
     // single quotes at the filtergraph level, which protects commas/spaces but
-    // NOT colons or percent (those still need a backslash). A literal ASCII
-    // apostrophe cannot be represented inside that quoted context — every known
-    // escape either breaks filtergraph parsing (crashing the render with
-    // "Filter not found") or silently drops surrounding text — so we map it to
-    // the typographic apostrophe (U+2019), which renders identically for
-    // caption/speech text and keeps the quoting intact.
+    // NOT colons (those still need a backslash). Percent is NOT escaped:
+    // drawtext runs with expansion=none (we never use %{...} sequences), and
+    // under the default expansion mode there is no working escape for a
+    // literal % — both "\%" and "%%" log "Stray %" and silently blank the
+    // entire cue. A literal ASCII apostrophe cannot be represented inside
+    // that quoted context — every known escape either breaks filtergraph
+    // parsing (crashing the render with "Filter not found") or silently drops
+    // surrounding text — so we map it to the typographic apostrophe (U+2019),
+    // which renders identically for caption/speech text and keeps the quoting
+    // intact.
     const escapeDrawtext = (text: string) =>
       text
         .replace(/\\/g, '\\\\')
         .replace(/'/g, '’')
-        .replace(/:/g, '\\:')
-        .replace(/%/g, '\\%');
+        .replace(/:/g, '\\:');
 
     // Map caption placement presets to drawtext expressions
     const alignToX = (align?: 'left' | 'center' | 'right') => {
@@ -233,8 +320,11 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       }
     }
     totalDuration = totalDuration || 1;
+    // r= pins the canvas to RENDER_FPS explicitly (color defaults to 25fps),
+    // matching the fps-normalized segment branches so framesync never buffers
+    // waiting for off-grid timestamps.
     filterComplex.push(
-      `color=c=black:s=${targetWidth}x${targetHeight}:d=${fmtTime(totalDuration)}[base]`
+      `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
     );
 
     // Process Video/Image/Text Tracks
@@ -262,22 +352,23 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
             continue;
           }
 
-          const idx = getInputIndex(seg.assetId);
           const sourceStart = fmtTime(seg.time.sourceStart || 0);
           const duration = fmtTime(seg.time.duration);
           const start = fmtTime(seg.time.start);
+          const idx = addSeekedInput(clip.filePath, sourceStart, duration);
 
-          // Trimming and Delay
-          // adelay is in milliseconds
+          // Delay: adelay is in milliseconds
           const delayMs = Math.round(start * 1000);
 
-          // Filter: trim -> volume -> adelay
+          // Filter: volume -> (fades) -> adelay. The input is already
+          // seeked/limited to the segment window (-ss/-t), so no atrim is
+          // needed; asetpts re-zeroes timestamps after the seek.
           const volume = seg.audio?.volume ?? 1.0;
 
           // Apply fades (100ms or half duration if short) to prevent clicks
           // Only apply if transitions are enabled (default true)
           const useTransitions = outputSettings.includeTransitions !== false;
-          let audioFilter = `[${idx}:a]atrim=start=${sourceStart}:duration=${duration},asetpts=PTS-STARTPTS,volume=${volume}`;
+          let audioFilter = `[${idx}:a]asetpts=PTS-STARTPTS,volume=${volume}`;
 
           if (useTransitions) {
             const fadeDuration = Math.min(0.1, duration / 2);
@@ -378,7 +469,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
             const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
 
             filterComplex.push(
-              `${lastVideoLabel}drawtext=text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
+              `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
             );
 
             lastVideoLabel = nextLabel;
@@ -388,13 +479,15 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
         // For Video/Image
         if (!seg.assetId) continue;
-        const idx = getInputIndex(seg.assetId);
+        const clip = clipMediaMap[seg.assetId];
+        if (!clip) {
+          throw new Error(`Media not found for asset ID: ${seg.assetId}`);
+        }
 
         const sourceStart = fmtTime(seg.time.sourceStart || 0);
         const duration = fmtTime(seg.time.duration);
         const start = fmtTime(seg.time.start);
 
-        // Prepare the segment: trim -> scale -> setpts
         // Scale logic
         let scaleFilter = '';
         const targetW = seg.video?.width;
@@ -406,23 +499,31 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           scaleFilter = `,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`;
         }
 
-        // Trim filter
-        let trim = '';
+        // Branch chain: setpts shifts the (already seeked) window to its
+        // timeline position; fps last so duplicated frames are cheap
+        // references to already-scaled frames and land exactly on the base
+        // canvas's RENDER_FPS grid.
+        let idx: number;
+        let branchPrefix = '';
         if (seg.type === 'image') {
           this.logger.debug(
             `Processing image segment ${seg.id}: duration=${duration}s`
           );
-          // Use loop filter for images to repeat the frame
-          trim = `loop=loop=-1:size=1:start=0,trim=start=${sourceStart}:duration=${duration},`;
+          const ext = path.extname(clip.filePath).toLowerCase();
+          if (STATIC_IMAGE_EXTENSIONS.has(ext)) {
+            idx = addImageInput(clip.filePath, duration);
+          } else {
+            // Demuxer can't loop this format — freeze the first frame with
+            // the loop filter and bound it with trim, as before.
+            idx = addPlainInput(clip.filePath);
+            branchPrefix = `loop=loop=-1:size=1:start=0,trim=start=${sourceStart}:duration=${duration},`;
+          }
         } else {
-          trim = `trim=start=${sourceStart}:duration=${duration},`;
+          idx = addSeekedInput(clip.filePath, sourceStart, duration);
         }
 
-        // Update the previous push to include time shift
-        // `setpts=PTS-STARTPTS+${start}/TB`
-
         filterComplex.push(
-          `[${idx}:v]${trim}setpts=PTS-STARTPTS+${start}/TB${scaleFilter}[v_seg_${seg.id}]`
+          `[${idx}:v]${branchPrefix}setpts=PTS-STARTPTS+${start}/TB${scaleFilter},fps=${RENDER_FPS}[v_seg_${seg.id}]`
         );
 
         // Overlay
@@ -468,6 +569,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // Map output streams
     args.push('-map', lastVideoLabel, '-map', '[outa]');
 
+    // Cap encoder threads too (see FFMPEG_THREADS)
+    args.push('-threads', String(FFMPEG_THREADS));
+
     // Add output settings
     args.push('-c:v', outputSettings.codec);
 
@@ -479,8 +583,8 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       targetHeight
     );
 
-    // Use calculated dimensions
-    args.push('-s', `${targetWidth}x${targetHeight}`);
+    // No -s here: the filtergraph already emits canvas-sized frames, and -s
+    // would insert a redundant second scaler.
 
     // Add audio codec with high quality settings (higher bitrate = larger files, better quality)
     args.push('-c:a', 'aac', '-b:a', '320k', '-ar', '48000');
@@ -492,7 +596,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     args.push(outputPath);
 
     this.logger.debug(`FFmpeg command: ffmpeg ${args.join(' ')}`);
-    return args;
+    return { args, totalDuration };
   }
 
   /**
@@ -506,9 +610,11 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
   ): void {
     const codecLower = codec.toLowerCase();
 
-    // Common quality settings for all codecs
-    // Use veryslow preset for maximum quality (slower encoding, best compression/quality)
-    args.push('-preset', 'veryslow');
+    // Common quality settings for all codecs.
+    // `slow` (not veryslow): at CRF-based quality the visual difference is
+    // negligible, but veryslow's deep lookahead/reference buffers multiply
+    // encoder RAM — a stability liability in memory-capped containers.
+    args.push('-preset', 'slow');
 
     // Pixel format for compatibility (yuv420p works everywhere)
     args.push('-pix_fmt', 'yuv420p');

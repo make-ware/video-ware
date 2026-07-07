@@ -120,6 +120,56 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toContain("overlay=x=0:y=0:enable='between(t,5,10)'");
   });
 
+  it('applies stability flags: single thread everywhere, seeked inputs, slow preset, no -s', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg1',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 0, duration: 5, sourceStart: 2 },
+          },
+        ],
+      },
+    ];
+
+    const clipMediaMap = {
+      asset1: { media: { id: 'asset1' }, filePath: '/tmp/1.mp4' } as any,
+    };
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const joined = args.join(' ');
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+    // Never waits on stdin under a job runner
+    expect(args).toContain('-nostdin');
+    // Filtergraph, decoder and encoder thread pools all capped to 1
+    expect(joined).toContain('-filter_complex_threads 1');
+    expect(joined).toContain('-threads 1 -ss 2 -t 5 -i /tmp/1.mp4');
+    expect(joined).toContain('-map [outa] -threads 1 -c:v');
+    // Encoder preset lowered from veryslow (RAM) to slow
+    expect(joined).toContain('-preset slow');
+    expect(joined).not.toContain('veryslow');
+    // Redundant output scaler removed
+    expect(args).not.toContain('-s');
+    // Segment branches and the base canvas share one CFR grid
+    expect(filterComplex).toContain('fps=30');
+    expect(filterComplex).toContain(':r=30:');
+    // Known timeline duration is passed for progress/stall tracking
+    expect(executeSpy.mock.calls[0][2]).toBe(5);
+  });
+
   it('should handle PIP overlay', async () => {
     const tracks: TimelineTrack[] = [
       {
@@ -236,7 +286,7 @@ describe('FFmpegComposeExecutor', () => {
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-    expect(filterComplex).toContain("drawtext=text='Hello World'");
+    expect(filterComplex).toContain("drawtext=expansion=none:text='Hello World'");
     expect(filterComplex).toContain('fontsize=50');
     // Color might be converted
     expect(filterComplex).toContain('fontcolor=0xFFFFFFFF'); // #FFFFFF -> 0xFFFFFFFF
@@ -359,14 +409,14 @@ describe('FFmpegComposeExecutor', () => {
 
     it('draws captions but not subtitles by default (subtitles off, captions on)', async () => {
       const fc = await runWith({});
-      expect(fc).toContain("drawtext=text='A Title'");
-      expect(fc).not.toContain("drawtext=text='A Subtitle'");
+      expect(fc).toContain("drawtext=expansion=none:text='A Title'");
+      expect(fc).not.toContain("drawtext=expansion=none:text='A Subtitle'");
     });
 
     it('draws subtitles only when includeSubtitles is true', async () => {
       const fc = await runWith({ includeSubtitles: true });
-      expect(fc).toContain("drawtext=text='A Subtitle'");
-      expect(fc).toContain("drawtext=text='A Title'");
+      expect(fc).toContain("drawtext=expansion=none:text='A Subtitle'");
+      expect(fc).toContain("drawtext=expansion=none:text='A Title'");
     });
 
     it('gates captions and subtitles independently (captions off, subtitles on)', async () => {
@@ -374,8 +424,8 @@ describe('FFmpegComposeExecutor', () => {
         includeCaptions: false,
         includeSubtitles: true,
       });
-      expect(fc).not.toContain("drawtext=text='A Title'");
-      expect(fc).toContain("drawtext=text='A Subtitle'");
+      expect(fc).not.toContain("drawtext=expansion=none:text='A Title'");
+      expect(fc).toContain("drawtext=expansion=none:text='A Subtitle'");
     });
   });
 
@@ -452,12 +502,14 @@ describe('FFmpegComposeExecutor', () => {
     const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
+    const joined = args.join(' ');
 
-    // Verify trim uses correct sourceStart for each segment
-    expect(filterComplex).toContain('trim=start=1.8:duration=6.9');
-    expect(filterComplex).toContain('trim=start=12.3:duration=1.2');
-    expect(filterComplex).toContain('trim=start=14.8:duration=8.3');
-    expect(filterComplex).toContain('trim=start=28.9:duration=2.2');
+    // Each segment gets its own seeked input (-ss/-t before -i) so only the
+    // segment window is ever decoded
+    expect(joined).toContain('-ss 1.8 -t 6.9 -i /tmp/source.mp4');
+    expect(joined).toContain('-ss 12.3 -t 1.2 -i /tmp/source.mp4');
+    expect(joined).toContain('-ss 14.8 -t 8.3 -i /tmp/source.mp4');
+    expect(joined).toContain('-ss 28.9 -t 2.2 -i /tmp/source.mp4');
 
     // Verify setpts uses correct timeline start for each segment
     expect(filterComplex).toContain('PTS-STARTPTS+0/TB');
@@ -520,9 +572,10 @@ describe('FFmpegComposeExecutor', () => {
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
+    const joined = args.join(' ');
 
-    expect(filterComplex).toContain('trim=start=1.8:duration=3.3');
-    expect(filterComplex).toContain('trim=start=12.3:duration=1.2');
+    expect(joined).toContain('-ss 1.8 -t 3.3 -i /tmp/source.mp4');
+    expect(joined).toContain('-ss 12.3 -t 1.2 -i /tmp/source.mp4');
     expect(filterComplex).toContain("enable='between(t,10,13.3)'");
     expect(filterComplex).toContain("enable='between(t,13.3,14.5)'");
     expect(filterComplex).toContain('PTS-STARTPTS+10/TB');
@@ -565,7 +618,7 @@ describe('FFmpegComposeExecutor', () => {
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-    expect(filterComplex).toContain('trim=start=2.1:duration=4.5');
+    expect(args.join(' ')).toContain('-ss 2.1 -t 4.5 -i /tmp/source.mp4');
     expect(filterComplex).toContain("enable='between(t,0,4.5)'");
     expect(filterComplex).toContain('d=4.5');
   });
@@ -626,9 +679,11 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toContain("enable='between(t,0,5)'");
     expect(filterComplex).toContain("enable='between(t,5,9)'");
     expect(filterComplex).toContain("enable='between(t,9,12)'");
-    expect(filterComplex).toContain('trim=start=0:duration=5');
-    expect(filterComplex).toContain('trim=start=1.8:duration=4');
-    expect(filterComplex).toContain('trim=start=12.3:duration=3');
+    const joined = args.join(' ');
+    // sourceStart 0 → no -ss, just -t
+    expect(joined).toContain('-t 5 -i /tmp/a.mp4');
+    expect(joined).toContain('-ss 1.8 -t 4 -i /tmp/b.mp4');
+    expect(joined).toContain('-ss 12.3 -t 3 -i /tmp/b.mp4');
   });
 
   it('should produce clean decimal values (no floating-point artifacts)', async () => {
@@ -745,9 +800,11 @@ describe('FFmpegComposeExecutor', () => {
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
+    const joined = args.join(' ');
 
-    expect(filterComplex).toContain('atrim=start=1:duration=3');
-    expect(filterComplex).toContain('atrim=start=10:duration=2');
+    // Audio segments get their own seeked inputs instead of atrim
+    expect(joined).toContain('-ss 1 -t 3 -i /tmp/source.mp4');
+    expect(joined).toContain('-ss 10 -t 2 -i /tmp/source.mp4');
     expect(filterComplex).toContain('adelay=0|0');
     expect(filterComplex).toContain('adelay=3000|3000');
   });
@@ -836,9 +893,9 @@ describe('FFmpegComposeExecutor', () => {
 
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
-    const sIndex = args.indexOf('-s');
 
-    expect(args[sIndex + 1]).toBe('1080x1920');
+    // -s was removed (the filtergraph already emits canvas-sized frames)
+    expect(args).not.toContain('-s');
     expect(filterComplex).toContain('color=c=black:s=1080x1920');
     // Letterboxing preserves aspect ratio — never stretches
     expect(filterComplex).toContain(
@@ -876,8 +933,8 @@ describe('FFmpegComposeExecutor', () => {
     });
 
     const args = executeSpy.mock.calls[0][0] as string[];
-    const sIndex = args.indexOf('-s');
-    expect(args[sIndex + 1]).toBe('1920x1080');
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+    expect(filterComplex).toContain('color=c=black:s=1920x1080');
   });
 
   it('should skip audio filters for media without audio streams', async () => {
@@ -1050,8 +1107,8 @@ describe('FFmpegComposeExecutor', () => {
       // Parent clip plays [0,4)
       expect(filterComplex).toContain("enable='between(t,0,4)'");
       // Nested child clip [0,6) trimmed to [1,5) => parent window [4,8),
-      // source in-point 3 + 1 head-trim = 4
-      expect(filterComplex).toContain('trim=start=4:duration=4');
+      // source in-point 3 + 1 head-trim = 4 (input-level seek)
+      expect(args.join(' ')).toContain('-ss 4 -t 4 -i /tmp/nested.mp4');
       expect(filterComplex).toContain("enable='between(t,4,8)'");
 
       // Canvas spans the full 8s composition
@@ -1072,8 +1129,8 @@ describe('FFmpegComposeExecutor', () => {
       const args = executeSpy.mock.calls[0][0] as string[];
       const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-      // Nested audio: trimmed at source 4s for 4s, delayed to 4s
-      expect(filterComplex).toContain('atrim=start=4:duration=4');
+      // Nested audio: its own input seeked to source 4s for 4s, delayed to 4s
+      expect(args.join(' ')).toContain('-ss 4 -t 4 -i /tmp/nested.mp4');
       expect(filterComplex).toContain('adelay=4000|4000');
       // Parent audio + nested audio both feed the mix
       expect(filterComplex).toMatch(/amix=inputs=2/);

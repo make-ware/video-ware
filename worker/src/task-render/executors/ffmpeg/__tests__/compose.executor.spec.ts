@@ -83,8 +83,12 @@ describe('FFmpegComposeExecutor drawtext escaping', () => {
     expect(filter).toContain("enable='between(t,");
   });
 
-  it('escapes colons and percent without breaking the value', async () => {
+  it('escapes colons but leaves percent literal (expansion=none)', async () => {
     const filter = await runWithCaption('rate: 100% now');
-    expect(filter).toContain('rate\\: 100\\% now');
+    // % must NOT be escaped: with the default expansion mode there is no
+    // working escape ("\%"/"%%" both log "Stray %" and blank the whole cue),
+    // so drawtext runs with expansion=none and the raw % passes through.
+    expect(filter).toContain('rate\\: 100% now');
+    expect(filter).toContain('drawtext=expansion=none:text=');
   });
 });

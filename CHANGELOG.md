@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.9...video-ware-v0.8.10) (2026-07-07)
+
+
+### Bug Fixes
+
+* add watchdog and unbound ffmpeg ([ab142f4](https://github.com/make-ware/video-ware/commit/ab142f40ce656b409ac6053d863bf0dea83c64ff))
+* timeline render regular download ([0a4da54](https://github.com/make-ware/video-ware/commit/0a4da540ebe78697904804514675171444fb639c))
+
 ## [0.8.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.8...video-ware-v0.8.9) (2026-07-07)
 
 

@@ -84,6 +84,9 @@ export const LabelSpeechCollection = defineCollection({
     'CREATE INDEX idx_label_speech_media ON LabelSpeech (MediaRef)',
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
     'CREATE INDEX idx_label_speech_media_range ON LabelSpeech (MediaRef, start, "end")',
+    // Entity-attribution joins (track link wins, cluster is the fallback).
+    'CREATE INDEX idx_label_speech_track ON LabelSpeech (LabelTrackRef)',
+    'CREATE INDEX idx_label_speech_entity ON LabelSpeech (LabelEntityRef)',
   ],
 });
 

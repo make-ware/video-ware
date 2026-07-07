@@ -286,7 +286,9 @@ describe('FFmpegComposeExecutor', () => {
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-    expect(filterComplex).toContain("drawtext=expansion=none:text='Hello World'");
+    expect(filterComplex).toContain(
+      "drawtext=expansion=none:text='Hello World'"
+    );
     expect(filterComplex).toContain('fontsize=50');
     // Color might be converted
     expect(filterComplex).toContain('fontcolor=0xFFFFFFFF'); // #FFFFFF -> 0xFFFFFFFF

@@ -21,6 +21,7 @@ import {
   Scissors,
   Eye,
   Info,
+  Tag,
   Trash2,
 } from 'lucide-react';
 import {
@@ -303,6 +304,17 @@ function MediaDetailsPageContent() {
           >
             <Info className="h-4 w-4 mr-2" />
             Details
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 sm:flex-initial"
+            onClick={() =>
+              router.push(`/ws/${currentWorkspace?.id}/media/${id}/labels`)
+            }
+          >
+            <Tag className="h-4 w-4 mr-2" />
+            Labels
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>

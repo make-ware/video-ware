@@ -13,12 +13,12 @@ export function LabelsNav() {
 
   const base = `/ws/${workspaceId}/media/${mediaId}/labels`;
   const tabs = [
+    { name: 'Speakers', href: `${base}/speakers` },
     ...INSPECTOR_CONFIGS.map((config) => ({
       name: config.title,
       href: `${base}/${config.key}`,
     })),
     { name: 'Transcripts', href: `${base}/transcripts` },
-    { name: 'Speakers', href: `${base}/speakers` },
   ];
 
   return (

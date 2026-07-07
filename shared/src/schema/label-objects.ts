@@ -78,6 +78,8 @@ export const LabelObjectCollection = defineCollection({
     'CREATE INDEX idx_label_object_track ON LabelObjects (LabelTrackRef)',
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
     'CREATE INDEX idx_label_object_media_range ON LabelObjects (MediaRef, start, "end")',
+    // Entity-attribution join via the provider-cluster fallback.
+    'CREATE INDEX idx_label_object_entity ON LabelObjects (LabelEntityRef)',
   ],
 });
 

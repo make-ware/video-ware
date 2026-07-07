@@ -170,9 +170,7 @@ export class FFmpegService implements OnApplicationShutdown {
         if (now - lastActivityAt > stallTimeoutMs) {
           kill(`stalled — no output for ${Math.round(stallTimeoutMs / 1000)}s`);
         } else if (now - startedAt > hardTimeoutMs) {
-          kill(
-            `exceeded hard timeout of ${Math.round(hardTimeoutMs / 1000)}s`
-          );
+          kill(`exceeded hard timeout of ${Math.round(hardTimeoutMs / 1000)}s`);
         }
       }, 15_000);
       watchdog.unref();

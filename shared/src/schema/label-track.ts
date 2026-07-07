@@ -93,6 +93,9 @@ export const LabelTrackCollection = defineCollection({
     'CREATE INDEX idx_label_track_workspace_media ON LabelTrack (WorkspaceRef, MediaRef)',
     // Index for entity queries ("all tracks linked to this entity")
     'CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)',
+    // Workspace-wide cluster traversal in trackEntityAttributionFilter —
+    // the (MediaRef, LabelEntityRef) composite can't serve it alone.
+    'CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)',
   ],
 });
 

@@ -114,6 +114,8 @@ export const LabelFaceCollection = defineCollection({
     'CREATE INDEX idx_label_face_workspace ON LabelFaces (WorkspaceRef)',
     'CREATE INDEX idx_label_face_media ON LabelFaces (MediaRef)',
     'CREATE INDEX idx_label_face_track ON LabelFaces (LabelTrackRef)',
+    // Entity-attribution join via the provider-cluster fallback.
+    'CREATE INDEX idx_label_face_entity ON LabelFaces (LabelEntityRef)',
   ],
 });
 

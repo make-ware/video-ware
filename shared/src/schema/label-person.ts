@@ -90,6 +90,8 @@ export const LabelPersonCollection = defineCollection({
     'CREATE INDEX idx_label_person_workspace ON LabelPerson (WorkspaceRef)',
     'CREATE INDEX idx_label_person_media ON LabelPerson (MediaRef)',
     'CREATE INDEX idx_label_person_track ON LabelPerson (LabelTrackRef)',
+    // Entity-attribution join via the provider-cluster fallback.
+    'CREATE INDEX idx_label_person_entity ON LabelPerson (LabelEntityRef)',
   ],
 });
 

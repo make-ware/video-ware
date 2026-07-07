@@ -267,10 +267,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // which renders identically for caption/speech text and keeps the quoting
     // intact.
     const escapeDrawtext = (text: string) =>
-      text
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, '’')
-        .replace(/:/g, '\\:');
+      text.replace(/\\/g, '\\\\').replace(/'/g, '’').replace(/:/g, '\\:');
 
     // Map caption placement presets to drawtext expressions
     const alignToX = (align?: 'left' | 'center' | 'right') => {

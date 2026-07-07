@@ -14,7 +14,6 @@ import {
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
-  speakerNameOf,
   speakerTranscriptLabelFor,
   type SpeakerUtterance,
 } from '@/components/labels/speakers/speaker-utils';
@@ -308,7 +307,7 @@ export default function LabelSpeakersPage() {
                               )
                             )}
                           >
-                            {speakerNameOf(u)}
+                            {speakerTranscriptLabelFor(u)}
                           </Badge>
                           <div className="text-xs font-mono text-muted-foreground whitespace-nowrap">
                             {formatClipTime(u.start)} – {formatClipTime(u.end)}

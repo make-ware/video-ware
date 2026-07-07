@@ -87,6 +87,9 @@ export const LabelSpeakerCollection = defineCollection({
     'CREATE INDEX idx_label_speaker_media_range ON LabelSpeaker (MediaRef, start, "end")',
     // Per-speaker filtering within a media (Q&A editing workflows).
     'CREATE INDEX idx_label_speaker_media_speaker ON LabelSpeaker (MediaRef, speakerId)',
+    // Entity-attribution joins ("everything Erik said" traverses these).
+    'CREATE INDEX idx_label_speaker_track ON LabelSpeaker (LabelTrackRef)',
+    'CREATE INDEX idx_label_speaker_entity ON LabelSpeaker (LabelEntityRef)',
   ],
 });
 

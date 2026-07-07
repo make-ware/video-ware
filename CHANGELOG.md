@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.8...video-ware-v0.8.9) (2026-07-07)
+
+
+### Bug Fixes
+
+* add functionality to entities refs ([6b9c3eb](https://github.com/make-ware/video-ware/commit/6b9c3ebf49e67838f083d25085d57b7a77744d1e))
+* render fail faster ([bd44417](https://github.com/make-ware/video-ware/commit/bd4441771b5af451de79bef20250912483a7d3a7))
+* update ffmpeg compostion ([f61c887](https://github.com/make-ware/video-ware/commit/f61c887d83e52e2603761cd28d0777087a3fa6a9))
+* update label indexes ([0ceacfa](https://github.com/make-ware/video-ware/commit/0ceacfac9dfb3314d3dc783bf924107f05107969))
+
 ## [0.8.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.7...video-ware-v0.8.8) (2026-07-06)
 
 

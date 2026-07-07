@@ -110,39 +110,6 @@ export function TimelineOverviewCard({
     window.open(pb.files.getURL(file, file.file), '_blank', 'noopener');
   }, []);
 
-  // Fetch as a blob to force a download instead of navigating to the file.
-  const handleDownload = useCallback(async (render: OverviewRender) => {
-    const file = render.expand?.FileRef;
-    if (!file?.file) {
-      toast.error('File not available for download');
-      return;
-    }
-
-    try {
-      const fileUrl = pb.files.getURL(file, file.file);
-      const response = await fetch(fileUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = file.name || `render-${render.id}.mp4`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      window.URL.revokeObjectURL(blobUrl);
-      toast.success('Download started');
-    } catch (err) {
-      console.error('Failed to download file:', err);
-      toast.error('Failed to download file');
-    }
-  }, []);
-
   return (
     <Card className="flex flex-col">
       <CardHeader>
@@ -223,6 +190,12 @@ export function TimelineOverviewCard({
               // an empty status as completed when the output file is present.
               const hasFile = !!file?.file;
               const status = rawStatus || (hasFile ? 'success' : rawStatus);
+              // Plain <a download> anchor pointing straight at the PocketBase
+              // file URL — a fetch+blob handler stalls the tab on large
+              // renders while the whole file buffers into memory first.
+              const downloadUrl = file?.file
+                ? pb.files.getURL(file, file.file, { download: true })
+                : undefined;
 
               return (
                 <li key={render.id} className="flex items-center gap-3 py-2">
@@ -247,7 +220,7 @@ export function TimelineOverviewCard({
                       )}
                     </div>
                   </div>
-                  {hasFile && (
+                  {hasFile && downloadUrl && (
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Button
                         variant="outline"
@@ -260,14 +233,19 @@ export function TimelineOverviewCard({
                         <span className="sr-only">View render</span>
                       </Button>
                       <Button
+                        asChild
                         variant="secondary"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => handleDownload(render)}
                         title="Download render"
                       >
-                        <Download className="h-4 w-4" />
-                        <span className="sr-only">Download render</span>
+                        <a
+                          href={downloadUrl}
+                          download={file?.name || `render-${render.id}.mp4`}
+                        >
+                          <Download className="h-4 w-4" />
+                          <span className="sr-only">Download render</span>
+                        </a>
                       </Button>
                     </div>
                   )}

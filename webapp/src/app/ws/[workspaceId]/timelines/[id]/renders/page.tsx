@@ -119,47 +119,6 @@ function TimelineRendersPageContent() {
     };
   }, [timelineId]);
 
-  const handleDownload = useCallback(
-    async (render: TimelineRender & { expand?: { FileRef?: File } }) => {
-      const file = render.expand?.FileRef;
-      if (!file || !file.file) {
-        toast.error('File not available for download');
-        return;
-      }
-
-      try {
-        // Get the file URL from PocketBase
-        const fileUrl = pb.files.getURL(file, file.file);
-
-        // Fetch the file as a blob to force download behavior
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch file: ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-
-        // Create a temporary anchor element to trigger download
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = file.name || `render-${render.id}.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        // Clean up the blob URL
-        window.URL.revokeObjectURL(blobUrl);
-
-        toast.success('Download started');
-      } catch (err) {
-        console.error('Failed to download file:', err);
-        toast.error('Failed to download file');
-      }
-    },
-    []
-  );
-
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -297,6 +256,12 @@ function TimelineRendersPageContent() {
             const hasFile = !!file?.file;
             const status = rawStatus || (hasFile ? 'success' : rawStatus);
             const isDownloadable = hasFile;
+            // Plain <a download> anchor pointing straight at the PocketBase
+            // file URL — a fetch+blob handler stalls the tab on large
+            // renders while the whole file buffers into memory first.
+            const downloadUrl = file?.file
+              ? pb.files.getURL(file, file.file, { download: true })
+              : undefined;
             const createdDate = new Date(render.created);
             const relativeTime = formatDistanceToNow(createdDate, {
               addSuffix: true,
@@ -325,13 +290,15 @@ function TimelineRendersPageContent() {
                         )}
                       </CardDescription>
                     </div>
-                    {isDownloadable && (
-                      <Button
-                        onClick={() => handleDownload(render)}
-                        className="gap-2"
-                      >
-                        <Download className="h-4 w-4" />
-                        Download
+                    {isDownloadable && downloadUrl && (
+                      <Button asChild className="gap-2">
+                        <a
+                          href={downloadUrl}
+                          download={file?.name || `render-${render.id}.mp4`}
+                        >
+                          <Download className="h-4 w-4" />
+                          Download
+                        </a>
                       </Button>
                     )}
                   </div>

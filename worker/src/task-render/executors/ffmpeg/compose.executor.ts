@@ -9,18 +9,6 @@ import type {
 } from '@project/shared';
 
 /**
- * Renders are tuned for stability over speed: decode, filtergraph and encode
- * thread pools are all capped to this count so peak memory stays flat and
- * predictable regardless of host core count (every extra thread holds extra
- * in-flight frames). Override via RENDER_FFMPEG_THREADS when a deployment has
- * memory headroom to trade for speed.
- */
-const FFMPEG_THREADS = (() => {
-  const parsed = parseInt(process.env.RENDER_FFMPEG_THREADS || '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-})();
-
-/**
  * Every segment branch is normalized to this constant frame rate and the black
  * base canvas generates at it too, so the overlay chain's framesync always
  * sees aligned timestamps. A VFR source (or a source at a different rate than
@@ -53,8 +41,9 @@ const STATIC_IMAGE_EXTENSIONS = new Set([
  * Memory-stability contract (the render OOM fixes live here):
  * - One seeked input (`-ss`/`-t` before `-i`) per segment, so FFmpeg decodes
  *   only each segment's window instead of whole sources through `trim`.
- * - All thread pools capped (FFMPEG_THREADS) and branches fps-normalized
- *   (RENDER_FPS) so filtergraph buffering stays bounded.
+ * - Branches are fps-normalized (RENDER_FPS) so framesync buffering stays
+ *   bounded. Threading is left to ffmpeg's auto-sizing — with the above in
+ *   place, threads scale the working set only linearly.
  */
 @Injectable()
 export class FFmpegComposeExecutor implements IRenderExecutor {
@@ -164,12 +153,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
   ): { args: string[]; totalDuration: number } {
     // -y: overwrite output without prompting. -nostdin: never read stdin, so
     // ffmpeg can't pause waiting for interactive input under a job runner.
-    const args: string[] = [
-      '-y',
-      '-nostdin',
-      '-filter_complex_threads',
-      String(FFMPEG_THREADS),
-    ];
+    const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
     let inputCounter = 0;
 
@@ -186,7 +170,6 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       sourceStart: number,
       duration: number
     ): number => {
-      args.push('-threads', String(FFMPEG_THREADS));
       if (sourceStart > 0) {
         args.push('-ss', String(sourceStart));
       }
@@ -196,23 +179,14 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
     // Static images loop one frame at input level for the segment duration.
     const addImageInput = (filePath: string, duration: number): number => {
-      args.push(
-        '-threads',
-        String(FFMPEG_THREADS),
-        '-loop',
-        '1',
-        '-t',
-        String(duration),
-        '-i',
-        filePath
-      );
+      args.push('-loop', '1', '-t', String(duration), '-i', filePath);
       return inputCounter++;
     };
 
     // Unbounded input for formats whose demuxer rejects `-loop` (e.g. gif);
     // the branch's loop/trim filters bound it instead.
     const addPlainInput = (filePath: string): number => {
-      args.push('-threads', String(FFMPEG_THREADS), '-i', filePath);
+      args.push('-i', filePath);
       return inputCounter++;
     };
 
@@ -565,9 +539,6 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
 
     // Map output streams
     args.push('-map', lastVideoLabel, '-map', '[outa]');
-
-    // Cap encoder threads too (see FFMPEG_THREADS)
-    args.push('-threads', String(FFMPEG_THREADS));
 
     // Add output settings
     args.push('-c:v', outputSettings.codec);

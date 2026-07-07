@@ -20,6 +20,21 @@ import { TaskResult } from '../types/job.types';
  * - Task status management
  * - Error handling
  */
+// Task.status is typed as `TaskStatus | TaskStatus[]` by the shared Zod
+// schema helper (SelectField's return type covers both single- and
+// multi-select), even though this field is single-select — so this checks by
+// equality rather than via Set.has(), which would reject the union type.
+function isTerminalTaskStatus(status: TaskStatus | TaskStatus[]): boolean {
+  return (
+    status === TaskStatus.SUCCESS ||
+    status === TaskStatus.FAILED ||
+    status === TaskStatus.CANCELED
+  );
+}
+
+const UPDATE_RETRY_ATTEMPTS = 3;
+const UPDATE_RETRY_BASE_DELAY_MS = 250;
+
 export abstract class BaseProcessor extends WorkerHost {
   protected abstract readonly logger: Logger;
   protected abstract readonly pocketbaseService: PocketBaseService;
@@ -35,19 +50,17 @@ export abstract class BaseProcessor extends WorkerHost {
     taskId: string,
     status: TaskStatus
   ): Promise<void> {
-    try {
-      await this.pocketbaseService.taskMutator.update(taskId, { status });
-      this.logger.log(`Updated task ${taskId} status to ${status}`);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to update task ${taskId} status: ${this.formatError(error)}`
-      );
-    }
+    await this.updateTask(taskId, { status });
   }
 
   /**
-   * Update task with multiple fields
-   * Handles errors gracefully to avoid blocking job processing
+   * Update task with multiple fields. Retries transient PocketBase write
+   * failures instead of dropping them silently, and refuses to write over a
+   * task already in a terminal status (success/failed/canceled) — that
+   * status is sticky once set (e.g. by the hung-task watchdog cron or a
+   * user-initiated cancel), so a late event from a stale/zombie job attempt
+   * must not resurrect it. Still never throws, to avoid destabilizing the
+   * BullMQ event handler that called it.
    */
   protected async updateTask(
     taskId: string,
@@ -56,45 +69,79 @@ export abstract class BaseProcessor extends WorkerHost {
       progress?: number;
       result?: TaskResult;
       errorLog?: string;
+      bullJobId?: string;
+      queueName?: string;
     }
   ): Promise<void> {
-    try {
-      const updatePayload: {
-        status?: TaskStatus;
-        progress?: number;
-        result?: TaskResult;
-        errorLog?: string;
-      } = {};
+    const updatePayload: {
+      status?: TaskStatus;
+      progress?: number;
+      result?: TaskResult;
+      errorLog?: string;
+      bullJobId?: string;
+      queueName?: string;
+    } = {};
 
-      if (updates.status !== undefined) {
-        updatePayload.status = updates.status;
-      }
+    if (updates.status !== undefined) {
+      updatePayload.status = updates.status;
+    }
 
-      if (updates.progress !== undefined) {
-        // Ensure progress is between 0 and 100
-        updatePayload.progress = Math.max(
-          0,
-          Math.min(100, Math.round(updates.progress))
+    if (updates.progress !== undefined) {
+      // Ensure progress is between 0 and 100
+      updatePayload.progress = Math.max(
+        0,
+        Math.min(100, Math.round(updates.progress))
+      );
+    }
+
+    if (updates.result !== undefined) {
+      updatePayload.result = updates.result;
+    }
+
+    if (updates.errorLog !== undefined) {
+      updatePayload.errorLog = updates.errorLog;
+    }
+
+    if (updates.bullJobId !== undefined) {
+      updatePayload.bullJobId = updates.bullJobId;
+    }
+
+    if (updates.queueName !== undefined) {
+      updatePayload.queueName = updates.queueName;
+    }
+
+    for (let attempt = 1; attempt <= UPDATE_RETRY_ATTEMPTS; attempt++) {
+      try {
+        const current = await this.pocketbaseService.getTask(taskId);
+        if (current && isTerminalTaskStatus(current.status)) {
+          this.logger.warn(
+            `Skipping update for task ${taskId}: already in terminal status "${current.status}" — ignoring stale event from a reassigned or watchdog-failed job`
+          );
+          return;
+        }
+
+        await this.pocketbaseService.updateTask(taskId, updatePayload);
+
+        this.logger.debug(
+          `Updated task ${taskId}: status=${updates.status || 'unchanged'}, progress=${updates.progress !== undefined ? `${updates.progress}%` : 'unchanged'}`
+        );
+        return;
+      } catch (error) {
+        if (attempt === UPDATE_RETRY_ATTEMPTS) {
+          this.logger.error(
+            `Failed to update task ${taskId} after ${attempt} attempts: ${this.formatError(error)}`,
+            error instanceof Error ? error.stack : undefined
+          );
+          return;
+        }
+
+        this.logger.warn(
+          `Retrying update for task ${taskId} (attempt ${attempt}/${UPDATE_RETRY_ATTEMPTS}): ${this.formatError(error)}`
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, UPDATE_RETRY_BASE_DELAY_MS * attempt)
         );
       }
-
-      if (updates.result !== undefined) {
-        updatePayload.result = updates.result;
-      }
-
-      if (updates.errorLog !== undefined) {
-        updatePayload.errorLog = updates.errorLog;
-      }
-
-      await this.pocketbaseService.updateTask(taskId, updatePayload);
-
-      this.logger.debug(
-        `Updated task ${taskId}: status=${updates.status || 'unchanged'}, progress=${updates.progress !== undefined ? `${updates.progress}%` : 'unchanged'}`
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to update task ${taskId}: ${this.formatError(error)}`
-      );
     }
   }
 

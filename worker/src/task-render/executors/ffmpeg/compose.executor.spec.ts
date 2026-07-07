@@ -120,7 +120,7 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toContain("overlay=x=0:y=0:enable='between(t,5,10)'");
   });
 
-  it('applies stability flags: single thread everywhere, seeked inputs, slow preset, no -s', async () => {
+  it('applies stability flags: seeked inputs, slow preset, no -s, threads left to ffmpeg', async () => {
     const tracks: TimelineTrack[] = [
       {
         id: 'track1',
@@ -154,10 +154,11 @@ describe('FFmpegComposeExecutor', () => {
 
     // Never waits on stdin under a job runner
     expect(args).toContain('-nostdin');
-    // Filtergraph, decoder and encoder thread pools all capped to 1
-    expect(joined).toContain('-filter_complex_threads 1');
-    expect(joined).toContain('-threads 1 -ss 2 -t 5 -i /tmp/1.mp4');
-    expect(joined).toContain('-map [outa] -threads 1 -c:v');
+    // Threading is left to ffmpeg's auto-sizing — no explicit caps
+    expect(args).not.toContain('-threads');
+    expect(args).not.toContain('-filter_complex_threads');
+    // Input-level seeking bounds decode to the segment window
+    expect(joined).toContain('-ss 2 -t 5 -i /tmp/1.mp4');
     // Encoder preset lowered from veryslow (RAM) to slow
     expect(joined).toContain('-preset slow');
     expect(joined).not.toContain('veryslow');

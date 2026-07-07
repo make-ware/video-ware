@@ -53,6 +53,8 @@ export abstract class BaseSimpleProcessor<
     this.logger.log(`Job ${job.id} started for task ${job.data.taskId}`);
     await this.updateTask(job.data.taskId, {
       status: TaskStatus.RUNNING,
+      bullJobId: job.id,
+      queueName: job.queueName,
     });
   }
 

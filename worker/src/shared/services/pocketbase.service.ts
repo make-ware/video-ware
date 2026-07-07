@@ -289,6 +289,8 @@ export class PocketBaseService implements OnModuleInit {
       progress?: number;
       result?: TaskResult;
       error?: string;
+      bullJobId?: string;
+      queueName?: string;
     }
   ) {
     try {

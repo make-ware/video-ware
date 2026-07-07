@@ -44,6 +44,11 @@ export const TaskSchema = z
       ProcessingProvider.GOOGLE_SPEECH,
     ]).optional(),
     version: TextField().optional(),
+    // Set by the worker when a BullMQ job claims this task (the `active`
+    // event). Lets the hung-task watchdog cron and manual debugging trace a
+    // stuck Task back to its actual job in Bull Board/Redis.
+    bullJobId: TextField().optional(),
+    queueName: TextField().optional(),
   })
   .extend(baseSchema);
 

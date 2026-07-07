@@ -143,7 +143,7 @@ export default function LabelSpeakersPage() {
   return (
     <div className="h-full">
       <Card className="h-full flex flex-col">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Speakers</CardTitle>
             <CardDescription>
@@ -250,22 +250,24 @@ export default function LabelSpeakersPage() {
                       speakerFilter === s.speakerId ? 'secondary' : 'ghost'
                     }
                     size="sm"
-                    className="h-7"
+                    className="h-7 max-w-[14rem]"
                     onClick={() =>
                       setSpeakerFilter((prev) =>
                         prev === s.speakerId ? null : s.speakerId
                       )
                     }
-                    title={`${formatClipTime(s.totalDuration)} speaking time`}
+                    title={`${s.name} · ${formatClipTime(
+                      s.totalDuration
+                    )} speaking time`}
                   >
                     <span
                       className={cn(
-                        'h-2 w-2 rounded-full mr-1.5',
+                        'h-2 w-2 rounded-full mr-1.5 shrink-0',
                         speakerDotClass(s.colorIndex)
                       )}
                     />
-                    {s.name}
-                    <span className="ml-1.5 text-xs text-muted-foreground">
+                    <span className="min-w-0 truncate">{s.name}</span>
+                    <span className="ml-1.5 shrink-0 text-xs text-muted-foreground">
                       {s.utteranceCount}
                     </span>
                   </Button>
@@ -289,44 +291,48 @@ export default function LabelSpeakersPage() {
                     filtered.map((u) => (
                       <div
                         key={u.id}
-                        className="group flex items-start gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                        className="flex gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors"
                       >
                         <Checkbox
                           checked={selectedIds.has(u.id)}
                           onCheckedChange={() => toggleSelected(u.id)}
-                          className="mt-1"
+                          className="mt-1 shrink-0"
                           aria-label="Select utterance"
                         />
-                        <div className="w-24 shrink-0 pt-0.5 space-y-1">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              'font-medium',
-                              speakerBadgeClass(
-                                colorIndexBySpeaker.get(u.speakerId) ?? 0
-                              )
-                            )}
-                          >
-                            {speakerTranscriptLabelFor(u)}
-                          </Badge>
-                          <div className="text-xs font-mono text-muted-foreground whitespace-nowrap">
-                            {formatClipTime(u.start)} – {formatClipTime(u.end)}
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'max-w-[16rem] truncate font-medium',
+                                speakerBadgeClass(
+                                  colorIndexBySpeaker.get(u.speakerId) ?? 0
+                                )
+                              )}
+                              title={speakerTranscriptLabelFor(u)}
+                            >
+                              {speakerTranscriptLabelFor(u)}
+                            </Badge>
+                            <span className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                              {formatClipTime(u.start)} –{' '}
+                              {formatClipTime(u.end)}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="ml-auto shrink-0"
+                              onClick={() => handleCreateSingle(u)}
+                              disabled={createClip.isPending}
+                              title="Create clip from this utterance"
+                            >
+                              <Scissors className="h-3.5 w-3.5" />
+                              <span className="sr-only">Create clip</span>
+                            </Button>
                           </div>
+                          <p className="text-sm leading-relaxed">
+                            {u.transcript}
+                          </p>
                         </div>
-                        <p className="text-sm leading-relaxed flex-1">
-                          {u.transcript}
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                          onClick={() => handleCreateSingle(u)}
-                          disabled={createClip.isPending}
-                          title="Create clip from this utterance"
-                        >
-                          <Scissors className="h-3.5 w-3.5 mr-1.5" />
-                          Create clip
-                        </Button>
                       </div>
                     ))
                   )}

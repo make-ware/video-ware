@@ -653,6 +653,8 @@ export abstract class BaseFlowProcessor
     await this.updateTask(parentData.taskId, {
       status: TaskStatus.RUNNING,
       result: taskResult,
+      bullJobId: job.id,
+      queueName: job.queueName,
     });
 
     this.logger.log(`Task ${parentData.taskId} started`);

@@ -115,7 +115,9 @@ export class RenderFlowBuilder {
     return {
       name: 'parent',
       queueName: QUEUE_NAMES.RENDER,
-      opts: { jobId: parentJobId },
+      // Renders run exactly once — override the global attempts:5 default so a
+      // failed render flow is not retried.
+      opts: { jobId: parentJobId, attempts: 1 },
       data: {
         ...baseJobData,
         stepResults: {},

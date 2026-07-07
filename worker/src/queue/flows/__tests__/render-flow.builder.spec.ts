@@ -109,6 +109,17 @@ describe('RenderFlowBuilder - Flow Definition Compliance', () => {
     }
   });
 
+  it('should attempt every step (and the parent) exactly once', () => {
+    const flow = RenderFlowBuilder.buildFlow(makeTask());
+
+    // Renders that crash tend to crash again on retry, so the whole flow is
+    // single-attempt: no step or parent may be retried.
+    expect(flow.opts?.attempts).toBe(1);
+    for (const step of chainSteps(flow)) {
+      expect(step.opts?.attempts).toBe(1);
+    }
+  });
+
   it('should wire every step to the pre-generated parent job id', () => {
     const flow = RenderFlowBuilder.buildFlow(makeTask());
 

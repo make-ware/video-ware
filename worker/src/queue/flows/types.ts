@@ -35,6 +35,8 @@ export interface ChildJobOpts {
  */
 export interface ParentJobOpts {
   jobId?: string;
+  /** Override the queue's default retry count for the flow's root job. */
+  attempts?: number;
 }
 
 // ============================================================================

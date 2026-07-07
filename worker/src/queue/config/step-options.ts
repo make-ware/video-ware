@@ -22,6 +22,19 @@ const DEFAULT_OPTIONS: StepJobOptions = {
 };
 
 /**
+ * Render steps run exactly once. A crashing render (e.g. bad FFmpeg input)
+ * tends to crash again on every retry, so retrying only multiplies the
+ * disruption — fail fast instead.
+ */
+const NO_RETRY_OPTIONS: StepJobOptions = {
+  attempts: 1,
+  backoff: {
+    type: 'exponential',
+    delay: 30000,
+  },
+};
+
+/**
  * Step-specific job options with retry and backoff configuration
  */
 export const STEP_JOB_OPTIONS: Record<string, StepJobOptions> = {
@@ -32,10 +45,10 @@ export const STEP_JOB_OPTIONS: Record<string, StepJobOptions> = {
   [TranscodeStepType.FILMSTRIP]: DEFAULT_OPTIONS,
   [TranscodeStepType.TRANSCODE]: DEFAULT_OPTIONS,
 
-  // Render steps
-  [RenderStepType.PREPARE]: DEFAULT_OPTIONS,
-  [RenderStepType.EXECUTE]: DEFAULT_OPTIONS,
-  [RenderStepType.FINALIZE]: DEFAULT_OPTIONS,
+  // Render steps — attempt once, never retry
+  [RenderStepType.PREPARE]: NO_RETRY_OPTIONS,
+  [RenderStepType.EXECUTE]: NO_RETRY_OPTIONS,
+  [RenderStepType.FINALIZE]: NO_RETRY_OPTIONS,
 
   // Detect Labels steps
   [DetectLabelsStepType.UPLOAD_TO_GCS]: DEFAULT_OPTIONS,

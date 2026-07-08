@@ -30,10 +30,8 @@ import {
   getMediaTypeLabel,
 } from '@/components/media';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
-import { TranscriptList } from '@/components/transcripts/transcript-list';
-import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
-import { cn } from '@/lib/utils';
+import { SpeakerTranscriptPanel } from '@/components/labels/speakers/speaker-transcript-panel';
+import { useMediaSpeakers } from '@/hooks/use-media-speakers';
 import { MediaClip } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import {
@@ -59,21 +57,13 @@ function MediaDetailsPageContent() {
   const id = params.id as string;
   const { media, clips, isLoading, error, refresh } = useMediaDetails(id);
   const { currentWorkspace } = useWorkspace();
-  const {
-    transcripts,
-    isLoading: _isLoadingTranscripts,
-    createTranscript,
-    updateTranscript,
-    deleteTranscript,
-    refresh: _refreshTranscripts,
-  } = useMediaTranscripts(id);
+  const { utterances, isLoading: isLoadingSpeakers } = useMediaSpeakers(id);
   const [clipEditorState, setClipEditorState] = useState<
     | null
     | { mode: 'create'; playhead?: number }
     | { mode: 'edit-media-clip'; clip: MediaClip; playhead?: number }
   >(null);
   const [activeTab, setActiveTab] = useState('clips');
-  const [showTranscripts, setShowTranscripts] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [isDeleting, setIsDeleting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -376,15 +366,7 @@ function MediaDetailsPageContent() {
                     autoPlay={false}
                     className="w-full h-full"
                     ref={videoRef}
-                  >
-                    {(currentTime) => (
-                      <TranscriptOverlay
-                        transcripts={transcripts}
-                        currentTime={currentTime}
-                        isVisible={showTranscripts}
-                      />
-                    )}
-                  </MediaVideoPlayer>
+                  />
                 </div>
 
                 {/* Create/Edit Clip Buttons */}
@@ -509,7 +491,7 @@ function MediaDetailsPageContent() {
               activeTab={activeTab}
               onTabChange={handleTabChange}
               clipCount={filteredClips.length}
-              transcriptCount={transcripts.length}
+              transcriptCount={utterances.length}
               clipsContent={
                 <>
                   <div className="mb-3 flex items-center justify-between px-0">
@@ -533,25 +515,13 @@ function MediaDetailsPageContent() {
                 </>
               }
               transcriptsContent={
-                <TranscriptList
-                  transcripts={transcripts}
+                <SpeakerTranscriptPanel
+                  utterances={utterances}
+                  isLoading={isLoadingSpeakers}
                   mediaId={media.id}
                   workspaceId={currentWorkspace?.id || ''}
                   onSeek={handleJumpToTime}
-                  onCreate={createTranscript}
-                  onUpdate={updateTranscript}
-                  onDelete={deleteTranscript}
                 />
-              }
-              transcriptsHeaderContent={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn('h-6 text-xs', showTranscripts && 'bg-muted')}
-                  onClick={() => setShowTranscripts(!showTranscripts)}
-                >
-                  {showTranscripts ? 'Hide Overlay' : 'Show Overlay'}
-                </Button>
               }
             />
           </Card>

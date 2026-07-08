@@ -30,72 +30,58 @@
 // All handlers are best-effort and never throw past e.next(): a wedged Media
 // delete is unrecoverable, whereas a leaked blob / orphaned task is reclaimable
 // (the `cleanup` task, or a re-run). See docs/PB_TRIGGERS.md for hook discipline.
+//
+// PocketBase note: each handler is serialized and executed in an isolated goja
+// runtime from the pool, so it CANNOT reference functions or constants from the
+// file's top-level scope (that scope only exists during startup registration).
+// Everything a handler uses must be defined INSIDE it — hence the per-handler
+// PAGE constant and helper functions below.
 // ---------------------------------------------------------------------------
-
-const PAGE = 200;
-
-// Flag every TimelineClip that points at this media as mediaMissing, preserving
-// the rest of its meta. Runs before the delete so the MediaRef filter still
-// matches; uses e.app so the writes join the delete transaction. Paginates by
-// offset over a stable sort — the clips keep matching (we don't touch MediaRef),
-// so re-reading page 0 would loop forever.
-function flagTimelineClipsMissing(app, mediaId) {
-  let offset = 0;
-  while (true) {
-    const clips = app.findRecordsByFilter(
-      'TimelineClips',
-      'MediaRef = {:id}',
-      'id',
-      PAGE,
-      offset,
-      { id: mediaId }
-    );
-    if (!clips || clips.length === 0) break;
-    for (let i = 0; i < clips.length; i++) {
-      const clip = clips[i];
-      if (!clip) continue;
-      let meta = clip.get('meta');
-      if (typeof meta === 'string') {
-        try {
-          meta = JSON.parse(meta);
-        } catch (_) {
-          meta = {};
-        }
-      }
-      if (!meta || typeof meta !== 'object') {
-        meta = {};
-      }
-      meta.mediaMissing = true;
-      clip.set('meta', meta);
-      app.save(clip);
-    }
-    if (clips.length < PAGE) break;
-    offset += clips.length;
-  }
-}
-
-// Delete every Task whose free-text sourceId matches. Re-reads page 0 each loop
-// because deletes shift the result set.
-function deleteTasksBySourceId(app, sourceId) {
-  while (true) {
-    const tasks = app.findRecordsByFilter(
-      'Tasks',
-      'sourceId = {:sid}',
-      'id',
-      PAGE,
-      0,
-      { sid: sourceId }
-    );
-    if (!tasks || tasks.length === 0) break;
-    for (let i = 0; i < tasks.length; i++) {
-      if (tasks[i]) app.delete(tasks[i]);
-    }
-    if (tasks.length < PAGE) break;
-  }
-}
 
 // (1) BEFORE delete: preserve referencing timeline clips, flag them mediaMissing.
 onRecordDelete((e) => {
+  const PAGE = 200;
+
+  // Flag every TimelineClip that points at this media as mediaMissing, preserving
+  // the rest of its meta. Runs before the delete so the MediaRef filter still
+  // matches; uses e.app so the writes join the delete transaction. Paginates by
+  // offset over a stable sort — the clips keep matching (we don't touch MediaRef),
+  // so re-reading page 0 would loop forever.
+  function flagTimelineClipsMissing(app, mediaId) {
+    let offset = 0;
+    while (true) {
+      const clips = app.findRecordsByFilter(
+        'TimelineClips',
+        'MediaRef = {:id}',
+        'id',
+        PAGE,
+        offset,
+        { id: mediaId }
+      );
+      if (!clips || clips.length === 0) break;
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        if (!clip) continue;
+        let meta = clip.get('meta');
+        if (typeof meta === 'string') {
+          try {
+            meta = JSON.parse(meta);
+          } catch (_) {
+            meta = {};
+          }
+        }
+        if (!meta || typeof meta !== 'object') {
+          meta = {};
+        }
+        meta.mediaMissing = true;
+        clip.set('meta', meta);
+        app.save(clip);
+      }
+      if (clips.length < PAGE) break;
+      offset += clips.length;
+    }
+  }
+
   try {
     flagTimelineClipsMissing(e.app, e.record.id);
   } catch (error) {
@@ -110,6 +96,28 @@ onRecordDelete((e) => {
 // Post-commit cleanup, so it uses the global $app (the delete is already durable)
 // and tolerates anything already gone.
 onRecordAfterDeleteSuccess((e) => {
+  const PAGE = 200;
+
+  // Delete every Task whose free-text sourceId matches. Re-reads page 0 each loop
+  // because deletes shift the result set.
+  function deleteTasksBySourceId(app, sourceId) {
+    while (true) {
+      const tasks = app.findRecordsByFilter(
+        'Tasks',
+        'sourceId = {:sid}',
+        'id',
+        PAGE,
+        0,
+        { sid: sourceId }
+      );
+      if (!tasks || tasks.length === 0) break;
+      for (let i = 0; i < tasks.length; i++) {
+        if (tasks[i]) app.delete(tasks[i]);
+      }
+      if (tasks.length < PAGE) break;
+    }
+  }
+
   try {
     const media = e.record;
     const uploadId = media.get('UploadRef');

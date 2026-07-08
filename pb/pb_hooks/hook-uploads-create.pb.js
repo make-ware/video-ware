@@ -12,6 +12,7 @@
 // `uploaded`) and update (the webapp finalize + retry path). The handler is
 // self-contained so PocketBase can serialize it for both events.
 // ---------------------------------------------------------------------------
+// eslint-disable-next-line no-restricted-syntax -- intentional shared handler: a self-contained top-level function passed directly to both registrations below; PocketBase serializes its full source into each pooled runtime, so it needs no top-level scope at execution time.
 function onUploadSaved(e) {
   try {
     const upload = e.record;

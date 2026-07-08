@@ -9,8 +9,8 @@
     "build": "echo 'PocketBase workspace - no build needed'",
     "test": "echo 'PocketBase workspace - no tests needed'",
     "test:watch": "echo 'PocketBase workspace - no tests needed'",
-    "lint": "echo 'PocketBase workspace - no lint needed'",
-    "lint:fix": "echo 'PocketBase workspace - no lint needed'",
+    "lint": "eslint pb_hooks",
+    "lint:fix": "eslint pb_hooks",
     "typecheck": "echo 'PocketBase workspace - no typecheck needed'",
     "format": "echo 'PocketBase workspace - no format needed'",
     "format:check": "echo 'PocketBase workspace - no format check needed'",
@@ -22,6 +22,9 @@
     "stop": "node --env-file-if-exists=../.env scripts/stop-pocketbase.js",
     "upsert": "node --env-file-if-exists=../.env scripts/upsert-pocketbase.js",
     "setup": "yarn run download && yarn run upsert"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.2"
   },
   "packageManager": "yarn@4.12.0"
 }

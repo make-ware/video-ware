@@ -2824,6 +2824,8 @@ __metadata:
 "@project/pb@workspace:pb":
   version: 0.0.0-use.local
   resolution: "@project/pb@workspace:pb"
+  dependencies:
+    eslint: "npm:^9.39.2"
   languageName: unknown
   linkType: soft
 

@@ -3,6 +3,7 @@ import {
   ClipType,
   MediaClipMutator,
   MediaMutator,
+  TimelineClipMutator,
   validateTimeRange,
   type Media,
   type MediaClip,
@@ -139,6 +140,127 @@ export async function createMediaClip(
   };
 
   return new MediaClipMutator(pb).create(input);
+}
+
+export interface UpdateMediaClipOptions {
+  /** Editor-facing clip name (searchable). */
+  label?: string;
+  /** Editor-facing clip notes (searchable). */
+  description?: string;
+  /** New clip start in source media (seconds). */
+  start?: number;
+  /** New clip end in source media (seconds). */
+  end?: number;
+}
+
+/** `media clip update` flags for the editable MediaClip fields. */
+export const mediaClipUpdateOptions = {
+  label: {
+    flags: '--label <text>',
+    description: 'clip name shown in the editor (searchable)',
+  },
+  description: {
+    flags: '--description <text>',
+    description: 'clip notes shown in the editor (searchable)',
+  },
+  start: {
+    flags: '-s, --start <seconds>',
+    description: 'new clip start in source media',
+    parse: parseFloat,
+  },
+  end: {
+    flags: '-e, --end <seconds>',
+    description: 'new clip end in source media',
+    parse: parseFloat,
+  },
+} satisfies OptionGroupOf<UpdateMediaClipOptions>;
+
+/**
+ * Patch a MediaClip's label/description/trim. A trim change (start and/or
+ * end) is re-validated against the source media and recomputes the stored
+ * duration. Only the fields actually passed are written.
+ */
+export async function updateMediaClip(
+  pb: TypedPocketBase,
+  clipId: string,
+  opts: UpdateMediaClipOptions
+): Promise<MediaClip> {
+  const mutator = new MediaClipMutator(pb);
+  const clip = await mutator.getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+
+  const patch: Partial<MediaClip> = {
+    ...(opts.label !== undefined ? { label: opts.label } : {}),
+    ...(opts.description !== undefined
+      ? { description: opts.description }
+      : {}),
+  };
+
+  const trimChanged = opts.start !== undefined || opts.end !== undefined;
+  if (trimChanged) {
+    const start = opts.start ?? clip.start;
+    const end = opts.end ?? clip.end;
+
+    const media = await new MediaMutator(pb).getById(clip.MediaRef);
+    if (!media) {
+      throw new Error(
+        `Clip ${clipId} references missing media ${clip.MediaRef}.`
+      );
+    }
+    const mediaType = singleMediaType(media.mediaType);
+    if (!validateTimeRange(start, end, media.duration, mediaType)) {
+      throw new Error(
+        `Invalid time range: start=${start}, end=${end}, media duration=${media.duration}`
+      );
+    }
+
+    patch.start = start;
+    patch.end = end;
+    patch.duration = end - start;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error('Nothing to update — pass at least one field flag.');
+  }
+
+  return mutator.update(clipId, patch);
+}
+
+export interface DeleteMediaClipResult {
+  clip: MediaClip;
+  /** Timeline clip ids that reference this MediaClip (provenance only). */
+  referencingClipIds: string[];
+}
+
+/**
+ * Delete a MediaClip. Unlike `caption delete`, this never refuses: a
+ * TimelineClip's `MediaClipRef` is provenance only (`timeline doctor` flags a
+ * dangling one as a warning, not an error — playback and rendering are
+ * unaffected), and PocketBase cascade-deletes any MediaClipLabels rows that
+ * linked the clip back to its source label. Referencing timeline clip ids
+ * are reported either way so the caller can follow up.
+ */
+export async function deleteMediaClip(
+  pb: TypedPocketBase,
+  clipId: string
+): Promise<DeleteMediaClipResult> {
+  const mutator = new MediaClipMutator(pb);
+  const clip = await mutator.getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+
+  const refs = await new TimelineClipMutator(pb).getList(
+    1,
+    500,
+    pb.filter('MediaClipRef = {:id}', { id: clipId })
+  );
+  const referencingClipIds = refs.items.map((c) => c.id);
+
+  await mutator.delete(clipId);
+  return { clip, referencingClipIds };
 }
 
 export interface UpdateMediaOptions {

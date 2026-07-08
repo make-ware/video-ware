@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClipType, type TypedPocketBase } from '@project/shared';
 import {
   createMediaClip,
+  deleteMediaClip,
   parseClipType,
   searchMedia,
   updateMedia,
+  updateMediaClip,
 } from '../lib/media.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -196,6 +198,169 @@ describe('createMediaClip', () => {
     await expect(
       createMediaClip(pb, { mediaId: 'm1', start: 0, end: 99 })
     ).rejects.toThrow(/invalid time range/i);
+  });
+});
+
+describe('updateMediaClip', () => {
+  it('patches label and description without touching the trim', async () => {
+    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({
+          id: 'clip1',
+          MediaRef: 'm1',
+          start: 5,
+          end: 10,
+          duration: 5,
+          label: 'old',
+        })),
+        update,
+      },
+    });
+
+    const result = await updateMediaClip(pb, 'clip1', { label: 'New label' });
+
+    expect(update).toHaveBeenCalledOnce();
+    const [id, patch] = update.mock.calls[0];
+    expect(id).toBe('clip1');
+    expect(patch).toEqual({ label: 'New label' });
+    expect(patch).not.toHaveProperty('start');
+    expect(result.label).toBe('New label');
+  });
+
+  it('revalidates against the source media and recomputes duration when the trim changes', async () => {
+    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({
+          id: 'clip1',
+          MediaRef: 'm1',
+          start: 5,
+          end: 10,
+          duration: 5,
+        })),
+        update,
+      },
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          duration: 60,
+          mediaType: 'video',
+        })),
+      },
+    });
+
+    await updateMediaClip(pb, 'clip1', { start: 2, end: 8 });
+
+    expect(update.mock.calls[0][1]).toMatchObject({
+      start: 2,
+      end: 8,
+      duration: 6,
+    });
+  });
+
+  it('rejects a trim beyond the media duration', async () => {
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({
+          id: 'clip1',
+          MediaRef: 'm1',
+          start: 0,
+          end: 10,
+          duration: 10,
+        })),
+        update: vi.fn(),
+      },
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          duration: 10,
+          mediaType: 'video',
+        })),
+      },
+    });
+
+    await expect(updateMediaClip(pb, 'clip1', { end: 99 })).rejects.toThrow(
+      /invalid time range/i
+    );
+  });
+
+  it('throws when the clip does not exist', async () => {
+    const pb = fakePb({
+      MediaClips: { getOne: vi.fn(async () => null), update: vi.fn() },
+    });
+
+    await expect(
+      updateMediaClip(pb, 'missing', { label: 'x' })
+    ).rejects.toThrow(/media clip not found/i);
+  });
+
+  it('throws when no fields are passed', async () => {
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({
+          id: 'clip1',
+          MediaRef: 'm1',
+          start: 0,
+          end: 10,
+          duration: 10,
+        })),
+        update: vi.fn(),
+      },
+    });
+
+    await expect(updateMediaClip(pb, 'clip1', {})).rejects.toThrow(
+      /nothing to update/i
+    );
+  });
+});
+
+describe('deleteMediaClip', () => {
+  it('deletes the clip and reports no referencing timeline clips', async () => {
+    const del = vi.fn(async () => true);
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({ id: 'clip1' })),
+        delete: del,
+      },
+      TimelineClips: {
+        getList: vi.fn(async () => listResult([])),
+      },
+    });
+
+    const result = await deleteMediaClip(pb, 'clip1');
+
+    expect(del).toHaveBeenCalledWith('clip1');
+    expect(result.clip.id).toBe('clip1');
+    expect(result.referencingClipIds).toEqual([]);
+  });
+
+  it('deletes the clip even when timeline clips still reference it (provenance only)', async () => {
+    const del = vi.fn(async () => true);
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({ id: 'clip1' })),
+        delete: del,
+      },
+      TimelineClips: {
+        getList: vi.fn(async () => listResult([{ id: 'tc1' }, { id: 'tc2' }])),
+      },
+    });
+
+    const result = await deleteMediaClip(pb, 'clip1');
+
+    expect(del).toHaveBeenCalledWith('clip1');
+    expect(result.referencingClipIds).toEqual(['tc1', 'tc2']);
+  });
+
+  it('throws when the clip does not exist', async () => {
+    const pb = fakePb({
+      MediaClips: { getOne: vi.fn(async () => null) },
+    });
+
+    await expect(deleteMediaClip(pb, 'missing')).rejects.toThrow(
+      /media clip not found/i
+    );
   });
 });
 

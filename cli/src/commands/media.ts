@@ -10,16 +10,20 @@ import {
 import {
   clipFieldOptions,
   createMediaClip,
+  deleteMediaClip,
   mediaClipMediaLabel,
+  mediaClipUpdateOptions,
   mediaFieldOptions,
   parseClipType,
   searchMedia,
   updateMedia,
+  updateMediaClip,
   type MediaClipWithMedia,
 } from '../lib/media.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
+  info,
   printList,
   printRecord,
   success,
@@ -193,6 +197,58 @@ export function registerMediaCommands(program: Command): void {
         ],
         { json: opts.json, totalItems: result.totalItems }
       );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  const clipUpdate = clip
+    .command('update <clipId>')
+    .description('Update a media clip (label, description, trim)');
+
+  applyOptions(withJsonOption(clipUpdate), mediaClipUpdateOptions).action(
+    async (clipId: string, opts) => {
+      try {
+        const pb = await requireClient();
+        const updated = await updateMediaClip(
+          pb,
+          clipId,
+          pickOptions(opts, mediaClipUpdateOptions)
+        );
+        if (opts.json) {
+          printRecord(updated, [], true);
+          return;
+        }
+        const label = updated.label ? ` "${updated.label}"` : '';
+        success(
+          `Updated clip ${updated.id}${label} (${updated.start.toFixed(2)}s–${updated.end.toFixed(2)}s, ${formatDuration(updated.duration)})`
+        );
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+  withJsonOption(
+    clip
+      .command('delete <clipId>')
+      .alias('rm')
+      .description('Delete a media clip')
+  ).action(async (clipId: string, opts) => {
+    try {
+      const pb = await requireClient();
+      const result = await deleteMediaClip(pb, clipId);
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      success(`Deleted clip ${result.clip.id}`);
+      if (result.referencingClipIds.length > 0) {
+        info(
+          `  ${result.referencingClipIds.length} timeline clip(s) now have a dangling ` +
+            `MediaClip ref (${result.referencingClipIds.join(', ')}) — provenance only, playback/rendering unaffected.`
+        );
+      }
     } catch (err) {
       handleError(err);
     }

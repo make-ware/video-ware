@@ -32,6 +32,8 @@ vw media search <query>        # search media by filename, label, or description
 vw media update <id>           # set a media's editor-facing label/description
 vw media clip create           # create a media clip (sub-range of a media)
 vw media clip list             # list media clips in the active workspace
+vw media clip update <id>      # edit a media clip's label/description/trim
+vw media clip delete <id>      # delete a media clip
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
 vw label list                  # list labels for one media
@@ -205,6 +207,9 @@ vw media clip create -m MEDIA_ID -s 5 -e 12.5 \
 vw media clip list -m MEDIA_ID                 # clips derived from one media
 vw media clip list --type shot                 # clips of a given type
 vw media clip list --search beach              # match label/description/type/filename
+vw media clip update MC_ID --label "Beach intro" --description "Opening shot"
+vw media clip update MC_ID -s 6 -e 14           # re-trim (revalidated against the source media)
+vw media clip delete MC_ID                      # delete; dangling MediaClipRefs are provenance-only
 
 vw label search "sunset"                       # all label types, best confidence first
 vw label search hello -t speech,text           # transcript/on-screen-text matches only

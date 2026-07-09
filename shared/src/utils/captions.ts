@@ -141,55 +141,58 @@ export interface TranscriptLike {
 }
 
 /**
- * Split a transcript blob into single-line cues spread evenly across its
- * [start, end] window. Fallback for transcripts that lack word-level timing.
- * Returned cue times are in absolute media time.
+ * Estimate per-word timings for a transcript blob by spreading its words
+ * evenly across the record's [start, end] window, in absolute media time.
+ * Fallback for transcripts that lack word-level timing, so they flow through
+ * the same window-filter + chunking path as real timings.
  */
-function chunkTextToTimedCues(
+function estimateWordTimings(
   text: string,
   start: number,
-  end: number,
-  maxChars: number
-): CaptionCue[] {
+  end: number
+): SpeechWordTiming[] {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
 
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (current && candidate.length > maxChars) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current) lines.push(current);
-
-  const span = Math.max(end - start, 0);
-  const per = span / lines.length;
-  return lines.map((line, i) => ({
-    text: line,
-    start: span > 0 ? start + i * per : start,
-    end: span > 0 ? start + (i + 1) * per : Math.max(end, start),
+  const per = Math.max(end - start, 0) / words.length;
+  return words.map((word, i) => ({
+    word,
+    startTime: start + i * per,
+    endTime: start + (i + 1) * per,
   }));
+}
+
+export interface CuesFromTranscriptsOptions {
+  /** Maximum characters per cue line (default SINGLE_LINE_MAX_CHARS) */
+  maxChars?: number;
+  /**
+   * Source-media window (seconds) the cues are for, e.g. a trimmed clip's
+   * [start, end]. Words are filtered to the window BEFORE being chunked into
+   * cues, so speech that was trimmed out never appears — clamping pre-built
+   * cues instead would keep the full text of any cue that merely overlaps
+   * the boundary. A word straddling an edge counts as inside (it is partially
+   * audible). Cue times stay absolute; pair with clampCuesToWindow to re-base.
+   */
+  windowStart?: number;
+  windowEnd?: number;
 }
 
 /**
  * Derive single-line caption cues from one or more transcript records.
  *
  * Each record's word timings are chunked into single-line phrase cues (falling
- * back to splitting the transcript blob when words are missing). Cues stay in
+ * back to evenly-estimated timings when words are missing). Cues stay in
  * absolute media time — re-basing/clamping to a trimmed clip window is done
  * later with clampCuesToWindow. This is the shared bridge used by the
  * media-detail overlay and the render edit-list so both show the same lines.
  */
 export function cuesFromTranscripts(
   transcripts: TranscriptLike[],
-  options: { maxChars?: number } = {}
+  options: CuesFromTranscriptsOptions = {}
 ): CaptionCue[] {
   const maxChars = options.maxChars ?? SINGLE_LINE_MAX_CHARS;
+  const windowStart = options.windowStart ?? -Infinity;
+  const windowEnd = options.windowEnd ?? Infinity;
   const cues: CaptionCue[] = [];
 
   for (const t of transcripts) {
@@ -205,13 +208,19 @@ export function cuesFromTranscripts(
           typeof w?.endTime === 'number'
       );
 
+    let words: SpeechWordTiming[];
     if (hasTimings) {
-      cues.push(...cuesFromWords(rawWords, { maxChars, offset: 0 }));
+      words = rawWords;
     } else if (t.transcript && t.transcript.trim()) {
-      cues.push(
-        ...chunkTextToTimedCues(t.transcript, t.start, t.end, maxChars)
-      );
+      words = estimateWordTimings(t.transcript, t.start, t.end);
+    } else {
+      continue;
     }
+
+    const visible = words.filter(
+      (w) => w.endTime > windowStart && w.startTime < windowEnd
+    );
+    cues.push(...cuesFromWords(visible, { maxChars, offset: 0 }));
   }
 
   cues.sort((a, b) => a.start - b.start);

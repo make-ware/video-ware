@@ -176,8 +176,9 @@ function captionStyleToText(style: CaptionStyle) {
  * also opt-in (includeSubtitles, default off) and tagged `role: 'subtitle'` so
  * the renderer can gate them independently of deliberately placed captions.
  *
- * Words live in absolute media time; clamping to [clip.start, clip.end] both
- * trims to the visible source window and re-bases cues to the clip start —
+ * Words live in absolute media time; the window is applied at the word level
+ * (cuesFromTranscripts) so speech outside [clip.start, clip.end] never enters
+ * a cue, then clampCuesToWindow re-bases the surviving cues to the clip start —
  * mirroring how custom caption clips trim their own cue timeline. The segment
  * is placed at the clip's timeline position so the renderer draws each cue at
  * startTime + cue.start, in lockstep with the video.
@@ -197,7 +198,10 @@ function buildTranscriptCaptionSegment(
   if (!transcripts || transcripts.length === 0) return null;
 
   const cues = clampCuesToWindow(
-    cuesFromTranscripts(transcripts),
+    cuesFromTranscripts(transcripts, {
+      windowStart: clip.start,
+      windowEnd: clip.end,
+    }),
     clip.start,
     clip.end
   );

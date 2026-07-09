@@ -136,6 +136,79 @@ describe('cuesFromTranscripts', () => {
     );
   });
 
+  it('filters words to the source window before chunking into cues', () => {
+    const transcript = {
+      transcript: 'zero one two three four five',
+      start: 0,
+      end: 6,
+      words: ['zero', 'one', 'two', 'three', 'four', 'five'].map((word, i) => ({
+        word,
+        startTime: i,
+        endTime: i + 1,
+        confidence: 0.9,
+      })),
+    };
+
+    const result = cuesFromTranscripts([transcript], {
+      windowStart: 2,
+      windowEnd: 4,
+    });
+
+    // Only words audible inside [2, 4) survive — never the whole overlapping
+    // cue's text, so trimmed-out speech can't leak into a trimmed clip.
+    expect(result).toEqual([{ text: 'two three', start: 2, end: 4 }]);
+  });
+
+  it('includes words that straddle the window edges (partially audible)', () => {
+    const result = cuesFromTranscripts(
+      [
+        {
+          transcript: 'early edge late',
+          start: 0,
+          end: 30,
+          words: [
+            { word: 'early', startTime: 0, endTime: 1, confidence: 0.9 },
+            { word: 'edge', startTime: 9.5, endTime: 10.5, confidence: 0.9 },
+            { word: 'late', startTime: 20, endTime: 21, confidence: 0.9 },
+          ],
+        },
+      ],
+      { windowStart: 10, windowEnd: 20 }
+    );
+
+    expect(result.map((c) => c.text)).toEqual(['edge']);
+  });
+
+  it('does not let cues extended across silence leak into a later window', () => {
+    // Words end at 2s, next speech starts at 8s: the anti-flicker extension
+    // stretches the first cue to 8s. A window covering only the silence
+    // (4–6s) must still produce no cues.
+    const transcript = {
+      transcript: 'hello there again',
+      start: 0,
+      end: 10,
+      words: [
+        { word: 'hello', startTime: 0, endTime: 1, confidence: 0.9 },
+        { word: 'there', startTime: 1, endTime: 2, confidence: 0.9 },
+        { word: 'again', startTime: 8, endTime: 9, confidence: 0.9 },
+      ],
+    };
+
+    expect(
+      cuesFromTranscripts([transcript], { windowStart: 4, windowEnd: 6 })
+    ).toEqual([]);
+  });
+
+  it('window-filters estimated timings on the no-words fallback path', () => {
+    // 6 words spread evenly across 0–6s → 1s per word estimate
+    const result = cuesFromTranscripts(
+      [{ transcript: 'zero one two three four five', start: 0, end: 6 }],
+      { windowStart: 2, windowEnd: 4 }
+    );
+
+    expect(result).toEqual([{ text: 'two three', start: 2, end: 4 }]);
+  });
+
   it('flattens and sorts cues across multiple records by start time', () => {
     const result = cuesFromTranscripts([
       {

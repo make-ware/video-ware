@@ -11,6 +11,13 @@ interface TranscriptOverlayProps {
   currentTime: number;
   isVisible: boolean;
   className?: string;
+  /**
+   * Source-media window (seconds) to restrict words to — pass a trimmed
+   * clip's [start, end] so speech cut out of the clip never shows. Omit to
+   * caption the whole media (media-detail playback).
+   */
+  windowStart?: number;
+  windowEnd?: number;
 }
 
 /**
@@ -27,8 +34,13 @@ export function TranscriptOverlay({
   currentTime,
   isVisible,
   className,
+  windowStart,
+  windowEnd,
 }: TranscriptOverlayProps) {
-  const cues = useMemo(() => cuesFromTranscripts(transcripts), [transcripts]);
+  const cues = useMemo(
+    () => cuesFromTranscripts(transcripts, { windowStart, windowEnd }),
+    [transcripts, windowStart, windowEnd]
+  );
 
   if (!isVisible || cues.length === 0) return null;
 

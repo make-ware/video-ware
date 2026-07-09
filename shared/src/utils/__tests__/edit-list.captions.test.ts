@@ -173,7 +173,7 @@ describe('generateTracks with media-clip transcript subtitles', () => {
     });
   });
 
-  it('clamps and re-bases subtitle cues when the media clip is trimmed', () => {
+  it('clamps and re-bases subtitle cues when the media clip is trimmed, dropping trimmed-out words', () => {
     const tracks = generateTracks(
       [makeMediaClip({ start: 1, end: 3, duration: 2 })],
       [track],
@@ -184,9 +184,21 @@ describe('generateTracks with media-clip transcript subtitles', () => {
       .find((t) => t.id === 'track1')!
       .segments.find((s) => s.type === 'text');
     expect(textSeg?.time).toEqual({ start: 10, duration: 2 });
+    // 'Hello' (0–1s) and 'bar' (3–4s) fall outside the clip's source window
     expect(textSeg?.text?.cues).toEqual([
-      { text: 'Hello world foo bar', start: 0, end: 2 },
+      { text: 'world foo', start: 0, end: 2 },
     ]);
+  });
+
+  it('emits no subtitles when all speech falls outside the clip window', () => {
+    const tracks = generateTracks(
+      [makeMediaClip({ start: 6, end: 8, duration: 2 })],
+      [track],
+      { transcriptsByMedia, includeSubtitles: true }
+    );
+
+    const segments = tracks.find((t) => t.id === 'track1')!.segments;
+    expect(segments.every((s) => s.type !== 'text')).toBe(true);
   });
 
   it('omits subtitles by default (includeSubtitles unset)', () => {

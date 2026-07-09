@@ -89,13 +89,16 @@ export function TimelinePlayer() {
   // Auto subtitles active at the playhead: for each non-muted channel, the
   // transcript of the clip playing there, at that clip's source time. Mirrors
   // the render (buildTranscriptCaptionSegment) so preview matches the output —
-  // muted channels contribute nothing, exactly as they don't in the render.
+  // muted channels contribute nothing, exactly as they don't in the render,
+  // and the clip's source window drops words trimmed out of the clip.
   const activeSubtitles = useMemo(() => {
     if (!showSubtitles) return [];
     const active: Array<{
       channelId: string;
       transcripts: (typeof transcriptsByMedia)[string];
       mediaTime: number;
+      clipStart: number;
+      clipEnd: number;
     }> = [];
     for (const channel of playback?.channels ?? []) {
       if (channel.isMuted) continue;
@@ -109,6 +112,8 @@ export function TimelinePlayer() {
         transcripts,
         // cuesFromTranscripts cues are in absolute media time
         mediaTime: currentTime - clip.globalStart + clip.clip.start,
+        clipStart: clip.clip.start,
+        clipEnd: clip.clip.end,
       });
     }
     return active;
@@ -190,15 +195,19 @@ export function TimelinePlayer() {
         ))}
 
         {/* Auto subtitle overlays (speech-to-text), toggled + mute-aware */}
-        {activeSubtitles.map(({ channelId, transcripts, mediaTime }) => (
-          <TranscriptOverlay
-            key={`sub-${channelId}`}
-            className="z-10"
-            transcripts={transcripts}
-            currentTime={mediaTime}
-            isVisible
-          />
-        ))}
+        {activeSubtitles.map(
+          ({ channelId, transcripts, mediaTime, clipStart, clipEnd }) => (
+            <TranscriptOverlay
+              key={`sub-${channelId}`}
+              className="z-10"
+              transcripts={transcripts}
+              currentTime={mediaTime}
+              windowStart={clipStart}
+              windowEnd={clipEnd}
+              isVisible
+            />
+          )
+        )}
 
         {/* Overlay Controls */}
         <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">

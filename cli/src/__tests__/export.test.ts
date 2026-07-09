@@ -328,6 +328,48 @@ describe('exportWorkspace', () => {
     expect(placed.MediaRef).toBe('m1');
   });
 
+  it('resolves label attribution into an attributedEntity snapshot field', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+    collections.LabelSpeaker.getList = vi.fn(async () =>
+      listResult([
+        {
+          ...speaker1,
+          expand: { LabelTrackRef: { expand: { EntityRef: entity1 } } },
+        },
+      ])
+    );
+    const pb = fakePb(collections);
+
+    await exportWorkspace(pb, { workspaceId: 'ws1', dir });
+
+    // Label fetches ride the attribution expands (track + cluster where the
+    // collection has a track link, cluster only where it doesn't).
+    expect(collections.LabelSpeaker.getList.mock.calls[0][2].expand).toBe(
+      'LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+    );
+    expect(collections.LabelShots.getList.mock.calls[0][2].expand).toBe(
+      'LabelEntityRef.EntityRef'
+    );
+
+    // The label file carries the resolved identity, not the expand chain.
+    const file = readJson(dir, 'media', 'm1', 'labels', 'speaker', 'lk1.json');
+    expect(file.attributedEntity).toEqual({
+      id: 'e1',
+      name: 'Erik',
+      kind: 'person',
+      via: 'track',
+    });
+    expect(file.expand).toBeUndefined();
+    // Unattributed labels stay untouched — no null placeholder key.
+    const plain = readJson(dir, 'media', 'm1', 'labels', 'speech', 'ls1.json');
+    expect(plain).toEqual(speech1);
+
+    // INSTRUCTIONS.md teaches agents the field exists.
+    const instructions = readFileSync(join(dir, 'INSTRUCTIONS.md'), 'utf8');
+    expect(instructions).toContain('attributedEntity');
+  });
+
   it('scopes every fetch to the workspace', async () => {
     const dir = join(tempDir(), 'export');
     const collections = makeCollections();

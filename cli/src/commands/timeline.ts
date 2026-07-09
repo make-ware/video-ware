@@ -145,12 +145,22 @@ function placementPhrase(result: InsertClipResult): string {
 
 /** Print the `--labels` detail lines for one clip. */
 export function printLabelDetail(detail: ClipLabelDetail): void {
+  // Identity context suffix when the label is attributed to an Entity;
+  // speaker snippets already embed the name, so skip the redundant repeat
+  // (checked against the truncated text actually printed).
+  const withWho = (snippet: string, name?: string) => {
+    const shown = truncate(snippet, 50);
+    return name && !shown.includes(`(${name})`)
+      ? `${shown}  (entity: ${name})`
+      : shown;
+  };
   if (detail.provenance.length > 0) {
     info('  provenance (labels this clip was created from):');
     for (const p of detail.provenance) {
       const conf = p.confidence !== undefined ? p.confidence.toFixed(2) : '—';
       info(
-        `    ${p.type}  ${p.labelId}  conf ${conf}  ${truncate(p.snippet, 50)}`
+        `    ${p.type}  ${p.labelId}  conf ${conf}  ` +
+          withWho(p.snippet, p.attributedEntity?.name)
       );
     }
   }
@@ -160,7 +170,8 @@ export function printLabelDetail(detail: ClipLabelDetail): void {
       const r = hit.record;
       const snippet = LABEL_TYPE_CONFIG[hit.type].snippet(r);
       info(
-        `    ${hit.type}  ${r.id}  ${range(r.start, r.end)}  conf ${confidenceOf(hit).toFixed(2)}  ${truncate(snippet, 50)}`
+        `    ${hit.type}  ${r.id}  ${range(r.start, r.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` +
+          withWho(snippet, hit.attributedEntity?.name)
       );
     }
   }

@@ -269,6 +269,7 @@ describe('inspectAtTime', () => {
 
 describe('clipLabelDetail', () => {
   it('resolves provenance links and overlapping labels', async () => {
+    const erik = { id: 'e1', name: 'Erik', kind: 'person' };
     const speechLabel = {
       id: 'ls1',
       MediaRef: 'm1',
@@ -276,6 +277,7 @@ describe('clipLabelDetail', () => {
       confidence: 0.9,
       start: 5,
       end: 8,
+      expand: { LabelTrackRef: { expand: { EntityRef: erik } } },
     };
     const stubs = {
       ...allLabelCollections({
@@ -313,15 +315,37 @@ describe('clipLabelDetail', () => {
       labelId: 'ls1',
       confidence: 0.9,
       snippet: 'hello world',
+      attributedEntity: {
+        id: 'e1',
+        name: 'Erik',
+        kind: 'person',
+        via: 'track',
+      },
     });
-    const linkFilter = stubs.MediaClipLabels.getList.mock.calls[0][2].filter;
-    expect(linkFilter).toContain('MediaClipRef = mc1');
+    const [, , linkOptions] = stubs.MediaClipLabels.getList.mock.calls[0];
+    expect(linkOptions.filter).toContain('MediaClipRef = mc1');
+    // The link expands ride through to each label's entity link points,
+    // skipping LabelTrackRef on the collections that don't have it.
+    expect(linkOptions.expand).toContain('LabelSpeechRef');
+    expect(linkOptions.expand).toContain(
+      'LabelSpeechRef.LabelTrackRef.EntityRef'
+    );
+    expect(linkOptions.expand).toContain(
+      'LabelSpeechRef.LabelEntityRef.EntityRef'
+    );
+    expect(linkOptions.expand).toContain(
+      'LabelShotRef.LabelEntityRef.EntityRef'
+    );
+    expect(linkOptions.expand).not.toContain('LabelShotRef.LabelTrackRef');
+    expect(linkOptions.expand).not.toContain('LabelSegmentRef.LabelTrackRef');
 
     // overlap query is windowed to the clip's source range
     const speechFilter = stubs.LabelSpeech.getList.mock.calls[0][2].filter;
     expect(speechFilter).toContain('MediaRef = m1');
     expect(speechFilter).toContain('start < 15 && end > 5');
-    expect(detail.overlapping.map((h) => h.record.id)).toContain('ls1');
+    const overlap = detail.overlapping.find((h) => h.record.id === 'ls1');
+    expect(overlap).toBeDefined();
+    expect(overlap!.attributedEntity?.name).toBe('Erik');
   });
 
   it('returns nothing for caption clips', async () => {

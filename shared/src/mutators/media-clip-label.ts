@@ -64,12 +64,14 @@ export class MediaClipLabelMutator extends BaseMutator<
    * @param clipId The media clip ID
    * @param page Page number (default: 1)
    * @param perPage Items per page (default: 100)
+   * @param expand Expand paths override; defaults to every Label*Ref
    * @returns List of label links with each Label*Ref expanded
    */
   async getByClip(
     clipId: string,
     page = 1,
-    perPage = 100
+    perPage = 100,
+    expand?: string[]
   ): Promise<ListResult<MediaClipLabel>> {
     const filter = this.pb.filter('MediaClipRef = {:clipId}', { clipId });
     return this.getList(
@@ -77,7 +79,7 @@ export class MediaClipLabelMutator extends BaseMutator<
       perPage,
       filter,
       'created',
-      Object.values(LABEL_TYPE_TO_REF_FIELD)
+      expand ?? Object.values(LABEL_TYPE_TO_REF_FIELD)
     );
   }
 

@@ -1,5 +1,6 @@
 import {
   LABEL_TYPE_TO_REF_FIELD,
+  LabelType,
   MediaClipLabelMutator,
   TimelineClipMutator,
   TimelineMutator,
@@ -7,7 +8,6 @@ import {
   buildPlaybackTracks,
   computeTimelineDuration,
   findActiveClip,
-  type LabelType,
   type MediaClipLabel,
   type PlacedClip,
   type Timeline,
@@ -15,8 +15,10 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import {
+  attributedEntitySummaryOf,
   LABEL_TYPE_CONFIG,
   listLabels,
+  type AttributedEntity,
   type LabelHit,
   type LabelRecord,
 } from './label.js';
@@ -269,6 +271,8 @@ export interface ProvenanceLabel {
   labelId: string;
   confidence?: number;
   snippet: string;
+  /** Identity context; present only when the label resolves to an Entity. */
+  attributedEntity?: AttributedEntity;
   /** The raw join row (Label*Ref expanded). */
   link: MediaClipLabel;
 }
@@ -285,9 +289,28 @@ type ExpandedLink = MediaClipLabel & {
 };
 
 /**
+ * getByClip expand paths: each Label*Ref plus, through it, the entity link
+ * points that resolve the label's attributed Entity (skipping LabelTrackRef
+ * on the collections that don't have it).
+ */
+function provenanceExpands(): string[] {
+  return Object.values(LabelType).flatMap((type) => {
+    const ref = LABEL_TYPE_TO_REF_FIELD[type];
+    return [
+      ref,
+      `${ref}.LabelEntityRef.EntityRef`,
+      ...(LABEL_TYPE_CONFIG[type].hasTrack
+        ? [`${ref}.LabelTrackRef.EntityRef`]
+        : []),
+    ];
+  });
+}
+
+/**
  * Label context for a timeline clip: explicit MediaClipLabels provenance
  * (when the clip came from a MediaClip) plus labels overlapping the clip's
- * source window. Caption clips have neither.
+ * source window. Caption clips have neither. Both carry the attributed
+ * Entity when the label has been identified.
  */
 export async function clipLabelDetail(
   pb: TypedPocketBase,
@@ -297,13 +320,19 @@ export async function clipLabelDetail(
   const provenance: ProvenanceLabel[] = [];
   if (clip.MediaClipRef) {
     const links = await new MediaClipLabelMutator(pb).getByClip(
-      clip.MediaClipRef
+      clip.MediaClipRef,
+      undefined,
+      undefined,
+      provenanceExpands()
     );
     for (const link of links.items as ExpandedLink[]) {
       const type = link.labelType as LabelType;
       const refField = LABEL_TYPE_TO_REF_FIELD[type];
       const labelId = (link as unknown as Record<string, string>)[refField];
       const labelRecord = link.expand?.[refField];
+      const attributedEntity = labelRecord
+        ? attributedEntitySummaryOf(labelRecord)
+        : null;
       provenance.push({
         type,
         labelId,
@@ -311,6 +340,7 @@ export async function clipLabelDetail(
         snippet: labelRecord
           ? LABEL_TYPE_CONFIG[type].snippet(labelRecord)
           : '',
+        ...(attributedEntity ? { attributedEntity } : {}),
         link,
       });
     }

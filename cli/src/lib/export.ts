@@ -22,7 +22,12 @@ import {
   type TypedPocketBase,
   type Workspace,
 } from '@project/shared';
-import { labelMutator, type LabelRecord } from './label.js';
+import {
+  attributedEntitySummaryOf,
+  attributionExpands,
+  labelMutator,
+  type LabelRecord,
+} from './label.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import { getTimelineOverview } from './timeline-inspect.js';
 
@@ -268,11 +273,19 @@ export async function exportWorkspace(
     const wsFilter = pb.filter('WorkspaceRef = {:ws}', {
       ws: opts.workspaceId,
     });
+    // Attribution expands ride along so each exported label can carry its
+    // resolved entity (name/kind) instead of only opaque link-point ids.
     const perType = await Promise.all(
       labelTypes.map(async (type) => ({
         type,
         rows: await fetchAll((page) =>
-          labelMutator(pb, type).getList(page, PER_PAGE, wsFilter, 'start')
+          labelMutator(pb, type).getList(
+            page,
+            PER_PAGE,
+            wsFilter,
+            'start',
+            attributionExpands(type)
+          )
         ),
       }))
     );
@@ -317,7 +330,9 @@ export async function exportWorkspace(
       }
     }
 
-    // One file per label, foldered by type (labels/<type>/<id>.json).
+    // One file per label, foldered by type (labels/<type>/<id>.json). A
+    // label attributed to an entity carries the resolved identity as an
+    // `attributedEntity` snapshot field (the raw expand chain is stripped).
     const labelCounts: Partial<Record<LabelType, number>> = {};
     const perMedia = labelsByMedia.get(m.id);
     if (perMedia) {
@@ -326,7 +341,11 @@ export async function exportWorkspace(
         const typeDir = join(dir, 'labels', type);
         mkdirSync(typeDir, { recursive: true });
         for (const row of rows) {
-          writeJson(join(typeDir, `${row.id}.json`), stripExpand(row));
+          const attributedEntity = attributedEntitySummaryOf(row);
+          writeJson(join(typeDir, `${row.id}.json`), {
+            ...stripExpand(row),
+            ...(attributedEntity ? { attributedEntity } : {}),
+          });
         }
       }
     }
@@ -572,13 +591,17 @@ N }\`. All times are seconds.
   per-speaker utterances; each carries a \`speakerId\` and word timings),
   \`text\` (on-screen text), \`object\`, \`shot\`, \`segment\`, \`person\`,
   \`face\`. Each carries \`start\`/\`end\` in source-media seconds plus a
-  confidence. Search them for moments worth turning into clips.
+  confidence. A label identified as a real-world entity also carries
+  \`attributedEntity: { id, name, kind, via }\` — e.g. a \`speaker\` label
+  with \`"attributedEntity": { "name": "Erik", ... }\` is Erik speaking.
+  Search them for moments worth turning into clips.
 - **Entities** — real-world identities (\`entities/index.json\`) that label
   data is attributed to ("speaker_0 in this media is Erik"). A label never
   stores its entity directly; it resolves through its \`LabelTrackRef\`
   (listed in an entity's \`linkedTracks\` — the per-media instance link,
   wins) or its \`LabelEntityRef\` (\`linkedClusters\` — the workspace-wide
-  provider-cluster fallback). Use \`vw label tag\` /
+  provider-cluster fallback); the winning link is snapshotted onto each
+  label file as \`attributedEntity\`. Use \`vw label tag\` /
   \`vw label search --entity\` to write and query these live.
 - **Timeline** — an edit. \`timelines/<id>.json\` holds
   \`{ timeline, computedDuration, clipCount, tracks }\`; \`tracks\` are

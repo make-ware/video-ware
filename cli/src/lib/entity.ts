@@ -19,6 +19,7 @@ import {
   labelAttributionFilter,
   labelMutator,
   parseLabelType,
+  toLabelHit,
   type LabelHit,
 } from './label.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
@@ -416,7 +417,7 @@ export async function getEntityLabels(
   );
 
   const hits: LabelHit[] = results.flatMap(({ type, result }) =>
-    result.items.map((record) => ({ type, record }))
+    result.items.map((record) => toLabelHit(type, record))
   );
   hits.sort(
     (a, b) =>

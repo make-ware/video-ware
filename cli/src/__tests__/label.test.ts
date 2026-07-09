@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClipType, LabelType } from '@project/shared';
 import {
   attributedEntityOf,
+  attributedEntitySummaryOf,
   createClipFromLabel,
   getLabel,
   listLabels,
@@ -90,6 +91,36 @@ describe('searchLabels', () => {
       },
     ]);
     expect(totalItems).toBe(1);
+  });
+
+  it('attaches attributed-entity context to hits that resolve one', async () => {
+    const erik = { id: 'e1', name: 'Erik', kind: 'person' };
+    const speaker = listStub([
+      {
+        id: 'sk1',
+        MediaRef: 'm1',
+        speakerId: 'speaker_0',
+        transcript: 'hello there',
+        start: 0,
+        end: 2,
+        confidence: 0.95,
+        expand: { LabelTrackRef: { expand: { EntityRef: erik } } },
+      },
+    ]);
+    const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
+
+    const { hits } = await searchLabels(pb, {
+      workspaceId: 'ws1',
+      query: 'hello',
+      types: [LabelType.SPEAKER],
+    });
+
+    expect(hits[0].attributedEntity).toEqual({
+      id: 'e1',
+      name: 'Erik',
+      kind: 'person',
+      via: 'track',
+    });
   });
 
   it('searches speaker labels across transcript and speakerId', async () => {
@@ -306,12 +337,72 @@ describe('attributedEntityOf', () => {
   });
 });
 
+describe('attributedEntitySummaryOf', () => {
+  const erik = { id: 'e1', name: 'Erik', kind: 'person' };
+  const dana = { id: 'e2', name: 'Dana', kind: 'person' };
+
+  it('summarizes the track link with via=track', () => {
+    const record = {
+      expand: {
+        LabelTrackRef: { expand: { EntityRef: erik } },
+        LabelEntityRef: { expand: { EntityRef: dana } },
+      },
+    } as unknown as LabelRecord;
+    expect(attributedEntitySummaryOf(record)).toEqual({
+      id: 'e1',
+      name: 'Erik',
+      kind: 'person',
+      via: 'track',
+    });
+  });
+
+  it('summarizes the cluster fallback with via=cluster', () => {
+    const record = {
+      expand: { LabelEntityRef: { expand: { EntityRef: dana } } },
+    } as unknown as LabelRecord;
+    expect(attributedEntitySummaryOf(record)).toEqual({
+      id: 'e2',
+      name: 'Dana',
+      kind: 'person',
+      via: 'cluster',
+    });
+  });
+
+  it('returns null when unattributed', () => {
+    expect(attributedEntitySummaryOf({} as LabelRecord)).toBeNull();
+  });
+});
+
 describe('getLabel', () => {
   it('returns null when the label does not exist', async () => {
     const pb = fakePb({
       LabelSpeech: { getOne: vi.fn().mockRejectedValue(notFound()) },
     });
     expect(await getLabel(pb, LabelType.SPEECH, 'nope')).toBeNull();
+  });
+
+  it('rides the attribution expands for the label type', async () => {
+    const getOne = vi.fn(async (_id: string, _opts: { expand?: string }) => ({
+      id: 'sk1',
+    }));
+    const pb = fakePb({ LabelSpeaker: { getOne } });
+
+    await getLabel(pb, LabelType.SPEAKER, 'sk1');
+
+    expect(getOne.mock.calls[0][1].expand).toBe(
+      'LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+    );
+  });
+
+  it('skips LabelTrackRef on trackless types', async () => {
+    const getOne = vi.fn(async (_id: string, _opts: { expand?: string }) => ({
+      id: 'sh1',
+    }));
+    const pb = fakePb({ LabelShots: { getOne } });
+
+    await getLabel(pb, LabelType.SHOT, 'sh1');
+
+    expect(getOne.mock.calls[0][1].expand).toBe('LabelEntityRef.EntityRef');
   });
 });
 

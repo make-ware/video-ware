@@ -3,6 +3,7 @@ import { MediaClipLabelMutator } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { pickMedia, resolveWorkspaceId } from '../lib/select.js';
 import {
+  attributedEntitySummaryOf,
   clipMetaOptions,
   confidenceOf,
   createClipFromLabel,
@@ -152,10 +153,19 @@ export function registerLabelCommands(program: Command): void {
           : undefined;
 
         const hit: LabelHit = { type, record };
+        const attributed = attributedEntitySummaryOf(record);
         const lines = [
           `${type} label ${record.id} — ${truncate(LABEL_TYPE_CONFIG[type].snippet(record), 80)}`,
           `media ${record.MediaRef}  range ${record.start.toFixed(2)}s–${record.end.toFixed(2)}s (${formatDuration(record.duration)})  confidence ${confidenceOf(hit).toFixed(2)}`,
         ];
+        if (attributed) {
+          lines.push(
+            `entity: ${attributed.name} (${attributed.kind}, ${attributed.id}) — ` +
+              (attributed.via === 'track'
+                ? 'tagged via its track'
+                : 'tagged via its provider cluster')
+          );
+        }
         if (links) {
           lines.push(
             links.length > 0
@@ -164,7 +174,15 @@ export function registerLabelCommands(program: Command): void {
           );
         }
         lines.push('(add --json for the full record)');
-        printRecord(links ? { ...record, links } : record, lines, opts.json);
+        printRecord(
+          {
+            ...record,
+            ...(attributed ? { attributedEntity: attributed } : {}),
+            ...(links ? { links } : {}),
+          },
+          lines,
+          opts.json
+        );
       } catch (err) {
         handleError(err);
       }

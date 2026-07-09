@@ -34,10 +34,26 @@ export type LabelRecord = ActualizableLabel & {
   };
 };
 
+/**
+ * Compact identity context for a label row's attributed Entity, safe to
+ * attach to any JSON output (labels' own fields never collide with the
+ * `attributedEntity` key — object/shot/segment rows already use `entity`
+ * for the provider's term).
+ */
+export interface AttributedEntity {
+  id: string;
+  name: string;
+  kind: Entity['kind'];
+  /** Which link point resolved it: the row's own track, or its cluster. */
+  via: 'track' | 'cluster';
+}
+
 /** One search/list result: a label row tagged with its label type. */
 export interface LabelHit {
   type: LabelType;
   record: LabelRecord;
+  /** Identity context; present only when the label resolves to an Entity. */
+  attributedEntity?: AttributedEntity;
 }
 
 /** Validate a label type string against the LabelType enum. */
@@ -75,6 +91,33 @@ export function attributedEntityOf(record: LabelRecord): Entity | null {
     record.expand?.LabelEntityRef?.expand?.EntityRef ??
     null
   );
+}
+
+/**
+ * The attributed Entity as the compact summary label outputs embed, with
+ * the link point it resolved through. Same precedence (and same null cases)
+ * as attributedEntityOf.
+ */
+export function attributedEntitySummaryOf(
+  record: LabelRecord
+): AttributedEntity | null {
+  const viaTrack = record.expand?.LabelTrackRef?.expand?.EntityRef;
+  const entity = viaTrack ?? record.expand?.LabelEntityRef?.expand?.EntityRef;
+  if (!entity) return null;
+  return {
+    id: entity.id,
+    name: entity.name,
+    kind: entity.kind,
+    via: viaTrack ? 'track' : 'cluster',
+  };
+}
+
+/** Build a LabelHit, attaching the attributed-entity context when present. */
+export function toLabelHit(type: LabelType, record: LabelRecord): LabelHit {
+  const attributedEntity = attributedEntitySummaryOf(record);
+  return attributedEntity
+    ? { type, record, attributedEntity }
+    : { type, record };
 }
 
 export interface LabelTypeConfig {
@@ -200,7 +243,7 @@ type IdFlagKey = keyof typeof ID_FLAGS;
 
 /** Minimal read surface common to all per-type label mutators. */
 interface LabelCollectionMutator {
-  getById(id: string): Promise<LabelRecord | null>;
+  getById(id: string, expand?: string[]): Promise<LabelRecord | null>;
   getList(
     page?: number,
     perPage?: number,
@@ -415,7 +458,7 @@ export async function searchLabels(
   );
 
   const hits: LabelHit[] = results.flatMap(({ type, result }) =>
-    result.items.map((record) => ({ type, record }))
+    result.items.map((record) => toLabelHit(type, record))
   );
   hits.sort((a, b) => confidenceOf(b) - confidenceOf(a));
   const totalItems = results.reduce(
@@ -470,7 +513,7 @@ export async function listLabels(
   );
 
   const hits: LabelHit[] = results.flatMap(({ type, result }) =>
-    result.items.map((record) => ({ type, record }))
+    result.items.map((record) => toLabelHit(type, record))
   );
   const totalItems = results.reduce(
     (sum, { result }) => sum + result.totalItems,
@@ -479,13 +522,17 @@ export async function listLabels(
   return { hits, totalItems };
 }
 
-/** Fetch one label record; null when it does not exist (or type mismatch). */
+/**
+ * Fetch one label record; null when it does not exist (or type mismatch).
+ * Rides the attribution expands so the attributed Entity resolves for
+ * display (`label show`) without a second query.
+ */
 export async function getLabel(
   pb: TypedPocketBase,
   type: LabelType,
   labelId: string
 ): Promise<LabelRecord | null> {
-  return labelMutator(pb, type).getById(labelId);
+  return labelMutator(pb, type).getById(labelId, attributionExpands(type));
 }
 
 export interface CreateClipFromLabelOptions {

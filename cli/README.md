@@ -132,7 +132,9 @@ media/
     media.json          the Media record (expand.UploadRef.name = filename)
     clips/<clipId>.json one MediaClip per file (folder absent = none)
     labels/<type>/<labelId>.json
-                        one label per file, foldered by type (absent = none)
+                        one label per file, foldered by type (absent = none);
+                        attributed labels carry attributedEntity
+                        { id, name, kind, via }
 timelines/
   index.json            one row per timeline: name, duration, trackCount,
                         clipCount
@@ -319,6 +321,14 @@ Person and face rows carry opaque ids rather than descriptive text, so the
 exact-id flags are the primary path for those types (each implies its label
 type; combining one with a conflicting `--types` is an error).
 
+Every label output resolves the label's attributed real-world entity live
+(`vw entity` / `vw label tag` write those links): tables carry an `ENTITY`
+column, speaker text renders as `Speaker 1 (Erik)`, `label show` prints an
+`entity:` line, and JSON documents embed an
+`attributedEntity: { id, name, kind, via }` object (`via` says which link
+point resolved it: the label's own `track`, or its provider `cluster`).
+The field is simply absent when a label hasn't been attributed.
+
 `vw label clip <type> <labelId>` copies the label's time range onto a new
 MediaClip (type mapped from the label type) **and** writes a `MediaClipLabels`
 join row, so the clip back-references its source label even after the clip is
@@ -331,10 +341,13 @@ List/search commands print a concise table by default and end with a
 document on stdout with nothing else:
 
 - lists → `{ "items": [...], "totalItems": N }` — `label search`/`label list`
-  items are `{ "type": "<labelType>", "record": {...} }` wrappers;
-  `timeline clips list` items carry the clip plus computed
-  `timelineStart`/`timelineEnd`, `labelHint`, `kind`, and `layer`
-- `label show` → the raw record (plus a `links` array with `--clips`)
+  (and `entity labels`) items are `{ "type": "<labelType>", "record": {...} }`
+  wrappers, plus `attributedEntity: { id, name, kind, via }` when the label
+  is attributed to an entity; `timeline clips list` items carry the clip
+  plus computed `timelineStart`/`timelineEnd`, `labelHint`, `kind`, and
+  `layer`
+- `label show` → the raw record (plus `attributedEntity` when attributed,
+  and a `links` array with `--clips`)
 - `label clip` → the raw created clip record (`clipData.sourceId` holds the
   source label id)
 - `timeline show` → `{ timeline, computedDuration, clipCount, tracks: [{
@@ -343,7 +356,8 @@ document on stdout with nothing else:
 - `timeline inspect` → `{ at, computedDuration, tracks: [{ layer, trackId,
   trackName, volume, opacity, isMuted, isLocked, active, nextStart }] }`;
   `active` carries the full clip record plus `sourceTime`/`remaining`, and a
-  `labels: { provenance, overlapping }` block with `--labels`
+  `labels: { provenance, overlapping }` block with `--labels` (both rows
+  carry `attributedEntity` when the label is attributed to an entity)
 - `timeline insert` / `clips move` → the full placement result: `clip`
   (null on `--dry-run`), `placedAt`/`placedEnd`, `mode`
   (`append`/`after`/`at`, insert only), `afterClip`, `requestedAt`,

@@ -2,6 +2,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  CopyObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -412,6 +413,47 @@ export class S3StorageBackend implements StorageBackend {
         `Failed to delete file from S3 at ${filePath}: ${
           error instanceof Error ? error.message : String(error)
         }`
+      );
+    }
+  }
+
+  /**
+   * Move/rename an object within the bucket, overwriting the destination.
+   * S3 has no native move, so this is a server-side CopyObject (no bytes
+   * transit this process) followed by deleting the source. CopyObject atomically
+   * replaces the destination key, so the destination is never left half-written.
+   */
+  async move(fromPath: string, toPath: string): Promise<void> {
+    try {
+      await this.client.send(
+        new CopyObjectCommand({
+          Bucket: this.bucket,
+          // CopySource must include the bucket and be URL-encoded.
+          CopySource: encodeURI(`${this.bucket}/${fromPath}`),
+          Key: toPath,
+        })
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to copy S3 object from ${fromPath} to ${toPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+
+    // Best-effort cleanup of the source; the copy already succeeded, so a
+    // failed delete only leaves a stray temp object (swept by lifecycle policy).
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: fromPath,
+        })
+      );
+    } catch (error) {
+      console.error(
+        `Failed to delete source object ${fromPath} after move to ${toPath}:`,
+        error
       );
     }
   }

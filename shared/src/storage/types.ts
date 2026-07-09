@@ -126,6 +126,17 @@ export interface StorageBackend {
   delete(path: string): Promise<void>;
 
   /**
+   * Move/rename a file within storage, overwriting the destination if it
+   * already exists. Intended to be as close to atomic as the backend allows
+   * (a filesystem rename locally, a server-side copy + delete on S3) so a
+   * partially-written source can be promoted to its final location without
+   * ever leaving the destination in a half-written state.
+   * @param from - Source path
+   * @param to - Destination path (overwritten if present)
+   */
+  move(from: string, to: string): Promise<void>;
+
+  /**
    * Check if a file exists in storage
    * @param path - Path to check
    * @returns true if file exists

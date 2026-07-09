@@ -341,6 +341,28 @@ export class LocalStorageBackend implements StorageBackend {
   }
 
   /**
+   * Move/rename a file within local storage, overwriting the destination.
+   * Uses fs.rename, which is atomic on the same filesystem, so the destination
+   * is either the old file or the fully-moved new file — never a partial write.
+   */
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const fromFull = this.resolvePath(fromPath);
+    const toFull = this.resolvePath(toPath);
+
+    try {
+      // Ensure the destination directory exists.
+      await mkdir(path.dirname(toFull), { recursive: true });
+      await fs.promises.rename(fromFull, toFull);
+    } catch (error) {
+      throw new Error(
+        `Failed to move file from ${fromPath} to ${toPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  /**
    * Check if a file exists in local storage
    */
   async exists(filePath: string): Promise<boolean> {

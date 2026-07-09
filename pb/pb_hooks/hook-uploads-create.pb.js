@@ -3,20 +3,37 @@
 // ---------------------------------------------------------------------------
 // Upload -> ingest trigger
 //
-// When an Upload reaches the `uploaded` state, create ONE lightweight
+// When an Upload TRANSITIONS INTO the `uploaded` state, create ONE lightweight
 // `full_ingest` Task. That's all this hook does — no media creation, no config,
 // no HTTP. The worker polls the Tasks collection, and IngestOrchestratorService
 // turns the task into a Media record + transcode/labels work.
 //
 // Registered for both create (external integrations may POST an Upload already
-// `uploaded`) and update (the webapp finalize + retry path). The handler is
-// self-contained so PocketBase can serialize it for both events.
+// `uploaded`) and update (the webapp finalize path creates the record as
+// `queued` and then UPDATES it to `uploaded` on the last chunk; retry flips
+// `failed` -> `uploaded`). The handler is self-contained so PocketBase can
+// serialize it for both events.
+//
+// It only fires on the TRANSITION into `uploaded` (the previous status was
+// something else). This lets the stored original be replaced or the record
+// edited in place while already `uploaded` — e.g. swapping the media blob for
+// a new color grade — WITHOUT re-running the whole transcode + label pipeline.
+// `record.original()` is a blank record on create, so an Upload POSTed already
+// `uploaded` still counts as a transition and ingests.
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line no-restricted-syntax -- intentional shared handler: a self-contained top-level function passed directly to both registrations below; PocketBase serializes its full source into each pooled runtime, so it needs no top-level scope at execution time.
 function onUploadSaved(e) {
   try {
     const upload = e.record;
     if (upload.get('status') !== 'uploaded') {
+      return;
+    }
+
+    // Only act on the transition INTO `uploaded`. If it was already `uploaded`
+    // before this write, this is an in-place edit (rename, file replace, etc.)
+    // and must NOT re-trigger ingest. original() is blank on create, so a
+    // create-as-uploaded still passes this check.
+    if (upload.original().get('status') === 'uploaded') {
       return;
     }
 

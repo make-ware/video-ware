@@ -7,7 +7,7 @@ import { MediaDetailsEditor } from '@/components/media/media-details-editor';
 import { MediaPreviewFiles } from '@/components/media/media-preview-files';
 import { MediaLabelJobs } from '@/components/media/media-label-jobs';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Sparkles, Tag } from 'lucide-react';
+import { ArrowLeft, Sparkles, Tag, Replace } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -118,6 +118,16 @@ export default function MediaDetailsPage() {
           >
             <Tag className="h-4 w-4 mr-2" />
             Inspector
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(`/ws/${workspaceId}/media/${id}/replace`)
+            }
+          >
+            <Replace className="h-4 w-4 mr-2" />
+            Replace File
           </Button>
         </div>
       </div>

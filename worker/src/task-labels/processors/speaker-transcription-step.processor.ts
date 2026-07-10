@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import * as fs from 'fs';
+import * as path from 'path';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider } from '@project/shared';
+import { ProcessingProvider, FileStatus, type Media } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { SpeakerTranscriptionExecutor } from '../executors/speaker-transcription.executor';
 import { SpeakerTranscriptionNormalizer } from '../normalizers/speaker-transcription.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { StorageService } from '../../shared/services/storage.service';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { SpeakerTranscriptionStepInput } from '../types/step-inputs';
 import type { SpeakerTranscriptionStepOutput } from '../types/step-outputs';
@@ -24,7 +27,9 @@ export type { SpeakerTranscriptionStepInput, SpeakerTranscriptionStepOutput };
  *
  * This processor:
  * 1. Checks cache before calling executor
- * 2. Calls SpeakerTranscriptionExecutor (ElevenLabs Scribe, diarize: true)
+ * 2. Calls SpeakerTranscriptionExecutor (ElevenLabs Scribe, diarize: true),
+ *    preferring the transcode audio proxy (Media.audioFileRef) over the
+ *    original file
  * 3. Calls SpeakerTranscriptionNormalizer to transform response
  * 4. Batch inserts LabelEntity records (one per speaker)
  * 5. Batch inserts LabelTrack records (one per speaker)
@@ -46,7 +51,8 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
     private readonly labelEntityService: LabelEntityService,
     private readonly speakerTranscriptionExecutor: SpeakerTranscriptionExecutor,
     private readonly speakerTranscriptionNormalizer: SpeakerTranscriptionNormalizer,
-    private readonly pocketBaseService: PocketBaseService
+    private readonly pocketBaseService: PocketBaseService,
+    private readonly storageService: StorageService
   ) {
     super();
   }
@@ -121,11 +127,17 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
           `Cache miss for media ${input.mediaId}, calling ElevenLabs STT API`
         );
 
+        // Prefer the audio-only proxy rendered by the transcode task
+        // (Media.audioFileRef). Resolves to undefined on any issue, in which
+        // case the executor uses the original file (input.fileRef).
+        const audioProxyPath = await this.resolveAudioProxy(media);
+
         response = await this.speakerTranscriptionExecutor.execute(
           input.workspaceRef,
           input.mediaId,
           input.fileRef,
-          input.config
+          input.config,
+          audioProxyPath
         );
 
         // Step 7: Store normalized response to cache
@@ -249,6 +261,63 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
       // Swallowing this into a success:false output makes the parent's
       // partial-success accounting count a failed step as completed.
       throw error;
+    }
+  }
+
+  /**
+   * Resolve the transcode-generated audio-only proxy (Media.audioFileRef) to
+   * a local temp file for the executor to upload.
+   *
+   * Returns undefined on any issue (missing ref, File record not AVAILABLE,
+   * download failure, empty file) so the caller falls back to the original
+   * file. The download lands in the media's worker-temp directory, which the
+   * executor removes via cleanupTemp() when the step finishes.
+   */
+  private async resolveAudioProxy(media: Media): Promise<string | undefined> {
+    if (!media.audioFileRef) {
+      return undefined;
+    }
+
+    try {
+      const file = await this.pocketBaseService.getFile(media.audioFileRef);
+      if (!file) {
+        this.logger.warn(
+          `Audio proxy file record ${media.audioFileRef} not found for media ${media.id}, falling back to original file`
+        );
+        return undefined;
+      }
+
+      if (file.fileStatus !== FileStatus.AVAILABLE || !file.file) {
+        this.logger.warn(
+          `Audio proxy file ${file.id} for media ${media.id} is not available (status: ${file.fileStatus}), falling back to original file`
+        );
+        return undefined;
+      }
+
+      const tempDir = await this.storageService.createTempDir(media.id);
+      // Prefix with the File id so the proxy can never collide with the
+      // original's temp download in the same directory.
+      const destPath = path.join(tempDir, `${file.id}-${file.name || 'audio'}`);
+      await this.pocketBaseService.downloadFileToPath(file, destPath);
+
+      const stat = await fs.promises.stat(destPath);
+      if (stat.size === 0) {
+        this.logger.warn(
+          `Audio proxy file ${file.id} for media ${media.id} downloaded empty, falling back to original file`
+        );
+        return undefined;
+      }
+
+      this.logger.log(
+        `Resolved audio proxy for media ${media.id}: ${destPath} (${stat.size} bytes)`
+      );
+      return destPath;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to resolve audio proxy for media ${media.id}, falling back to original file: ${message}`
+      );
+      return undefined;
     }
   }
 

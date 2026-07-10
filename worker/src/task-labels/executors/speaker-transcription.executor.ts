@@ -7,7 +7,9 @@
  *
  * Unlike the GCVI executors, the file is streamed to the provider directly
  * from app storage (local path, or a temp download in S3 mode) — there is no
- * GCS dependency.
+ * GCS dependency. When the processor supplies a pre-resolved audio-only
+ * proxy path it is preferred over the original file, with fallback to the
+ * original if the proxy cannot be opened.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -68,13 +70,17 @@ export class SpeakerTranscriptionExecutor {
    * @param mediaId - Media record ID
    * @param fileRef - Storage path of the file to transcribe
    * @param config - Speaker transcription configuration
+   * @param audioProxyPath - Local path to a pre-resolved audio-only proxy;
+   *   preferred over fileRef when provided, with fallback to fileRef if it
+   *   cannot be opened
    * @returns Normalized speaker transcription response
    */
   async execute(
     workspaceId: string,
     mediaId: string,
     fileRef: string,
-    config: SpeakerTranscriptionConfig = {}
+    config: SpeakerTranscriptionConfig = {},
+    audioProxyPath?: string
   ): Promise<SpeakerTranscriptionResponse> {
     const apiKey = this.configService.get<string>('elevenlabs.apiKey');
     if (!apiKey) {
@@ -88,21 +94,41 @@ export class SpeakerTranscriptionExecutor {
     );
 
     try {
-      // Resolve local file path (downloads from S3 to temp if needed)
-      const localPath = await this.storageService.resolveFilePath({
-        storagePath: fileRef,
-        recordId: mediaId,
-      });
+      // Prefer the audio-only proxy when the processor resolved one — it is
+      // far smaller than the original container, so the upload to ElevenLabs
+      // is faster and cheaper. Any problem opening it falls back to the
+      // original file below.
+      // File-backed Blobs: stream from disk on demand, no 2 GiB Buffer cap.
+      let blob: Blob | undefined;
+      let uploadName = '';
+      if (audioProxyPath) {
+        try {
+          blob = (await fs.openAsBlob(audioProxyPath)) as unknown as Blob;
+          uploadName = path.basename(audioProxyPath);
+          this.logger.log(
+            `Using audio proxy for media ${mediaId}: ${audioProxyPath}`
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Failed to open audio proxy ${audioProxyPath} for media ${mediaId}, falling back to original file: ${message}`
+          );
+        }
+      }
 
-      // File-backed Blob: streams from disk on demand, no 2 GiB Buffer cap
-      const blob = await fs.openAsBlob(localPath);
+      if (!blob) {
+        // Resolve local file path (downloads from S3 to temp if needed)
+        const localPath = await this.storageService.resolveFilePath({
+          storagePath: fileRef,
+          recordId: mediaId,
+        });
+        blob = (await fs.openAsBlob(localPath)) as unknown as Blob;
+        uploadName = path.basename(localPath);
+      }
 
       const formData = new FormData();
-      formData.append(
-        'file',
-        blob as unknown as Blob,
-        path.basename(localPath)
-      );
+      formData.append('file', blob, uploadName);
       formData.append('model_id', config.modelId || DEFAULT_MODEL_ID);
       // Diarization is the point of this step. It requires single-channel
       // processing — never combine with use_multi_channel.
@@ -178,9 +204,10 @@ export class SpeakerTranscriptionExecutor {
         `Speaker transcription execution failed: ${errorMessage}`
       );
     } finally {
-      // Clean up the temp download for this media (no-op in local mode and
-      // when nothing was downloaded). Runs on success AND failure so a
-      // stateless pod never leaks disk.
+      // Clean up the temp downloads for this media — the audio proxy (any
+      // backend) and the original (S3 mode); no-op when nothing was
+      // downloaded. Runs on success AND failure so a stateless pod never
+      // leaks disk.
       await this.storageService.cleanupTemp(mediaId);
     }
   }

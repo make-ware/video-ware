@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 import {
   type TypedPocketBase,
   type TaskStatus,
@@ -347,6 +348,53 @@ export class PocketBaseService implements OnModuleInit {
       );
       return null;
     }
+  }
+
+  /**
+   * Download a File record's PocketBase-hosted blob to a local path.
+   *
+   * Streams the HTTP response to a `.part` file and renames on success so an
+   * interrupted download never leaves a partial file at destPath. If destPath
+   * already exists (e.g. a retry within the same step) it is reused as-is.
+   */
+  async downloadFileToPath(file: File, destPath: string): Promise<string> {
+    if (!file.file) {
+      throw new Error(
+        `File ${file.id} has no PocketBase-hosted blob to download`
+      );
+    }
+
+    const fs = await import('fs');
+    const { pipeline } = await import('stream/promises');
+    const { Readable } = await import('stream');
+
+    if (fs.existsSync(destPath)) {
+      this.logger.debug(`Reusing already-downloaded file: ${destPath}`);
+      return destPath;
+    }
+
+    const url = this.fileMutator.getFileUrl(file, file.file);
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+      throw new Error(
+        `Failed to download file ${file.id} (status ${response.status})`
+      );
+    }
+
+    const partPath = `${destPath}.part`;
+    try {
+      await pipeline(
+        Readable.fromWeb(response.body as unknown as WebReadableStream),
+        fs.createWriteStream(partPath)
+      );
+      await fs.promises.rename(partPath, destPath);
+    } catch (error) {
+      await fs.promises.rm(partPath, { force: true });
+      throw error;
+    }
+
+    this.logger.log(`Downloaded file ${file.id} to ${destPath}`);
+    return destPath;
   }
 
   /**

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.10...video-ware-v0.9.0) (2026-07-11)
+
+
+### Features
+
+* add advanced editor for clips ([74f3551](https://github.com/make-ware/video-ware/commit/74f35517ffcfc634c9b40f8566a796f0d0dc4ac1))
+* add CLI to github actions ([349ee66](https://github.com/make-ware/video-ware/commit/349ee66c4ed091c3f6141d0d85bf43baa57c63a3))
+
+
+### Bug Fixes
+
+* add media replacement page ([325d711](https://github.com/make-ware/video-ware/commit/325d7119648a372d2025f25cfccb50afa18d7bcc))
+* add speaker panel to media ([6a5cf66](https://github.com/make-ware/video-ware/commit/6a5cf667ad81b488da2138aa57b328516565a2cb))
+* include linked entities in CLI ([25c93ec](https://github.com/make-ware/video-ware/commit/25c93ec11f4b246e738ac7a49c8b7f5fd622d012))
+* pocketbase hook linter ([507a1fb](https://github.com/make-ware/video-ware/commit/507a1fb5a9b09138445a08bd06a40fe5f5c03f18))
+* speaker detection use audio proxy ([1884f02](https://github.com/make-ware/video-ware/commit/1884f02b28ca2b9abc7ce803fc8e09cda71feef3))
+* update cli add clip update and delete ([a249ca5](https://github.com/make-ware/video-ware/commit/a249ca5afec50524b8ec65288cafd73efe6bfae5))
+* update subtitles to only include spoken words ([8079781](https://github.com/make-ware/video-ware/commit/80797819b1c2450463fa3240ddfcdb04ee998f74))
+
 ## [0.8.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.9...video-ware-v0.8.10) (2026-07-07)
 
 

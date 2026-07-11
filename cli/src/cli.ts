@@ -13,11 +13,18 @@ import { registerTimelineCommands } from './commands/timeline.js';
 /**
  * The CLI version is the repo version from the root package.json — the single
  * version release-please bumps (tags are `video-ware-v*`); the CLI workspace
- * is not independently versioned. Resolved relative to this module so it works
- * both from `dist/` (built) and `src/` (tsx dev): both sit two levels below the
- * repo root. Falls back to 0.0.0 if the file can't be read.
+ * is not independently versioned. The standalone bundle (tsup.bundle.config.ts)
+ * has no repo root at runtime, so it injects the version as `__VW_VERSION__` at
+ * build time. Otherwise the file is resolved relative to this module, which
+ * works both from `dist/` (built) and `src/` (tsx dev): both sit two levels
+ * below the repo root. Falls back to 0.0.0 if the file can't be read.
  */
+declare const __VW_VERSION__: string | undefined;
+
 function resolveVersion(): string {
+  if (typeof __VW_VERSION__ === 'string') {
+    return __VW_VERSION__;
+  }
   try {
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
     const pkg = JSON.parse(

@@ -102,6 +102,144 @@ jobs:
               body: release.body + deploymentInstructions
             });
 
+  # Build the standalone `vw` CLI bundle and attach it to the release.
+  # Optionally publishes a Homebrew formula when HOMEBREW_TAP_TOKEN is set
+  # (a token with push access to <owner>/homebrew-tap).
+  cli-release-asset:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.release-please.outputs.version }}
+      TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Yarn
+        run: corepack prepare yarn@4.12.0 --activate
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build shared
+        run: yarn build:shared
+
+      - name: Bundle CLI
+        run: yarn workspace @project/cli bundle
+
+      - name: Package tarball and checksum
+        run: |
+          mkdir -p cli/release
+          cp cli/dist-bundle/vw.js cli/release/vw
+          chmod +x cli/release/vw
+          tar -czf "vw-${VERSION}.tar.gz" -C cli/release vw
+          shasum -a 256 "vw-${VERSION}.tar.gz" | tee "vw-${VERSION}.tar.gz.sha256"
+          echo "SHA256=$(cut -d' ' -f1 "vw-${VERSION}.tar.gz.sha256")" >> "$GITHUB_ENV"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            "vw-${VERSION}.tar.gz" \
+            "vw-${VERSION}.tar.gz.sha256" \
+            --clobber
+
+      - name: Append CLI install instructions to release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > cli-notes.md <<'EOF'
+
+          ---
+
+          ## CLI (`vw`)
+
+          A standalone build of the `vw` CLI is attached to this release as
+          `vw-__VERSION__.tar.gz` (sha256 `__SHA256__`). It requires Node.js >= 22.
+
+          ```bash
+          curl -fsSL -o vw.tar.gz \
+            "https://github.com/__REPO__/releases/download/__TAG__/vw-__VERSION__.tar.gz"
+          tar -xzf vw.tar.gz
+          install -m 755 vw /usr/local/bin/vw
+          vw --version
+          ```
+          EOF
+          sed -i \
+            -e "s|__VERSION__|${VERSION}|g" \
+            -e "s|__TAG__|${TAG_NAME}|g" \
+            -e "s|__REPO__|${GITHUB_REPOSITORY}|g" \
+            -e "s|__SHA256__|${SHA256}|g" \
+            cli-notes.md
+          gh release view "$TAG_NAME" --json body -q .body > release-body.md
+          cat cli-notes.md >> release-body.md
+          gh release edit "$TAG_NAME" --notes-file release-body.md
+
+      - name: Update Homebrew tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          git clone \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" \
+            tap
+          mkdir -p tap/Formula
+          cat > tap/Formula/vw.rb <<'EOF'
+          class Vw < Formula
+            desc "Command-line interface for video-ware"
+            homepage "https://github.com/__REPO__"
+            url "https://github.com/__REPO__/releases/download/__TAG__/vw-__VERSION__.tar.gz"
+            sha256 "__SHA256__"
+            license "AGPL-3.0-only"
+
+            depends_on "node"
+
+            def install
+              bin.install "vw"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/vw --version")
+            end
+          end
+          EOF
+          sed -i \
+            -e "s|__VERSION__|${VERSION}|g" \
+            -e "s|__TAG__|${TAG_NAME}|g" \
+            -e "s|__REPO__|${GITHUB_REPOSITORY}|g" \
+            -e "s|__SHA256__|${SHA256}|g" \
+            tap/Formula/vw.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/vw.rb
+          git commit -m "vw ${VERSION}"
+          git push
+
   # Trigger Docker build after release is created
   trigger-docker-build:
     needs: release-please

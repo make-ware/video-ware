@@ -17,6 +17,33 @@ node cli/dist/cli.js --help
 yarn workspace @project/cli dev -- --help
 ```
 
+## Install (released builds)
+
+Every GitHub release attaches a standalone single-file build of the CLI
+(`vw-<version>.tar.gz`) produced by `yarn workspace @project/cli bundle`
+(`tsup.bundle.config.ts` — bundles all workspace and npm dependencies into
+one script; requires Node.js >= 22 at runtime).
+
+```bash
+# from a GitHub release
+curl -fsSL -o vw.tar.gz \
+  "https://github.com/make-ware/video-ware/releases/download/video-ware-v<version>/vw-<version>.tar.gz"
+tar -xzf vw.tar.gz
+install -m 755 vw /usr/local/bin/vw
+
+# via Homebrew (requires the tap to be published, see below)
+brew tap make-ware/tap
+brew install vw
+```
+
+The release workflow (`.github/workflows/release-please.yml`,
+`cli-release-asset` job) builds the bundle from the release tag, uploads the
+tarball plus a `.sha256` checksum as release assets, and appends install
+instructions to the release notes. If a `HOMEBREW_TAP_TOKEN` repository
+secret is set (a token with push access to a `make-ware/homebrew-tap` repo),
+it also commits an updated `Formula/vw.rb` to that tap on every release —
+create the tap repo once and add the secret to enable it.
+
 ## Commands
 
 ```bash

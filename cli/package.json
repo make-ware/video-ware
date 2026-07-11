@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup",
+    "bundle": "tsup --config tsup.bundle.config.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",

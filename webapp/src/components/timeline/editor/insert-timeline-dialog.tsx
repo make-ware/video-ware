@@ -90,7 +90,7 @@ export function InsertTimelineDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Insert Timeline</DialogTitle>
           <DialogDescription>

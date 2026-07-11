@@ -10,9 +10,11 @@ import {
   TimelineOrientation,
   TimelineRenderMutator,
   TimelineTrackMutator,
+  calculateEffectiveDuration,
   computeClipPlacement,
   computeTimelineDuration,
   findNonOverlappingTimelineStart,
+  getCompositeSegments,
   generateTracks,
   getClipRanges,
   getSortedTrackClips,
@@ -42,6 +44,19 @@ import {
 
 export function singleMediaType(mediaType: string | string[]): string {
   return Array.isArray(mediaType) ? mediaType[0] : mediaType;
+}
+
+/**
+ * Segment-edit bounds for a media record: images have no upper time bound
+ * (mirroring validateTimeRange), everything else clamps to the duration.
+ */
+export function mediaBounds(media: {
+  mediaType: string | string[];
+  duration: number;
+}): { mediaDuration?: number } {
+  return singleMediaType(media.mediaType) === 'image'
+    ? {}
+    : { mediaDuration: media.duration };
 }
 
 /** Validate an orientation flag against the TimelineOrientation enum. */
@@ -462,7 +477,13 @@ export async function insertClip(
     defaultLabel = opts.label ?? mediaClip?.label;
     defaultDescription = opts.description ?? mediaClip?.description;
   }
-  const duration = end - start;
+  // Composite MediaClips play their segments (gaps skipped), so the stored
+  // duration and the placement math below must use the effective length —
+  // end - start would over-reserve lane space and mismatch the render.
+  const compositeSegments = getCompositeSegments(mediaClip ?? undefined);
+  const duration = compositeSegments
+    ? calculateEffectiveDuration(start, end, compositeSegments)
+    : end - start;
 
   const trackMutator = new TimelineTrackMutator(pb);
   const clipMutator = new TimelineClipMutator(pb);
@@ -536,7 +557,9 @@ export async function insertClip(
           await clipMutator.update(trim.clipId, {
             start: trim.start,
             end: trim.end,
-            duration: trim.end - trim.start,
+            // effective length from the planner — for composites this is the
+            // windowed gap-skipping sum, not end - start
+            duration: trim.duration,
             timelineStart: trim.timelineStart,
           });
         }

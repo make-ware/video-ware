@@ -1,5 +1,13 @@
 import type { TimelineClip } from '../schema/timeline-clip.js';
 import type { TimelineTrackRecord } from '../schema/timeline-track.js';
+import type { MediaClip } from '../schema/media-clip.js';
+import {
+  calculateEffectiveDuration,
+  getCompositeSegments,
+  sourceTimeAtCompositeOffset,
+  windowCompositeSegments,
+  type CompositeSegment,
+} from './composite-utils.js';
 
 /**
  * Clip placement and playback resolution for timelines.
@@ -9,7 +17,47 @@ import type { TimelineTrackRecord } from '../schema/timeline-track.js';
  * preceding clips on the same track. Clips on the same track must not
  * overlap. Shared by the webapp editor lanes/preview player and the CLI
  * insert/inspect commands.
+ *
+ * Durations are always the clip's *effective* on-timeline length
+ * (getClipTimelineDuration): composite clips occupy the gap-skipping sum of
+ * their edit-list segments — the same length the render pipeline produces —
+ * not their source-time span.
  */
+
+/**
+ * The edit list governing a clip's playback, if it is a composite:
+ * TimelineClip.meta.segments (copy-on-write override) wins over the source
+ * MediaClip's clipData.segments — mirroring the render pipeline's precedence
+ * in generateSegmentsFromClip.
+ */
+export function getClipSegments(
+  clip: TimelineClip
+): CompositeSegment[] | undefined {
+  if (clip.meta?.segments && clip.meta.segments.length > 0) {
+    return clip.meta.segments;
+  }
+  const mediaClip = (
+    clip as TimelineClip & { expand?: { MediaClipRef?: MediaClip } }
+  ).expand?.MediaClipRef;
+  return getCompositeSegments(mediaClip);
+}
+
+/**
+ * The clip's effective duration on the timeline — the length it renders and
+ * plays at. Composite clips skip their edit-list gaps, so this is the sum of
+ * segment lengths; everything else (plain media, captions, nested timelines)
+ * spans `end - start`.
+ */
+export function getClipTimelineDuration(clip: TimelineClip): number {
+  // Nested-timeline clips trim the child's own time axis; their window is
+  // already timeline-linear.
+  if (clip.SourceTimelineRef) return clip.end - clip.start;
+  return calculateEffectiveDuration(
+    clip.start,
+    clip.end,
+    getClipSegments(clip)
+  );
+}
 
 /**
  * Get clips on a track sorted by position (timelineStart or sequential order).
@@ -34,7 +82,7 @@ export function getClipRanges(
   let sequentialEnd = 0;
 
   for (const clip of sorted) {
-    const duration = clip.end - clip.start;
+    const duration = getClipTimelineDuration(clip);
     let start: number;
 
     if (clip.timelineStart !== undefined && clip.timelineStart !== null) {
@@ -95,13 +143,16 @@ export function findNonOverlappingTimelineStart(
 
 /**
  * A trim to apply to an existing clip so an inserted clip can take its place.
- * start/end are source-media times; timelineStart pins the clip at its
- * (possibly shifted) timeline position.
+ * start/end are source-media times (for composites: the new window over the
+ * edit list, which itself stays untouched); duration is the clip's new
+ * effective on-timeline length; timelineStart pins the clip at its (possibly
+ * shifted) timeline position.
  */
 export interface ClipTrim {
   clipId: string;
   start: number;
   end: number;
+  duration: number;
   timelineStart: number;
 }
 
@@ -146,18 +197,33 @@ export function planOverwriteAtTime(
     const headDuration = insertStart - s; // portion surviving before the insert
     const tailDuration = e - insertEnd; // portion surviving after the insert
 
+    // Composite clips are trimmed in effective (gap-skipping) time: the new
+    // window edge is found by walking the windowed edit list, and the list
+    // itself is never modified. Nested-timeline clips are timeline-linear.
+    const segments = clip.SourceTimelineRef ? undefined : getClipSegments(clip);
+    const windowed =
+      segments && segments.length > 0
+        ? windowCompositeSegments(segments, clip.start, clip.end)
+        : undefined;
+
     if (headDuration > OVERLAP_EPSILON) {
       trims.push({
         clipId: clip.id,
         start: clip.start,
-        end: clip.start + headDuration,
+        end: windowed
+          ? sourceTimeAtCompositeOffset(windowed, headDuration)
+          : clip.start + headDuration,
+        duration: headDuration,
         timelineStart: s,
       });
     } else if (tailDuration > OVERLAP_EPSILON) {
       trims.push({
         clipId: clip.id,
-        start: clip.end - tailDuration,
+        start: windowed
+          ? sourceTimeAtCompositeOffset(windowed, e - s - tailDuration)
+          : clip.end - tailDuration,
         end: clip.end,
+        duration: tailDuration,
         timelineStart: insertEnd,
       });
     } else {
@@ -223,6 +289,58 @@ export function planRippleDelete(
   });
 
   return moves;
+}
+
+/**
+ * Plan how existing clips on a track shift right so a range
+ * [insertStart, insertStart + insertDuration) becomes free — the
+ * non-destructive alternative to planOverwriteAtTime: no clip is ever
+ * trimmed or removed, they all keep their full content and move instead.
+ *
+ * Every clip whose effective range ends after insertStart shifts right by a
+ * single uniform delta, preserving the gaps between them:
+ * - No clip straddles insertStart: the delta is exactly insertDuration.
+ * - A clip straddles insertStart (e.g. inserting at a playhead mid-clip):
+ *   the delta grows so that clip clears the inserted range entirely.
+ *
+ * Moves pin clips via timelineStart (even previously sequential ones) so the
+ * result is deterministic regardless of how each clip was placed.
+ *
+ * @param trackClips - Clips on the target track
+ * @param insertStart - Timeline time where the range begins
+ * @param insertDuration - Length of the range to free up
+ * @param excludeClipId - Clip to ignore (e.g. the clip being grown/moved)
+ * @returns timelineStart updates to apply before/with the insert
+ */
+export function planRippleInsert(
+  trackClips: TimelineClip[],
+  insertStart: number,
+  insertDuration: number,
+  excludeClipId?: string
+): RippleDeleteMove[] {
+  if (insertDuration <= OVERLAP_EPSILON) return [];
+
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+
+  const affected = sorted
+    .map((clip, i) => ({ clip, range: ranges[i] }))
+    .filter(({ clip }) => clip.id !== excludeClipId)
+    .filter(({ range }) => range.end > range.start)
+    .filter(({ range }) => range.end > insertStart + OVERLAP_EPSILON);
+
+  if (affected.length === 0) return [];
+
+  const firstStart = Math.min(...affected.map(({ range }) => range.start));
+  const delta =
+    firstStart < insertStart - OVERLAP_EPSILON
+      ? insertStart + insertDuration - firstStart
+      : insertDuration;
+
+  return affected.map(({ clip, range }) => ({
+    clipId: clip.id,
+    timelineStart: range.start + delta,
+  }));
 }
 
 /**

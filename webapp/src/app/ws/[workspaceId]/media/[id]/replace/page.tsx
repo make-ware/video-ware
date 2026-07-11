@@ -194,13 +194,15 @@ export default function ReplaceMediaPage() {
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>This overwrites the stored video file</AlertTitle>
         <AlertDescription>
-          The original file for this media will be replaced and{' '}
-          <strong>cannot be recovered</strong>. Existing previews (thumbnail,
-          proxy, sprite, audio, filmstrip) and detected labels are{' '}
-          <strong>not</strong> regenerated — they will keep reflecting the old
-          file until you regenerate them from the details page. Only replace
-          with the same media (for example, a re-graded or re-mixed version) so
-          the duration and dimensions still match.
+          <p>
+            The original file for this media will be replaced and{' '}
+            <strong>cannot be recovered</strong>. Existing previews (thumbnail,
+            proxy, sprite, audio, filmstrip) and detected labels are{' '}
+            <strong>not</strong> regenerated — they will keep reflecting the old
+            file until you regenerate them from the details page. Only replace
+            with the same media (for example, a re-graded or re-mixed version)
+            so the duration and dimensions still match.
+          </p>
         </AlertDescription>
       </Alert>
 
@@ -211,6 +213,12 @@ export default function ReplaceMediaPage() {
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            {currentFileName ? (
+              <div className="col-span-2 sm:col-span-3">
+                <dt className="text-muted-foreground">Original file name</dt>
+                <dd className="font-medium break-all">{currentFileName}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-muted-foreground">Type</dt>
               <dd className="font-medium capitalize">{media.mediaType}</dd>

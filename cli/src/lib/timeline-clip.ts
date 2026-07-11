@@ -1,14 +1,21 @@
 import {
+  MediaClipMutator,
   MediaMutator,
   TimelineClipMutator,
   TimelineTrackMutator,
+  calculateEffectiveDuration,
+  clampSegmentsToWindow,
+  deriveClipTimes,
   findNonOverlappingTimelineStart,
   getClipRanges,
+  getCompositeSegments,
   getSortedTrackClips,
   planOverwriteAtTime,
+  roundToMs,
   validateTimeRange,
   type Caption,
   type ClipTrim,
+  type CompositeSegment,
   type MediaClip,
   type Timeline,
   type TimelineClip,
@@ -23,6 +30,7 @@ import {
 } from './options.js';
 import {
   clipsOnTrack,
+  mediaBounds,
   renumberClips,
   resolveTrackRef,
   singleMediaType,
@@ -61,12 +69,46 @@ export function timelineClipLabelHint(clip: TimelineClipExpanded): string {
 }
 
 /** Error when a `-t <timelineId>` expectation doesn't match the clip. */
-function assertOnTimeline(clip: TimelineClip, timelineId?: string): void {
+export function assertOnTimeline(
+  clip: TimelineClip,
+  timelineId?: string
+): void {
   if (timelineId && clip.TimelineRef !== timelineId) {
     throw new Error(
       `Clip ${clip.id} belongs to timeline ${clip.TimelineRef}, not ${timelineId}.`
     );
   }
+}
+
+/** Where a timeline clip's current edit list comes from. */
+export type TimelineEditListSource = 'meta' | 'mediaClip' | 'trim';
+
+/**
+ * Resolve the edit list a timeline clip renders with, mirroring the
+ * generateSegmentsFromClip precedence: `meta.segments` override first, then
+ * the referenced composite MediaClip's `clipData.segments`, else the clip's
+ * own trim window (`'trim'` = not composite yet). Uses the mutator's default
+ * MediaClipRef expansion when present, fetching only as a fallback.
+ */
+export async function resolveTimelineEditList(
+  pb: TypedPocketBase,
+  clip: TimelineClip
+): Promise<{ segments: CompositeSegment[]; source: TimelineEditListSource }> {
+  const metaSegments = clip.meta?.segments;
+  if (metaSegments && metaSegments.length > 0) {
+    return { segments: metaSegments, source: 'meta' };
+  }
+  if (clip.MediaClipRef) {
+    const mediaClip =
+      (clip as TimelineClipExpanded).expand?.MediaClipRef ??
+      (await new MediaClipMutator(pb).getById(clip.MediaClipRef)) ??
+      undefined;
+    const segments = getCompositeSegments(mediaClip);
+    if (segments && segments.length > 0) {
+      return { segments, source: 'mediaClip' };
+    }
+  }
+  return { segments: [{ start: clip.start, end: clip.end }], source: 'trim' };
 }
 
 export interface UpdateTimelineClipOptions {
@@ -113,7 +155,12 @@ export const clipUpdateOptions = {
 
 /**
  * Patch a timeline clip. Trim changes are re-validated against the source
- * media and recompute the stored duration (and the timeline's).
+ * media and recompute the stored duration (and the timeline's). On a clip
+ * with an edit list (`meta.segments`, or a composite MediaClipRef) the
+ * start/end window truncates what plays WITHOUT touching the edit list —
+ * the render intersects the list with the window, and `duration` becomes
+ * the windowed effective (gap-skipping) length. Non-destructive: a later
+ * update can widen the window back out to the full edit list.
  */
 export async function updateTimelineClip(
   pb: TypedPocketBase,
@@ -152,18 +199,53 @@ export async function updateTimelineClip(
           `Invalid time range: start=${start}, end=${end}, media duration=${media.duration}`
         );
       }
+
+      const editList = await resolveTimelineEditList(pb, clip);
+      if (editList.source !== 'trim') {
+        // Validate the window covers content; the list itself stays intact
+        // (windowing happens at render/duration time, so it's reversible).
+        const windowed = clampSegmentsToWindow(
+          editList.segments,
+          start,
+          end,
+          mediaBounds(media)
+        );
+        if (windowed.length === 0) {
+          throw new Error(
+            `Trim window ${start}–${end}s contains no segment content — ` +
+              `inspect the edit list with \`vw timeline clips segments ${clipId}\`.`
+          );
+        }
+        // Clamp the window to the edit list's span so the stored times stay
+        // meaningful (a wider window plays the full list anyway).
+        const span = deriveClipTimes(editList.segments);
+        patch.start = Math.max(start, span.start);
+        patch.end = Math.min(end, span.end);
+        patch.duration = calculateEffectiveDuration(
+          patch.start,
+          patch.end,
+          editList.segments
+        );
+      } else {
+        patch.start = start;
+        patch.end = end;
+        patch.duration = end - start;
+      }
     } else if (!(start >= 0 && start < end)) {
       // caption clips have no source media; only ordering is enforced
       throw new Error(`Invalid time range: start=${start}, end=${end}`);
+    } else {
+      patch.start = start;
+      patch.end = end;
+      patch.duration = end - start;
     }
-
-    patch.start = start;
-    patch.end = end;
-    patch.duration = end - start;
   }
 
   if (opts.gain !== undefined) {
-    patch.meta = { ...(clip.meta ?? {}), gain: opts.gain };
+    patch.meta = {
+      ...(clip.meta ?? {}),
+      gain: opts.gain,
+    };
   }
 
   if (Object.keys(patch).length === 0) {
@@ -339,6 +421,111 @@ export interface RippleShift {
   to: number;
 }
 
+/** A lane clip zipped with its computed timeline range. */
+export interface LaneEntry {
+  clip: TimelineClip;
+  range: { start: number; end: number };
+}
+
+/**
+ * Resolve the track lane a clip lives on: the timeline's tracks (the
+ * implicit layer-0 lane is materialized for legacy timelines), and the
+ * lane's clips zipped with their computed timeline ranges in lane order.
+ */
+async function resolveClipLane(
+  pb: TypedPocketBase,
+  clip: TimelineClip
+): Promise<{ track: TimelineTrackRecord; entries: LaneEntry[] }> {
+  const timelineId = clip.TimelineRef;
+  const trackMutator = new TimelineTrackMutator(pb);
+  const trackList = (await trackMutator.getByTimeline(timelineId)).items;
+  if (trackList.length === 0) {
+    // legacy timeline: materialize the implicit layer-0 lane
+    trackList.push(
+      await trackMutator.create({
+        TimelineRef: timelineId,
+        name: 'Main Track',
+        layer: 0,
+      })
+    );
+  }
+  const track =
+    trackList.find((t) => t.id === clip.TimelineTrackRef) ??
+    trackList.find((t) => t.layer === 0) ??
+    trackList[0];
+
+  const allClips = await new TimelineClipMutator(pb).getByTimeline(timelineId);
+  const laneClips = clipsOnTrack(allClips, trackList, track.id);
+  const sorted = getSortedTrackClips(laneClips);
+  const ranges = getClipRanges(laneClips);
+  return {
+    track,
+    entries: sorted.map((c, i) => ({ clip: c, range: ranges[i] })),
+  };
+}
+
+export interface DownstreamRippleResult {
+  track: TimelineTrackRecord;
+  /** Seconds actually shifted (leftward shifts clamp at `floor`). */
+  by: number;
+  requestedBy: number;
+  shifted: RippleShift[];
+}
+
+/**
+ * Shift only the clips *after* a clip on its lane by ±seconds, preserving
+ * their spacing — the downstream half of a ripple edit, used when the
+ * anchor clip's effective duration changed in place (segment cut/trim).
+ * Leftward shifts clamp so the first downstream clip never crosses the
+ * anchor's new render-effective end (`newEffectiveDuration` past its lane
+ * position — its span end would no-op middle cuts). Every shifted clip is
+ * written with an explicit timelineStart; the caller is responsible for
+ * syncTimelineDuration.
+ */
+export async function rippleDownstreamClips(
+  pb: TypedPocketBase,
+  clip: TimelineClip,
+  by: number,
+  opts: { newEffectiveDuration: number; dryRun?: boolean }
+): Promise<DownstreamRippleResult> {
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const index = entries.findIndex((e) => e.clip.id === clip.id);
+  const anchorStart = index >= 0 ? entries[index].range.start : 0;
+  const anchorEnd = index >= 0 ? entries[index].range.end : 0;
+  const downstream = entries.filter(
+    (e) => e.clip.id !== clip.id && e.range.start >= anchorEnd
+  );
+
+  if (downstream.length === 0 || by === 0) {
+    return { track, by: 0, requestedBy: by, shifted: [] };
+  }
+
+  const floor = Math.max(0, anchorStart + opts.newEffectiveDuration);
+  const firstStart = Math.min(...downstream.map((e) => e.range.start));
+  let applied = roundToMs(Math.max(by, floor - firstStart));
+  // Clamping may only shrink the shift toward zero, never flip a leftward
+  // ripple into a rightward one (e.g. downstream already overlaps the anchor).
+  if (by < 0) applied = Math.min(0, applied);
+  if (applied === 0) {
+    return { track, by: 0, requestedBy: by, shifted: [] };
+  }
+
+  const shifted: RippleShift[] = downstream.map(({ clip: c, range }) => ({
+    clipId: c.id,
+    from: range.start,
+    to: roundToMs(range.start + applied),
+  }));
+
+  if (!opts.dryRun) {
+    const clipMutator = new TimelineClipMutator(pb);
+    for (const shift of shifted) {
+      await clipMutator.update(shift.clipId, { timelineStart: shift.to });
+    }
+  }
+
+  return { track, by: applied, requestedBy: by, shifted };
+}
+
 export interface RippleClipsOptions {
   /** Seconds to shift the clip and everything after it (negative = left). */
   by: number;
@@ -381,29 +568,7 @@ export async function rippleTimelineClips(
   assertOnTimeline(clip, opts.timelineId);
   const timelineId = clip.TimelineRef;
 
-  const trackMutator = new TimelineTrackMutator(pb);
-  const trackList = (await trackMutator.getByTimeline(timelineId)).items;
-  if (trackList.length === 0) {
-    // legacy timeline: materialize the implicit layer-0 lane
-    trackList.push(
-      await trackMutator.create({
-        TimelineRef: timelineId,
-        name: 'Main Track',
-        layer: 0,
-      })
-    );
-  }
-  const track =
-    trackList.find((t) => t.id === clip.TimelineTrackRef) ??
-    trackList.find((t) => t.layer === 0) ??
-    trackList[0];
-
-  const allClips = await clipMutator.getByTimeline(timelineId);
-  const laneClips = clipsOnTrack(allClips, trackList, track.id);
-  const sorted = getSortedTrackClips(laneClips);
-  const ranges = getClipRanges(laneClips);
-  const entries = sorted.map((c, i) => ({ clip: c, range: ranges[i] }));
-
+  const { track, entries } = await resolveClipLane(pb, clip);
   const index = entries.findIndex((e) => e.clip.id === clipId);
   const anchorStart = entries[index].range.start;
   const group = entries.filter(

@@ -18,9 +18,27 @@ import {
   TimelineTrackRecordInput,
   computeClipPlacement,
   computeTimelineDuration,
-  planOverwriteAtTime,
+  getClipRanges,
+  getClipTimelineDuration,
+  getSortedTrackClips,
+  planRippleInsert,
   type LabelSpeech,
+  type TimelineClip,
 } from '@project/shared';
+
+/**
+ * Effective [start, end) range of one clip on its track — the same placement
+ * math the editor lanes and preview use. Null when the clip isn't found.
+ */
+function getTrackClipRange(
+  trackClips: TimelineClip[],
+  clipId: string
+): { start: number; end: number } | null {
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+  const index = sorted.findIndex((c) => c.id === clipId);
+  return index >= 0 ? ranges[index] : null;
+}
 
 interface TimelineContextType {
   // Current timeline state
@@ -94,7 +112,13 @@ interface TimelineContextType {
   updateClipTimes: (
     clipId: string,
     start: number,
-    end: number
+    end: number,
+    opts?: {
+      /** Pin the clip's absolute timeline position in the same write */
+      timelineStart?: number;
+      /** Copy-on-write edit list accompanying a composite clip trim */
+      segments?: Array<{ start: number; end: number }>;
+    }
   ) => Promise<void>;
   updateClip: (
     clipId: string,
@@ -504,7 +528,7 @@ export function TimelineProvider({
         }
 
         let resolvedTimelineStart = timelineStart;
-        let truncated = false;
+        let shifted = false;
 
         if (resolvedTimelineStart === undefined) {
           const trackClips = (timeline.clips || []).filter(
@@ -520,19 +544,18 @@ export function TimelineProvider({
             selectedTrack.id === targetTrackId &&
             !selectedTrack.isLocked
           ) {
-            // A lane is selected: insert at the playhead, truncating overlaps
+            // A lane is selected: insert at the playhead, shifting the clips
+            // it would overlap (and everything after) right — never trimming
+            // or overwriting them
             resolvedTimelineStart = Math.max(0, currentTime);
-            const plan = planOverwriteAtTime(
+            const moves = planRippleInsert(
               trackClips,
               resolvedTimelineStart,
               duration
             );
-            if (plan.trims.length > 0 || plan.removals.length > 0) {
-              await timelineService.applyClipTruncations(
-                plan.trims,
-                plan.removals
-              );
-              truncated = true;
+            if (moves.length > 0) {
+              await timelineService.applyClipShifts(moves);
+              shifted = true;
             }
           } else {
             resolvedTimelineStart = computeClipPlacement(
@@ -553,7 +576,7 @@ export function TimelineProvider({
           resolvedTimelineStart
         );
 
-        if (truncated) {
+        if (shifted) {
           // Neighboring clips changed too — reload for a consistent view
           await loadTimeline(timeline.id);
         } else {
@@ -609,7 +632,7 @@ export function TimelineProvider({
         }
 
         let resolvedTimelineStart = timelineStart;
-        let truncated = false;
+        let shifted = false;
 
         if (resolvedTimelineStart === undefined) {
           const trackClips = (timeline.clips || []).filter(
@@ -624,19 +647,18 @@ export function TimelineProvider({
             selectedTrack.id === targetTrackId &&
             !selectedTrack.isLocked
           ) {
-            // A lane is selected: insert at the playhead, truncating overlaps
+            // A lane is selected: insert at the playhead, shifting the clips
+            // it would overlap (and everything after) right — never trimming
+            // or overwriting them
             resolvedTimelineStart = Math.max(0, currentTime);
-            const plan = planOverwriteAtTime(
+            const moves = planRippleInsert(
               trackClips,
               resolvedTimelineStart,
               duration
             );
-            if (plan.trims.length > 0 || plan.removals.length > 0) {
-              await timelineService.applyClipTruncations(
-                plan.trims,
-                plan.removals
-              );
-              truncated = true;
+            if (moves.length > 0) {
+              await timelineService.applyClipShifts(moves);
+              shifted = true;
             }
           } else {
             resolvedTimelineStart = computeClipPlacement(
@@ -654,7 +676,7 @@ export function TimelineProvider({
           resolvedTimelineStart
         );
 
-        if (truncated) {
+        if (shifted) {
           // Neighboring clips changed too — reload for a consistent view
           await loadTimeline(timeline.id);
         } else {
@@ -726,18 +748,17 @@ export function TimelineProvider({
             selectedTrack.id === targetTrackId &&
             !selectedTrack.isLocked
           ) {
-            // A lane is selected: insert at the playhead, truncating overlaps
+            // A lane is selected: insert at the playhead, shifting the clips
+            // it would overlap (and everything after) right — never trimming
+            // or overwriting them
             resolvedTimelineStart = Math.max(0, currentTime);
-            const plan = planOverwriteAtTime(
+            const moves = planRippleInsert(
               trackClips,
               resolvedTimelineStart,
               duration
             );
-            if (plan.trims.length > 0 || plan.removals.length > 0) {
-              await timelineService.applyClipTruncations(
-                plan.trims,
-                plan.removals
-              );
+            if (moves.length > 0) {
+              await timelineService.applyClipShifts(moves);
             }
           } else {
             resolvedTimelineStart = computeClipPlacement(
@@ -842,9 +863,20 @@ export function TimelineProvider({
     [timeline, timelineService, clearError, handleError]
   );
 
-  // Update clip times
+  // Update clip times (trim). Optionally pins timelineStart in the same
+  // write and carries a composite clip's copy-on-write edit list. When the
+  // clip's effective on-timeline range grows past its old end, the following
+  // clips on its track shift right — growth never overwrites a neighbor.
   const updateClipTimes = useCallback(
-    async (clipId: string, start: number, end: number) => {
+    async (
+      clipId: string,
+      start: number,
+      end: number,
+      opts?: {
+        timelineStart?: number;
+        segments?: Array<{ start: number; end: number }>;
+      }
+    ) => {
       if (!timeline) {
         throw new Error('No timeline loaded');
       }
@@ -853,19 +885,50 @@ export function TimelineProvider({
       clearError();
 
       try {
+        const clip = timeline.clips.find((c) => c.id === clipId);
+        const trackClips = clip
+          ? timeline.clips.filter(
+              (c) =>
+                (c.TimelineTrackRef || '') === (clip.TimelineTrackRef || '')
+            )
+          : [];
+        const oldRange = clip ? getTrackClipRange(trackClips, clipId) : null;
+
         const updatedClip = await timelineService.updateClipTimes(
           clipId,
           start,
-          end
+          end,
+          opts
         );
 
-        // Update local state
+        // Shift (never overwrite) the following clips when the resize grew
+        // the clip's effective range past its old end
+        let movedClips: TimelineClip[] = [];
+        if (clip && oldRange) {
+          const newRangeStart = opts?.timelineStart ?? oldRange.start;
+          const newRangeEnd =
+            newRangeStart +
+            getClipTimelineDuration({ ...clip, ...updatedClip });
+          const moves = planRippleInsert(
+            trackClips,
+            oldRange.end,
+            newRangeEnd - oldRange.end,
+            clipId
+          );
+          if (moves.length > 0) {
+            movedClips = await timelineService.applyClipShifts(moves);
+          }
+        }
+
+        // Update local state (merging so expansions survive)
         setTimeline((prev) => {
           if (!prev) return prev;
-
-          const updatedClips = prev.clips.map((clip) =>
-            clip.id === clipId ? updatedClip : clip
-          );
+          const movedById = new Map(movedClips.map((c) => [c.id, c]));
+          const updatedClips = prev.clips.map((c) => {
+            if (c.id === clipId) return { ...c, ...updatedClip };
+            const moved = movedById.get(c.id);
+            return moved ? { ...c, ...moved } : c;
+          });
 
           return {
             ...prev,
@@ -882,7 +945,9 @@ export function TimelineProvider({
     [timeline, timelineService, clearError, handleError]
   );
 
-  // Update any clip property
+  // Update any clip property. Edits that grow the clip's effective length
+  // (e.g. a segment edit restoring cut content) shift the following clips on
+  // its track right instead of overlapping them.
   const updateClip = useCallback(
     async (
       clipId: string,
@@ -896,6 +961,15 @@ export function TimelineProvider({
       clearError();
 
       try {
+        const clip = timeline.clips.find((c) => c.id === clipId);
+        const trackClips = clip
+          ? timeline.clips.filter(
+              (c) =>
+                (c.TimelineTrackRef || '') === (clip.TimelineTrackRef || '')
+            )
+          : [];
+        const oldRange = clip ? getTrackClipRange(trackClips, clipId) : null;
+
         const mutator = new (
           await import('@project/shared/mutator')
         ).TimelineClipMutator(pb);
@@ -904,12 +978,37 @@ export function TimelineProvider({
           data as Record<string, unknown>
         );
 
+        // Shift (never overwrite) the following clips when the edit grew the
+        // clip's effective range past its old end
+        let movedClips: TimelineClip[] = [];
+        if (clip && oldRange) {
+          const newRangeStart =
+            typeof data.timelineStart === 'number'
+              ? data.timelineStart
+              : oldRange.start;
+          const newRangeEnd =
+            newRangeStart +
+            getClipTimelineDuration({ ...clip, ...updatedClip });
+          const moves = planRippleInsert(
+            trackClips,
+            oldRange.end,
+            newRangeEnd - oldRange.end,
+            clipId
+          );
+          if (moves.length > 0) {
+            movedClips = await timelineService.applyClipShifts(moves);
+          }
+        }
+
         // Update local state
         setTimeline((prev) => {
           if (!prev) return prev;
-          const updatedClips = prev.clips.map((clip) =>
-            clip.id === clipId ? { ...clip, ...updatedClip } : clip
-          );
+          const movedById = new Map(movedClips.map((c) => [c.id, c]));
+          const updatedClips = prev.clips.map((c) => {
+            if (c.id === clipId) return { ...c, ...updatedClip };
+            const moved = movedById.get(c.id);
+            return moved ? { ...c, ...moved } : c;
+          });
           return { ...prev, clips: updatedClips };
         });
       } catch (error) {
@@ -919,7 +1018,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, clearError, handleError]
+    [timeline, timelineService, clearError, handleError]
   );
 
   // Track operations

@@ -13,6 +13,7 @@ import {
   getCompositeSegments,
   expandCompositeToSegments,
   calculateEffectiveDuration,
+  windowCompositeSegments,
 } from './composite-utils';
 import {
   clampCuesToWindow,
@@ -290,8 +291,14 @@ function generateSegmentsFromClip(
 
   // Check for TimelineClip-level segments first (override)
   if (clip.meta?.segments && clip.meta.segments.length > 0) {
-    const compositeSegments = clip.meta.segments;
-    // Calculate effective duration from segments
+    // clip.start/end window the edit list (non-destructive trim): only the
+    // windowed portion renders
+    const compositeSegments = windowCompositeSegments(
+      clip.meta.segments,
+      clip.start,
+      clip.end
+    );
+    // Calculate effective duration from the windowed segments
     const usageSourceStart = 0;
     const usageDuration = calculateEffectiveDuration(
       clip.start,
@@ -324,9 +331,15 @@ function generateSegmentsFromClip(
 
   // Check if this is a composite clip (from MediaClip definition)
   if (isMediaClipComposite(mediaClip)) {
-    const compositeSegments = getCompositeSegments(mediaClip);
-    if (compositeSegments && compositeSegments.length > 0) {
-      // Calculate effective duration from segments
+    const mediaClipSegments = getCompositeSegments(mediaClip);
+    if (mediaClipSegments && mediaClipSegments.length > 0) {
+      // The placement's clip.start/end window the MediaClip's edit list
+      const compositeSegments = windowCompositeSegments(
+        mediaClipSegments,
+        clip.start,
+        clip.end
+      );
+      // Calculate effective duration from the windowed segments
       const usageSourceStart = 0;
       const usageDuration = calculateEffectiveDuration(
         clip.start,

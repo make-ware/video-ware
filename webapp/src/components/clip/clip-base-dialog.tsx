@@ -21,6 +21,7 @@ import {
   FileVideo,
 } from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
+import { MEDIA_PREVIEW_FRAME } from '@/components/video/media-preview-frame';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { getClipDisplayLabel, getClipDescription } from '@/utils/clip-display';
 import { ClipType } from '@project/shared';
@@ -110,7 +111,7 @@ export function ClipBaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl" showCloseButton={false}>
+      <DialogContent showCloseButton={false}>
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2 min-w-0">
@@ -148,7 +149,7 @@ export function ClipBaseDialog({
         <ScrollArea className="max-h-[85vh]">
           <div className="space-y-6 p-1">
             {/* Video Preview */}
-            <div className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm">
+            <div className={MEDIA_PREVIEW_FRAME}>
               {src ? (
                 <VideoPlayerUI
                   src={src}

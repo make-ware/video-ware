@@ -4,13 +4,16 @@ import {
   MediaClipMutator,
   MediaMutator,
   TimelineClipMutator,
+  clampSegmentsToWindow,
+  deriveClipTimes,
+  getCompositeSegments,
   validateTimeRange,
   type Media,
   type MediaClip,
   type MediaClipInput,
   type TypedPocketBase,
 } from '@project/shared';
-import { singleMediaType } from './timeline.js';
+import { mediaBounds, singleMediaType } from './timeline.js';
 import type { MediaWithUpload } from './select.js';
 import type { OptionGroupOf } from './options.js';
 
@@ -178,7 +181,9 @@ export const mediaClipUpdateOptions = {
 /**
  * Patch a MediaClip's label/description/trim. A trim change (start and/or
  * end) is re-validated against the source media and recomputes the stored
- * duration. Only the fields actually passed are written.
+ * duration. On a composite clip the trim window intersects the edit list
+ * instead of overwriting it — duration stays the effective (gap-skipping)
+ * length, not end - start. Only the fields actually passed are written.
  */
 export async function updateMediaClip(
   pb: TypedPocketBase,
@@ -216,9 +221,32 @@ export async function updateMediaClip(
       );
     }
 
-    patch.start = start;
-    patch.end = end;
-    patch.duration = end - start;
+    const segments = getCompositeSegments(clip);
+    if (segments && segments.length > 0) {
+      const clamped = clampSegmentsToWindow(
+        segments,
+        start,
+        end,
+        mediaBounds(media)
+      );
+      if (clamped.length === 0) {
+        throw new Error(
+          `Trim window ${start}–${end}s contains no segment content — ` +
+            `inspect the edit list with \`vw media clip segments ${clipId}\`.`
+        );
+      }
+      const times = deriveClipTimes(clamped);
+      patch.start = times.start;
+      patch.end = times.end;
+      patch.duration = times.duration;
+      // merge, never replace: update() skips validation, so unknown keys
+      // like gapThreshold survive — keep it that way
+      patch.clipData = { ...(clip.clipData ?? {}), segments: clamped };
+    } else {
+      patch.start = start;
+      patch.end = end;
+      patch.duration = end - start;
+    }
   }
 
   if (Object.keys(patch).length === 0) {

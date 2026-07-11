@@ -98,6 +98,29 @@ export function parseSignedSeconds(value: string): number {
   return n;
 }
 
+/** Parse a comma-separated list of non-negative seconds (e.g. `--at 1.5,3.2`). */
+export function parseSecondsList(value: string): number[] {
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    throw new InvalidArgumentError(
+      'expected comma-separated seconds (e.g. 1.5,3.2)'
+    );
+  }
+  return parts.map(parseSeconds);
+}
+
+/** Parse a non-negative integer index (e.g. `--segment 2`). */
+export function parseIndex(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new InvalidArgumentError('expected a non-negative integer index');
+  }
+  return n;
+}
+
 /** Parse a comma-separated id list (e.g. `--clips a,b,c`). */
 export function parseIdList(value: string): string[] {
   const ids = value

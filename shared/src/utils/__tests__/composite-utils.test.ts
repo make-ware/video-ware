@@ -11,6 +11,9 @@ import {
   buildCompositeTimeMapping,
   expandCompositeToSegments,
   calculateExpandedDuration,
+  sourceTimeAtCompositeOffset,
+  compositeOffsetAtSourceTime,
+  windowCompositeSegments,
 } from '../composite-utils';
 
 describe('composite-utils', () => {
@@ -98,6 +101,108 @@ describe('composite-utils', () => {
     it('should handle single segment', () => {
       const result = calculateEffectiveDuration(0, 10, [{ start: 0, end: 5 }]);
       expect(result).toBe(5);
+    });
+
+    it('windows the segments by start/end (non-destructive trim)', () => {
+      // Window 1.8–13.5 keeps segment 1 whole (4.9) + segment 2 whole (1.2)
+      expect(
+        calculateEffectiveDuration(1.8, 13.5, exampleSegments)
+      ).toBeCloseTo(6.1, 3);
+      // Window 4–13 keeps 4–6.7 (2.7) + 12.3–13 (0.7)
+      expect(calculateEffectiveDuration(4, 13, exampleSegments)).toBeCloseTo(
+        3.4,
+        3
+      );
+    });
+
+    it('falls back to the full sum for degenerate or stale windows', () => {
+      expect(calculateEffectiveDuration(0, 0, exampleSegments)).toBeCloseTo(
+        10.6,
+        3
+      );
+      // Window entirely inside a gap: stale data, play everything
+      expect(calculateEffectiveDuration(7, 12, exampleSegments)).toBeCloseTo(
+        10.6,
+        3
+      );
+    });
+  });
+
+  describe('windowCompositeSegments', () => {
+    it('intersects segments with the window', () => {
+      expect(windowCompositeSegments(exampleSegments, 4, 13)).toEqual([
+        { start: 4, end: 6.7 },
+        { start: 12.3, end: 13 },
+      ]);
+    });
+
+    it('drops segments entirely outside the window', () => {
+      expect(windowCompositeSegments(exampleSegments, 12.3, 17.1)).toEqual([
+        { start: 12.3, end: 13.5 },
+        { start: 14.8, end: 17.1 },
+      ]);
+    });
+
+    it('returns the full list when the window spans everything', () => {
+      expect(windowCompositeSegments(exampleSegments, 0, 60)).toEqual(
+        exampleSegments
+      );
+    });
+
+    it('falls back to the full list for degenerate or empty windows', () => {
+      expect(windowCompositeSegments(exampleSegments, 0, 0)).toEqual(
+        exampleSegments
+      );
+      expect(windowCompositeSegments(exampleSegments, 8, 10)).toEqual(
+        exampleSegments
+      );
+    });
+  });
+
+  describe('compositeOffsetAtSourceTime', () => {
+    it('maps source times inside segments linearly', () => {
+      expect(compositeOffsetAtSourceTime(exampleSegments, 1.8)).toBe(0);
+      expect(compositeOffsetAtSourceTime(exampleSegments, 4.8)).toBeCloseTo(
+        3,
+        3
+      );
+      // Second segment starts at composite 4.9
+      expect(compositeOffsetAtSourceTime(exampleSegments, 12.9)).toBeCloseTo(
+        5.5,
+        3
+      );
+    });
+
+    it('collapses gap times to the shared boundary offset', () => {
+      expect(compositeOffsetAtSourceTime(exampleSegments, 6.7)).toBeCloseTo(
+        4.9,
+        3
+      );
+      expect(compositeOffsetAtSourceTime(exampleSegments, 9)).toBeCloseTo(
+        4.9,
+        3
+      );
+      expect(compositeOffsetAtSourceTime(exampleSegments, 12.3)).toBeCloseTo(
+        4.9,
+        3
+      );
+    });
+
+    it('clamps times outside the edit list', () => {
+      expect(compositeOffsetAtSourceTime(exampleSegments, 0)).toBe(0);
+      expect(compositeOffsetAtSourceTime(exampleSegments, 50)).toBeCloseTo(
+        10.6,
+        3
+      );
+    });
+
+    it('round-trips with sourceTimeAtCompositeOffset', () => {
+      for (const offset of [0, 1, 4.9, 5.5, 7.2, 10.6]) {
+        const source = sourceTimeAtCompositeOffset(exampleSegments, offset);
+        expect(
+          compositeOffsetAtSourceTime(exampleSegments, source)
+        ).toBeCloseTo(offset, 3);
+      }
     });
   });
 
@@ -242,6 +347,37 @@ describe('composite-utils', () => {
     it('should calculate total duration from expanded segments', () => {
       const duration = calculateExpandedDuration(exampleSegments, 0, 10.6);
       expect(duration).toBeCloseTo(10.6, 1);
+    });
+  });
+
+  describe('sourceTimeAtCompositeOffset', () => {
+    it('maps offsets inside the first segment linearly', () => {
+      expect(sourceTimeAtCompositeOffset(exampleSegments, 0)).toBeCloseTo(1.8);
+      expect(sourceTimeAtCompositeOffset(exampleSegments, 2)).toBeCloseTo(3.8);
+    });
+
+    it('maps offsets past a gap into the following segment', () => {
+      // First segment covers composite [0, 4.9); offset 5.0 is 0.1s into
+      // the second segment (source 12.3 + 0.1)
+      expect(sourceTimeAtCompositeOffset(exampleSegments, 5.0)).toBeCloseTo(
+        12.4
+      );
+    });
+
+    it('maps a boundary offset to the earlier segment end', () => {
+      expect(sourceTimeAtCompositeOffset(exampleSegments, 4.9)).toBeCloseTo(
+        6.7
+      );
+    });
+
+    it('clamps offsets beyond the effective length to the last segment end', () => {
+      expect(sourceTimeAtCompositeOffset(exampleSegments, 999)).toBeCloseTo(
+        31.1
+      );
+    });
+
+    it('clamps negative offsets to the first segment start', () => {
+      expect(sourceTimeAtCompositeOffset(exampleSegments, -3)).toBeCloseTo(1.8);
     });
   });
 });

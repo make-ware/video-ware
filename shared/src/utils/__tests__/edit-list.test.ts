@@ -218,6 +218,68 @@ describe('generateTracks with composite clips', () => {
     expect(segments[1].time.start).toBe(3);
   });
 
+  it('windows meta.segments by the clip start/end (non-destructive trim)', () => {
+    // Full edit list [0,3] + [5,8]; window 1–6 renders [1,3] + [5,6] only
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 1,
+      end: 6,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: {
+        segments: [
+          { start: 0, end: 3 },
+          { start: 5, end: 8 },
+        ],
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0].time.sourceStart).toBe(1);
+    expect(segments[0].time.duration).toBe(2);
+    expect(segments[0].time.start).toBe(0);
+    expect(segments[1].time.sourceStart).toBe(5);
+    expect(segments[1].time.duration).toBe(1);
+    expect(segments[1].time.start).toBe(2);
+  });
+
+  it('windows the MediaClip edit list by the placement window', () => {
+    const clip = {
+      id: 'c1',
+      order: 0,
+      TimelineTrackRef: 't0',
+      MediaRef: 'm1',
+      start: 12,
+      end: 15,
+      expand: {
+        MediaClipRef: {
+          type: 'composite',
+          MediaRef: 'm1',
+          start: 0,
+          end: 15,
+          clipData: {
+            segments: [
+              { start: 0, end: 5 },
+              { start: 10, end: 15 },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 't0', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0].time.sourceStart).toBe(12);
+    expect(segments[0].time.duration).toBe(3);
+  });
+
   it('should handle composite with out-of-order segments in clipData', () => {
     // Segments stored in non-chronological order (e.g. from UI editing)
     const clip = {

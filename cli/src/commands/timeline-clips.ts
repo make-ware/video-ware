@@ -32,6 +32,7 @@ import {
   success,
   truncate,
 } from '../lib/output.js';
+import { registerTimelineClipSegmentCommands } from './clip-segments.js';
 import { printLabelDetail, reportPlacement } from './timeline.js';
 
 const range = (start: number, end: number) =>
@@ -386,4 +387,6 @@ export function registerTimelineClipCommands(timeline: Command): void {
       handleError(err);
     }
   });
+
+  registerTimelineClipSegmentCommands(clips);
 }

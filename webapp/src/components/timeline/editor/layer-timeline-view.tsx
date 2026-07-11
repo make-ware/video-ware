@@ -33,10 +33,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   MAX_TIMELINE_TRACKS,
-  findNonOverlappingTimelineStart,
+  compositeOffsetAtSourceTime,
   computeNestedTimelineDuration,
+  findNonOverlappingTimelineStart,
+  getClipRanges,
+  getClipSegments,
+  getClipTimelineDuration,
+  getSortedTrackClips,
+  sourceTimeAtCompositeOffset,
 } from '@project/shared';
-import type { Caption, TimelineClip } from '@project/shared';
+import type { Caption, CompositeSegment, TimelineClip } from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
@@ -86,6 +92,30 @@ interface DragState {
   /** Timeline-relative pixel position of the clip at drag start */
   initialLeft: number;
   mediaDuration: number;
+  /**
+   * Effective on-timeline duration at drag start: the gap-skipping segment
+   * sum for composite clips, end - start otherwise
+   */
+  timelineDuration: number;
+  /**
+   * Composite clip's FULL edit list at drag start (never modified by a
+   * trim). Resize handles move the clip's start/end window through it in
+   * effective (timeline) time — inward to trim, back outward to untrim.
+   */
+  segments?: CompositeSegment[];
+  /**
+   * The start/end window's edges as offsets in the full edit list's
+   * composite (gap-skipping) time, and the list's total effective length —
+   * the coordinate system composite resize drags operate in.
+   */
+  windowStartOffset: number;
+  windowEndOffset: number;
+  fullDuration: number;
+  /**
+   * Left-edge floor: the previous clip's range end on this track. Extending
+   * a clip leftward stops here so it can never overlap its neighbor.
+   */
+  minTimelineStart: number;
   /** Live drag preview, updated as the pointer moves (already snapped) */
   targetTrackId: string;
   previewLeft: number;
@@ -391,6 +421,39 @@ export function LayerTimelineView() {
           : clip.expand?.MediaRef?.duration || 1000; // Fallback if unknown
       const trackId = clip.TimelineTrackRef || '';
 
+      // Composite clips resize in effective (gap-skipping) time against
+      // their full edit list; clip.start/end are a window over it, expressed
+      // here as composite-time offsets so trims can be reversed (untrim)
+      const segments = clip.SourceTimelineRef
+        ? undefined
+        : getClipSegments(clip);
+      const hasSegments = !!segments && segments.length > 0;
+      const windowStartOffset = hasSegments
+        ? compositeOffsetAtSourceTime(segments!, clip.start)
+        : 0;
+      const windowEndOffset = hasSegments
+        ? compositeOffsetAtSourceTime(segments!, clip.end)
+        : 0;
+      const fullDuration = hasSegments
+        ? segments!.reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0)
+        : 0;
+      const timelineDuration = getClipTimelineDuration(clip);
+
+      // The previous clip's range end on this track: the floor for
+      // left-edge drags, so extending left can never overlap a neighbor
+      const trackClips = (timeline?.clips || []).filter(
+        (c) => (c.TimelineTrackRef || '') === trackId
+      );
+      const sorted = getSortedTrackClips(trackClips);
+      const ranges = getClipRanges(trackClips);
+      const leftTime = left / pixelsPerSecond;
+      let minTimelineStart = 0;
+      sorted.forEach((c, i) => {
+        if (c.id !== clip.id && ranges[i].end <= leftTime + 0.001) {
+          minTimelineStart = Math.max(minTimelineStart, ranges[i].end);
+        }
+      });
+
       return {
         clipId: clip.id,
         sourceTrackId: trackId,
@@ -406,9 +469,15 @@ export function LayerTimelineView() {
         initialTimelineStart: clip.timelineStart,
         initialLeft: left,
         mediaDuration,
+        timelineDuration,
+        segments: hasSegments ? segments : undefined,
+        windowStartOffset,
+        windowEndOffset,
+        fullDuration,
+        minTimelineStart,
         targetTrackId: trackId,
         previewLeft: left,
-        previewWidth: (clip.end - clip.start) * pixelsPerSecond,
+        previewWidth: timelineDuration * pixelsPerSecond,
         previewTimelineStart: left / pixelsPerSecond,
         previewStart: clip.start,
         previewEnd: clip.end,
@@ -486,7 +555,7 @@ export function LayerTimelineView() {
         const initialLeftTime = next.initialLeft / pixelsPerSecond;
 
         if (next.handle === 'move') {
-          const clipDuration = next.initialEnd - next.initialStart;
+          const clipDuration = next.timelineDuration;
           let leftTime = Math.max(0, initialLeftTime + deltaTime);
 
           // Snap whichever clip edge is closest to a target: try the leading
@@ -514,46 +583,106 @@ export function LayerTimelineView() {
             next.targetTrackId = laneTrackId;
           }
         } else if (next.handle === 'left') {
-          // Trim the in-point; the left edge follows the pointer
-          const clampStart = (value: number) =>
-            Math.min(
-              Math.max(0, next.initialStart - initialLeftTime, value),
-              next.initialEnd - MIN_CLIP_DURATION
-            );
+          // Trim the in-point; the left edge follows the pointer. Never past
+          // the previous clip's end (extending left must not overlap it).
+          if (next.segments) {
+            // Composite: the pointer moves in effective time; shift the
+            // window's in-point through the full edit list. Negative values
+            // untrim — the window can re-open all the way to the list head.
+            const windowLength = next.windowEndOffset - next.windowStartOffset;
+            const clampOffset = (value: number) =>
+              Math.min(
+                Math.max(
+                  -next.windowStartOffset,
+                  next.minTimelineStart - initialLeftTime,
+                  value
+                ),
+                windowLength - MIN_CLIP_DURATION
+              );
 
-          let newStart = clampStart(next.initialStart + deltaTime);
-          let edgeTime = initialLeftTime + (newStart - next.initialStart);
-          const snap = snapTime(edgeTime, next.clipId);
-          if (snap.guide) {
-            newStart = clampStart(
-              next.initialStart + (snap.snapped - initialLeftTime)
+            let headTrim = clampOffset(deltaTime);
+            const snap = snapTime(initialLeftTime + headTrim, next.clipId);
+            if (snap.guide) {
+              headTrim = clampOffset(snap.snapped - initialLeftTime);
+            }
+
+            next.previewStart = sourceTimeAtCompositeOffset(
+              next.segments,
+              next.windowStartOffset + headTrim
             );
-            edgeTime = initialLeftTime + (newStart - next.initialStart);
+            next.previewLeft = (initialLeftTime + headTrim) * pixelsPerSecond;
+            next.previewWidth = (windowLength - headTrim) * pixelsPerSecond;
+          } else {
+            const clampStart = (value: number) =>
+              Math.min(
+                Math.max(
+                  0,
+                  next.initialStart + (next.minTimelineStart - initialLeftTime),
+                  next.initialStart - initialLeftTime,
+                  value
+                ),
+                next.initialEnd - MIN_CLIP_DURATION
+              );
+
+            let newStart = clampStart(next.initialStart + deltaTime);
+            let edgeTime = initialLeftTime + (newStart - next.initialStart);
+            const snap = snapTime(edgeTime, next.clipId);
+            if (snap.guide) {
+              newStart = clampStart(
+                next.initialStart + (snap.snapped - initialLeftTime)
+              );
+              edgeTime = initialLeftTime + (newStart - next.initialStart);
+            }
+
+            next.previewStart = newStart;
+            next.previewLeft = edgeTime * pixelsPerSecond;
+            next.previewWidth = (next.initialEnd - newStart) * pixelsPerSecond;
           }
-
-          next.previewStart = newStart;
-          next.previewLeft = edgeTime * pixelsPerSecond;
-          next.previewWidth = (next.initialEnd - newStart) * pixelsPerSecond;
         } else {
           // Trim the out-point; the right edge follows the pointer
-          const clampEnd = (value: number) =>
-            Math.max(
-              Math.min(next.mediaDuration, value),
-              next.initialStart + MIN_CLIP_DURATION
-            );
+          if (next.segments) {
+            // Composite: the window's out-point follows the pointer in
+            // effective time, capped at the full edit list's gap-skipping
+            // length — so a trimmed clip can expand (untrim) back out.
+            const windowLength = next.windowEndOffset - next.windowStartOffset;
+            const clampLength = (value: number) =>
+              Math.max(
+                Math.min(next.fullDuration - next.windowStartOffset, value),
+                MIN_CLIP_DURATION
+              );
 
-          let newEnd = clampEnd(next.initialEnd + deltaTime);
-          const edgeTime = initialLeftTime + (newEnd - next.initialStart);
-          const snap = snapTime(edgeTime, next.clipId);
-          if (snap.guide) {
-            newEnd = clampEnd(
-              next.initialStart + (snap.snapped - initialLeftTime)
+            let effLength = clampLength(windowLength + deltaTime);
+            const snap = snapTime(initialLeftTime + effLength, next.clipId);
+            if (snap.guide) {
+              effLength = clampLength(snap.snapped - initialLeftTime);
+            }
+
+            next.previewEnd = sourceTimeAtCompositeOffset(
+              next.segments,
+              next.windowStartOffset + effLength
             );
+            next.previewLeft = next.initialLeft;
+            next.previewWidth = effLength * pixelsPerSecond;
+          } else {
+            const clampEnd = (value: number) =>
+              Math.max(
+                Math.min(next.mediaDuration, value),
+                next.initialStart + MIN_CLIP_DURATION
+              );
+
+            let newEnd = clampEnd(next.initialEnd + deltaTime);
+            const edgeTime = initialLeftTime + (newEnd - next.initialStart);
+            const snap = snapTime(edgeTime, next.clipId);
+            if (snap.guide) {
+              newEnd = clampEnd(
+                next.initialStart + (snap.snapped - initialLeftTime)
+              );
+            }
+
+            next.previewEnd = newEnd;
+            next.previewLeft = next.initialLeft;
+            next.previewWidth = (newEnd - next.initialStart) * pixelsPerSecond;
           }
-
-          next.previewEnd = newEnd;
-          next.previewLeft = next.initialLeft;
-          next.previewWidth = (newEnd - next.initialStart) * pixelsPerSecond;
         }
       }
 
@@ -577,7 +706,7 @@ export function LayerTimelineView() {
           );
           if (!targetTrack || targetTrack.isLocked) return;
 
-          const clipDuration = info.initialEnd - info.initialStart;
+          const clipDuration = info.timelineDuration;
           const trackClips = (timeline?.clips || []).filter(
             (c) => c.TimelineTrackRef === info.targetTrackId
           );
@@ -611,21 +740,27 @@ export function LayerTimelineView() {
             return;
           }
 
-          await updateClipTimes(info.clipId, finalStart, finalEnd);
+          // Composite trims persist only the start/end window — the edit
+          // list is never modified, so the clip can always be expanded back
+          // out to its full edit-list duration (untrim).
 
           // Keep the right edge anchored when trimming the in-point of an
-          // absolutely-positioned clip.
-          if (info.handle === 'left' && info.initialTimelineStart != null) {
-            const newTimelineStart = Math.max(
-              0,
-              info.initialTimelineStart + (finalStart - info.initialStart)
-            );
-            if (
-              Math.abs(newTimelineStart - info.initialTimelineStart) > 0.001
-            ) {
-              await updateClipPosition(info.clipId, newTimelineStart);
-            }
-          }
+          // absolutely-positioned clip: pin it at the previewed left edge.
+          const newTimelineStart =
+            info.handle === 'left' &&
+            info.initialTimelineStart != null &&
+            Math.abs(
+              info.previewLeft / pixelsPerSecond - info.initialTimelineStart
+            ) > 0.001
+              ? Math.max(0, info.previewLeft / pixelsPerSecond)
+              : undefined;
+
+          const extras =
+            newTimelineStart !== undefined
+              ? { timelineStart: newTimelineStart }
+              : undefined;
+
+          await updateClipTimes(info.clipId, finalStart, finalEnd, extras);
         }
       } catch (error) {
         console.error('Failed to apply clip drag', error);

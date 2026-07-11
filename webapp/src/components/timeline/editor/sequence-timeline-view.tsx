@@ -15,7 +15,11 @@ import {
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { CaptionEditorModal } from '@/components/captions';
 import type { ExpandedTimelineClip } from '@/types/expanded-types';
-import type { Caption, TimelineClip } from '@project/shared';
+import {
+  getClipTimelineDuration,
+  type Caption,
+  type TimelineClip,
+} from '@project/shared';
 
 const BLOCK_WIDTH = 160;
 const ALL_TRACKS_VALUE = '__all__';
@@ -123,7 +127,7 @@ function SequenceClipCard({
 
       <div className="flex flex-col gap-1 min-w-0 z-10">
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {(clip.end - clip.start).toFixed(1)}s
+          {getClipTimelineDuration(clip).toFixed(1)}s
         </span>
         <h4 className="text-xs font-semibold truncate leading-tight pr-6">
           {displayTitle}

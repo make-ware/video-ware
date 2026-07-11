@@ -225,6 +225,37 @@ describe('clip-position', () => {
     });
   });
 
+  describe('Composite clips (effective duration)', () => {
+    const compositeClip = {
+      id: 'composite',
+      start: 0,
+      end: 30,
+      duration: 12,
+      meta: {
+        segments: [
+          { start: 0, end: 10 },
+          { start: 28, end: 30 },
+        ],
+      },
+    } as unknown as TimelineClip;
+
+    it('sizes a composite clip by its gap-skipping segment sum', () => {
+      const result = calculateClipPosition(compositeClip, [], 10);
+      // 10 + 2 = 12 effective seconds, not the 30s source span
+      expect(result.width).toBe(120);
+    });
+
+    it('positions sequential clips after the composite effective end', () => {
+      const next = {
+        id: 'next',
+        start: 0,
+        end: 5,
+      } as unknown as TimelineClip;
+      const result = calculateClipPosition(next, [compositeClip], 10);
+      expect(result.left).toBe(120);
+    });
+  });
+
   describe('Edge cases and mixed positioning', () => {
     it('should prefer absolute positioning over sequential when both are possible', () => {
       fc.assert(

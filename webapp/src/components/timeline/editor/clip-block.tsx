@@ -3,11 +3,12 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Type, Layers } from 'lucide-react';
-import type {
-  TimelineClip,
-  MediaClip,
-  Caption,
-  Timeline,
+import {
+  getClipTimelineDuration,
+  type TimelineClip,
+  type MediaClip,
+  type Caption,
+  type Timeline,
 } from '@project/shared';
 import { CompositeClipOverlay } from './composite-clip-overlay';
 
@@ -42,7 +43,8 @@ export function ClipBlock({
   onMoveStart,
   onDoubleClick,
 }: ClipBlockProps) {
-  const clipDuration = clip.end - clip.start;
+  // Effective on-timeline duration: composite clips skip edit-list gaps
+  const clipDuration = getClipTimelineDuration(clip);
   const isCaption = !!clip.CaptionRef;
   const isTimeline = !!clip.SourceTimelineRef;
   const caption = (clip as TimelineClip & { expand?: { CaptionRef?: Caption } })
@@ -60,16 +62,21 @@ export function ClipBlock({
           ? 'bg-primary'
           : 'bg-blue-600/60');
 
-  // Extract composite clip data
+  // Extract composite clip data: the clip's own copy-on-write edit list
+  // (meta.segments) wins over the source MediaClip's segments
   const mediaClip = (
     clip as TimelineClip & { expand?: { MediaClipRef?: MediaClip } }
   ).expand?.MediaClipRef;
   const clipData = mediaClip?.clipData as
     | { segments?: Array<{ start: number; end: number }> }
     | undefined;
-  const segments = clipData?.segments;
-  const isComposite =
-    mediaClip?.type === 'composite' && segments && segments.length > 0;
+  const segments =
+    clip.meta?.segments && clip.meta.segments.length > 0
+      ? clip.meta.segments
+      : mediaClip?.type === 'composite'
+        ? clipData?.segments
+        : undefined;
+  const isComposite = !!segments && segments.length > 0;
 
   return (
     <div

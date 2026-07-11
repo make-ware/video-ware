@@ -7,8 +7,11 @@ import {
   computeTimelineDuration,
   findActiveClip,
   findNonOverlappingTimelineStart,
+  getClipRanges,
+  getClipTimelineDuration,
   planOverwriteAtTime,
   planRippleDelete,
+  planRippleInsert,
 } from '../timeline-placement.js';
 
 function makeClip(
@@ -185,7 +188,9 @@ describe('planOverwriteAtTime', () => {
       makeClip({ id: 'c1', timelineStart: 4, start: 0, end: 10, duration: 10 }),
     ];
     expect(planOverwriteAtTime(clips, 10, 5)).toEqual({
-      trims: [{ clipId: 'c1', start: 0, end: 6, timelineStart: 4 }],
+      trims: [
+        { clipId: 'c1', start: 0, end: 6, duration: 6, timelineStart: 4 },
+      ],
       removals: [],
     });
   });
@@ -202,7 +207,9 @@ describe('planOverwriteAtTime', () => {
       }),
     ];
     expect(planOverwriteAtTime(clips, 2, 6)).toEqual({
-      trims: [{ clipId: 'c1', start: 14, end: 20, timelineStart: 8 }],
+      trims: [
+        { clipId: 'c1', start: 14, end: 20, duration: 6, timelineStart: 8 },
+      ],
       removals: [],
     });
   });
@@ -224,7 +231,9 @@ describe('planOverwriteAtTime', () => {
       makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 20, duration: 20 }),
     ];
     expect(planOverwriteAtTime(clips, 5, 3)).toEqual({
-      trims: [{ clipId: 'c1', start: 0, end: 5, timelineStart: 0 }],
+      trims: [
+        { clipId: 'c1', start: 0, end: 5, duration: 5, timelineStart: 0 },
+      ],
       removals: [],
     });
   });
@@ -238,8 +247,8 @@ describe('planOverwriteAtTime', () => {
     // Insert [3,8]: c1 keeps [0,3], c2 removed, c3 keeps tail [8,10]
     expect(planOverwriteAtTime(clips, 3, 5)).toEqual({
       trims: [
-        { clipId: 'c1', start: 0, end: 3, timelineStart: 0 },
-        { clipId: 'c3', start: 2, end: 4, timelineStart: 8 },
+        { clipId: 'c1', start: 0, end: 3, duration: 3, timelineStart: 0 },
+        { clipId: 'c3', start: 2, end: 4, duration: 2, timelineStart: 8 },
       ],
       removals: ['c2'],
     });
@@ -252,7 +261,9 @@ describe('planOverwriteAtTime', () => {
       makeClip({ id: 'c2', start: 0, end: 3, duration: 3 }),
     ];
     expect(planOverwriteAtTime(clips, 4, 2)).toEqual({
-      trims: [{ clipId: 'c2', start: 0, end: 1, timelineStart: 3 }],
+      trims: [
+        { clipId: 'c2', start: 0, end: 1, duration: 1, timelineStart: 3 },
+      ],
       removals: [],
     });
   });
@@ -265,6 +276,55 @@ describe('planOverwriteAtTime', () => {
     // Insert exactly into the [5,8] gap
     expect(planOverwriteAtTime(clips, 5, 3)).toEqual({
       trims: [],
+      removals: [],
+    });
+  });
+
+  it('trims composite clips in effective time via their edit list', () => {
+    // Edit list [0,5] + [12,15]: 8s effective, occupying [0,8] on the
+    // timeline. Inserting at 6 keeps a 6s head — 5s from the first segment
+    // plus 1s into the second, so the new window ends at source 13.
+    const composite = makeClip({
+      id: 'c1',
+      timelineStart: 0,
+      start: 0,
+      end: 15,
+      duration: 8,
+      meta: {
+        segments: [
+          { start: 0, end: 5 },
+          { start: 12, end: 15 },
+        ],
+      },
+    });
+    expect(planOverwriteAtTime([composite], 6, 4)).toEqual({
+      trims: [
+        { clipId: 'c1', start: 0, end: 13, duration: 6, timelineStart: 0 },
+      ],
+      removals: [],
+    });
+  });
+
+  it('trims a composite tail through the windowed edit list', () => {
+    // Same list, insert [0,3]: the 5s tail starts at effective offset 3 —
+    // source 3 — and the edit list itself is untouched.
+    const composite = makeClip({
+      id: 'c1',
+      timelineStart: 0,
+      start: 0,
+      end: 15,
+      duration: 8,
+      meta: {
+        segments: [
+          { start: 0, end: 5 },
+          { start: 12, end: 15 },
+        ],
+      },
+    });
+    expect(planOverwriteAtTime([composite], 0, 3)).toEqual({
+      trims: [
+        { clipId: 'c1', start: 3, end: 15, duration: 5, timelineStart: 3 },
+      ],
       removals: [],
     });
   });
@@ -576,5 +636,209 @@ describe('computeTimelineDuration', () => {
 
   it('returns 0 for an empty timeline', () => {
     expect(computeTimelineDuration([], [])).toBe(0);
+  });
+});
+
+describe('getClipTimelineDuration', () => {
+  it('spans end - start for plain media clips', () => {
+    const clip = makeClip({ id: 'c1', start: 2, end: 7, duration: 5 });
+    expect(getClipTimelineDuration(clip)).toBe(5);
+  });
+
+  it('sums meta.segments for composite clips (skipping gaps)', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 1,
+      end: 20,
+      duration: 7,
+      meta: {
+        segments: [
+          { start: 1, end: 5 },
+          { start: 12, end: 15 },
+        ],
+      },
+    });
+    // 4 + 3 = 7, not the 19s source span
+    expect(getClipTimelineDuration(clip)).toBe(7);
+  });
+
+  it('falls back to the source MediaClip composite segments', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 0,
+      end: 30,
+      duration: 30,
+      MediaClipRef: 'mc-1',
+    });
+    (clip as TimelineClip & { expand?: unknown }).expand = {
+      MediaClipRef: {
+        id: 'mc-1',
+        type: 'composite',
+        clipData: {
+          segments: [
+            { start: 0, end: 10 },
+            { start: 20, end: 30 },
+          ],
+        },
+      },
+    };
+    expect(getClipTimelineDuration(clip)).toBe(20);
+  });
+
+  it('prefers meta.segments over the MediaClip segments', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 0,
+      end: 30,
+      duration: 5,
+      MediaClipRef: 'mc-1',
+      meta: { segments: [{ start: 0, end: 5 }] },
+    });
+    (clip as TimelineClip & { expand?: unknown }).expand = {
+      MediaClipRef: {
+        id: 'mc-1',
+        type: 'composite',
+        clipData: { segments: [{ start: 0, end: 10 }] },
+      },
+    };
+    expect(getClipTimelineDuration(clip)).toBe(5);
+  });
+
+  it('keeps end - start for nested-timeline clips', () => {
+    const clip = makeClip({
+      id: 'c1',
+      MediaRef: undefined,
+      SourceTimelineRef: 'tl-child',
+      start: 3,
+      end: 10,
+      duration: 7,
+    });
+    expect(getClipTimelineDuration(clip)).toBe(7);
+  });
+
+  it('windows the edit list by start/end (non-destructive trim)', () => {
+    // Full list spans [1,5] + [12,15] (7s effective); window 3–13 keeps
+    // [3,5] + [12,13] = 3s
+    const clip = makeClip({
+      id: 'c1',
+      start: 3,
+      end: 13,
+      duration: 3,
+      meta: {
+        segments: [
+          { start: 1, end: 5 },
+          { start: 12, end: 15 },
+        ],
+      },
+    });
+    expect(getClipTimelineDuration(clip)).toBe(3);
+  });
+});
+
+describe('getClipRanges with composite clips', () => {
+  it('places sequential clips after the effective (not span) duration', () => {
+    const composite = makeClip({
+      id: 'c1',
+      start: 0,
+      end: 20,
+      duration: 8,
+      meta: {
+        segments: [
+          { start: 0, end: 5 },
+          { start: 17, end: 20 },
+        ],
+      },
+    });
+    const next = makeClip({ id: 'c2', start: 0, end: 4, duration: 4 });
+    const ranges = getClipRanges([composite, next]);
+    expect(ranges[0]).toEqual({ start: 0, end: 8 });
+    expect(ranges[1]).toEqual({ start: 8, end: 12 });
+  });
+
+  it('sizes absolutely positioned composite clips by effective duration', () => {
+    const composite = makeClip({
+      id: 'c1',
+      timelineStart: 10,
+      start: 2,
+      end: 30,
+      duration: 6,
+      meta: {
+        segments: [
+          { start: 2, end: 6 },
+          { start: 28, end: 30 },
+        ],
+      },
+    });
+    expect(getClipRanges([composite])[0]).toEqual({ start: 10, end: 16 });
+  });
+});
+
+describe('planRippleInsert', () => {
+  it('returns no moves on an empty track', () => {
+    expect(planRippleInsert([], 5, 3)).toEqual([]);
+  });
+
+  it('returns no moves when all clips end before the insert point', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+    ];
+    expect(planRippleInsert(clips, 5, 3)).toEqual([]);
+  });
+
+  it('shifts clips at/after the insert point right by the duration', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', timelineStart: 5, start: 0, end: 2, duration: 2 }),
+      makeClip({ id: 'c3', timelineStart: 9, start: 0, end: 2, duration: 2 }),
+    ];
+    // Insert 4s at t=5: c2 and c3 shift by 4, preserving their 2s gap
+    expect(planRippleInsert(clips, 5, 4)).toEqual([
+      { clipId: 'c2', timelineStart: 9 },
+      { clipId: 'c3', timelineStart: 13 },
+    ]);
+  });
+
+  it('moves a straddling clip fully clear of the inserted range', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 2, start: 0, end: 6, duration: 6 }),
+      makeClip({ id: 'c2', timelineStart: 10, start: 0, end: 2, duration: 2 }),
+    ];
+    // Insert 3s at t=4, mid-c1: c1 must land at 7 (insert end), so the
+    // uniform delta is 7 - 2 = 5; c2 keeps its relative spacing.
+    expect(planRippleInsert(clips, 4, 3)).toEqual([
+      { clipId: 'c1', timelineStart: 7 },
+      { clipId: 'c2', timelineStart: 15 },
+    ]);
+  });
+
+  it('excludes the growing clip itself and shifts by effective growth', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 5, duration: 5 }),
+      makeClip({ id: 'c2', timelineStart: 5, start: 0, end: 3, duration: 3 }),
+    ];
+    // c1 grows by 2s at its end (t=5): only c2 moves
+    expect(planRippleInsert(clips, 5, 2, 'c1')).toEqual([
+      { clipId: 'c2', timelineStart: 7 },
+    ]);
+  });
+
+  it('pins previously sequential clips with an explicit timelineStart', () => {
+    const clips = [
+      makeClip({ id: 'c1', start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'c2', start: 0, end: 2, duration: 2 }),
+    ];
+    // Sequential layout: c1 [0,3), c2 [3,5). Insert 2s at t=0.
+    expect(planRippleInsert(clips, 0, 2)).toEqual([
+      { clipId: 'c1', timelineStart: 2 },
+      { clipId: 'c2', timelineStart: 5 },
+    ]);
+  });
+
+  it('ignores zero and negative insert durations', () => {
+    const clips = [
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3, duration: 3 }),
+    ];
+    expect(planRippleInsert(clips, 0, 0)).toEqual([]);
+    expect(planRippleInsert(clips, 0, -2)).toEqual([]);
   });
 });

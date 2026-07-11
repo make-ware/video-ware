@@ -34,6 +34,11 @@ vw media clip create           # create a media clip (sub-range of a media)
 vw media clip list             # list media clips in the active workspace
 vw media clip update <id>      # edit a media clip's label/description/trim
 vw media clip delete <id>      # delete a media clip
+vw media clip segments <id>    # show a clip's edit list (segments + gaps)
+vw media clip split <id>       # split the edit list at source time(s) (--at)
+vw media clip cut <id>         # remove a source range, e.g. an umm (--from/--to)
+vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
+vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
 vw label list                  # list labels for one media
@@ -67,6 +72,11 @@ vw timeline clips move <id>    # change track and/or timeline position
 vw timeline clips ripple <id>  # shift a clip + everything after it by ±seconds
 vw timeline clips remove <id>  # remove a clip (--ripple closes the gap)
 vw timeline clips reorder ...  # replace the bookkeeping order (all clip ids)
+vw timeline clips segments <id>  # show a clip's edit list (segments + source)
+vw timeline clips split <id>   # split the edit list at source time(s) (--at)
+vw timeline clips cut <id>     # remove a source range (--from/--to, --ripple)
+vw timeline clips trim <id>    # re-edge one edit-list segment (--segment -s -e)
+vw timeline clips slip <id>    # slip source content ±seconds (--by, --segment)
 ```
 
 Any id omitted on the command line is chosen interactively. `--workspace <id>`
@@ -105,6 +115,13 @@ vw timeline clips update CLIP_ID --gain 0.5 -e 9
 # 4b. Drop a title card / caption on an upper track (create, then place)
 vw caption create --type title --text "Chapter 1" --duration 3   # → cap_id
 vw timeline insert -t TIMELINE_ID --caption CAP_ID --track 3 --at 0
+
+# 4c. Fine-tune dialogue in place (segment edits — no extra clips needed).
+# Times are source-media seconds, the same time base as transcript words.
+vw media clip cut MC_ID --from 12.3 --to 13.1     # drop an umm from the clip
+vw timeline clips segments TC_ID                  # inspect a placed clip's edit list
+vw timeline clips cut TC_ID --from 44.2 --to 45.0 --ripple   # cut + close the gap
+vw timeline clips trim TC_ID --segment 1 -s 45.4  # nudge one segment's edge
 
 # 5. Verify, then render
 vw timeline doctor TIMELINE_ID               # no overlaps/gaps/dangling refs?
@@ -195,6 +212,43 @@ and `--json` prints the manifest instead of progress lines.
 - **Durations self-heal.** Every clip mutation recomputes the timeline's
   duration as the furthest clip end across tracks and persists it.
   `timeline show` displays the computed value and flags a stale stored one.
+
+## Segment editing (dialogue fine-tuning)
+
+`split` / `cut` / `trim` / `slip` / `segments` exist identically under
+`media clip` and `timeline clips`. They edit a clip's **edit list** — an
+ordered array of `{start, end}` source-media ranges (a composite clip) — so
+umms and dead words can be removed in place instead of shredding the library
+into hundreds of tiny clips.
+
+- **All times are source-media seconds**, the same time base as stored
+  segments and transcript word times, so an agent can cut straight from a
+  `label search` result.
+- **First edit auto-converts.** A plain MediaClip becomes `type: composite`
+  with its trim window as the first segment. A TimelineClip gets its own
+  `meta.segments` copy — initialized from the referenced composite MediaClip
+  when there is one — and from then on **stops following later edits to that
+  MediaClip** (`segments` shows which source a clip uses).
+- **Inserting a composite MediaClip carries its edits along.**
+  `timeline insert --clip` stores the effective duration and the render
+  expands the segments; fine-tune the placed copy with `timeline clips`
+  segment commands without touching the library clip.
+- **`start`/`end`/`duration` are derived, never hand-written.** Every write
+  recomputes them from the segments; `duration` is the effective
+  (gap-skipping) playback length, not `end - start`. `update -s/-e` on a
+  composite intersects the edit list with the new window.
+- **Edits are validated and normalized.** Segments stay sorted and
+  ms-rounded, overlaps merge, edits can't cross neighboring segments or the
+  media bounds, and no edit may create a segment shorter than 0.1s or cut
+  away all remaining content. `slip` clamps and reports requested vs
+  applied.
+- **`--ripple` (on `timeline clips cut`/`trim`)** shifts the clips after the
+  edited one by the duration change so the cut closes up; without it,
+  later clips keep their absolute positions. `--dry-run` works on every
+  segment command.
+- **Preview caveat:** the webapp preview player currently plays composite
+  clips straight through (gaps included); renders skip the gaps. Use
+  `timeline render` to hear the final cut.
 
 ### Examples
 

@@ -73,18 +73,54 @@ export function getCompositeSegments(
 }
 
 /**
- * Calculate the effective duration of a composite clip
- * This is the sum of all segment durations, not the full range
+ * Sub-ms tolerance: window intersections shorter than this are float noise,
+ * not content (times are stored on the ms grid).
+ */
+const WINDOW_EPSILON = 0.001;
+
+/**
+ * Intersect an edit list with a clip's [start, end] trim window — the
+ * non-destructive interpretation of a composite clip's stored times: the
+ * window truncates what plays without editing the list itself, so a trimmed
+ * clip can always be expanded back out to its full edit list.
  *
- * @param start - Clip start time (fallback if no segments)
- * @param end - Clip end time (fallback if no segments)
+ * Stale-data safety: a degenerate window (end <= start, e.g. unset 0/0
+ * fields) or one that covers no segment content falls back to the full list
+ * rather than silencing the clip — saves validate windows, so an empty
+ * intersection here means inconsistent stored data, not editorial intent.
+ */
+export function windowCompositeSegments(
+  segments: CompositeSegment[],
+  start: number,
+  end: number
+): CompositeSegment[] {
+  if (segments.length === 0) return segments;
+  if (!(end > start)) return segments;
+  const windowed = segments
+    .map((seg) => ({
+      start: Math.max(seg.start, start),
+      end: Math.min(seg.end, end),
+    }))
+    .filter((seg) => seg.end - seg.start > WINDOW_EPSILON);
+  return windowed.length > 0 ? windowed : segments;
+}
+
+/**
+ * Calculate the effective duration of a composite clip
+ * This is the sum of the segment durations inside the clip's [start, end]
+ * trim window (see windowCompositeSegments), not the full range
+ *
+ * @param start - Clip start time (window over the segments; plain duration
+ *   fallback if no segments)
+ * @param end - Clip end time (window over the segments)
  * @param segments - Optional array of segments
  * @returns Effective duration in seconds
  *
  * @example
  * // Segments: [1.8-6.7], [12.3-13.5], [14.8-17.1], [28.9-31.1]
- * // Effective: 4.9 + 1.2 + 2.3 + 2.2 = 10.6s
+ * // Window 1.8–31.1 → effective: 4.9 + 1.2 + 2.3 + 2.2 = 10.6s
  * // NOT: 31.1 - 1.8 = 29.3s
+ * // Window 1.8–13.5 → effective: 4.9 + 1.2 = 6.1s
  */
 export function calculateEffectiveDuration(
   start: number,
@@ -96,7 +132,7 @@ export function calculateEffectiveDuration(
     return end - start;
   }
 
-  return segments.reduce((total, seg) => {
+  return windowCompositeSegments(segments, start, end).reduce((total, seg) => {
     const segDuration = seg.end - seg.start;
     return total + Math.max(0, segDuration);
   }, 0);
@@ -165,6 +201,61 @@ export function buildCompositeTimeMapping(
   }
 
   return mapping;
+}
+
+/**
+ * Map an offset in composite (effective/playback) time to the source-media
+ * time it plays. Offsets in [segment i's composite range] map linearly into
+ * that segment; offsets at a boundary map to the earlier segment's end;
+ * offsets beyond the total effective length clamp to the last segment's end
+ * (and negative offsets to the first segment's start).
+ *
+ * Used to convert effective-duration trims (e.g. dragging a composite clip's
+ * resize handle by N timeline seconds) into source-time window edges.
+ */
+export function sourceTimeAtCompositeOffset(
+  segments: CompositeSegment[],
+  offset: number
+): number {
+  const mapping = buildCompositeTimeMapping(segments);
+  if (mapping.length === 0) return offset;
+  if (offset <= 0) return mapping[0].sourceStart;
+
+  for (const mapped of mapping) {
+    if (offset <= mapped.compositeEnd) {
+      return mapped.sourceStart + (offset - mapped.compositeStart);
+    }
+  }
+  return mapping[mapping.length - 1].sourceEnd;
+}
+
+/**
+ * Inverse of {@link sourceTimeAtCompositeOffset}: map a source-media time to
+ * its offset in composite (effective/playback) time. Times inside a segment
+ * map linearly; times in a gap collapse to the boundary offset shared by the
+ * surrounding segments; times outside the edit list clamp to 0 / the total
+ * effective length.
+ *
+ * Used to express a composite clip's [start, end] trim window in effective
+ * time — e.g. converting the window's edges into resize-handle positions.
+ */
+export function compositeOffsetAtSourceTime(
+  segments: CompositeSegment[],
+  sourceTime: number
+): number {
+  const mapping = buildCompositeTimeMapping(segments);
+  if (mapping.length === 0) return sourceTime;
+  if (sourceTime <= mapping[0].sourceStart) return 0;
+
+  for (const mapped of mapping) {
+    if (sourceTime <= mapped.sourceEnd) {
+      // In a gap before this segment, the offset collapses to its start.
+      return (
+        mapped.compositeStart + Math.max(0, sourceTime - mapped.sourceStart)
+      );
+    }
+  }
+  return mapping[mapping.length - 1].compositeEnd;
 }
 
 /**

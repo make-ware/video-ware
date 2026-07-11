@@ -73,7 +73,10 @@ export function UniversalSearchModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0" showCloseButton={false}>
+      <DialogContent
+        className="w-full max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:max-w-lg"
+        showCloseButton={false}
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>Search clips</DialogTitle>
           <DialogDescription>

@@ -3,6 +3,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Layers } from 'lucide-react';
+import { windowCompositeSegments } from '@project/shared';
 
 export interface CompositeSegment {
   start: number;
@@ -11,15 +12,15 @@ export interface CompositeSegment {
 
 interface CompositeClipOverlayProps {
   /**
-   * The composite segments (in source media time)
+   * The composite clip's full edit list (in source media time)
    */
   segments: CompositeSegment[];
   /**
-   * The overall clip start time (min of all segments)
+   * The clip's trim window start (source time) — windows the edit list
    */
   clipStart: number;
   /**
-   * The overall clip end time (max of all segments)
+   * The clip's trim window end (source time)
    */
   clipEnd: number;
   /**
@@ -33,9 +34,10 @@ interface CompositeClipOverlayProps {
 }
 
 /**
- * Overlay component that visualizes segment boundaries within a composite clip.
- *
- * Renders highlighted regions for active segments and dimmed/striped regions for gaps.
+ * Overlay that visualizes a composite clip's cut points on its timeline
+ * block. The block's width is the clip's effective (gap-skipping) duration,
+ * so each boundary between consecutive windowed segments sits at its
+ * cumulative effective offset — gaps take no width, they ARE the cuts.
  */
 export function CompositeClipOverlay({
   segments,
@@ -44,48 +46,33 @@ export function CompositeClipOverlay({
   className,
   showBadge = true,
 }: CompositeClipOverlayProps) {
-  const totalRange = clipEnd - clipStart;
-
-  if (totalRange <= 0 || segments.length === 0) {
+  if (segments.length === 0) {
     return null;
   }
 
-  // Sort segments by start time
-  const sortedSegments = [...segments].sort((a, b) => a.start - b.start);
+  // The portion of the edit list inside the clip's trim window is what
+  // plays; the window is what the resize handles adjust.
+  const windowed = windowCompositeSegments(
+    [...segments].sort((a, b) => a.start - b.start),
+    clipStart,
+    clipEnd
+  );
+  const totalDuration = windowed.reduce(
+    (sum, seg) => sum + Math.max(0, seg.end - seg.start),
+    0
+  );
 
-  // Calculate positions as percentages
-  const getPositionPercent = (time: number) =>
-    ((time - clipStart) / totalRange) * 100;
-
-  // Build gap regions (areas between segments)
-  const gaps: { startPercent: number; widthPercent: number }[] = [];
-  for (let i = 0; i < sortedSegments.length - 1; i++) {
-    const currentEnd = sortedSegments[i].end;
-    const nextStart = sortedSegments[i + 1].start;
-    if (nextStart > currentEnd) {
-      gaps.push({
-        startPercent: getPositionPercent(currentEnd),
-        widthPercent:
-          getPositionPercent(nextStart) - getPositionPercent(currentEnd),
-      });
-    }
+  if (totalDuration <= 0) {
+    return null;
   }
 
-  // Also check for gap at start (if first segment doesn't start at clipStart)
-  if (sortedSegments[0].start > clipStart) {
-    gaps.unshift({
-      startPercent: 0,
-      widthPercent: getPositionPercent(sortedSegments[0].start),
-    });
-  }
-
-  // And gap at end
-  const lastSegment = sortedSegments[sortedSegments.length - 1];
-  if (lastSegment.end < clipEnd) {
-    gaps.push({
-      startPercent: getPositionPercent(lastSegment.end),
-      widthPercent: 100 - getPositionPercent(lastSegment.end),
-    });
+  // Cut points: the boundary after each windowed segment except the last,
+  // as a percentage of the effective length.
+  const boundaries: number[] = [];
+  let elapsed = 0;
+  for (const seg of windowed.slice(0, -1)) {
+    elapsed += Math.max(0, seg.end - seg.start);
+    boundaries.push((elapsed / totalDuration) * 100);
   }
 
   return (
@@ -95,41 +82,20 @@ export function CompositeClipOverlay({
         className
       )}
     >
-      {/* Gap regions (striped/dimmed) */}
-      {gaps.map((gap, i) => (
+      {/* Cut points between segments */}
+      {boundaries.map((percent, i) => (
         <div
-          key={`gap-${i}`}
-          className="absolute top-0 bottom-0 bg-black/40"
-          style={{
-            left: `${gap.startPercent}%`,
-            width: `${gap.widthPercent}%`,
-            backgroundImage:
-              'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.3) 3px, rgba(0,0,0,0.3) 6px)',
-          }}
+          key={`cut-${i}`}
+          className="absolute top-0 bottom-0 w-[2px] -translate-x-1/2 bg-white/40"
+          style={{ left: `${percent}%` }}
         />
-      ))}
-
-      {/* Segment boundaries (subtle vertical lines) */}
-      {sortedSegments.map((seg, i) => (
-        <React.Fragment key={`seg-${i}`}>
-          {/* Start boundary */}
-          <div
-            className="absolute top-0 bottom-0 w-[1px] bg-white/30"
-            style={{ left: `${getPositionPercent(seg.start)}%` }}
-          />
-          {/* End boundary */}
-          <div
-            className="absolute top-0 bottom-0 w-[1px] bg-white/30"
-            style={{ left: `${getPositionPercent(seg.end)}%` }}
-          />
-        </React.Fragment>
       ))}
 
       {/* Badge showing segment count */}
       {showBadge && (
         <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1">
           <Layers className="w-2.5 h-2.5" />
-          <span>{segments.length}</span>
+          <span>{windowed.length}</span>
         </div>
       )}
     </div>

@@ -484,7 +484,7 @@ describe('insertClip', () => {
     expect(result.dryRun).toBe(true);
     expect(result.placedAt).toBe(3);
     expect(result.trims).toEqual([
-      { clipId: 'c1', start: 0, end: 3, timelineStart: 0 },
+      { clipId: 'c1', start: 0, end: 3, duration: 3, timelineStart: 0 },
     ]);
     expect(result.removedClipIds).toEqual(['c2']);
     expect(stubs.TimelineClips.create).not.toHaveBeenCalled();
@@ -998,5 +998,39 @@ describe('createRender', () => {
     expect(Array.isArray(arg.timelineData)).toBe(true);
     expect(arg.timelineData[0].segments).toHaveLength(1);
     expect(render.id).toBe('render1');
+  });
+});
+
+describe('insertClip with a composite MediaClip', () => {
+  it('stores the effective (gap-skipping) duration and places by it', async () => {
+    const stubs = timelineStubs({
+      mediaClip: {
+        id: 'mc1',
+        MediaRef: 'm1',
+        type: 'composite',
+        start: 0,
+        end: 30,
+        duration: 20,
+        clipData: {
+          segments: [
+            { start: 0, end: 10 },
+            { start: 20, end: 30 },
+          ],
+        },
+      },
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, { timelineId: 'tl1', clip: 'mc1' });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      MediaClipRef: 'mc1',
+      start: 0,
+      end: 30,
+      // effective duration (segment sum), not end - start
+      duration: 20,
+      timelineStart: 0,
+    });
+    expect(result.placedEnd).toBe(20);
   });
 });

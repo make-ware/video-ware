@@ -373,3 +373,68 @@ describe('parseClipType', () => {
     expect(() => parseClipType('bogus')).toThrow(/invalid clip type/i);
   });
 });
+
+describe('updateMediaClip on a composite clip', () => {
+  const composite = {
+    id: 'clip1',
+    MediaRef: 'm1',
+    type: 'composite',
+    start: 0,
+    end: 30,
+    duration: 20,
+    clipData: {
+      gapThreshold: 2,
+      segments: [
+        { start: 0, end: 10 },
+        { start: 20, end: 30 },
+      ],
+    },
+  };
+  const stubs = () => ({
+    Media: {
+      getOne: vi.fn(async () => ({
+        id: 'm1',
+        duration: 60,
+        mediaType: 'video',
+      })),
+    },
+    MediaClips: {
+      getOne: vi.fn(async () => composite),
+      update: vi.fn(async (id: string, data: object) => ({
+        ...composite,
+        ...data,
+      })),
+    },
+  });
+
+  it('intersects the edit list with the trim window (effective duration)', async () => {
+    const collections = stubs();
+    const pb = fakePb(collections);
+
+    await updateMediaClip(pb, 'clip1', { start: 5, end: 25 });
+
+    const [, patch] = collections.MediaClips.update.mock.calls[0];
+    expect(patch).toEqual({
+      start: 5,
+      end: 25,
+      duration: 10,
+      clipData: {
+        gapThreshold: 2,
+        segments: [
+          { start: 5, end: 10 },
+          { start: 20, end: 25 },
+        ],
+      },
+    });
+  });
+
+  it('rejects a trim window with no segment content', async () => {
+    const collections = stubs();
+    const pb = fakePb(collections);
+
+    await expect(
+      updateMediaClip(pb, 'clip1', { start: 12, end: 18 })
+    ).rejects.toThrow(/no segment content/i);
+    expect(collections.MediaClips.update).not.toHaveBeenCalled();
+  });
+});

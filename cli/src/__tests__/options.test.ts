@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Command } from 'commander';
-import { applyOptions, pickOptions } from '../lib/options.js';
+import {
+  applyOptions,
+  parseIndex,
+  parseSecondsList,
+  pickOptions,
+} from '../lib/options.js';
 
 const group = {
   label: { flags: '--label <text>', description: 'a label' },
@@ -49,5 +54,31 @@ describe('applyOptions / pickOptions', () => {
         clipLabel: { flags: '--label <text>', description: 'mismatched key' },
       })
     ).toThrow(/clipLabel/);
+  });
+});
+
+describe('parseSecondsList', () => {
+  it('parses comma-separated non-negative seconds', () => {
+    expect(parseSecondsList('1.5,3.2, 9')).toEqual([1.5, 3.2, 9]);
+    expect(parseSecondsList('12.4')).toEqual([12.4]);
+  });
+
+  it('rejects empty lists and negative or non-numeric values', () => {
+    expect(() => parseSecondsList(',')).toThrow(/comma-separated/i);
+    expect(() => parseSecondsList('1,-2')).toThrow(/non-negative/i);
+    expect(() => parseSecondsList('abc')).toThrow(/non-negative/i);
+  });
+});
+
+describe('parseIndex', () => {
+  it('parses a non-negative integer', () => {
+    expect(parseIndex('0')).toBe(0);
+    expect(parseIndex('7')).toBe(7);
+  });
+
+  it('rejects negatives, floats, and non-numbers', () => {
+    expect(() => parseIndex('-1')).toThrow(/non-negative integer/i);
+    expect(() => parseIndex('1.5')).toThrow(/non-negative integer/i);
+    expect(() => parseIndex('x')).toThrow(/non-negative integer/i);
   });
 });

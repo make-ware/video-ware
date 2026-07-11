@@ -4,6 +4,7 @@ export * from './retry.js';
 export * from './time.js';
 export * from './edit-list.js';
 export * from './composite-utils.js';
+export * from './segment-edits.js';
 export * from './captions.js';
 export * from './timeline-placement.js';
 export * from './nested-timeline.js';

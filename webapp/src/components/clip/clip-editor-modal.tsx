@@ -39,23 +39,23 @@ import {
   Type,
   LogIn,
   LogOut,
+  SlidersHorizontal,
   Volume2,
 } from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { TrimHandles } from '@/components/video/trim-handles';
-import {
-  SegmentEditor,
-  type Segment,
-} from '@/components/timeline/segment-editor';
+import { MEDIA_PREVIEW_FRAME } from '@/components/video/media-preview-frame';
+import type { Segment } from '@/components/timeline/segment-editor';
 import { TimeInput } from '@/components/timeline/time-input';
 import { useClipEditor } from './use-clip-editor';
+import { ClipFineTuneModal } from './clip-fine-tune-modal';
+import {
+  buildMediaClipSegmentsPatch,
+  buildTimelineClipUpdates,
+} from './clip-save-payloads';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { MediaClipMutator } from '@project/shared/mutator';
-import {
-  ClipType,
-  calculateDuration,
-  calculateEffectiveDuration,
-} from '@project/shared';
+import { ClipType, calculateDuration } from '@project/shared';
 import type { Media, MediaClip } from '@project/shared';
 import type {
   ExpandedMedia,
@@ -151,9 +151,15 @@ function getInitialTimes(props: ClipEditorModalProps) {
     return {
       start,
       end: props.media.duration,
+      duration: props.media.duration - start,
     };
   }
-  return { start: props.clip.start, end: props.clip.end };
+  // Stored duration is the effective (gap-skipping) length for composites.
+  return {
+    start: props.clip.start,
+    end: props.clip.end,
+    duration: props.clip.duration,
+  };
 }
 
 function getInitialSegments(
@@ -179,6 +185,11 @@ function getIsComposite(props: ClipEditorModalProps): boolean {
   if (props.mode === 'edit-media-clip') {
     return props.clip.type === ClipType.COMPOSITE;
   }
+  // A timeline clip with its own edit list is composite regardless of the
+  // source MediaClip (meta.segments wins at render time — e.g. a clip
+  // fine-tuned via the CLI on top of a plain MediaClip).
+  const meta = props.clip.meta as { segments?: Segment[] } | undefined;
+  if (meta?.segments?.length) return true;
   const mediaClip = props.clip.expand?.MediaClipRef;
   return mediaClip?.type === ClipType.COMPOSITE;
 }
@@ -190,9 +201,18 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const { currentWorkspace } = useWorkspace();
 
   const media = getMedia(props);
-  const { start: initialStart, end: initialEnd } = getInitialTimes(props);
+  const {
+    start: initialStart,
+    end: initialEnd,
+    duration: initialDuration,
+  } = getInitialTimes(props);
   const initialSegments = getInitialSegments(props);
-  const isComposite = getIsComposite(props);
+
+  // Fine-tuning a plain clip converts it to a composite: the flag flips when
+  // the fine-tune modal applies an edit list, and the save handlers persist
+  // the conversion (MediaClip type / TimelineClip meta.segments).
+  const [converted, setConverted] = useState(false);
+  const isComposite = getIsComposite(props) || converted;
 
   const editor = useClipEditor({
     media,
@@ -207,6 +227,14 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [fineTuneOpen, setFineTuneOpen] = useState(false);
+
+  // Fresh conversion state each time the modal opens on a (new) clip
+  useEffect(() => {
+    if (open) setConverted(false);
+  }, [open]);
+
+  const isImage = editor.isImage;
 
   // Timeline-specific fields
   const [title, setTitle] = useState('');
@@ -300,27 +328,19 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
         const mutator = new MediaClipMutator(pb);
 
         if (isComposite) {
-          const sorted = [...editor.segments].sort((a, b) => a.start - b.start);
-          const dur = calculateEffectiveDuration(
-            0,
-            editor.mediaDuration,
-            sorted
-          );
+          // The trim window applies to the edit list at save time (the
+          // CLI's `update --start/--end` semantics on a composite).
           await mutator.update(editProps.clip.id, {
-            start: Math.min(...sorted.map((s) => s.start)),
-            end: Math.max(...sorted.map((s) => s.end)),
-            duration: dur,
+            ...buildMediaClipSegmentsPatch({
+              clip: editProps.clip,
+              segments: editor.effectiveSegments,
+              mediaDuration: editor.mediaDuration,
+              isImage,
+            }),
             // Empty string intentionally clears the field (omitting the key
             // would preserve the old value).
             label: clipLabel.trim(),
             description: clipDescription.trim(),
-            clipData: {
-              ...(editProps.clip.clipData &&
-              typeof editProps.clip.clipData === 'object'
-                ? editProps.clip.clipData
-                : {}),
-              segments: sorted,
-            },
           });
         } else {
           await mutator.update(editProps.clip.id, {
@@ -336,53 +356,27 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
         editProps.onClipUpdated?.();
         onOpenChange(false);
       } else {
-        // edit-timeline-clip
+        // edit-timeline-clip. Segment edits are copy-on-write into
+        // meta.segments — the source MediaClip is deliberately left alone,
+        // so other placements keep playing the library clip. The trim
+        // window persists as start/end over the FULL edit list
+        // (non-destructive: the clip can be expanded back out later).
         const tlProps = props as ClipEditorEditTimelineClipProps;
-        const clip = tlProps.clip;
-        const mediaClip = clip.expand?.MediaClipRef;
 
-        let finalStart = editor.startTime;
-        let finalEnd = editor.endTime;
-
-        if (isComposite && editor.segments.length > 0) {
-          const sorted = [...editor.segments].sort((a, b) => a.start - b.start);
-          finalStart = sorted[0].start;
-          finalEnd = sorted[sorted.length - 1].end;
-        }
-
-        const updates: Record<string, unknown> = {
-          start: finalStart,
-          end: finalEnd,
-          meta: {
-            ...(typeof clip.meta === 'object' && clip.meta ? clip.meta : {}),
-            title,
-            color,
-            gain,
-            ...(isComposite && editor.segments.length > 0
-              ? { segments: editor.segments }
-              : {}),
-          },
-        };
+        const updates = buildTimelineClipUpdates({
+          clip: tlProps.clip,
+          startTime: editor.startTime,
+          endTime: editor.endTime,
+          segments:
+            isComposite && editor.segments.length > 0 ? editor.segments : null,
+          mediaDuration: editor.mediaDuration,
+          isImage,
+          title,
+          color,
+          gain,
+        });
 
         await tlProps.onSave(updates);
-
-        // Also update underlying MediaClip segments for composites
-        if (isComposite && mediaClip?.id) {
-          const mutator = new MediaClipMutator(pb);
-          const sorted = [...editor.segments].sort((a, b) => a.start - b.start);
-          const dur = calculateEffectiveDuration(finalStart, finalEnd, sorted);
-          await mutator.update(mediaClip.id, {
-            start: finalStart,
-            end: finalEnd,
-            duration: dur,
-            clipData: {
-              ...(mediaClip.clipData && typeof mediaClip.clipData === 'object'
-                ? mediaClip.clipData
-                : {}),
-              segments: sorted,
-            },
-          });
-        }
 
         toast.success('Clip updated');
         tlProps.onClipUpdated?.();
@@ -399,6 +393,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     props,
     editor,
     isComposite,
+    isImage,
     currentWorkspace,
     title,
     color,
@@ -408,11 +403,43 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     onOpenChange,
   ]);
 
+  /**
+   * The fine-tune modal edits this list. Composites hand over the edit list
+   * as trimmed by the current window (a pending handle drag is real content
+   * removal, so fine-tune sees it); plain clips start from the window.
+   */
+  const fineTuneInitialSegments = useMemo<Segment[]>(() => {
+    if (editor.effectiveSegments.length > 0) return editor.effectiveSegments;
+    if (editor.segments.length > 0) return editor.segments;
+    return [{ start: editor.startTime, end: editor.endTime }];
+  }, [
+    editor.effectiveSegments,
+    editor.segments,
+    editor.startTime,
+    editor.endTime,
+  ]);
+
+  const handleFineTuneApply = useCallback(
+    (segments: Segment[]) => {
+      // Re-spans the trim window to the applied list, so the handles start
+      // flush against the content they now clamp.
+      editor.applySegments(segments);
+      if (!getIsComposite(props)) setConverted(true);
+    },
+    [editor, props]
+  );
+
+  const openFineTune = useCallback(() => {
+    editor.videoRef.current?.pause();
+    setFineTuneOpen(true);
+  }, [editor]);
+
   // Keyboard shortcuts for fast cutting: I/O set in/out points at the
   // playhead, Space toggles playback, arrows step the playhead, and
-  // Cmd/Ctrl+Enter saves.
+  // Cmd/Ctrl+Enter saves. Suspended while the fine-tune dialog is open —
+  // it registers its own overlapping shortcuts.
   useEffect(() => {
-    if (!open) return;
+    if (!open || fineTuneOpen) return;
 
     const isInteractive = (el: HTMLElement | null) =>
       !!el?.closest(
@@ -433,7 +460,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
       switch (e.key) {
         case 'i':
         case 'I':
-          if (!isComposite && editor.currentVideoTime < editor.endTime) {
+          if (editor.currentVideoTime < editor.endTime) {
             e.preventDefault();
             editor.setStartTime(editor.currentVideoTime);
           }
@@ -441,7 +468,6 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
         case 'o':
         case 'O':
           if (
-            !isComposite &&
             editor.currentVideoTime > editor.startTime &&
             editor.currentVideoTime <= editor.mediaDuration
           ) {
@@ -477,7 +503,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, editor, isComposite, handleSave]);
+  }, [open, fineTuneOpen, editor, handleSave]);
 
   const handleDelete = useCallback(
     async (ripple: boolean) => {
@@ -525,6 +551,19 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
 
   return (
     <>
+      {/* Secondary fine-tune dialog: mounted on demand so its local edit
+          history starts fresh from the editor's current segments each time */}
+      {fineTuneOpen && media && (
+        <ClipFineTuneModal
+          open={fineTuneOpen}
+          onOpenChange={setFineTuneOpen}
+          media={media}
+          initialSegments={fineTuneInitialSegments}
+          initialPlayhead={editor.currentVideoTime}
+          onApply={handleFineTuneApply}
+        />
+      )}
+
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -558,10 +597,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
       </AlertDialog>
 
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          className="max-w-[95vw] w-[95vw] sm:max-w-[95vw]"
-          showCloseButton={false}
-        >
+        <DialogContent showCloseButton={false}>
           <DialogHeader>
             <div className="flex items-center justify-between">
               <DialogTitle className="flex items-center gap-2">
@@ -614,22 +650,13 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
               {/* Left column: video + trim track */}
               <div className="flex-1 min-w-0 space-y-3">
                 {/* Video Preview */}
-                <div className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-sm mx-auto w-full max-h-[40vh] max-w-[calc(40vh*16/9)] lg:max-h-[62vh] lg:max-w-[calc(62vh*16/9)]">
+                <div className={MEDIA_PREVIEW_FRAME}>
                   {editor.src ? (
                     <VideoPlayerUI
                       src={editor.src}
                       poster={editor.poster}
-                      startTime={
-                        isComposite
-                          ? editor.segments[0]?.start || 0
-                          : editor.startTime
-                      }
-                      endTime={
-                        isComposite
-                          ? editor.segments[editor.segments.length - 1]?.end ||
-                            editor.mediaDuration
-                          : editor.endTime
-                      }
+                      startTime={editor.startTime}
+                      endTime={editor.endTime}
                       autoPlay={false}
                       preload="auto"
                       seekOnStartTimeChange={false}
@@ -644,137 +671,146 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                   )}
                 </div>
 
-                {/* Trim Controls */}
-                {isComposite ? (
-                  <SegmentEditor
-                    segments={editor.segments}
-                    mediaDuration={editor.mediaDuration}
-                    onChange={editor.setSegments}
-                  />
-                ) : (
-                  <>
-                    <TrimHandles
-                      duration={editor.mediaDuration}
-                      startTime={editor.startTime}
-                      endTime={editor.endTime}
-                      onChange={editor.handleTrimChange}
-                      onScrub={editor.handleScrub}
-                      currentTime={editor.currentVideoTime}
-                      minDuration={mode === 'create' ? 0 : 0.5}
-                    />
-
-                    {/* Keyboard shortcut hints (desktop only) */}
-                    <div className="hidden lg:flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
-                      <span>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
-                          I
-                        </kbd>{' '}
-                        set start
-                      </span>
-                      <span>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
-                          O
-                        </kbd>{' '}
-                        set end
-                      </span>
-                      <span>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
-                          Space
-                        </kbd>{' '}
-                        play/pause
-                      </span>
-                      <span>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
-                          ←
-                        </kbd>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px] ml-0.5">
-                          →
-                        </kbd>{' '}
-                        step
-                      </span>
-                      <span>
-                        <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
-                          ⌘↵
-                        </kbd>{' '}
-                        save
-                      </span>
-                    </div>
-                  </>
+                {/* Advanced segment editing (edit modes only): opens the
+                    dedicated fine-tune dialog; plain clips convert to
+                    composite when its edits are applied. */}
+                {mode !== 'create' && media && (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={openFineTune}
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
+                      Fine-tune segments
+                    </Button>
+                  </div>
                 )}
+
+                {/* Trim Controls — identical for plain and composite clips:
+                    the handles trim the clip's start/end window. Composites
+                    additionally show their edit list on the track; the
+                    fine-tune dialog is where segments are edited. */}
+                <TrimHandles
+                  duration={editor.mediaDuration}
+                  startTime={editor.startTime}
+                  endTime={editor.endTime}
+                  onChange={editor.handleTrimChange}
+                  onScrub={editor.handleScrub}
+                  currentTime={editor.currentVideoTime}
+                  segments={isComposite ? editor.segments : undefined}
+                  minDuration={mode === 'create' ? 0 : 0.5}
+                />
+
+                {/* Keyboard shortcut hints (desktop only) */}
+                <div className="hidden lg:flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
+                  <span>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                      I
+                    </kbd>{' '}
+                    set start
+                  </span>
+                  <span>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                      O
+                    </kbd>{' '}
+                    set end
+                  </span>
+                  <span>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                      Space
+                    </kbd>{' '}
+                    play/pause
+                  </span>
+                  <span>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                      ←
+                    </kbd>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px] ml-0.5">
+                      →
+                    </kbd>{' '}
+                    step
+                  </span>
+                  <span>
+                    <kbd className="px-1 py-0.5 rounded border bg-muted font-mono text-[10px]">
+                      ⌘↵
+                    </kbd>{' '}
+                    save
+                  </span>
+                </div>
               </div>
 
               {/* Right column: numeric inputs + clip metadata */}
               <div className="lg:w-[380px] lg:shrink-0 space-y-4">
-                {!isComposite && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-xs text-muted-foreground">
-                          Start Time
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            editor.setStartTime(editor.currentVideoTime)
-                          }
-                          disabled={
-                            editor.currentVideoTime < 0 ||
-                            editor.currentVideoTime >= editor.endTime
-                          }
-                          title="Set start at playhead"
-                        >
-                          <LogIn className="h-3.5 w-3.5 mr-1" />
-                          Start at playhead
-                        </Button>
-                      </div>
-                      <TimeInput
-                        min={0}
-                        max={editor.endTime}
-                        value={editor.startTime}
-                        onChange={editor.setStartTime}
-                      />
-                      <div className="text-xs font-mono text-muted-foreground">
-                        {formatClipTime(editor.startTime)}
-                      </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs text-muted-foreground">
+                        Start Time
+                      </Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          editor.setStartTime(editor.currentVideoTime)
+                        }
+                        disabled={
+                          editor.currentVideoTime < 0 ||
+                          editor.currentVideoTime >= editor.endTime
+                        }
+                        title="Set start at playhead"
+                      >
+                        <LogIn className="h-3.5 w-3.5 mr-1" />
+                        Start at playhead
+                      </Button>
                     </div>
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-xs text-muted-foreground">
-                          End Time
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            editor.setEndTime(editor.currentVideoTime)
-                          }
-                          disabled={
-                            editor.currentVideoTime <= editor.startTime ||
-                            editor.currentVideoTime > editor.mediaDuration
-                          }
-                          title="Set end at playhead"
-                        >
-                          <LogOut className="h-3.5 w-3.5 mr-1" />
-                          End at playhead
-                        </Button>
-                      </div>
-                      <TimeInput
-                        min={editor.startTime}
-                        max={editor.mediaDuration}
-                        value={editor.endTime}
-                        onChange={editor.setEndTime}
-                      />
-                      <div className="text-xs font-mono text-muted-foreground">
-                        {formatClipTime(editor.endTime)}
-                      </div>
+                    <TimeInput
+                      min={0}
+                      max={editor.endTime}
+                      value={editor.startTime}
+                      onChange={editor.setStartTime}
+                    />
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {formatClipTime(editor.startTime)}
                     </div>
                   </div>
-                )}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs text-muted-foreground">
+                        End Time
+                      </Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          editor.setEndTime(editor.currentVideoTime)
+                        }
+                        disabled={
+                          editor.currentVideoTime <= editor.startTime ||
+                          editor.currentVideoTime > editor.mediaDuration
+                        }
+                        title="Set end at playhead"
+                      >
+                        <LogOut className="h-3.5 w-3.5 mr-1" />
+                        End at playhead
+                      </Button>
+                    </div>
+                    <TimeInput
+                      min={editor.startTime}
+                      max={editor.mediaDuration}
+                      value={editor.endTime}
+                      onChange={editor.setEndTime}
+                    />
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {formatClipTime(editor.endTime)}
+                    </div>
+                  </div>
+                </div>
 
                 {/* Duration Display */}
                 <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
@@ -883,15 +919,16 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                   </>
                 )}
 
-                {/* Original vs New (edit modes only) */}
-                {mode !== 'create' && !isComposite && editor.hasChanges && (
+                {/* Original vs New (edit modes only) — durations are
+                    effective (gap-skipping) for composites */}
+                {mode !== 'create' && editor.hasChanges && (
                   <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Original:</span>
                       <span className="font-mono">
                         {formatClipTime(initialStart)} -{' '}
                         {formatClipTime(initialEnd)} (
-                        {formatClipTime(initialEnd - initialStart)})
+                        {formatClipTime(initialDuration)})
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -899,7 +936,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                       <span className="font-mono text-primary">
                         {formatClipTime(editor.startTime)} -{' '}
                         {formatClipTime(editor.endTime)} (
-                        {formatClipTime(editor.endTime - editor.startTime)})
+                        {formatClipTime(Math.max(0, editor.effectiveDuration))})
                       </span>
                     </div>
                   </div>

@@ -28,8 +28,10 @@ import {
   validateTimeRange,
   MAX_TIMELINE_TRACKS,
   MAX_NESTED_TIMELINE_DEPTH,
+  calculateEffectiveDuration,
   collectNestedTimelineIds,
   computeNestedTimelineDuration,
+  getCompositeSegments,
   wouldCreateTimelineCycle,
   planRippleDelete,
   type NestedTimelineMap,
@@ -303,6 +305,17 @@ export class TimelineService {
     const maxOrder = await this.timelineClipMutator.getMaxOrder(timelineId);
     const order = maxOrder + 1;
 
+    // Composite media clips play their edit list back-to-back, so their
+    // on-timeline duration is the gap-skipping segment sum, not end - start.
+    let duration = end - start;
+    if (mediaClipId) {
+      const mediaClip = await this.mediaClipMutator.getById(mediaClipId);
+      const segments = getCompositeSegments(mediaClip);
+      if (segments && segments.length > 0) {
+        duration = calculateEffectiveDuration(start, end, segments);
+      }
+    }
+
     // Create the timeline clip
     const input: TimelineClipInput = {
       TimelineRef: timelineId,
@@ -312,7 +325,7 @@ export class TimelineService {
       order,
       start,
       end,
-      duration: end - start,
+      duration,
     };
 
     if (timelineStart !== undefined) {
@@ -616,17 +629,39 @@ export class TimelineService {
    * @param timelineClipId Timeline clip ID
    * @param start New start time in seconds
    * @param end New end time in seconds
+   * @param extras Optional same-write companions: pin the clip's absolute
+   *   timeline position, and/or the copy-on-write edit list of a composite
+   *   trim (persisted to meta.segments with its gap-skipping duration)
    * @returns The updated timeline clip
    */
   async updateClipTimes(
     timelineClipId: string,
     start: number,
-    end: number
+    end: number,
+    extras?: {
+      timelineStart?: number;
+      segments?: Array<{ start: number; end: number }>;
+    }
   ): Promise<TimelineClip> {
     // Get the clip to find its media
     const clip = await this.timelineClipMutator.getById(timelineClipId);
     if (!clip) {
       throw new Error(`Timeline clip not found: ${timelineClipId}`);
+    }
+
+    const data: Record<string, unknown> = { start, end };
+    if (extras?.timelineStart !== undefined) {
+      data.timelineStart = extras.timelineStart;
+    }
+    if (extras?.segments && extras.segments.length > 0) {
+      // Explicit edit-list replacement (e.g. fine-tune): duration is the
+      // list's gap-skipping sum inside the [start, end] window, never
+      // end - start
+      data.duration = calculateEffectiveDuration(start, end, extras.segments);
+      data.meta = {
+        ...(typeof clip.meta === 'object' && clip.meta ? clip.meta : {}),
+        segments: extras.segments,
+      };
     }
 
     // Nested-timeline clips trim against the source timeline's duration
@@ -644,7 +679,8 @@ export class TimelineService {
           `Invalid time range: start=${start}, end=${end}, duration=${sourceDuration}`
         );
       }
-      return this.timelineClipMutator.update(timelineClipId, { start, end });
+      data.duration = end - start;
+      return this.timelineClipMutator.update(timelineClipId, data);
     }
 
     // Caption clips trim against the caption's own duration
@@ -658,7 +694,8 @@ export class TimelineService {
           `Invalid time range: start=${start}, end=${end}, duration=${caption.duration}`
         );
       }
-      return this.timelineClipMutator.update(timelineClipId, { start, end });
+      data.duration = end - start;
+      return this.timelineClipMutator.update(timelineClipId, data);
     }
 
     if (!clip.MediaRef) {
@@ -682,38 +719,43 @@ export class TimelineService {
       );
     }
 
+    // Keep the stored duration in sync. Composite clips play their edit
+    // list windowed by [start, end] (a non-destructive trim — the list
+    // itself is untouched), so their duration is the windowed gap-skipping
+    // sum; plain clips simply span end - start.
+    if (!extras?.segments?.length) {
+      let editList: Array<{ start: number; end: number }> | undefined = clip
+        .meta?.segments?.length
+        ? clip.meta.segments
+        : undefined;
+      if (!editList && clip.MediaClipRef) {
+        const mediaClip = await this.mediaClipMutator.getById(
+          clip.MediaClipRef
+        );
+        editList = getCompositeSegments(mediaClip);
+      }
+      data.duration = editList?.length
+        ? calculateEffectiveDuration(start, end, editList)
+        : end - start;
+    }
+
     // Update the clip
-    return this.timelineClipMutator.update(timelineClipId, { start, end });
+    return this.timelineClipMutator.update(timelineClipId, data);
   }
 
   /**
-   * Apply the truncations computed for an overwrite-style insert: trim
-   * overlapped clips (pinning their timeline position) and remove clips the
-   * insert fully covers.
+   * Apply planned clip shifts (planRippleInsert / planRippleDelete): pin each
+   * clip at its new timeline position. Non-destructive — every clip keeps its
+   * content; only its placement changes.
    */
-  async applyClipTruncations(
-    trims: Array<{
-      clipId: string;
-      start: number;
-      end: number;
-      timelineStart: number;
-    }>,
-    removals: string[]
-  ): Promise<void> {
-    await Promise.all(
-      trims.map(({ clipId, start, end, timelineStart }) =>
-        this.timelineClipMutator.update(clipId, {
-          start,
-          end,
-          duration: end - start,
-          timelineStart,
-        })
+  async applyClipShifts(
+    moves: Array<{ clipId: string; timelineStart: number }>
+  ): Promise<TimelineClip[]> {
+    return Promise.all(
+      moves.map(({ clipId, timelineStart }) =>
+        this.timelineClipMutator.update(clipId, { timelineStart })
       )
     );
-
-    if (removals.length > 0) {
-      await this.bulkRemoveClipsFromTimeline(removals);
-    }
   }
 
   // ============================================================================

@@ -4,6 +4,9 @@ import React, { useRef, useEffect, useState } from 'react';
 import pb from '@/lib/pocketbase-client';
 import {
   findActiveClip,
+  getClipSegments,
+  sourceTimeAtCompositeOffset,
+  windowCompositeSegments,
   type Media,
   type PlaybackTrack,
   type TimelineClip,
@@ -89,7 +92,23 @@ export function TrackVideo({
       return;
     }
 
-    const localTime = currentTime - active.globalStart + active.clip.start;
+    // Composite clips play their edit list back-to-back: map the timeline
+    // offset through the segments — windowed by the clip's start/end trim —
+    // so cut and trimmed content is skipped, matching the render. Plain
+    // clips map linearly from the trim window.
+    const offset = currentTime - active.globalStart;
+    const segments = getClipSegments(active.clip);
+    const localTime =
+      segments && segments.length > 0
+        ? sourceTimeAtCompositeOffset(
+            windowCompositeSegments(
+              segments,
+              active.clip.start,
+              active.clip.end
+            ),
+            offset
+          )
+        : offset + active.clip.start;
 
     // Only seek if the difference is significant to avoid jitter
     if (Math.abs(video.currentTime - localTime) > 0.3) {

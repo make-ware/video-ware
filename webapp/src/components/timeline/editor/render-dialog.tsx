@@ -111,7 +111,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Render Timeline</DialogTitle>
           <DialogDescription>

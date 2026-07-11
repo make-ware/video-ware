@@ -1,4 +1,4 @@
-import type { TimelineClip } from '@project/shared';
+import { getClipTimelineDuration, type TimelineClip } from '@project/shared';
 
 /**
  * Calculates the visual position and width of a clip on the timeline.
@@ -6,6 +6,10 @@ import type { TimelineClip } from '@project/shared';
  * Positioning logic:
  * - If clip.timelineStart is defined: absolute positioning at that time offset
  * - Otherwise: sequential positioning after all preceding clips on the same track
+ *
+ * Widths use the clip's effective on-timeline duration
+ * (getClipTimelineDuration), so composite clips occupy the gap-skipping
+ * length they actually render at — not their source-time span.
  *
  * @param clip - The timeline clip to position
  * @param precedingClips - Array of clips that come before this clip on the same track (in order)
@@ -17,7 +21,7 @@ export function calculateClipPosition(
   precedingClips: TimelineClip[],
   pixelsPerSecond: number
 ): { left: number; width: number } {
-  const duration = clip.end - clip.start;
+  const duration = getClipTimelineDuration(clip);
   const width = duration * pixelsPerSecond;
 
   // Absolute positioning if timelineStart is defined
@@ -31,7 +35,7 @@ export function calculateClipPosition(
   // Sequential positioning (fallback)
   // Accumulate the durations of all preceding clips
   const accumulatedTime = precedingClips.reduce(
-    (sum, c) => sum + (c.end - c.start),
+    (sum, c) => sum + getClipTimelineDuration(c),
     0
   );
 

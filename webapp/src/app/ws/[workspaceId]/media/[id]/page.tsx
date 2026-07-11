@@ -22,7 +22,6 @@ import {
   Eye,
   Info,
   Tag,
-  Trash2,
 } from 'lucide-react';
 import {
   MediaTypeBadge,
@@ -34,20 +33,6 @@ import { SpeakerTranscriptPanel } from '@/components/labels/speakers/speaker-tra
 import { useMediaSpeakers } from '@/hooks/use-media-speakers';
 import { MediaClip } from '@project/shared';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { MediaService } from '@/services/media';
-import pb from '@/lib/pocketbase-client';
-import { toast } from 'sonner';
 import { useWorkspace } from '@/hooks/use-workspace';
 
 function MediaDetailsPageContent() {
@@ -65,9 +50,7 @@ function MediaDetailsPageContent() {
   >(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [isDeleting, setIsDeleting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaService = useMemo(() => new MediaService(pb), []);
 
   // Get clip ID from URL query parameter
   const clipIdFromUrl = searchParams.get('clip');
@@ -120,30 +103,6 @@ function MediaDetailsPageContent() {
 
   const handleBack = () => {
     router.push(`/ws/${currentWorkspace?.id}/media`);
-  };
-
-  const handleDeleteMedia = async () => {
-    if (!media) return;
-    setIsDeleting(true);
-    try {
-      const result = await mediaService.deleteMedia(media.id);
-      if (result.success) {
-        toast.success('Media deleted successfully');
-      } else {
-        toast.success('Media deleted with some errors', {
-          description: result.errors.join(', '),
-        });
-      }
-      router.push(`/ws/${currentWorkspace?.id}/media`);
-    } catch (error) {
-      console.error('Failed to delete media:', error);
-      toast.error('Failed to delete media', {
-        description:
-          error instanceof Error ? error.message : 'An unknown error occurred',
-      });
-    } finally {
-      setIsDeleting(false);
-    }
   };
 
   const handleClipUpdate = () => {
@@ -306,39 +265,6 @@ function MediaDetailsPageContent() {
             <Tag className="h-4 w-4 mr-2" />
             Labels
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 sm:flex-initial text-destructive hover:text-destructive"
-                disabled={isDeleting}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Media</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently delete this media and all associated
-                  data including labels, clips, and files. Timeline clips
-                  referencing this media will be marked as missing. This action
-                  cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleDeleteMedia}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
       </div>
 

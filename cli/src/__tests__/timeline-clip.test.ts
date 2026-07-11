@@ -637,3 +637,75 @@ describe('reorderTimelineClips', () => {
     );
   });
 });
+
+describe('updateTimelineClip on a clip with an edit list', () => {
+  const clip = {
+    id: 'tc1',
+    TimelineRef: 'tl1',
+    TimelineTrackRef: 'trk0',
+    MediaRef: 'm1',
+    order: 0,
+    start: 0,
+    end: 30,
+    duration: 20,
+    meta: {
+      title: 'Keep me',
+      segments: [
+        { start: 0, end: 10 },
+        { start: 20, end: 30 },
+      ],
+    },
+  };
+
+  it('windows the trim over meta.segments without modifying the list', async () => {
+    const stubs = clipStubs({ clips: [clip] });
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { start: 5, end: 25 });
+
+    // Non-destructive: only the window and its effective duration persist —
+    // meta.segments is untouched, so the trim can be widened back later.
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 5,
+      end: 25,
+      duration: 10,
+    });
+  });
+
+  it('untrims: widening the window restores content up to the full list', async () => {
+    const trimmed = { ...clip, start: 5, end: 25, duration: 10 };
+    const stubs = clipStubs({ clips: [trimmed] });
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { start: 0, end: 30 });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 0,
+      end: 30,
+      duration: 20,
+    });
+  });
+
+  it('clamps a wider-than-list window to the edit list span', async () => {
+    const stubs = clipStubs({ clips: [clip] });
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { start: 0, end: 45 });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 0,
+      end: 30,
+      duration: 20,
+    });
+  });
+
+  it('rejects a trim window with no segment content', async () => {
+    const stubs = clipStubs({ clips: [clip] });
+    const pb = fakePb(stubs);
+
+    await expect(
+      updateTimelineClip(pb, 'tc1', { start: 12, end: 18 })
+    ).rejects.toThrow(/no segment content/i);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+});

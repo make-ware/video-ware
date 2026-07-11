@@ -20,6 +20,12 @@ export interface TrimHandlesProps {
   onScrub?: (time: number, handle: 'start' | 'end' | 'playhead') => void;
   /** Current playhead position in seconds (optional) */
   currentTime?: number;
+  /**
+   * Composite clip edit list to display on the track (source-time seconds).
+   * Display-only: the handles still trim the whole-clip window; parts of a
+   * segment outside the window render dimmed like any other trimmed content.
+   */
+  segments?: Array<{ start: number; end: number }>;
   /** Minimum clip duration in seconds */
   minDuration?: number;
   /** Whether the component is disabled */
@@ -38,6 +44,7 @@ export function TrimHandles({
   onChange,
   onScrub,
   currentTime,
+  segments,
   minDuration = 0.5,
   disabled = false,
   className,
@@ -308,6 +315,19 @@ export function TrimHandles({
           onMouseDown={handleTrackPointerDown}
           onTouchStart={handleTrackPointerDown}
         >
+          {/* Segment blocks (composite clips) — rendered under the inactive
+              shading so content outside the trim window reads as dropped */}
+          {segments?.map((seg, i) => (
+            <div
+              key={i}
+              className="absolute top-1.5 bottom-1.5 rounded-sm bg-primary/40 border border-primary/60 pointer-events-none"
+              style={{
+                left: `${timeToPercent(seg.start)}%`,
+                width: `${Math.max(timeToPercent(seg.end) - timeToPercent(seg.start), 0.5)}%`,
+              }}
+            />
+          ))}
+
           {/* Inactive region (before start) */}
           <div
             className="absolute top-0 bottom-0 left-0 bg-black/40"

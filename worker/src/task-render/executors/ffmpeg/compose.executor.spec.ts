@@ -1157,4 +1157,154 @@ describe('FFmpegComposeExecutor', () => {
       expect(sorted[1].id).toBe(nestedVideo!.id);
     });
   });
+
+  describe('composite trim window (flattened by generateTracks)', () => {
+    // End-to-end contract for non-destructive composite trims: the clip's
+    // start/end WINDOW the edit list (the list itself is stored in full),
+    // and the render must decode exactly the windowed content — nothing
+    // from the trimmed-away portions may reach ffmpeg.
+    const track = {
+      id: 't0',
+      TimelineRef: 'root',
+      layer: 0,
+      volume: 1,
+      opacity: 1,
+      isMuted: false,
+      isLocked: false,
+    } as unknown as TimelineTrackRecord;
+
+    // Full edit list: [2,8] + [20,26] = 12s effective
+    const editList = [
+      { start: 2, end: 8 },
+      { start: 20, end: 26 },
+    ];
+
+    const makeCompositeClip = (start: number, end: number, duration: number) =>
+      [
+        {
+          id: 'comp',
+          TimelineRef: 'root',
+          TimelineTrackRef: 't0',
+          MediaRef: 'media1',
+          order: 0,
+          start,
+          end,
+          duration,
+          timelineStart: 0,
+          meta: { segments: editList },
+        },
+      ] as unknown as TimelineClip[];
+
+    const clipMediaMap = {
+      media1: {
+        media: { id: 'media1', mediaData: { audio: { codec: 'aac' } } },
+        filePath: '/tmp/source.mp4',
+      } as any,
+    };
+
+    const outputSettings = {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    };
+
+    const run = async (clips: TimelineClip[]) => {
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      await executor.execute(
+        generateTracks(clips, [track]),
+        clipMediaMap,
+        '/tmp/output.mp4',
+        outputSettings
+      );
+      const args = executeSpy.mock.calls[0][0] as string[];
+      return {
+        joined: args.join(' '),
+        filterComplex: args[args.indexOf('-filter_complex') + 1],
+      };
+    };
+
+    it('renders only the windowed portion of the edit list', async () => {
+      // Window 4–23 keeps [4,8] (4s) + [20,23] (3s) = 7s effective
+      const { joined, filterComplex } = await run(makeCompositeClip(4, 23, 7));
+
+      // Decode windows are the INTERSECTED segments, not the stored list
+      expect(joined).toContain('-ss 4 -t 4 -i /tmp/source.mp4');
+      expect(joined).toContain('-ss 20 -t 3 -i /tmp/source.mp4');
+      // The trimmed-away head (source 2–4) is never opened or decoded
+      expect(joined).not.toContain('-ss 2 ');
+
+      // Segments land back-to-back in effective time
+      expect(filterComplex).toContain("enable='between(t,0,4)'");
+      expect(filterComplex).toContain("enable='between(t,4,7)'");
+      // The canvas spans the windowed effective duration, not the full 12s
+      expect(filterComplex).toContain('d=7[base]');
+      expect(filterComplex).not.toContain('d=12[base]');
+
+      // The mirrored audio segments carry the same window
+      expect(filterComplex).toContain('adelay=0|0');
+      expect(filterComplex).toContain('adelay=4000|4000');
+    });
+
+    it('renders the full edit list once the window is expanded back (untrim)', async () => {
+      // Window re-opened to the full span — the list was never destroyed,
+      // so everything comes back
+      const { joined, filterComplex } = await run(makeCompositeClip(2, 26, 12));
+
+      expect(joined).toContain('-ss 2 -t 6 -i /tmp/source.mp4');
+      expect(joined).toContain('-ss 20 -t 6 -i /tmp/source.mp4');
+      expect(filterComplex).toContain("enable='between(t,0,6)'");
+      expect(filterComplex).toContain("enable='between(t,6,12)'");
+      expect(filterComplex).toContain('d=12[base]');
+    });
+
+    it('drops edit-list segments that fall entirely outside the window', async () => {
+      // Window 20–23 keeps only part of the second segment
+      const { joined, filterComplex } = await run(makeCompositeClip(20, 23, 3));
+
+      expect(joined).toContain('-ss 20 -t 3 -i /tmp/source.mp4');
+      // The first segment (source 2–8) is gone entirely
+      expect(joined).not.toContain('-ss 2 ');
+      expect(filterComplex).toContain("enable='between(t,0,3)'");
+      expect(filterComplex).toContain('d=3[base]');
+      // Exactly one video overlay + one audio branch survive
+      expect(filterComplex).toMatch(/amix=inputs=1/);
+    });
+
+    it('windows a composite MediaClip edit list by the placement window', async () => {
+      // No meta.segments — the edit list lives on the source MediaClip and
+      // the TimelineClip's start/end window it per placement
+      const clips = [
+        {
+          id: 'placed',
+          TimelineRef: 'root',
+          TimelineTrackRef: 't0',
+          MediaRef: 'media1',
+          MediaClipRef: 'mc1',
+          order: 0,
+          start: 22,
+          end: 26,
+          duration: 4,
+          timelineStart: 0,
+          expand: {
+            MediaClipRef: {
+              id: 'mc1',
+              type: 'composite',
+              MediaRef: 'media1',
+              start: 2,
+              end: 26,
+              clipData: { segments: editList },
+            },
+          },
+        },
+      ] as unknown as TimelineClip[];
+
+      const { joined, filterComplex } = await run(clips);
+
+      expect(joined).toContain('-ss 22 -t 4 -i /tmp/source.mp4');
+      expect(joined).not.toContain('-ss 2 ');
+      expect(joined).not.toContain('-ss 20 ');
+      expect(filterComplex).toContain("enable='between(t,0,4)'");
+      expect(filterComplex).toContain('d=4[base]');
+    });
+  });
 });

@@ -20,6 +20,7 @@ import {
   updateMediaClip,
   type MediaClipWithMedia,
 } from '../lib/media.js';
+import { registerMediaClipSegmentCommands } from './clip-segments.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
@@ -253,4 +254,6 @@ export function registerMediaCommands(program: Command): void {
       handleError(err);
     }
   });
+
+  registerMediaClipSegmentCommands(clip);
 }

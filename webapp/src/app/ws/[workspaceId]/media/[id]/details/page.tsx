@@ -7,9 +7,20 @@ import { MediaDetailsEditor } from '@/components/media/media-details-editor';
 import { MediaPreviewFiles } from '@/components/media/media-preview-files';
 import { MediaLabelJobs } from '@/components/media/media-label-jobs';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Sparkles, Tag, Replace } from 'lucide-react';
+import { ArrowLeft, Sparkles, Replace, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RefreshCw } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 import { MediaService } from '@/services';
@@ -22,9 +33,35 @@ export default function MediaDetailsPage() {
   const { media, isLoading, error, refresh, hasActiveLabelTask } =
     useMediaDetails(id);
   const [isDetectingLabels, setIsDetectingLabels] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleBack = () => {
     router.push(`/ws/${workspaceId}/media/${id}`);
+  };
+
+  const handleDeleteMedia = async () => {
+    if (!media) return;
+    setIsDeleting(true);
+    try {
+      const mediaService = new MediaService(pb);
+      const result = await mediaService.deleteMedia(media.id);
+      if (result.success) {
+        toast.success('Media deleted successfully');
+      } else {
+        toast.success('Media deleted with some errors', {
+          description: result.errors.join(', '),
+        });
+      }
+      router.push(`/ws/${workspaceId}/media`);
+    } catch (error) {
+      console.error('Failed to delete media:', error);
+      toast.error('Failed to delete media', {
+        description:
+          error instanceof Error ? error.message : 'An unknown error occurred',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleDetectLabels = async () => {
@@ -113,22 +150,45 @@ export default function MediaDetailsPage() {
             variant="outline"
             size="sm"
             onClick={() =>
-              router.push(`/ws/${workspaceId}/media/${id}/labels/objects`)
-            }
-          >
-            <Tag className="h-4 w-4 mr-2" />
-            Inspector
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
               router.push(`/ws/${workspaceId}/media/${id}/replace`)
             }
           >
             <Replace className="h-4 w-4 mr-2" />
             Replace File
           </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Media</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this media and all associated
+                  data including labels, clips, and files. Timeline clips
+                  referencing this media will be marked as missing. This action
+                  cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteMedia}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

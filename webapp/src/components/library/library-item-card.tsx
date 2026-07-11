@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { Media, MediaClip, Timeline } from '@project/shared';
+import type { Media, MediaClip } from '@project/shared';
 import { ClipType } from '@project/shared/enums';
-import { MediaClipMutator, TimelineMutator } from '@project/shared/mutator';
+import { MediaClipMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,31 +18,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { Edit, Trash2, X, Plus, ListVideo, Scissors, Eye } from 'lucide-react';
+import { Edit, Trash2, Plus, Scissors, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
 import { getClipDisplayLabel, getClipDescription } from '@/utils/clip-display';
-import { useWorkspace } from '@/hooks/use-workspace';
-import { TimelineService } from '@/services/timeline';
 import type {
   ExpandedMedia,
   ExpandedMediaClip,
@@ -111,17 +92,11 @@ function ClipCard({
 }: ClipCardProps) {
   const clip = item.clip;
   const media = clip.expand?.MediaRef;
-  const { currentWorkspace } = useWorkspace();
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Media-details-only: workspace-wide "add to timeline" dialog
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [timelines, setTimelines] = useState<Timeline[]>([]);
-  const [selectedTimelineId, setSelectedTimelineId] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
-
   const label = getClipDisplayLabel(clip);
   const description = getClipDescription(clip);
   const hasExplicitLabel = Boolean(clip.label?.trim());
@@ -157,53 +132,6 @@ function ClipCard({
       toast.error('Failed to delete clip');
     } finally {
       setIsDeleting(false);
-    }
-  };
-
-  const handleOpenAddDialog = async (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (!currentWorkspace) {
-      toast.error('No workspace selected');
-      return;
-    }
-    setIsAddDialogOpen(true);
-    try {
-      const timelineMutator = new TimelineMutator(pb);
-      const result = await timelineMutator.getByWorkspace(currentWorkspace.id);
-      setTimelines(result.items);
-    } catch (error) {
-      console.error('Failed to load timelines:', error);
-      toast.error('Failed to load timelines');
-    }
-  };
-
-  const handleSubmitAddToTimeline = async () => {
-    if (!selectedTimelineId) {
-      toast.error('Please select a timeline');
-      return;
-    }
-    if (!media) {
-      toast.error('Media not available');
-      return;
-    }
-    setIsAdding(true);
-    try {
-      const timelineService = new TimelineService(pb);
-      await timelineService.addClipToTimeline(
-        selectedTimelineId,
-        media.id,
-        clip.start,
-        clip.end,
-        clip.id
-      );
-      toast.success('Clip added to timeline');
-      setIsAddDialogOpen(false);
-      setSelectedTimelineId('');
-    } catch (error) {
-      console.error('Failed to add clip to timeline:', error);
-      toast.error('Failed to add clip to timeline');
-    } finally {
-      setIsAdding(false);
     }
   };
 
@@ -269,109 +197,6 @@ function ClipCard({
   }
 
   if (surface === 'media-details') {
-    overlayActions.push(
-      <Dialog
-        key="add-timeline-dialog"
-        open={isAddDialogOpen}
-        onOpenChange={setIsAddDialogOpen}
-      >
-        <DialogTrigger asChild>
-          <Button
-            variant="secondary"
-            size="icon"
-            className="h-7 w-7 shadow-md"
-            onClick={(e) => handleOpenAddDialog(e)}
-            title="Add to Timeline"
-          >
-            <ListVideo className="h-4 w-4" />
-          </Button>
-        </DialogTrigger>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
-          <DialogHeader>
-            <DialogTitle>Add Clip to Timeline</DialogTitle>
-            <DialogDescription>
-              Select a timeline to add this clip to.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="timeline-select">Timeline</Label>
-              <Select
-                value={selectedTimelineId}
-                onValueChange={setSelectedTimelineId}
-              >
-                <SelectTrigger id="timeline-select">
-                  <SelectValue placeholder="Select a timeline" />
-                </SelectTrigger>
-                <SelectContent>
-                  {timelines.length === 0 ? (
-                    <div className="p-2 text-sm text-muted-foreground text-center">
-                      No timelines found. Create one first.
-                    </div>
-                  ) : (
-                    timelines.map((timeline) => (
-                      <SelectItem key={timeline.id} value={timeline.id}>
-                        {timeline.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="p-3 bg-muted rounded-lg space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Clip Duration:</span>
-                <span className="font-mono">
-                  {(clip.end - clip.start).toFixed(2)}s
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Time Range:</span>
-                <span className="font-mono">
-                  {formatTime(clip.start)} - {formatTime(clip.end)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsAddDialogOpen(false);
-              }}
-              disabled={isAdding}
-            >
-              <X className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSubmitAddToTimeline();
-              }}
-              disabled={!selectedTimelineId || isAdding}
-            >
-              {isAdding ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add to Timeline
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-
     overlayActions.push(
       <Button
         key="edit"

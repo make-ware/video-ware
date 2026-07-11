@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import type { TimelineClip } from '@project/shared';
+import { getClipTimelineDuration, type TimelineClip } from '@project/shared';
 
 /**
  * Represents a snap target position on the timeline
@@ -95,7 +95,8 @@ export function useSnap(options: UseSnapOptions): UseSnapResult {
       source: 'playhead',
     });
 
-    // Add clip edges as snap targets
+    // Add clip edges as snap targets (effective on-timeline duration, so
+    // composite clip ends sit where they actually render)
     for (const clip of clips) {
       // Clip start position (either absolute or sequential)
       if (clip.timelineStart !== undefined && clip.timelineStart !== null) {
@@ -104,7 +105,7 @@ export function useSnap(options: UseSnapOptions): UseSnapResult {
           source: 'clip-start',
         });
         targets.push({
-          time: clip.timelineStart + (clip.end - clip.start),
+          time: clip.timelineStart + getClipTimelineDuration(clip),
           source: 'clip-end',
         });
       } else {
@@ -147,7 +148,7 @@ export function useSnap(options: UseSnapOptions): UseSnapResult {
           const excludedStart =
             excludedClip.timelineStart ?? excludedClip.start;
           const excludedEnd =
-            excludedStart + (excludedClip.end - excludedClip.start);
+            excludedStart + getClipTimelineDuration(excludedClip);
 
           targets = snapTargets.filter(
             (t) =>

@@ -237,7 +237,7 @@ export function CaptionEditorModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {isEditing
@@ -255,7 +255,7 @@ export function CaptionEditorModal({
 
         <div className="grid gap-4">
           {/* Live preview */}
-          <div className="relative aspect-video w-full bg-black rounded-md overflow-hidden border">
+          <div className="relative aspect-video w-full bg-black rounded-md overflow-hidden border mx-auto max-h-[35vh] max-w-[calc(35vh*16/9)] lg:max-h-[45vh] lg:max-w-[calc(45vh*16/9)]">
             <CaptionOverlay
               text={text || 'Caption preview'}
               cues={animated ? cues : undefined}

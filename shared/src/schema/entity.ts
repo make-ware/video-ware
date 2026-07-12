@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { EntityKind } from '../enums';
 
@@ -56,18 +57,7 @@ export const EntityInputSchema = z.object({
 export const EntityCollection = defineCollection({
   collectionName: 'Entities',
   schema: EntitySchema,
-  permissions: {
-    // Authenticated users can list entities
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view entities
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create entities
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update entities
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete entities
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // One entity per (workspace, kind, name) — duplicates are merges waiting
     // to happen; disambiguate real duplicates in the name itself

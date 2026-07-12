@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Word timing structure for diarized STT providers (e.g. ElevenLabs Scribe).
@@ -72,13 +73,7 @@ export const LabelSpeakerInputSchema = z.object({
 export const LabelSpeakerCollection = defineCollection({
   collectionName: 'LabelSpeaker',
   schema: LabelSpeakerSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE UNIQUE INDEX idx_label_speaker_hash ON LabelSpeaker (speakerHash)',
     'CREATE INDEX idx_label_speaker_workspace ON LabelSpeaker (WorkspaceRef)',

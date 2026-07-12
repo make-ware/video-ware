@@ -31,27 +31,10 @@ export class WorkspaceService {
     return this.workspaceMutator.create(input);
   }
 
-  /**
-   * Create a new workspace and add the user as a member
-   * @param input Workspace data
-   * @param userId User ID to add as a member
-   * @returns The created workspace and membership
-   */
-  async createWorkspaceWithMembership(
-    input: WorkspaceInput,
-    userId: string
-  ): Promise<{ workspace: Workspace; membership: WorkspaceMember }> {
-    // Create the workspace
-    const workspace = await this.workspaceMutator.create(input);
-
-    // Create membership for the user
-    const membership = await this.workspaceMemberMutator.create({
-      WorkspaceRef: workspace.id,
-      UserRef: userId,
-    });
-
-    return { workspace, membership };
-  }
+  // NOTE: membership is no longer created client-side. When a Workspace is
+  // created via the API, the `hook-workspaces-create` PocketBase hook adds the
+  // creator's WorkspaceMembers row server-side (WorkspaceMembers.createRule is
+  // locked to existing members). Creating it here as well would duplicate it.
 
   /**
    * Get workspace by ID

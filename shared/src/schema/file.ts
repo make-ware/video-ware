@@ -8,6 +8,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { FileStatus, FileType, FileSource } from '../enums';
 import { FileMetaSchema } from '../types/metadata';
@@ -89,18 +90,7 @@ export const FileInputSchema = z.object({
 export const FileCollection = defineCollection({
   collectionName: 'Files',
   schema: FileSchema,
-  permissions: {
-    // Authenticated users can list files
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view files
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create files
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update files
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete files
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default FileCollection;

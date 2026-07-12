@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema for LabelFace
@@ -102,13 +103,7 @@ export const LabelFaceInputSchema = z.object({
 export const LabelFaceCollection = defineCollection({
   collectionName: 'LabelFaces',
   schema: LabelFaceSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE UNIQUE INDEX idx_label_face_hash ON LabelFaces (faceHash)',
     'CREATE INDEX idx_label_face_workspace ON LabelFaces (WorkspaceRef)',

@@ -4,6 +4,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspacesCollectionPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -26,18 +27,7 @@ export const WorkspaceInputSchema = z.object({
 export const WorkspaceCollection = defineCollection({
   collectionName: 'Workspaces',
   schema: WorkspaceSchema,
-  permissions: {
-    // Authenticated users can list workspaces they are members of
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view workspaces they are members of
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create workspaces
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update (will be refined with workspace member checks)
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete (will be refined with workspace member checks)
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspacesCollectionPermissions,
 });
 
 export default WorkspaceCollection;

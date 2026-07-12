@@ -6,6 +6,7 @@ import {
   RelationField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { superuserWriteWorkspaceReadPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { ArtifactReason, ArtifactStatus, FileSource } from '../enums';
 
@@ -71,14 +72,7 @@ export const ArtifactInputSchema = z.object({
 export const ArtifactCollection = defineCollection({
   collectionName: 'Artifacts',
   schema: ArtifactSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    // create/update/delete are superuser-only (null rule).
-    createRule: null,
-    updateRule: null,
-    deleteRule: null,
-  },
+  permissions: superuserWriteWorkspaceReadPermissions,
 });
 
 export default ArtifactCollection;

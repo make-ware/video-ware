@@ -5,6 +5,7 @@ import {
   baseSchema,
   TextField,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -29,18 +30,7 @@ export const LabelJobInputSchema = z.object({
 export const LabelJobCollection = defineCollection({
   collectionName: 'LabelJobs',
   schema: LabelJobSchema,
-  permissions: {
-    // Authenticated users can list label jobs
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label jobs
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label jobs
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label jobs
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label jobs
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions('MediaRef.WorkspaceRef'),
 });
 
 export default LabelJobCollection;

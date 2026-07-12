@@ -7,6 +7,7 @@ import {
   SingleSelectField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { TimelineMetadataSchema } from '../types/metadata';
 import { TimelineOrientation } from '../enums';
@@ -57,18 +58,7 @@ export const TimelineInputSchema = z.object({
 export const TimelineCollection = defineCollection({
   collectionName: 'Timelines',
   schema: TimelineSchema,
-  permissions: {
-    // Authenticated users can list timelines
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timelines
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timelines
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timelines
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timelines
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default TimelineCollection;

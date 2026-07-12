@@ -6,6 +6,7 @@ import {
   TextField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { TimelineClipMetadataSchema } from '../types/metadata';
 
@@ -64,18 +65,7 @@ export const TimelineClipInputSchema = z
 export const TimelineClipCollection = defineCollection({
   collectionName: 'TimelineClips',
   schema: TimelineClipSchema,
-  permissions: {
-    // Authenticated users can list timeline clips
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline clips
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline clips
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline clips
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline clips
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions('TimelineRef.WorkspaceRef'),
 });
 
 export default TimelineClipCollection;

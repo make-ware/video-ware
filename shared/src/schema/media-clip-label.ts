@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { LabelType } from '../enums';
 
@@ -96,13 +97,7 @@ export const MediaClipLabelInputSchema = z
 export const MediaClipLabelCollection = defineCollection({
   collectionName: 'MediaClipLabels',
   schema: MediaClipLabelSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE INDEX idx_mediaclip_labels_workspace ON MediaClipLabels (WorkspaceRef)',
     'CREATE INDEX idx_mediaclip_labels_clip ON MediaClipLabels (MediaClipRef)',

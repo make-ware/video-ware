@@ -3,6 +3,7 @@ import {
   RelationField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -23,18 +24,7 @@ export const WorkspaceMemberInputSchema = z.object({
 export const WorkspaceMemberCollection = defineCollection({
   collectionName: 'WorkspaceMembers',
   schema: WorkspaceMemberSchema,
-  permissions: {
-    // Users can list members of workspaces they belong to
-    listRule: '@request.auth.id != ""',
-    // Users can view members of workspaces they belong to
-    viewRule: '@request.auth.id != ""',
-    // Users can add members
-    createRule: '@request.auth.id != ""',
-    // Users can update their own member roles
-    updateRule: '@request.auth.id != ""',
-    // Users can remove themselves from workspaces
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default WorkspaceMemberCollection;

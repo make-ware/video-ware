@@ -7,6 +7,7 @@ import {
   baseSchema,
   defineCollection,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -36,13 +37,7 @@ export const UsageEventInputSchema = z.object({
 export const UsageEventCollection = defineCollection({
   collectionName: 'UsageEvents',
   schema: UsageEventSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default UsageEventCollection;

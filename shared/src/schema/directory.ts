@@ -4,6 +4,7 @@ import {
   TextField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import type { Workspace } from './workspace';
 
@@ -29,13 +30,7 @@ export const DirectoryInputSchema = z.object({
 export const DirectoryCollection = defineCollection({
   collectionName: 'Directories',
   schema: DirectorySchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default DirectoryCollection;

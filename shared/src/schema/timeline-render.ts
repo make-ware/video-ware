@@ -7,6 +7,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { TaskStatus } from '../enums';
 import {
@@ -69,18 +70,7 @@ export const TimelineRenderInputSchema = z.object({
 export const TimelineRenderCollection = defineCollection({
   collectionName: 'TimelineRenders',
   schema: TimelineRenderSchema,
-  permissions: {
-    // Authenticated users can list timeline renders
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline renders
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline renders
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline renders
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline renders
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default TimelineRenderCollection;

@@ -151,11 +151,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       setIsLoading(true);
 
       try {
-        const { workspace } =
-          await workspaceService.createWorkspaceWithMembership(
-            { name, slug },
-            user.id
-          );
+        // Only create the Workspace; the PocketBase hook-workspaces-create
+        // request hook adds the creator's WorkspaceMembers row server-side.
+        // Creating it here too would duplicate the membership now that
+        // WorkspaceMembers.createRule is locked to existing members.
+        const workspace = await workspaceService.createWorkspace({
+          name,
+          slug,
+        });
 
         router.push(`/ws/${workspace.id}`);
         return workspace;

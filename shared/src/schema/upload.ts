@@ -7,6 +7,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { UploadStatus, StorageBackendType } from '../enums';
 import { UploadMetadataSchema } from '../types/metadata';
@@ -74,18 +75,7 @@ export const UploadInputSchema = z.object({
 export const UploadCollection = defineCollection({
   collectionName: 'Uploads',
   schema: UploadSchema,
-  permissions: {
-    // Authenticated users can list uploads
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view uploads
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create uploads
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update uploads
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete uploads
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default UploadCollection;

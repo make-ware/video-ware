@@ -7,6 +7,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { TaskStatus, TaskType, ProcessingProvider } from '../enums';
 import { TaskPayloadSchema, TaskResultSchema } from '../types/metadata';
@@ -95,18 +96,7 @@ export const TaskInputSchema = z.object({
 export const TaskCollection = defineCollection({
   collectionName: 'Tasks',
   schema: TaskSchema,
-  permissions: {
-    // Authenticated users can list tasks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view tasks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create tasks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update tasks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete tasks
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default TaskCollection;

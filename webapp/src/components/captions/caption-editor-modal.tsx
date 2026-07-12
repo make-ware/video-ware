@@ -24,6 +24,7 @@ import {
   CaptionType,
   DEFAULT_CAPTION_STYLE,
   DEFAULT_TITLE_STYLE,
+  normalizeCaptionText,
   splitTextIntoCues,
   type Caption,
   type CaptionCue,
@@ -187,13 +188,25 @@ export function CaptionEditorModal({
     setIsSaving(true);
     try {
       const mutator = new CaptionMutator(pb);
+      // Normalize line endings to bare LF so a stray CR from a CRLF textarea
+      // (or pasted text) never reaches the renderer, where it draws as a tofu
+      // box. Done at save time rather than on every keystroke to avoid
+      // disturbing the textarea cursor/IME.
+      const normalizedText = normalizeCaptionText(text);
+      const normalizedCues =
+        animated && cues.length > 0
+          ? cues.map((cue) => ({
+              ...cue,
+              text: normalizeCaptionText(cue.text),
+            }))
+          : [];
       const input: CaptionInput = {
         WorkspaceRef: workspaceId,
         UserRef: pb.authStore.record?.id,
         name: name.trim() || undefined,
         captionType,
-        text,
-        cues: animated && cues.length > 0 ? cues : [],
+        text: normalizedText,
+        cues: normalizedCues,
         duration,
         style,
       };

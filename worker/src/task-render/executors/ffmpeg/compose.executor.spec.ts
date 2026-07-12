@@ -300,6 +300,91 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toMatch(/shadowx=\d+:shadowy=\d+/);
   });
 
+  it('splits multi-line caption text into one centered drawtext per line', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'text',
+        layer: 0,
+        segments: [
+          {
+            id: 'txt1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: {
+              content: 'John Smith\nNew Beginnings',
+              role: 'title',
+              fontSize: 40,
+              position: 'middle',
+              align: 'center',
+            },
+          },
+        ],
+      },
+    ];
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, {}, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+    // Never hand a raw CR/LF to drawtext — those render as .notdef "tofu" boxes.
+    expect(filterComplex).not.toMatch(/[\r\n]/);
+    // One drawtext per line, each carrying only its own line's text.
+    expect(filterComplex).toContain("text='John Smith'");
+    expect(filterComplex).toContain("text='New Beginnings'");
+    // Each line self-centers via the text_w-based x expression.
+    const centeredLines = filterComplex
+      .split(';')
+      .filter((f) => f.includes('drawtext=') && f.includes('x=(w-text_w)/2'));
+    expect(centeredLines).toHaveLength(2);
+    // Lines stack a line-height apart (round(40 * 1.375) = 55), block-centered.
+    expect(filterComplex).toContain('y=(h-110)/2+0');
+    expect(filterComplex).toContain('y=(h-110)/2+55');
+    // Per-line output labels stay unique.
+    expect(filterComplex).toContain('[v_txt_txt1_0_0]');
+    expect(filterComplex).toContain('[v_txt_txt1_0_1]');
+  });
+
+  it('strips CR from CRLF line endings so no tofu box is drawn', async () => {
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'track1',
+        type: 'text',
+        layer: 0,
+        segments: [
+          {
+            id: 'txt1',
+            type: 'text',
+            time: { start: 0, duration: 2, sourceStart: 0 },
+            text: { content: 'John Smith\r\nNew Beginnings', fontSize: 40 },
+          },
+        ],
+      },
+    ];
+
+    const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+    await executor.execute(tracks, {}, '/tmp/output.mp4', {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    });
+
+    const args = executeSpy.mock.calls[0][0] as string[];
+    const filterComplex = args[args.indexOf('-filter_complex') + 1];
+
+    // CRLF must not leak a bare CR (or the "rn" it degrades to) into the text.
+    expect(filterComplex).not.toMatch(/[\r\n]/);
+    expect(filterComplex).toContain("text='John Smith'");
+    expect(filterComplex).toContain("text='New Beginnings'");
+    expect(filterComplex).not.toContain("text='John Smith\rNew Beginnings'");
+  });
+
   it('should use the configured font file when RENDER_FONT_FILE is set', async () => {
     vi.stubEnv('RENDER_FONT_FILE', '/opt/fonts/regular.ttf');
     vi.stubEnv('RENDER_FONT_FILE_BOLD', '/opt/fonts/bold.ttf');

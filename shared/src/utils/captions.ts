@@ -8,6 +8,19 @@
 
 import type { CaptionCue } from '../types/captions';
 
+/**
+ * Normalize caption text line endings to bare LF.
+ *
+ * Textareas on Windows and pasted rich text produce CRLF (`\r\n`) or lone CR
+ * (`\r`) line breaks. A carriage return has no glyph, so the ffmpeg drawtext
+ * render path draws it as a .notdef "tofu" box (□) — the classic
+ * "John Smith□New Beginnings" artifact. Storing text with only `\n` keeps the
+ * data clean at the source; the renderer stays defensive regardless.
+ */
+export function normalizeCaptionText(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
 /** Word timing entry as stored on LabelSpeech.words */
 export interface SpeechWordTiming {
   word: string;

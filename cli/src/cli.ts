@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import { registerAuthCommands } from './commands/login.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
 import { registerMediaCommands } from './commands/media.js';
+import { registerDirectoryCommands } from './commands/directory.js';
 import { registerLabelCommands } from './commands/label.js';
 import { registerEntityCommands } from './commands/entity.js';
 import { registerCaptionCommands } from './commands/caption.js';
@@ -48,6 +49,7 @@ program
 registerAuthCommands(program);
 registerWorkspaceCommands(program);
 registerMediaCommands(program);
+registerDirectoryCommands(program);
 registerLabelCommands(program);
 registerEntityCommands(program);
 registerCaptionCommands(program);

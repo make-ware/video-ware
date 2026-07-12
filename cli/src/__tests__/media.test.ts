@@ -3,11 +3,13 @@ import { ClipType, type TypedPocketBase } from '@project/shared';
 import {
   createMediaClip,
   deleteMediaClip,
+  mediaColumns,
   parseClipType,
   searchMedia,
   updateMedia,
   updateMediaClip,
 } from '../lib/media.js';
+import type { MediaWithUpload } from '../lib/select.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Stub = Record<string, any>;
@@ -60,6 +62,61 @@ describe('searchMedia', () => {
     expect(options.filter).toContain('label ~ beach');
     expect(options.filter).toContain('description ~ beach');
     expect(options.filter).toContain('UploadRef.name ~ beach');
+    expect(options.filter).not.toContain('DirectoryRef');
+  });
+
+  it('narrows to a directory when one is passed', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([{ id: 'm1' }])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    await searchMedia(pb, 'ws1', 'beach', 50, 'd1');
+
+    const [, , options] = getList.mock.calls[0];
+    expect(options.filter).toContain('DirectoryRef = d1');
+    expect(options.filter).toContain('label ~ beach');
+  });
+});
+
+describe('mediaColumns', () => {
+  const media = (extra: Partial<MediaWithUpload>): MediaWithUpload =>
+    ({
+      id: 'm1',
+      mediaType: 'video',
+      duration: 10,
+      width: 1920,
+      height: 1080,
+      ...extra,
+    }) as MediaWithUpload;
+
+  it('omits the DIRECTORY column when no row has a directory', () => {
+    const columns = mediaColumns([media({}), media({ id: 'm2' })]);
+    expect(columns.map((c) => c.header)).not.toContain('DIRECTORY');
+  });
+
+  it('adds DIRECTORY when any row has one, showing the expanded name', () => {
+    const rows = [
+      media({}),
+      media({
+        id: 'm2',
+        DirectoryRef: 'd1',
+        expand: { DirectoryRef: { id: 'd1', name: 'Hawaii' } },
+      } as Partial<MediaWithUpload>),
+    ];
+    const columns = mediaColumns(rows);
+    const directory = columns.find((c) => c.header === 'DIRECTORY');
+    expect(directory).toBeDefined();
+    expect(directory!.value(rows[1])).toBe('Hawaii');
+    expect(directory!.value(rows[0])).toBe('');
+  });
+
+  it('falls back to the directory id when the expand is missing', () => {
+    const rows = [media({ DirectoryRef: 'd1' } as Partial<MediaWithUpload>)];
+    const columns = mediaColumns(rows);
+    const directory = columns.find((c) => c.header === 'DIRECTORY');
+    expect(directory!.value(rows[0])).toBe('d1');
   });
 });
 
@@ -85,6 +142,45 @@ describe('updateMedia', () => {
     expect(patch).toEqual({ label: 'Beach intro' });
     expect(patch).not.toHaveProperty('description');
     expect(result.label).toBe('Beach intro');
+  });
+
+  it('resolves --directory to a DirectoryRef in the media workspace', async () => {
+    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({ id: 'm1', WorkspaceRef: 'ws1' })),
+        update,
+      },
+      Directories: {
+        getOne: vi.fn(async () => ({
+          id: 'd1',
+          name: 'Hawaii',
+          WorkspaceRef: 'ws1',
+        })),
+      },
+    });
+
+    await updateMedia(pb, 'm1', { directory: 'd1' });
+
+    expect(update.mock.calls[0][1]).toEqual({ DirectoryRef: 'd1' });
+  });
+
+  it("clears the directory when --directory is 'none'", async () => {
+    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async () => ({
+          id: 'm1',
+          WorkspaceRef: 'ws1',
+          DirectoryRef: 'd1',
+        })),
+        update,
+      },
+    });
+
+    await updateMedia(pb, 'm1', { directory: 'none' });
+
+    expect(update.mock.calls[0][1]).toEqual({ DirectoryRef: '' });
   });
 
   it('throws when the media does not exist', async () => {

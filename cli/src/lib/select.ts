@@ -3,6 +3,7 @@ import {
   MediaMutator,
   TimelineMutator,
   WorkspaceMutator,
+  type Directory,
   type Media,
   type Timeline,
   type TypedPocketBase,
@@ -12,8 +13,11 @@ import {
 import { updateConfig, loadConfig } from './config.js';
 import { fail, formatDuration } from './output.js';
 
-/** Media expanded with its source upload (for a human-readable label). */
-export type MediaWithUpload = Media & { expand?: { UploadRef?: Upload } };
+/** Media expanded with its source upload (for a human-readable label) and,
+ * when one is set, its directory. */
+export type MediaWithUpload = Media & {
+  expand?: { UploadRef?: Upload; DirectoryRef?: Directory };
+};
 
 export function mediaLabel(media: MediaWithUpload): string {
   return media.expand?.UploadRef?.name ?? media.id;

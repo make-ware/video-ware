@@ -14,8 +14,10 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import { mediaBounds, singleMediaType } from './timeline.js';
-import type { MediaWithUpload } from './select.js';
+import { mediaLabel, type MediaWithUpload } from './select.js';
+import { resolveDirectory } from './directory.js';
 import type { OptionGroupOf } from './options.js';
+import { formatDuration, type Column } from './output.js';
 
 /** MediaClip expanded with its source media (and that media's upload). */
 export type MediaClipWithMedia = MediaClip & {
@@ -28,21 +30,58 @@ export function mediaClipMediaLabel(clip: MediaClipWithMedia): string {
 }
 
 /**
+ * Column layout shared by `media list` and `media search`. The DIRECTORY
+ * column is appended only when at least one row actually has a directory set,
+ * so workspaces that don't use directories keep the compact table.
+ */
+export function mediaColumns(
+  items: MediaWithUpload[]
+): Column<MediaWithUpload>[] {
+  const columns: Column<MediaWithUpload>[] = [
+    { header: 'ID', value: (m) => m.id },
+    { header: 'NAME', value: (m) => mediaLabel(m) },
+    { header: 'LABEL', value: (m) => m.label ?? '' },
+    { header: 'TYPE', value: (m) => String(m.mediaType) },
+    { header: 'DURATION', value: (m) => formatDuration(m.duration) },
+    { header: 'SIZE', value: (m) => `${m.width}x${m.height}` },
+  ];
+  if (items.some((m) => m.DirectoryRef)) {
+    columns.push({
+      header: 'DIRECTORY',
+      value: (m) => m.expand?.DirectoryRef?.name ?? m.DirectoryRef ?? '',
+    });
+  }
+  return columns;
+}
+
+/**
  * Search a workspace's media by its label, description, or source upload
- * filename. Mirrors the webapp's metadata search: the free-text `query` is
- * bound via `pb.filter` to avoid filter-string injection.
+ * filename, optionally narrowed to a single directory. Mirrors the webapp's
+ * metadata search: the free-text `query` is bound via `pb.filter` to avoid
+ * filter-string injection.
  */
 export async function searchMedia(
   pb: TypedPocketBase,
   workspaceId: string,
   query: string,
-  perPage = 50
+  perPage = 50,
+  directoryId?: string
 ): Promise<ListResult<Media>> {
-  const filter = pb.filter(
-    'WorkspaceRef = {:ws} && (label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})',
-    { ws: workspaceId, q: query }
-  );
-  return new MediaMutator(pb).getList(1, perPage, filter);
+  const search =
+    '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})';
+  const filter = directoryId
+    ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`, {
+        ws: workspaceId,
+        dir: directoryId,
+        q: query,
+      })
+    : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
+        ws: workspaceId,
+        q: query,
+      });
+  return new MediaMutator(pb).getList(1, perPage, filter, undefined, [
+    'DirectoryRef',
+  ]);
 }
 
 /** Validate a clip type string against the ClipType enum. */
@@ -296,6 +335,8 @@ export interface UpdateMediaOptions {
   label?: string;
   /** Editor-facing media notes (searchable). */
   description?: string;
+  /** Directory name or id to move the media into; 'none' clears it. */
+  directory?: string;
 }
 
 /**
@@ -312,11 +353,18 @@ export const mediaFieldOptions = {
     flags: '--description <text>',
     description: 'media notes shown in the editor (searchable)',
   },
+  directory: {
+    flags: '--directory <nameOrId>',
+    description: "move the media into a directory ('none' clears it)",
+  },
 } satisfies OptionGroupOf<UpdateMediaOptions>;
 
 /**
- * Patch a media's editor-facing label/description. Only the fields actually
- * passed are written, so an unset flag leaves the stored value untouched.
+ * Patch a media's editor-facing label/description/directory. Only the fields
+ * actually passed are written, so an unset flag leaves the stored value
+ * untouched. `--directory` resolves a name or id within the media's own
+ * workspace; the literal 'none' (or an empty value) detaches the media back
+ * to the workspace root.
  */
 export async function updateMedia(
   pb: TypedPocketBase,
@@ -335,6 +383,13 @@ export async function updateMedia(
       ? { description: opts.description }
       : {}),
   };
+
+  if (opts.directory !== undefined) {
+    patch.DirectoryRef =
+      opts.directory === '' || opts.directory === 'none'
+        ? ''
+        : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
+  }
 
   return mutator.update(mediaId, patch);
 }

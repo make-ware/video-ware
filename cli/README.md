@@ -54,9 +54,9 @@ vw workspace list              # list workspaces (active marked with *)
 vw workspace use [id]          # set the active workspace (interactive when omitted)
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
-vw media list                  # list media in the active workspace
-vw media search <query>        # search media by filename, label, or description
-vw media update <id>           # set a media's editor-facing label/description
+vw media list                  # list media (-d/--directory filters to one directory)
+vw media search <query>        # search media by filename, label, or description (-d filters)
+vw media update <id>           # set label/description, move into a directory (--directory)
 vw media clip create           # create a media clip (sub-range of a media)
 vw media clip list             # list media clips in the active workspace
 vw media clip update <id>      # edit a media clip's label/description/trim
@@ -66,6 +66,8 @@ vw media clip split <id>       # split the edit list at source time(s) (--at)
 vw media clip cut <id>         # remove a source range, e.g. an umm (--from/--to)
 vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
 vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
+
+vw directory list              # list media directories (optional folders, e.g. per shoot)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
 vw label list                  # list labels for one media
@@ -283,6 +285,9 @@ into hundreds of tiny clips.
 vw media search beach                          # media matching "beach" (filename/label/description)
 vw media update MEDIA_ID \
   --label "Beach intro" --description "Opening drone shot"  # name/annotate a media
+vw directory list                              # directories are optional media folders
+vw media list --directory Hawaii               # only media filed under "Hawaii" (name or id)
+vw media update MEDIA_ID --directory Hawaii    # file a media (--directory none clears it)
 vw media clip create -m MEDIA_ID -s 5 -e 12.5  # USER clip of media[5s..12.5s]
 vw media clip create -m MEDIA_ID --type range  # whole-media clip, typed "range"
 vw media clip create -m MEDIA_ID -s 5 -e 12.5 \

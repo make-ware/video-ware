@@ -6,6 +6,7 @@ import {
   cuesFromTranscripts,
   splitTextIntoCues,
   clampCuesToWindow,
+  normalizeCaptionText,
   SINGLE_LINE_MAX_CHARS,
 } from '../captions';
 import type { CaptionCue } from '../../types/captions';
@@ -267,5 +268,28 @@ describe('clampCuesToWindow', () => {
 
   it('handles missing cues', () => {
     expect(clampCuesToWindow(undefined, 0, 5)).toEqual([]);
+  });
+});
+
+describe('normalizeCaptionText', () => {
+  it('converts CRLF to bare LF', () => {
+    expect(normalizeCaptionText('John Smith\r\nNew Beginnings')).toBe(
+      'John Smith\nNew Beginnings'
+    );
+  });
+
+  it('converts a lone CR to LF', () => {
+    expect(normalizeCaptionText('Line one\rLine two')).toBe(
+      'Line one\nLine two'
+    );
+  });
+
+  it('leaves bare LF and CR-free text untouched', () => {
+    expect(normalizeCaptionText('Already\nclean')).toBe('Already\nclean');
+    expect(normalizeCaptionText('No breaks here')).toBe('No breaks here');
+  });
+
+  it('never leaves a carriage return behind', () => {
+    expect(normalizeCaptionText('a\r\nb\rc\n')).not.toMatch(/\r/);
   });
 });

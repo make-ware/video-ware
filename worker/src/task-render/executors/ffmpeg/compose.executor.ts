@@ -239,9 +239,18 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // parsing (crashing the render with "Filter not found") or silently drops
     // surrounding text — so we map it to the typographic apostrophe (U+2019),
     // which renders identically for caption/speech text and keeps the quoting
-    // intact.
+    // intact. Control characters are stripped: freetype has no glyph for them,
+    // so drawtext renders each as a .notdef "tofu" box (□) — a stray CR from a
+    // CRLF line ending is the classic case. Line breaks are handled upstream by
+    // splitting into one drawtext per line (drawtext ≥ ffmpeg 8 also draws a
+    // tofu for a bare LF), so no newline should ever reach here; the strip is a
+    // final guard against any residual control byte.
     const escapeDrawtext = (text: string) =>
-      text.replace(/\\/g, '\\\\').replace(/'/g, '’').replace(/:/g, '\\:');
+      text
+        .replace(/[\u0000-\u001f\u007f]/g, '') // eslint-disable-line no-control-regex
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, '’')
+        .replace(/:/g, '\\:');
 
     // Map caption placement presets to drawtext expressions
     const alignToX = (align?: 'left' | 'center' | 'right') => {
@@ -433,17 +442,63 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
                   },
                 ];
 
+          // Line height for stacked multi-line text. Matches the editor
+          // overlay's `leading-snug` (line-height 1.375) so preview and render
+          // break lines at the same rhythm.
+          const lineHeight = Math.round(fontSize * 1.375);
+
+          // Vertical position of a given line in a multi-line block. drawtext
+          // anchors each call at the top-left of its own text, so we place the
+          // whole block using its total height (lines × lineHeight) and then
+          // offset each line down by its index. A caller-supplied y is treated
+          // as the block top; otherwise the position preset centres/pins the
+          // block against the canvas (`h`).
+          const yForLine = (lineIndex: number, lineCount: number) => {
+            const offset = lineIndex * lineHeight;
+            const custom = seg.text?.y;
+            if (custom !== undefined) return `(${custom})+${offset}`;
+            const blockH = lineCount * lineHeight;
+            const position = seg.text?.position;
+            if (position === 'top') return `h*0.08+${offset}`;
+            if (position === 'bottom') return `h-${blockH}-h*0.08+${offset}`;
+            return `(h-${blockH})/2+${offset}`;
+          };
+
           entries.forEach((entry, cueIndex) => {
             if (!entry.text || entry.end <= entry.start) return;
 
             const enable = `between(t,${entry.start},${entry.end})`;
-            const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
 
-            filterComplex.push(
-              `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
-            );
+            // Split on any line-ending convention and render one drawtext per
+            // line rather than passing a control character to drawtext. A raw
+            // CR/LF has no glyph, so freetype draws it as a .notdef "tofu" box
+            // (the reported "John Smith□New Beginnings"); CRLF yields two, and
+            // drawtext ≥ ffmpeg 8 even boxes a bare LF. There is no usable \n
+            // escape under expansion=none either. Per-line drawtext sidesteps
+            // all of that and self-centres each line via the text_w-based x
+            // expression — no `text_align` (ffmpeg ≥ 7.0 only) required.
+            const lines = entry.text.split(/\r\n|\r|\n/);
 
-            lastVideoLabel = nextLabel;
+            // Single-line text keeps the original y expression so existing
+            // captions/subtitles render byte-for-byte as before.
+            if (lines.length <= 1) {
+              const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
+              filterComplex.push(
+                `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
+              );
+              lastVideoLabel = nextLabel;
+              return;
+            }
+
+            lines.forEach((line, lineIndex) => {
+              // Blank lines keep their vertical slot but draw nothing.
+              if (!line) return;
+              const nextLabel = `[v_txt_${seg.id}_${cueIndex}_${lineIndex}]`;
+              filterComplex.push(
+                `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(line)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${yForLine(lineIndex, lines.length)}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
+              );
+              lastVideoLabel = nextLabel;
+            });
           });
           continue;
         }

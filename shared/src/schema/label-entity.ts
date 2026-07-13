@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { LabelType, ProcessingProvider } from '../enums';
 
@@ -68,18 +69,7 @@ export const LabelEntityInputSchema = z.object({
 export const LabelEntityCollection = defineCollection({
   collectionName: 'LabelEntity',
   schema: LabelEntitySchema,
-  permissions: {
-    // Authenticated users can list label entities
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label entities
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label entities
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label entities
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label entities
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // Unique constraint on entityHash for deduplication
     'CREATE UNIQUE INDEX idx_label_entity_hash ON LabelEntity (entityHash)',

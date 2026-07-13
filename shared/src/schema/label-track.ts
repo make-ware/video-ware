@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema for LabelTrack
@@ -72,18 +73,7 @@ export const LabelTrackInputSchema = z.object({
 export const LabelTrackCollection = defineCollection({
   collectionName: 'LabelTrack',
   schema: LabelTrackSchema,
-  permissions: {
-    // Authenticated users can list label tracks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label tracks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label tracks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label tracks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label tracks
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // Unique constraint on trackHash for deduplication
     'CREATE UNIQUE INDEX idx_label_track_hash ON LabelTrack (trackHash)',

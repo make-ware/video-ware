@@ -10,6 +10,7 @@ import {
   DateField,
   BoolField,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { MediaType } from '../enums';
 import { MediaMetadataSchema } from '../types';
@@ -75,18 +76,7 @@ export const MediaInputSchema = z.object({
 export const MediaCollection = defineCollection({
   collectionName: 'Media',
   schema: MediaSchema,
-  permissions: {
-    // Authenticated users can list media
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view media
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create media
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update media
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete media
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
 });
 
 export default MediaCollection;

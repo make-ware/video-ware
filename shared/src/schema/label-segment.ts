@@ -7,6 +7,7 @@ import {
   baseSchema,
   SelectField,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { LabelType } from '../enums';
 
@@ -69,13 +70,7 @@ export const LabelSegmentInputSchema = z.object({
 export const LabelSegmentCollection = defineCollection({
   collectionName: 'LabelSegments',
   schema: LabelSegmentSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE UNIQUE INDEX idx_label_segment_hash ON LabelSegment (segmentHash)',
     'CREATE INDEX idx_label_segment_workspace ON LabelSegment (WorkspaceRef)',

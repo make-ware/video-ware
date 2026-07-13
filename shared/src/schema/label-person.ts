@@ -7,6 +7,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema for LabelPerson
@@ -78,13 +79,7 @@ export const LabelPersonInputSchema = z.object({
 export const LabelPersonCollection = defineCollection({
   collectionName: 'LabelPerson',
   schema: LabelPersonSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE UNIQUE INDEX idx_label_person_hash ON LabelPerson (personHash)',
     'CREATE INDEX idx_label_person_workspace ON LabelPerson (WorkspaceRef)',

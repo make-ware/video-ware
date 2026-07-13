@@ -6,6 +6,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 // Define word timing structure for reference/validation
 // (This validates the content inside the JSONField)
@@ -71,13 +72,7 @@ export const LabelSpeechInputSchema = z.object({
 export const LabelSpeechCollection = defineCollection({
   collectionName: 'LabelSpeech',
   schema: LabelSpeechSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE UNIQUE INDEX idx_label_speech_hash ON LabelSpeech (speechHash)',
     'CREATE INDEX idx_label_speech_workspace ON LabelSpeech (WorkspaceRef)',

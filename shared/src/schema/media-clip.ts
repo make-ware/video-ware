@@ -6,6 +6,7 @@ import {
   baseSchema,
   TextField,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { ClipType } from '../enums';
 import { MediaClipMetadataSchema } from '../types';
@@ -56,18 +57,7 @@ export const MediaClipInputSchema = z.object({
 export const MediaClipCollection = defineCollection({
   collectionName: 'MediaClips',
   schema: MediaClipSchema,
-  permissions: {
-    // Authenticated users can list media clips
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view media clips
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create media clips
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update media clips
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete media clips
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE INDEX idx_mediaclips_workspace ON MediaClips (WorkspaceRef)',
     'CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)',

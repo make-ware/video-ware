@@ -7,6 +7,7 @@ import {
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { CaptionType } from '../enums';
 import { CaptionCueSchema, CaptionStyleSchema } from '../types/captions';
@@ -66,13 +67,7 @@ export const CaptionInputSchema = z.object({
 export const CaptionCollection = defineCollection({
   collectionName: 'Captions',
   schema: CaptionSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     'CREATE INDEX idx_captions_workspace ON Captions (WorkspaceRef)',
     'CREATE INDEX idx_captions_media ON Captions (MediaRef)',

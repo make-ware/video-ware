@@ -6,6 +6,7 @@ import {
   BoolField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
+import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -40,18 +41,7 @@ export const TimelineTrackInputSchema = z.object({
 export const TimelineTrackCollection = defineCollection({
   collectionName: 'TimelineTracks',
   schema: TimelineTrackSchema,
-  permissions: {
-    // Authenticated users can list timeline tracks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline tracks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline tracks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline tracks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline tracks
-    deleteRule: '@request.auth.id != ""',
-  },
+  permissions: workspaceScopedPermissions('TimelineRef.WorkspaceRef'),
 });
 
 export default TimelineTrackCollection;

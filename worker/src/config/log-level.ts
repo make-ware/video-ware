@@ -27,8 +27,14 @@ const THRESHOLD_BY_LOG_LEVEL: Record<string, LogLevel> = {
   error: 'error',
 };
 
-/** Threshold used when LOG_LEVEL is unset or unrecognized. */
-const DEFAULT_THRESHOLD: LogLevel = 'log'; // i.e. "info"
+/**
+ * Threshold used when LOG_LEVEL is unset or unrecognized. Defaults to `debug`
+ * so a developer running the worker locally sees the full operational trace
+ * without extra config. Noise-level lines are logged at `debug`/`verbose` and
+ * durable signals (task started/completed, startup, migrations) at `log`, so
+ * raising LOG_LEVEL to `info` in production yields a clean signal-only stream.
+ */
+const DEFAULT_THRESHOLD: LogLevel = 'debug';
 
 /**
  * Resolve the explicit list of NestJS log levels to enable for a given

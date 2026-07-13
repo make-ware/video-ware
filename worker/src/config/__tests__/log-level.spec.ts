@@ -47,8 +47,9 @@ describe('resolveNestLogLevels', () => {
     expect(resolveNestLogLevels('  WARN ')).toEqual(['warn', 'error', 'fatal']);
   });
 
-  it('defaults to info (log) when unset', () => {
+  it('defaults to debug when unset', () => {
     expect(resolveNestLogLevels(undefined)).toEqual([
+      'debug',
       'log',
       'warn',
       'error',
@@ -56,8 +57,9 @@ describe('resolveNestLogLevels', () => {
     ]);
   });
 
-  it('defaults to info (log) for unrecognized values', () => {
+  it('defaults to debug for unrecognized values', () => {
     expect(resolveNestLogLevels('chatty')).toEqual([
+      'debug',
       'log',
       'warn',
       'error',

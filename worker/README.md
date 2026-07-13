@@ -75,3 +75,22 @@ In **local mode** these cleanups are no-ops: outputs and render directories live
 | `WORKER_DATA_DIR` | Base path for local storage / render working dirs |
 | `ENABLE_S3_MIGRATION` | One-time local→S3 migration on boot (default `false`) |
 | `S3_*` | Bucket / region / endpoint / credentials (see `shared` env schema) |
+
+## Logging
+
+Verbosity is set by `LOG_LEVEL` and read once at startup by the NestJS logger (see
+[`src/config/log-level.ts`](src/config/log-level.ts)). A level enables itself and every
+more-severe level.
+
+| `LOG_LEVEL` | Enables | Use when |
+| --- | --- | --- |
+| `verbose` | verbose + debug + info + warn + error | Deep tracing |
+| `debug` **(default)** | debug + info + warn + error | Local dev / diagnosing a run |
+| `info` | info + warn + error | **Production** — signal-only stream |
+| `warn` | warn + error | Quiet; problems only |
+| `error` | error | Failures only |
+
+Log lines are leveled so that raising `LOG_LEVEL` to `info` yields roughly **one line per
+task** (task started, task completed with step counts, startup/migration summaries) and
+drops the per-step / per-job / per-file chatter to `debug`. When adding logs, follow the
+level guidance in the repo-root [`CLAUDE.md`](../CLAUDE.md#logging).

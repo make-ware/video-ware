@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.0...video-ware-v0.9.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* add robust permissions ([b7bc41b](https://github.com/make-ware/video-ware/commit/b7bc41bc4500ad3a322ab08ad5bf293b9b9baec3))
+* caption not rendering properly ([4fafc05](https://github.com/make-ware/video-ware/commit/4fafc05d8f29bf1c39dd7a0153929d09fbd71fda))
+* dev worker directory mapping ([627aee4](https://github.com/make-ware/video-ware/commit/627aee4cfcffd156747404f45746274ab5e36dee))
+* lock down workspace collection rules ([72724b3](https://github.com/make-ware/video-ware/commit/72724b303ba2e6a2fded99360de1e0440af72fef))
+* reduce logging noise ([9771c66](https://github.com/make-ware/video-ware/commit/9771c662cefde4d5dc232cd8639d3dfc5fd3a8fa))
+
 ## [0.9.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.10...video-ware-v0.9.0) (2026-07-11)
 
 

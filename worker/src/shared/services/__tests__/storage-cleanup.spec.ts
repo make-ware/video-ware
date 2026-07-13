@@ -14,10 +14,12 @@ vi.mock('@nestjs/common', async () => {
   };
 });
 
-vi.mock('@project/shared/storage', () => ({
+vi.mock('@project/shared/storage', async (importOriginal) => ({
+  // Spread the real module so non-stubbed exports (e.g.
+  // resolveLocalStorageBasePath) keep working.
+  ...(await importOriginal<object>()),
   createStorageBackend: vi.fn(),
   LocalStorageBackend: class {},
-  StorageBackendType: { LOCAL: 'local', S3: 's3' },
 }));
 
 vi.mock('fs', async () => {

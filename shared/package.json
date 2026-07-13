@@ -52,6 +52,7 @@
     },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
+      "browser": "./dist/storage/browser-stub.js",
       "import": "./dist/storage/index.js",
       "require": "./dist/storage/index.cjs"
     },
@@ -94,6 +95,7 @@
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",
     "@vitest/coverage-v8": "^4.0.17",
+    "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "fast-check": "^4.5.3",
     "nodemon": "^3.1.11",

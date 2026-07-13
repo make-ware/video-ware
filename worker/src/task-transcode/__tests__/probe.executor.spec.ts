@@ -21,13 +21,11 @@ const mockStorageBackend = {
   resolvePath: vi.fn(),
 };
 
-// Mock @project/shared/storage
-vi.mock('@project/shared/storage', () => ({
+// Mock @project/shared/storage. Spread the real module so non-stubbed
+// exports (e.g. resolveLocalStorageBasePath) keep working.
+vi.mock('@project/shared/storage', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   createStorageBackend: vi.fn(() => Promise.resolve(mockStorageBackend)),
-  StorageBackendType: {
-    LOCAL: 'local',
-    S3: 's3',
-  },
   LocalStorageBackend: class {
     initialize = vi.fn().mockResolvedValue(undefined);
     listFiles = vi.fn().mockResolvedValue([]);
@@ -38,7 +36,6 @@ vi.mock('@project/shared/storage', () => ({
       }),
     });
   },
-  StorageConfig: class {},
 }));
 
 describe('Probe Step Storage Integration', () => {

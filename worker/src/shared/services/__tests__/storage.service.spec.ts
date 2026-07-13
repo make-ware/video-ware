@@ -22,17 +22,17 @@ const { mockStorageBackend } = vi.hoisted(() => {
   return { mockStorageBackend };
 });
 
-vi.mock('@project/shared/storage', () => {
+vi.mock('@project/shared/storage', async (importOriginal) => {
+  // Spread the real module so non-stubbed exports (e.g.
+  // resolveLocalStorageBasePath) keep working; only override the backend.
+  const actual = await importOriginal<object>();
   return {
+    ...actual,
     createStorageBackend: vi.fn().mockImplementation(async () => {
       // Call initialize when backend is created (mimicking real behavior)
       await mockStorageBackend.initialize();
       return mockStorageBackend;
     }),
-    StorageBackendType: {
-      LOCAL: 'local',
-      S3: 's3',
-    },
   };
 });
 
@@ -45,16 +45,23 @@ const getMockStorageBackend = () => {
 };
 
 // Mock fs
-vi.mock('fs', () => ({
-  existsSync: vi.fn(),
-  createWriteStream: vi.fn(),
-  promises: {
-    mkdir: vi.fn().mockResolvedValue(undefined),
-    readFile: vi.fn().mockResolvedValue(Buffer.from('test data')),
-    rm: vi.fn().mockResolvedValue(undefined),
-    rename: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+vi.mock('fs', async (importOriginal) => {
+  // Spread the real fs: the shared LocalStorageBackend promisifies fs.mkdir
+  // etc. at module load, so a bare stub object breaks module evaluation.
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    createWriteStream: vi.fn(),
+    promises: {
+      ...actual.promises,
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      readFile: vi.fn().mockResolvedValue(Buffer.from('test data')),
+      rm: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+});
 
 // Mock NestJS Logger to suppress console output during tests
 vi.mock('@nestjs/common', async () => {

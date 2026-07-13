@@ -11,6 +11,9 @@ export default defineConfig((options) => ({
     env: 'src/env.ts',
     'utils/time': 'src/utils/time.ts',
     'storage/index': 'src/storage/index.ts',
+    // Served to bundlers via the "browser" exports condition so client
+    // bundles fail loudly instead of shipping fs shims / AWS SDK.
+    'storage/browser-stub': 'src/storage/browser-stub.ts',
     'config/index': 'src/config/index.ts',
   },
   format: ['esm', 'cjs'],

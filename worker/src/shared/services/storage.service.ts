@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   createStorageBackend,
   LocalStorageBackend,
+  resolveLocalStorageBasePath,
   StorageBackend,
   StorageConfig,
 } from '@project/shared/storage';
@@ -85,16 +86,19 @@ export class StorageService implements OnModuleInit {
       config.local = {
         basePath: localPath,
       };
-      // Resolve the base path relative to project root
-      this.resolvedBasePath = this.resolveBasePath(localPath);
+      // Resolve with the SAME shared resolver LocalStorageBackend uses, so
+      // paths this service builds directly (renders, transcode outputs) can
+      // never diverge from where the backend reads/writes.
+      this.resolvedBasePath = resolveLocalStorageBasePath(localPath);
     } else if (storageType === StorageBackendType.S3) {
       // For S3, we still need a local path for temp/working files
       const localPath = this.configService.get<string>(
         'storage.localPath',
         './data'
       );
-      // Resolve the base path relative to project root
-      this.resolvedBasePath = this.resolveBasePath(localPath);
+      // Local scratch dir for temp/working files while the durable store is
+      // S3 — resolved with the same shared resolver for consistency.
+      this.resolvedBasePath = resolveLocalStorageBasePath(localPath);
       const s3Bucket = this.configService.get<string>('storage.s3Bucket');
       const s3Region = this.configService.get<string>('storage.s3Region');
       const s3Endpoint = this.configService.get<string>('storage.s3Endpoint');
@@ -127,7 +131,9 @@ export class StorageService implements OnModuleInit {
 
     try {
       this.backend = await createStorageBackend(config);
-      this.logger.log(`Initialized storage backend: ${storageType}`);
+      this.logger.log(
+        `Initialized storage backend: ${storageType} (local base: ${this.resolvedBasePath})`
+      );
 
       // If S3 is enabled AND migration is explicitly opted into, migrate any
       // files that still live on local disk. This is off by default: stateless
@@ -159,10 +165,12 @@ export class StorageService implements OnModuleInit {
         './data'
       );
 
-      // Check if local storage directory exists
-      if (!fs.existsSync(localPath)) {
+      // Check if local storage directory exists. Resolve first — a raw
+      // relative path here would be CWD-dependent and could miss the real dir.
+      const resolvedLocalPath = resolveLocalStorageBasePath(localPath);
+      if (!fs.existsSync(resolvedLocalPath)) {
         this.logger.log(
-          `No local storage directory found at ${localPath}, skipping migration`
+          `No local storage directory found at ${resolvedLocalPath}, skipping migration`
         );
         return;
       }
@@ -324,7 +332,7 @@ export class StorageService implements OnModuleInit {
 
       // Check if already downloaded
       if (fs.existsSync(tempFilePath)) {
-        this.logger.log(`Using cached temp file: ${tempFilePath}`);
+        this.logger.debug(`Using cached temp file: ${tempFilePath}`);
         return tempFilePath;
       }
 
@@ -334,7 +342,7 @@ export class StorageService implements OnModuleInit {
       // difference in process memory. Write to a .part file and rename so the
       // "already downloaded" check above never picks up a partial download
       // left behind by a failed or interrupted attempt.
-      this.logger.log(`Downloading ${storagePath} to ${tempFilePath}`);
+      this.logger.debug(`Downloading ${storagePath} to ${tempFilePath}`);
       const stream = await this.backend.download(storagePath);
       const partFilePath = `${tempFilePath}.part`;
 
@@ -349,7 +357,7 @@ export class StorageService implements OnModuleInit {
         throw error;
       }
 
-      this.logger.log(
+      this.logger.debug(
         `Downloaded ${storagePath} to temp file: ${tempFilePath}`
       );
       return tempFilePath;
@@ -372,7 +380,7 @@ export class StorageService implements OnModuleInit {
   ): Promise<void> {
     try {
       await this.backend.upload(data, storagePath);
-      this.logger.log(`Uploaded file to storage: ${storagePath}`);
+      this.logger.debug(`Uploaded file to storage: ${storagePath}`);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -417,7 +425,7 @@ export class StorageService implements OnModuleInit {
   async delete(storagePath: string): Promise<void> {
     try {
       await this.backend.delete(storagePath);
-      this.logger.log(`Deleted file from storage: ${storagePath}`);
+      this.logger.debug(`Deleted file from storage: ${storagePath}`);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -487,7 +495,7 @@ export class StorageService implements OnModuleInit {
       const tempDir = path.join(os.tmpdir(), 'worker-temp', recordId);
       if (fs.existsSync(tempDir)) {
         await fs.promises.rm(tempDir, { recursive: true, force: true });
-        this.logger.log(`Cleaned up temp directory: ${tempDir}`);
+        this.logger.debug(`Cleaned up temp directory: ${tempDir}`);
       }
     } catch (error) {
       const errorMessage =
@@ -510,7 +518,7 @@ export class StorageService implements OnModuleInit {
       const renderDir = this.getRenderDir(workspaceId, taskId);
       if (fs.existsSync(renderDir)) {
         await fs.promises.rm(renderDir, { recursive: true, force: true });
-        this.logger.log(`Cleaned up render directory: ${renderDir}`);
+        this.logger.debug(`Cleaned up render directory: ${renderDir}`);
       }
     } catch (error) {
       const errorMessage =
@@ -544,7 +552,7 @@ export class StorageService implements OnModuleInit {
       );
       if (fs.existsSync(transcodeDir)) {
         await fs.promises.rm(transcodeDir, { recursive: true, force: true });
-        this.logger.log(`Cleaned up transcode directory: ${transcodeDir}`);
+        this.logger.debug(`Cleaned up transcode directory: ${transcodeDir}`);
       }
     } catch (error) {
       const errorMessage =
@@ -587,7 +595,7 @@ export class StorageService implements OnModuleInit {
           if (stat.mtimeMs >= cutoff) continue; // recently active -> keep
           await fs.promises.rm(dir, { recursive: true, force: true });
           removed++;
-          this.logger.log(`Removed stale working dir: ${dir}`);
+          this.logger.debug(`Removed stale working dir: ${dir}`);
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           this.logger.warn(`Failed to remove stale dir ${dir}: ${msg}`);
@@ -682,7 +690,7 @@ export class StorageService implements OnModuleInit {
             if (stat.mtimeMs >= cutoff) continue; // possibly in-flight -> keep
             await fs.promises.rm(dir, { recursive: true, force: true });
             purged++;
-            this.logger.log(`Purged orphaned ${cat.top} dir: ${dir}`);
+            this.logger.debug(`Purged orphaned ${cat.top} dir: ${dir}`);
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.logger.warn(`Failed to purge ${dir}: ${msg}`);
@@ -805,45 +813,11 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
-   * Resolve a (possibly relative) basePath to an absolute path.
-   * Ensures paths resolve relative to project root, not the worker subdirectory.
-   * This allows "./data" to resolve to project root's data/ whether running from
-   * project root or worker/ subdirectory.
-   * Prioritizes environment variables for Docker deployments:
-   * 1. WORKER_DATA_DIR (explicit configuration)
-   */
-  private resolveBasePath(basePath: string): string {
-    // Check for WORKER_DATA_DIR environment variable first (most explicit)
-    if (process.env.WORKER_DATA_DIR) {
-      return path.resolve(process.env.WORKER_DATA_DIR);
-    }
-
-    // If path is already absolute, use it as-is
-    if (path.isAbsolute(basePath)) return basePath;
-
-    const cwd = process.cwd();
-    const basename = path.basename(cwd);
-
-    // If running from worker/ subdirectory, resolve relative to parent (project root)
-    if (
-      basename === 'worker' ||
-      cwd.endsWith('/worker') ||
-      cwd.endsWith('\\worker')
-    ) {
-      // Remove "./" prefix if present for cleaner resolution
-      const cleanPath = basePath.startsWith('./')
-        ? basePath.slice(2)
-        : basePath;
-      return path.resolve(path.dirname(cwd), cleanPath);
-    }
-
-    // Otherwise resolve relative to current working directory (project root)
-    return path.resolve(cwd, basePath);
-  }
-
-  /**
-   * Get the base storage path for local storage
-   * Returns the resolved path relative to project root
+   * Get the absolute base directory for local storage. Delegates to the
+   * shared resolver (the same one LocalStorageBackend uses) so this service
+   * and the backend always agree on where files live. A previous private
+   * re-implementation here resolved relative paths differently and made the
+   * worker internally inconsistent (transcode outputs vs upload reads).
    */
   getBasePath(): string {
     // If we've already resolved it during initialization, return that
@@ -856,9 +830,7 @@ export class StorageService implements OnModuleInit {
       'storage.localPath',
       './data'
     );
-
-    // Resolve the path
-    return this.resolveBasePath(localPath);
+    return resolveLocalStorageBasePath(localPath);
   }
 
   /**

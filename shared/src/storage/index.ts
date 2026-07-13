@@ -1,3 +1,11 @@
+/**
+ * SERVER-ONLY entrypoint: imports Node built-ins (fs, stream) and the AWS
+ * SDK. Browser bundles resolve `@project/shared/storage` to
+ * ./browser-stub.ts via the `browser` condition in package.json `exports`,
+ * so importing this from client code throws at module evaluation.
+ * Browser-safety of all other entrypoints is enforced by
+ * src/__tests__/browser-safety.test.ts.
+ */
 import { StorageBackendType } from '../enums';
 import { LocalStorageBackend } from './local-backend';
 import { S3StorageBackend } from './s3-backend';
@@ -40,5 +48,6 @@ export async function createStorageBackend(
 
 // Re-export types and implementations
 export * from './types';
+export { resolveLocalStorageBasePath } from './base-path';
 export { LocalStorageBackend } from './local-backend';
 export { S3StorageBackend } from './s3-backend';

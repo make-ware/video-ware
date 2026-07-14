@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.1...video-ware-v0.9.2) (2026-07-14)
+
+
+### Bug Fixes
+
+* add non-destructive timeline shifting ([98785bd](https://github.com/make-ware/video-ware/commit/98785bdfed029b88c19d7e0dfc5afb9f95bc5ca8))
+* add timeline preview double buffer ([8902b4e](https://github.com/make-ware/video-ware/commit/8902b4ec3d188730684c094e273b1f322a7b2243))
+* allow delete timeline renders ([c0fc4a3](https://github.com/make-ware/video-ware/commit/c0fc4a364ad33afe51856b695e6c276136a31816))
+
 ## [0.9.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.0...video-ware-v0.9.1) (2026-07-13)
 
 

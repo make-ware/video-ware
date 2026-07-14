@@ -1,7 +1,11 @@
 import type { TimelineClip } from '../schema/timeline-clip.js';
 import type { Timeline } from '../schema/timeline.js';
 import type { TimelineTrackRecord } from '../schema/timeline-track.js';
+import type { TypedPocketBase } from '../types.js';
 import { MAX_NESTED_TIMELINE_DEPTH, MAX_PLAYBACK_CHANNELS } from '../enums.js';
+import { TimelineMutator } from '../mutators/timeline.js';
+import { TimelineClipMutator } from '../mutators/timeline-clip.js';
+import { TimelineTrackMutator } from '../mutators/timeline-track.js';
 import {
   buildPlaybackTracks,
   type PlacedClip,
@@ -61,6 +65,73 @@ export function wouldCreateTimelineCycle(
     if (data) queue.push(...collectNestedTimelineIds(data.clips));
   }
   return false;
+}
+
+/**
+ * Fetch clips + tracks for every timeline referenced by nested-timeline
+ * clips, breadth-first through nested-in-nested references up to
+ * MAX_NESTED_TIMELINE_DEPTH. `visited` seeds the ids to skip (pass the root
+ * timeline id, so self-references never fetch).
+ *
+ * The single source of truth for the nested-tree walk — the webapp editor
+ * (load/save/render) and the `vw timeline reflow`/`doctor` CLI both call it,
+ * so both heal against an identically fetched tree (same cycle handling and
+ * depth limit). A deleted or inaccessible source timeline is skipped: the
+ * referencing clip stays but plays/renders as nothing, like missing media.
+ */
+export async function fetchNestedTimelineMap(
+  pb: TypedPocketBase,
+  clips: TimelineClip[],
+  visited: Set<string>
+): Promise<NestedTimelineMap> {
+  const timelineMutator = new TimelineMutator(pb);
+  const clipMutator = new TimelineClipMutator(pb);
+  const trackMutator = new TimelineTrackMutator(pb);
+
+  const map: NestedTimelineMap = {};
+  let frontier = collectNestedTimelineIds(clips).filter(
+    (id) => !visited.has(id)
+  );
+
+  for (
+    let depth = 0;
+    frontier.length > 0 && depth < MAX_NESTED_TIMELINE_DEPTH;
+    depth++
+  ) {
+    frontier.forEach((id) => visited.add(id));
+    const results = await Promise.all(
+      frontier.map(async (id) => {
+        try {
+          const [timeline, nestedClips, nestedTracks] = await Promise.all([
+            timelineMutator.getById(id),
+            clipMutator.getByTimeline(id),
+            trackMutator.getByTimeline(id),
+          ]);
+          if (!timeline) return null;
+          return {
+            id,
+            data: { timeline, clips: nestedClips, tracks: nestedTracks.items },
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const next: string[] = [];
+    for (const result of results) {
+      if (!result) continue;
+      map[result.id] = result.data;
+      next.push(
+        ...collectNestedTimelineIds(result.data.clips).filter(
+          (id) => !visited.has(id)
+        )
+      );
+    }
+    frontier = [...new Set(next)];
+  }
+
+  return map;
 }
 
 /**

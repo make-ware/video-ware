@@ -4,6 +4,7 @@ import {
   overlapClusters,
   trackGaps,
 } from './timeline-inspect.js';
+import { planTimelineReflow } from './timeline-reflow.js';
 
 /**
  * `timeline doctor`: verifiable health checks over a timeline's placed
@@ -21,6 +22,7 @@ export type DoctorCode =
   | 'dangling-caption'
   | 'stale-timeline-duration'
   | 'stale-clip-duration'
+  | 'nested-window-drift'
   | 'track-gap';
 
 export interface DoctorFinding {
@@ -138,6 +140,39 @@ export async function doctorTimeline(
         });
       }
     }
+  }
+
+  // Nested-timeline clip windows drift when their source timelines grow or
+  // shrink after insert; the webapp heals this in memory on load/render and
+  // persists a timeline's own clips on save. Only window/duration changes
+  // count as drift — position-only shifts are covered by their own findings.
+  // Reuse the root clips/tracks already loaded above; reflow fetches only the
+  // nested tree the overview didn't carry.
+  const reflow = await planTimelineReflow(
+    pb,
+    timelineId,
+    overview.clips,
+    overview.trackRecords
+  );
+  for (const plan of reflow.plans) {
+    const drifted = plan.changes.filter(
+      (c) =>
+        c.start !== undefined || c.end !== undefined || c.duration !== undefined
+    );
+    if (drifted.length === 0) continue;
+    const scope =
+      plan.timelineId === timelineId
+        ? 'timeline'
+        : `nested timeline ${plan.timelineId}`;
+    findings.push({
+      level: 'warning',
+      code: 'nested-window-drift',
+      clipIds: drifted.map((c) => c.clipId),
+      message:
+        `${scope}: ${drifted.length} clip(s) drifted from their ` +
+        'source timeline durations — healed in memory on webapp ' +
+        `load/render; persist with \`vw timeline reflow ${timelineId}\``,
+    });
   }
 
   if (

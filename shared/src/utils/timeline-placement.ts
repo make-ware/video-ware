@@ -408,6 +408,28 @@ export interface PlaybackTrack {
 }
 
 /**
+ * Group clips by their owning track id, applying the fallbacks placement
+ * relies on: a clip with no TimelineTrackRef is assigned to the layer-0 (or
+ * first) track, and clips of a track-less legacy timeline collect under the
+ * `null` key as a single synthesized lane. Shared by buildPlaybackTracks and
+ * the reflow planner so both partition clips into lanes identically.
+ */
+export function groupClipsByTrack(
+  clips: TimelineClip[],
+  tracks: TimelineTrackRecord[]
+): Map<string | null, TimelineClip[]> {
+  const defaultTrack = tracks.find((t) => t.layer === 0) ?? tracks[0];
+  const clipsByTrack = new Map<string | null, TimelineClip[]>();
+  for (const clip of clips) {
+    const trackId = clip.TimelineTrackRef ?? defaultTrack?.id ?? null;
+    const trackClips = clipsByTrack.get(trackId) ?? [];
+    trackClips.push(clip);
+    clipsByTrack.set(trackId, trackClips);
+  }
+  return clipsByTrack;
+}
+
+/**
  * Resolve timeline clips into per-track placed clips for the preview player.
  *
  * Placement matches the editor lanes and the render path: clips with a
@@ -422,15 +444,7 @@ export function buildPlaybackTracks(
   clips: TimelineClip[],
   tracks: TimelineTrackRecord[]
 ): PlaybackTrack[] {
-  const defaultTrack = tracks.find((t) => t.layer === 0) ?? tracks[0];
-
-  const clipsByTrack = new Map<string | null, TimelineClip[]>();
-  for (const clip of clips) {
-    const trackId = clip.TimelineTrackRef ?? defaultTrack?.id ?? null;
-    const trackClips = clipsByTrack.get(trackId) ?? [];
-    trackClips.push(clip);
-    clipsByTrack.set(trackId, trackClips);
-  }
+  const clipsByTrack = groupClipsByTrack(clips, tracks);
 
   const playbackTracks: PlaybackTrack[] = [];
 

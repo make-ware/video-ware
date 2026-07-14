@@ -8,6 +8,7 @@ export * from './segment-edits.js';
 export * from './captions.js';
 export * from './timeline-placement.js';
 export * from './nested-timeline.js';
+export * from './timeline-reflow.js';
 export * from './speaker.js';
 
 import { z } from 'zod';

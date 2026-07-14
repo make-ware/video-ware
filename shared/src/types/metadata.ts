@@ -316,6 +316,12 @@ export const TimelineClipMetadataSchema = z.object({
     .optional(),
   mediaMissing: z.boolean().optional(), // set when source media is deleted
   gain: z.number().min(0).max(1).optional(), // per-clip audio gain, 0.0–1.0 (default 1.0)
+  // Nested-timeline clips only: window follows the source timeline's live
+  // duration (untrimmed). Cleared when the user trims away from full span.
+  followSource: z.boolean().optional(),
+  // Set by reflow when a trimmed window fell wholly beyond a shrunk source
+  // and was clamped to its tail; cleared on the next successful user trim.
+  sourceOutOfRange: z.boolean().optional(),
 });
 
 // ============================================================================

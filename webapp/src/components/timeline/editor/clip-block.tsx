@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Type, Layers } from 'lucide-react';
+import { Type, Layers, AlertTriangle } from 'lucide-react';
 import {
   getClipTimelineDuration,
   type TimelineClip,
@@ -152,6 +152,14 @@ export function ClipBlock({
               sourceTimeline?.name ||
               'Timeline'}
           </span>
+          {clip.meta?.sourceOutOfRange === true && (
+            <span
+              className="pointer-events-auto shrink-0"
+              title="The source timeline shrank past this clip's trim; it was moved to the source's tail. Re-trim to choose the content."
+            >
+              <AlertTriangle className="h-3 w-3 text-amber-400 drop-shadow-md" />
+            </span>
+          )}
         </div>
       )}
 

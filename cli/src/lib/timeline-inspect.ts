@@ -11,6 +11,7 @@ import {
   type MediaClipLabel,
   type PlacedClip,
   type Timeline,
+  type TimelineClip,
   type TimelineTrackRecord,
   type TypedPocketBase,
 } from '@project/shared';
@@ -56,6 +57,9 @@ export interface TimelineOverview {
   computedDuration: number;
   clipCount: number;
   tracks: TrackOverview[];
+  /** Raw records backing the placed view, so callers (reflow) skip re-fetching. */
+  clips: TimelineClip[];
+  trackRecords: TimelineTrackRecord[];
 }
 
 function toClipInfo(placed: PlacedClip): InspectClipInfo {
@@ -111,6 +115,8 @@ export async function getTimelineOverview(
     computedDuration: computeTimelineDuration(clips, trackRecords),
     clipCount: clips.length,
     tracks,
+    clips,
+    trackRecords,
   };
 }
 

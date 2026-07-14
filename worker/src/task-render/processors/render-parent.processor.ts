@@ -117,7 +117,7 @@ export class RenderParentProcessor extends BaseFlowProcessor {
 
     const childrenValues = await job.getChildrenValues();
 
-    this.logger.log(`All children completed for task ${taskId}`, {
+    this.logger.debug(`All children completed for task ${taskId}`, {
       childrenCount: Object.keys(childrenValues).length,
     });
 
@@ -137,7 +137,7 @@ export class RenderParentProcessor extends BaseFlowProcessor {
       throw new Error(`Task failed with ${failedSteps.length} failed steps`);
     }
 
-    this.logger.log(`Task ${taskId} completed successfully`);
+    this.logger.debug(`Task ${taskId} completed successfully`);
   }
 
   /**
@@ -147,7 +147,7 @@ export class RenderParentProcessor extends BaseFlowProcessor {
     const { stepType, input } = job.data;
     const startedAt = new Date();
 
-    this.logger.log(`Processing step ${stepType} for job ${job.id}`);
+    this.logger.debug(`Processing step ${stepType} for job ${job.id}`);
 
     try {
       let output: unknown;

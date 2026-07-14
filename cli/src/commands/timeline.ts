@@ -28,6 +28,7 @@ import {
   type TrackOverview,
 } from '../lib/timeline-inspect.js';
 import { doctorTimeline } from '../lib/timeline-doctor.js';
+import { reflowTimelineClips } from '../lib/timeline-reflow.js';
 import { LABEL_TYPE_CONFIG, confidenceOf } from '../lib/label.js';
 import {
   buildRenderConfig,
@@ -619,6 +620,75 @@ export function registerTimelineCommands(program: Command): void {
       } else {
         error(
           `${report.errors} error(s), ${report.warnings} warning(s), ${infos} info note(s).`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  withJsonOption(
+    timeline
+      .command('reflow [timelineId]')
+      .description(
+        'Heal nested-timeline clip drift (gap-preserving reflow of each track)'
+      )
+      .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
+      .option('-w, --workspace <id>', 'workspace id override')
+      .option('--dry-run', 'compute and report the plan without writing')
+  ).action(async (timelineIdArg: string | undefined, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+
+      const result = await reflowTimelineClips(pb, timelineId, {
+        dryRun: opts.dryRun,
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+
+      if (result.changeCount === 0) {
+        success('No drift — nothing to reflow.');
+        return;
+      }
+      for (const plan of result.plans) {
+        const scope =
+          plan.timelineId === timelineId
+            ? 'timeline'
+            : `nested timeline ${plan.timelineId}`;
+        info(`${scope}: ${plan.changes.length} clip change(s)`);
+        for (const change of plan.changes) {
+          const parts = [
+            change.timelineStart !== undefined
+              ? `at ${secs(change.timelineStart)}`
+              : '',
+            change.start !== undefined && change.end !== undefined
+              ? `window ${range(change.start, change.end)}`
+              : '',
+            change.duration !== undefined
+              ? `duration ${secs(change.duration)}`
+              : '',
+            change.meta ? 'meta' : '',
+          ];
+          info(`  ${change.clipId}  ${parts.filter(Boolean).join('  ')}`);
+        }
+      }
+      if (result.applied) {
+        success(`Applied ${result.changeCount} clip change(s).`);
+      } else {
+        info(
+          `Dry run — ${result.changeCount} clip change(s) pending; re-run without --dry-run to apply.`
         );
       }
     } catch (err) {

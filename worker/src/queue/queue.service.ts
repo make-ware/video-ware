@@ -32,7 +32,7 @@ export class QueueService {
    * @returns Job ID or parent job ID
    */
   async enqueueTask(task: Task): Promise<string> {
-    this.logger.log(`Enqueueing task ${task.id} (type: ${task.type})`);
+    this.logger.debug(`Enqueueing task ${task.id} (type: ${task.type})`);
 
     switch (task.type as TaskType) {
       // Flow-based jobs (multi-step with parent-child relationships)

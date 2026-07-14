@@ -505,6 +505,46 @@ export function findActiveClip(
 }
 
 /**
+ * Find the next clip starting strictly after a given timeline time — the
+ * earliest upcoming globalStart, whether the time falls inside a clip or in a
+ * gap. Used by the preview player to preload the upcoming clip before the
+ * playhead reaches it.
+ */
+export function findNextClip(
+  placed: PlacedClip[],
+  time: number
+): PlacedClip | undefined {
+  let next: PlacedClip | undefined;
+  for (const p of placed) {
+    if (p.globalStart > time && (!next || p.globalStart < next.globalStart)) {
+      next = p;
+    }
+  }
+  return next;
+}
+
+/**
+ * The source-media time a clip plays at a given on-timeline offset from its
+ * start. Composite clips map the offset through their edit list — windowed by
+ * the clip's start/end trim — so cut and trimmed content is skipped, matching
+ * the render; plain clips map linearly from the trim window. Offset 0 is the
+ * clip's first visible source frame.
+ */
+export function clipSourceTimeAtOffset(
+  clip: TimelineClip,
+  offset: number
+): number {
+  const segments = getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return sourceTimeAtCompositeOffset(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      offset
+    );
+  }
+  return offset + clip.start;
+}
+
+/**
  * Total timeline duration: the furthest end of any placed clip across all
  * tracks. (Summing clip durations is wrong once clips overlap across tracks
  * or use explicit timelineStart positions.)

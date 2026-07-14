@@ -3,9 +3,11 @@ import type { TimelineClip } from '../../schema/timeline-clip.js';
 import type { TimelineTrackRecord } from '../../schema/timeline-track.js';
 import {
   buildPlaybackTracks,
+  clipSourceTimeAtOffset,
   computeClipPlacement,
   computeTimelineDuration,
   findActiveClip,
+  findNextClip,
   findNonOverlappingTimelineStart,
   getClipRanges,
   getClipTimelineDuration,
@@ -574,6 +576,161 @@ describe('findActiveClip', () => {
     expect(findActiveClip(track.mediaClips, 2)?.clip.id).toBe('c1');
     expect(findActiveClip(track.mediaClips, 5.99)?.clip.id).toBe('c1');
     expect(findActiveClip(track.mediaClips, 6)).toBeUndefined();
+  });
+});
+
+describe('findNextClip', () => {
+  const place = (clips: TimelineClip[]) => {
+    const tracks = [makeTrack({ id: 't0', layer: 0 })];
+    return buildPlaybackTracks(clips, tracks)[0].mediaClips;
+  };
+
+  it('returns undefined for an empty list', () => {
+    expect(findNextClip([], 0)).toBeUndefined();
+  });
+
+  it('returns the first clip when the time is before it', () => {
+    const placed = place([
+      makeClip({ id: 'c1', timelineStart: 4, start: 0, end: 3 }),
+    ]);
+    expect(findNextClip(placed, 0)?.clip.id).toBe('c1');
+  });
+
+  it('returns the following clip from inside a clip', () => {
+    const placed = place([
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 4 }),
+      makeClip({ id: 'c2', timelineStart: 4, start: 0, end: 3 }),
+    ]);
+    expect(findNextClip(placed, 1.5)?.clip.id).toBe('c2');
+  });
+
+  it('returns the following clip from inside a gap', () => {
+    const placed = place([
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 3 }),
+      makeClip({ id: 'c2', timelineStart: 8, start: 0, end: 2 }),
+    ]);
+    expect(findNextClip(placed, 5)?.clip.id).toBe('c2');
+  });
+
+  it('skips the newly active clip at an exact back-to-back boundary', () => {
+    // findActiveClip's interval is [start, end): at t=4 c2 is active, so the
+    // next clip is c3
+    const placed = place([
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 4 }),
+      makeClip({ id: 'c2', timelineStart: 4, start: 0, end: 4 }),
+      makeClip({ id: 'c3', timelineStart: 8, start: 0, end: 2 }),
+    ]);
+    expect(findActiveClip(placed, 4)?.clip.id).toBe('c2');
+    expect(findNextClip(placed, 4)?.clip.id).toBe('c3');
+  });
+
+  it('returns undefined after the last clip starts', () => {
+    const placed = place([
+      makeClip({ id: 'c1', timelineStart: 0, start: 0, end: 4 }),
+    ]);
+    expect(findNextClip(placed, 2)).toBeUndefined();
+    expect(findNextClip(placed, 10)).toBeUndefined();
+  });
+
+  it('picks the earliest upcoming clip from unsorted input', () => {
+    const placed = [
+      {
+        clip: makeClip({ id: 'late', start: 0, end: 2 }),
+        globalStart: 9,
+        globalEnd: 11,
+      },
+      {
+        clip: makeClip({ id: 'soon', start: 0, end: 2 }),
+        globalStart: 5,
+        globalEnd: 7,
+      },
+    ];
+    expect(findNextClip(placed, 3)?.clip.id).toBe('soon');
+  });
+});
+
+describe('clipSourceTimeAtOffset', () => {
+  it('maps plain clips linearly from the trim window', () => {
+    const clip = makeClip({ id: 'c1', start: 2, end: 9, duration: 7 });
+    expect(clipSourceTimeAtOffset(clip, 0)).toBe(2);
+    expect(clipSourceTimeAtOffset(clip, 3)).toBe(5);
+  });
+
+  it('maps composite clips through meta.segments', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 10,
+      end: 23,
+      duration: 5,
+      meta: {
+        segments: [
+          { start: 10, end: 12 },
+          { start: 20, end: 23 },
+        ],
+      },
+    });
+    expect(clipSourceTimeAtOffset(clip, 0)).toBe(10);
+    expect(clipSourceTimeAtOffset(clip, 1)).toBe(11);
+    // Past the first 2s segment: 0.5s into the second segment
+    expect(clipSourceTimeAtOffset(clip, 2.5)).toBe(20.5);
+  });
+
+  it('windows the edit list by the clip start/end trim', () => {
+    // Full list [10,12] + [20,23]; trim window 11–22 keeps [11,12] + [20,22]
+    const clip = makeClip({
+      id: 'c1',
+      start: 11,
+      end: 22,
+      duration: 3,
+      meta: {
+        segments: [
+          { start: 10, end: 12 },
+          { start: 20, end: 23 },
+        ],
+      },
+    });
+    expect(clipSourceTimeAtOffset(clip, 0)).toBe(11);
+    expect(clipSourceTimeAtOffset(clip, 1.5)).toBe(20.5);
+  });
+
+  it('falls back to expanded MediaClip segments, with meta winning', () => {
+    const viaMediaClip = makeClip({
+      id: 'c1',
+      start: 0,
+      end: 30,
+      duration: 20,
+      MediaClipRef: 'mc-1',
+    });
+    (viaMediaClip as TimelineClip & { expand?: unknown }).expand = {
+      MediaClipRef: {
+        id: 'mc-1',
+        type: 'composite',
+        clipData: {
+          segments: [
+            { start: 0, end: 10 },
+            { start: 20, end: 30 },
+          ],
+        },
+      },
+    };
+    expect(clipSourceTimeAtOffset(viaMediaClip, 15)).toBe(25);
+
+    const withOverride = makeClip({
+      id: 'c2',
+      start: 0,
+      end: 30,
+      duration: 5,
+      MediaClipRef: 'mc-1',
+      meta: { segments: [{ start: 3, end: 8 }] },
+    });
+    (withOverride as TimelineClip & { expand?: unknown }).expand = {
+      MediaClipRef: {
+        id: 'mc-1',
+        type: 'composite',
+        clipData: { segments: [{ start: 0, end: 10 }] },
+      },
+    };
+    expect(clipSourceTimeAtOffset(withOverride, 1)).toBe(4);
   });
 });
 

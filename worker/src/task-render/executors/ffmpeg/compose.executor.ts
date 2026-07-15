@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import * as fs from 'fs';
 import * as path from 'path';
 import { FFmpegService } from '../../../shared/services/ffmpeg.service';
 import type { IRenderExecutor, RenderExecutorResult } from '../interfaces';
@@ -7,6 +8,7 @@ import type {
   Media,
   TimelineTrack,
 } from '@project/shared';
+import { planRenderWindows, clipTracksToWindow } from './render-windows';
 
 /**
  * Every segment branch is normalized to this constant frame rate and the black
@@ -20,15 +22,46 @@ import type {
 const RENDER_FPS = 30;
 
 /**
- * Input count at which a render risks exhausting the OS thread/PID budget.
- * The per-segment-input model opens one demuxer + decoder per input, and each
- * decoder spawns its own (auto-sized) thread pool at startup — with hundreds
- * of inputs on a many-core host that multiplies into thousands of threads,
- * and pthread_create() starts failing with EAGAIN (observed at ~137 HEVC
- * inputs inside a default-limited container). We warn rather than fail: the
- * actual ceiling depends on the container's pids limit and core count.
+ * Bounded multi-pass render (Tier 2). ffmpeg opens every demuxer + decoder
+ * at startup, so a single-pass render of a heavily segmented timeline
+ * (one seeked input per segment) exhausts threads (pthread_create EAGAIN,
+ * observed at ~137 HEVC inputs) and then memory (each open HEVC decoder
+ * holds reference-frame buffers — kernel OOM kill). Above the input cap the
+ * timeline renders in sequential time windows (video-only parts), audio
+ * renders in one cheap full-timeline pass, and a lossless concat assembles
+ * the output — peak memory/threads become independent of timeline length.
  */
-const HIGH_INPUT_COUNT_WARNING = 100;
+const DEFAULT_MAX_INPUTS_PER_PASS = 24;
+const DEFAULT_RENDER_WINDOW_SEC = 60;
+
+/**
+ * All parts share one exact, 30fps-divisible mp4 timescale (512 × 30) so
+ * concat-copied parts join without timestamp rounding drift.
+ */
+const PART_VIDEO_TIMESCALE = 15360;
+
+const intFromEnv = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
+ * Pass shape for buildFFmpegCommand. 'full' is the single-pass path,
+ * byte-identical to the pre-Tier-2 behaviour. 'video-only' renders one
+ * window's visual tracks (no audio graph, part timescale pinned);
+ * 'audio-only' renders the whole timeline's audio graph (no canvas, no
+ * video encode).
+ */
+interface BuildOptions {
+  mode: 'full' | 'video-only' | 'audio-only';
+  /**
+   * Exact duration for the black base canvas. A window must pad to its
+   * planned end even when its content ends early — a short part would
+   * desynchronize everything after it at concat time.
+   */
+  totalDurationOverride?: number;
+}
 
 /**
  * Image formats safe for `-loop 1` input-level looping (image2 demuxer).
@@ -55,6 +88,10 @@ const STATIC_IMAGE_EXTENSIONS = new Set([
  * - Branches are fps-normalized (RENDER_FPS) so framesync buffering stays
  *   bounded. Threading is left to ffmpeg's auto-sizing — with the above in
  *   place, threads scale the working set only linearly.
+ * - Above RENDER_MAX_INPUTS_PER_PASS total inputs, the render switches to
+ *   the bounded multi-pass mode (see executeMultiPass): windowed video-only
+ *   passes + one audio pass + lossless concat, so peak decoder count is
+ *   capped no matter how long the timeline is.
  */
 @Injectable()
 export class FFmpegComposeExecutor implements IRenderExecutor {
@@ -104,23 +141,31 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         `Timeline graph: ${inputCount} ffmpeg inputs across ` +
           `${tracks.length} tracks, ${totalDuration}s`
       );
-      if (inputCount >= HIGH_INPUT_COUNT_WARNING) {
-        this.logger.warn(
-          `Render opens ${inputCount} ffmpeg inputs — each spawns its own ` +
-            `decoder thread pool, which can exceed the container thread/PID ` +
-            `limit (pthread_create EAGAIN). If this render fails, raise the ` +
-            `limit (e.g. docker --pids-limit) or split the timeline into ` +
-            `shorter renders.`
+
+      const maxInputsPerPass = intFromEnv(
+        'RENDER_MAX_INPUTS_PER_PASS',
+        DEFAULT_MAX_INPUTS_PER_PASS
+      );
+      if (inputCount <= maxInputsPerPass) {
+        // Execute FFmpeg with progress tracking against the known timeline
+        // duration (the first input's duration is meaningless for a
+        // composition)
+        await this.ffmpegService.executeWithProgress(
+          ffmpegArgs,
+          onProgress || (() => {}),
+          totalDuration
+        );
+      } else {
+        await this.executeMultiPass(
+          tracks,
+          clipMediaMap,
+          outputPath,
+          outputSettings,
+          totalDuration,
+          maxInputsPerPass,
+          onProgress
         );
       }
-
-      // Execute FFmpeg with progress tracking against the known timeline
-      // duration (the first input's duration is meaningless for a composition)
-      await this.ffmpegService.executeWithProgress(
-        ffmpegArgs,
-        onProgress || (() => {}),
-        totalDuration
-      );
 
       // Probe the rendered video to get metadata
       const probeResult = await this.ffmpegService.probe(outputPath);
@@ -178,6 +223,140 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
   }
 
   /**
+   * Bounded multi-pass render: sequential video-only window passes, one
+   * full-timeline audio pass, then a lossless concat + mux. Intermediates
+   * live in `<renderDir>/parts/`, which the existing cleanupRenderDir (and
+   * stale sweep) reclaim — no extra cleanup needed here, on failure either.
+   */
+  private async executeMultiPass(
+    tracks: TimelineTrack[],
+    clipMediaMap: Record<string, { media: Media; filePath: string }>,
+    outputPath: string,
+    outputSettings: RenderTimelinePayload['outputSettings'],
+    totalDuration: number,
+    maxInputsPerPass: number,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    const windowSec = intFromEnv(
+      'RENDER_WINDOW_SEC',
+      DEFAULT_RENDER_WINDOW_SEC
+    );
+    const windows = planRenderWindows(tracks, totalDuration, {
+      windowSec,
+      maxInputsPerPass,
+    });
+    const partsDir = path.join(path.dirname(outputPath), 'parts');
+    await fs.promises.mkdir(partsDir, { recursive: true });
+
+    this.logger.log(
+      `Bounded multi-pass render: ${windows.length} video windows ` +
+        `(≤${maxInputsPerPass} inputs/pass, target ${windowSec}s/window) ` +
+        `+ audio pass + concat`
+    );
+
+    const report = onProgress || (() => {});
+
+    // Pass A: sequential per-window video-only renders → 0–90% of progress,
+    // weighted by window duration.
+    const partPaths: string[] = [];
+    let renderedSec = 0;
+    for (const [i, window] of windows.entries()) {
+      const windowLen = window.end - window.start;
+      if (window.inputCount > maxInputsPerPass) {
+        this.logger.warn(
+          `Render window ${i} [${window.start}s–${window.end}s] overlaps ` +
+            `${window.inputCount} inputs (cap ${maxInputsPerPass}) — ` +
+            `simultaneously stacked clips cannot be split by time, so this ` +
+            `pass opens them all; it may still exhaust threads/memory`
+        );
+      }
+      const partPath = path.join(
+        partsDir,
+        `part-${String(i).padStart(3, '0')}.mp4`
+      );
+      const { args } = this.buildFFmpegCommand(
+        clipTracksToWindow(tracks, window),
+        clipMediaMap,
+        partPath,
+        outputSettings,
+        { mode: 'video-only', totalDurationOverride: windowLen }
+      );
+      this.logger.debug(
+        `Rendering window ${i + 1}/${windows.length} ` +
+          `[${window.start}s–${window.end}s], ${window.inputCount} inputs`
+      );
+      const baseSec = renderedSec;
+      await this.ffmpegService.executeWithProgress(
+        args,
+        (p) => report(((baseSec + (p / 100) * windowLen) / totalDuration) * 90),
+        windowLen
+      );
+      renderedSec += windowLen;
+      partPaths.push(partPath);
+    }
+
+    // Pass B: one full-timeline audio-only pass → 90–97%. Audio decoders are
+    // cheap (no frame threads, no reference-frame buffers), and a single pass
+    // keeps per-segment afades intact and avoids AAC priming-gap artifacts
+    // that windowed audio would produce at every concat join.
+    const audioPath = path.join(partsDir, 'audio.m4a');
+    const { args: audioArgs } = this.buildFFmpegCommand(
+      tracks,
+      clipMediaMap,
+      audioPath,
+      outputSettings,
+      { mode: 'audio-only' }
+    );
+    this.logger.debug(`Rendering audio pass (${totalDuration}s)`);
+    await this.ffmpegService.executeWithProgress(
+      audioArgs,
+      (p) => report(90 + (p / 100) * 7),
+      totalDuration
+    );
+
+    // Pass C: lossless assembly → 97–100%. Parts share codec settings and
+    // timescale, so the concat demuxer stream-copies them; audio is already
+    // aac and is stream-copied too.
+    const listPath = path.join(partsDir, 'list.txt');
+    const escapeConcatPath = (p: string) => p.replace(/'/g, "'\\''");
+    await fs.promises.writeFile(
+      listPath,
+      partPaths.map((p) => `file '${escapeConcatPath(p)}'`).join('\n') + '\n',
+      'utf8'
+    );
+    const concatArgs = [
+      '-y',
+      '-nostdin',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      listPath,
+      '-i',
+      audioPath,
+      '-map',
+      '0:v',
+      '-map',
+      '1:a',
+      '-c',
+      'copy',
+      '-f',
+      outputSettings.format,
+      outputPath,
+    ];
+    this.logger.debug(
+      `Concatenating ${partPaths.length} parts + audio into ${outputPath}`
+    );
+    await this.ffmpegService.executeWithProgress(
+      concatArgs,
+      (p) => report(97 + (p / 100) * 3),
+      totalDuration
+    );
+    report(100);
+  }
+
+  /**
    * Build FFmpeg command for timeline composition.
    * Returns the args plus the computed timeline duration (for progress
    * tracking and stall detection in the caller).
@@ -186,7 +365,8 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     tracks: TimelineTrack[],
     clipMediaMap: Record<string, { media: Media; filePath: string }>,
     outputPath: string,
-    outputSettings: RenderTimelinePayload['outputSettings']
+    outputSettings: RenderTimelinePayload['outputSettings'],
+    options: BuildOptions = { mode: 'full' }
   ): { args: string[]; totalDuration: number; inputCount: number } {
     // -y: overwrite output without prompting. -nostdin: never read stdin, so
     // ffmpeg can't pause waiting for interactive input under a job runner.
@@ -337,16 +517,24 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       }
     }
     totalDuration = totalDuration || 1;
+    if (options.totalDurationOverride !== undefined) {
+      totalDuration = fmtTime(options.totalDurationOverride);
+    }
     // r= pins the canvas to RENDER_FPS explicitly (color defaults to 25fps),
     // matching the fps-normalized segment branches so framesync never buffers
     // waiting for off-grid timestamps.
-    filterComplex.push(
-      `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
-    );
+    if (options.mode !== 'audio-only') {
+      filterComplex.push(
+        `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
+      );
+    }
 
     // Process Video/Image/Text Tracks
     for (const track of sortedTracks) {
       if (track.type === 'audio') {
+        // Audio renders in its own pass in multi-pass mode; a video-only
+        // window never opens audio inputs.
+        if (options.mode === 'video-only') continue;
         // Audio handled separately
         for (const seg of track.segments) {
           if (!seg.assetId) continue;
@@ -400,6 +588,10 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         }
         continue;
       }
+
+      // The audio-only pass builds no visual graph at all — no canvas, no
+      // decoders, no drawtext.
+      if (options.mode === 'audio-only') continue;
 
       // Visual Tracks (Video, Image, Text)
       for (const seg of track.segments) {
@@ -612,14 +804,16 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // full clip count (e.g. ÷3 for 3 clips) while later clips get progressively
     // louder. With normalize off each clip plays at its intended level; the
     // alimiter then guards against clipping when audio genuinely overlaps.
-    if (audioInputs.length > 0) {
-      filterComplex.push(
-        `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest:normalize=0,alimiter=limit=0.95[outa]`
-      );
-    } else {
-      filterComplex.push(
-        `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
-      );
+    if (options.mode !== 'video-only') {
+      if (audioInputs.length > 0) {
+        filterComplex.push(
+          `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest:normalize=0,alimiter=limit=0.95[outa]`
+        );
+      } else {
+        filterComplex.push(
+          `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
+        );
+      }
     }
 
     // Map Final Video
@@ -630,27 +824,42 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     args.push('-filter_complex', filterComplex.join('; '));
 
     // Map output streams
-    args.push('-map', lastVideoLabel, '-map', '[outa]');
+    if (options.mode === 'audio-only') {
+      args.push('-map', '[outa]');
+    } else if (options.mode === 'video-only') {
+      args.push('-map', lastVideoLabel);
+    } else {
+      args.push('-map', lastVideoLabel, '-map', '[outa]');
+    }
 
-    // Add output settings
-    args.push('-c:v', outputSettings.codec);
+    if (options.mode !== 'audio-only') {
+      // Add output settings
+      args.push('-c:v', outputSettings.codec);
 
-    // Add quality settings based on codec
-    this.addQualitySettings(
-      args,
-      outputSettings.codec,
-      targetWidth,
-      targetHeight
-    );
+      // Add quality settings based on codec
+      this.addQualitySettings(
+        args,
+        outputSettings.codec,
+        targetWidth,
+        targetHeight
+      );
 
-    // No -s here: the filtergraph already emits canvas-sized frames, and -s
-    // would insert a redundant second scaler.
+      // No -s here: the filtergraph already emits canvas-sized frames, and -s
+      // would insert a redundant second scaler.
+    }
 
-    // Add audio codec with high quality settings (higher bitrate = larger files, better quality)
-    args.push('-c:a', 'aac', '-b:a', '320k', '-ar', '48000');
+    if (options.mode === 'video-only') {
+      args.push('-video_track_timescale', String(PART_VIDEO_TIMESCALE));
+    }
 
-    // Add output format
-    args.push('-f', outputSettings.format);
+    if (options.mode !== 'video-only') {
+      // Add audio codec with high quality settings (higher bitrate = larger files, better quality)
+      args.push('-c:a', 'aac', '-b:a', '320k', '-ar', '48000');
+    }
+
+    // Add output format. Intermediate parts are always mp4 regardless of the
+    // requested final container — only the concat pass writes that format.
+    args.push('-f', options.mode === 'full' ? outputSettings.format : 'mp4');
 
     // Add output file
     args.push(outputPath);

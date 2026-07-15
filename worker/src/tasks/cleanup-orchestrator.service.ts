@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   FileStatus,
+  FileType,
   TaskStatus,
   type CleanupResult,
   type Media,
   type Task,
+  type TimelineRender,
 } from '@project/shared';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { StorageService } from '../shared/services/storage.service';
@@ -18,13 +20,28 @@ const SINGLE_REF_FIELDS = [
   'audioFileRef',
 ] as const;
 
+// Derived file types the unreferenced sweep may delete. ORIGINAL and
+// LABELS_JSON are deliberately excluded: originals are addressed via
+// Upload.externalPath / UploadRef lookups rather than a Media relation, so
+// "no relation points at it" does not mean unused.
+const UNREFERENCED_SWEEP_TYPES = [
+  FileType.PROXY,
+  FileType.SPRITE,
+  FileType.THUMBNAIL,
+  FileType.FILMSTRIP,
+  FileType.AUDIO,
+  FileType.RENDER,
+] as const;
+
 const MEDIA_PAGE_SIZE = 500;
 const FILE_PAGE_SIZE = 200;
 const ARTIFACT_PAGE_SIZE = 200;
+const RENDER_PAGE_SIZE = 500;
 
 // FAILED files younger than this are left alone (a retry may still be in flight);
-// also the staleness threshold for worker working directories. DELETED files are
-// pruned regardless of age.
+// also the minimum age for the unreferenced-files sweep (a task creates the File
+// before linking it to its Media/TimelineRender) and the staleness threshold for
+// worker working directories. DELETED files are pruned regardless of age.
 const GRACE_MS = 24 * 60 * 60 * 1000;
 
 // Safety bound so a pathological backlog can't run unboundedly in one pass.
@@ -36,14 +53,18 @@ const MAX_ARTIFACTS_PER_RUN = 5000;
  * flow): it claims the task (queued -> running) and owns its own status, so the
  * generic enqueue/claim path is bypassed for it.
  *
- * Steps (in order — prune must precede drain so files deleted this run are reaped
- * this run via the files-artifact-tombstone hook):
+ * Steps (in order — the prune steps must precede drain so files deleted this run
+ * are reaped this run via the files-artifact-tombstone hook):
  *   1. backfill missing Files.MediaRef links (legacy files),
  *   2. prune stale File records (soft-deleted, or failed past the grace window),
- *   3. drain the Artifacts queue (delete external blobs that outlived their File),
- *   4. reconcile the local storage tree — purge orphaned upload/transcode/label
+ *   3. prune unreferenced derived File records — proxies/sprites/thumbnails/
+ *      filmstrips/audio no Media relation points at and renders no
+ *      TimelineRender points at (e.g. a proxy superseded by a re-transcode, or
+ *      a render whose TimelineRender was deleted), past the grace window,
+ *   4. drain the Artifacts queue (delete external blobs that outlived their File),
+ *   5. reconcile the local storage tree — purge orphaned upload/transcode/label
  *      dirs (local backend only; folder-level, keyed on live PocketBase records),
- *   5. remove stale worker working directories (worker-temp + render working
+ *   6. remove stale worker working directories (worker-temp + render working
  *      dirs, mtime based, every backend).
  *
  * Each step is best-effort and resilient: a failure in one does not block the
@@ -82,6 +103,9 @@ export class CleanupOrchestratorService {
       await this.setProgress(task.id, 30);
 
       const staleFilesPruned = await this.pruneStaleFiles();
+      await this.setProgress(task.id, 45);
+
+      const unreferencedFilesPruned = await this.pruneUnreferencedFiles();
       await this.setProgress(task.id, 55);
 
       const { deleted: artifactsDeleted, failed: artifactsFailed } =
@@ -97,6 +121,7 @@ export class CleanupOrchestratorService {
       const result: CleanupResult = {
         refsLinked,
         staleFilesPruned,
+        unreferencedFilesPruned,
         artifactsDeleted,
         artifactsFailed,
         localDirsPurged,
@@ -240,7 +265,126 @@ export class CleanupOrchestratorService {
   }
 
   /**
-   * Step 3 — Drain the Artifacts queue: delete each pending blob from storage,
+   * Step 3 — Delete derived File records nothing points at anymore: proxies/
+   * sprites/thumbnails/filmstrips/audio that no Media relation references
+   * (e.g. a proxy superseded by a re-transcode before the processor deleted
+   * old proxies) and renders whose TimelineRender is gone. Only files older
+   * than the grace window are considered — an in-flight task creates the File
+   * before linking it, and the grace window keeps that gap safe. Deleting a
+   * record fires the files-artifact-tombstone hook, so external blobs are
+   * reaped by the artifact drain in the same run.
+   */
+  private async pruneUnreferencedFiles(): Promise<number> {
+    let pruned = 0;
+    try {
+      const referenced = await this.collectReferencedFileIds();
+      // Collect candidate ids fully before deleting anything so offset paging
+      // over the Files collection stays stable.
+      const candidates = await this.collectSweepCandidateIds();
+
+      for (const fileId of candidates) {
+        if (referenced.has(fileId)) continue;
+        const ok = await this.pocketbaseService.deleteFile(fileId);
+        if (ok) {
+          pruned += 1;
+          this.logger.debug(`Pruned unreferenced file ${fileId}`);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `pruneUnreferencedFiles failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    return pruned;
+  }
+
+  /**
+   * Every File id a live record still points at: all Media single-relation
+   * fields + filmstripFileRefs, and TimelineRender.FileRef.
+   */
+  private async collectReferencedFileIds(): Promise<Set<string>> {
+    const referenced = new Set<string>();
+
+    let page = 1;
+    while (true) {
+      const result = await this.pocketbaseService.mediaMutator.getList(
+        page,
+        MEDIA_PAGE_SIZE
+      );
+      const items = result.items as Media[];
+      if (items.length === 0) break;
+      for (const media of items) {
+        for (const field of SINGLE_REF_FIELDS) {
+          const fileId = media[field as keyof Media] as string | undefined;
+          if (fileId) referenced.add(fileId);
+        }
+        const strips =
+          (media.filmstripFileRefs as unknown as string[] | undefined) ?? [];
+        for (const fileId of strips) {
+          if (fileId) referenced.add(fileId);
+        }
+      }
+      if (items.length < MEDIA_PAGE_SIZE) break;
+      page += 1;
+    }
+
+    page = 1;
+    while (true) {
+      const result = await this.pocketbaseService.timelineRenderMutator.getList(
+        page,
+        RENDER_PAGE_SIZE
+      );
+      const items = result.items as TimelineRender[];
+      if (items.length === 0) break;
+      for (const render of items) {
+        if (render.FileRef) referenced.add(render.FileRef);
+      }
+      if (items.length < RENDER_PAGE_SIZE) break;
+      page += 1;
+    }
+
+    return referenced;
+  }
+
+  /**
+   * Ids of all sweep-eligible files: derived types only (see
+   * UNREFERENCED_SWEEP_TYPES) and older than the grace window.
+   */
+  private async collectSweepCandidateIds(): Promise<string[]> {
+    const candidates: string[] = [];
+    const params: Record<string, unknown> = {
+      cutoff: new Date(Date.now() - GRACE_MS).toISOString(),
+    };
+    const typeClauses = UNREFERENCED_SWEEP_TYPES.map((type, i) => {
+      params[`type${i}`] = type;
+      return `fileType = {:type${i}}`;
+    });
+    const filter = this.pocketbaseService
+      .getClient()
+      .filter(`(${typeClauses.join(' || ')}) && created < {:cutoff}`, params);
+
+    let page = 1;
+    while (true) {
+      const result = await this.pocketbaseService.fileMutator.getList(
+        page,
+        FILE_PAGE_SIZE,
+        filter,
+        'created'
+      );
+      if (result.items.length === 0) break;
+      for (const file of result.items) {
+        candidates.push(file.id);
+      }
+      if (result.items.length < FILE_PAGE_SIZE) break;
+      page += 1;
+    }
+    return candidates;
+  }
+
+  /**
+   * Step 4 — Drain the Artifacts queue: delete each pending blob from storage,
    * then remove the row. A blob that is already gone counts as deleted
    * (idempotent). Real failures bump the attempt counter and flip the row to
    * `failed` (which removes it from the pending set, so the loop terminates).
@@ -318,11 +462,11 @@ export class CleanupOrchestratorService {
   }
 
   /**
-   * Step 4 — Purge orphaned directories from the local storage tree. Builds the
+   * Step 5 — Purge orphaned directories from the local storage tree. Builds the
    * keep-sets from live PocketBase records and delegates the folder-level sweep
    * (and the local-backend guard + grace window) to StorageService.reconcileLocal.
    * Render working dirs are not handled here — they're reclaimed by the mtime
-   * based stale-dir sweep in step 5.
+   * based stale-dir sweep in step 6.
    */
   private async reconcileLocalStorage(): Promise<number> {
     try {

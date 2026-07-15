@@ -9,10 +9,13 @@
 //   1. backfill missing Files.MediaRef links (legacy files that predate the
 //      worker setting MediaRef at creation),
 //   2. prune stale File records (soft-deleted / failed),
-//   3. reap orphaned external storage blobs queued in the Artifacts collection
+//   3. prune unreferenced derived File records (proxies/sprites/thumbnails/
+//      filmstrips/audio no Media relation points at, renders no TimelineRender
+//      points at — e.g. a proxy superseded by a re-transcode),
+//   4. reap orphaned external storage blobs queued in the Artifacts collection
 //      (the cascade-delete gap: PocketBase deletes File records but not their
 //      external S3/GCS blobs), and
-//   4. delete stale worker working directories.
+//   5. delete stale worker working directories.
 //
 // Schedule is currently "0 0 * * 0" (00:00 every Sunday) but may change. The task
 // is idempotent and cheap when there's nothing to do. Trigger on demand from the

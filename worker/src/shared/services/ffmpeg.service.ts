@@ -57,6 +57,10 @@ export interface TranscodeOptions {
   pixelFormat?: string;
   frameRate?: number;
   keyframeInterval?: number;
+  /** -force_key_frames expression (e.g. 'expr:gte(t,n_forced*2)') */
+  forceKeyframes?: string;
+  /** -movflags value (e.g. '+faststart' to front-load the MP4 index) */
+  movflags?: string;
   audioSampleRate?: number;
   audioChannels?: number;
 }
@@ -541,6 +545,9 @@ export class FFmpegService implements OnApplicationShutdown {
     if (options.keyframeInterval) {
       args.push('-g', options.keyframeInterval.toString());
     }
+    if (options.forceKeyframes) {
+      args.push('-force_key_frames', options.forceKeyframes);
+    }
 
     // Rate control
     if (options.maxrate) {
@@ -556,6 +563,12 @@ export class FFmpegService implements OnApplicationShutdown {
     }
     if (options.audioChannels) {
       args.push('-ac', options.audioChannels.toString());
+    }
+
+    // Container flags (e.g. +faststart rewrites the MP4 so the moov index
+    // sits at the head — required for instant network playback/seeking)
+    if (options.movflags) {
+      args.push('-movflags', options.movflags);
     }
 
     // Output format

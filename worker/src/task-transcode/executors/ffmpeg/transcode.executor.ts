@@ -38,6 +38,15 @@ export class FFmpegTranscodeExecutor implements ITranscodeExecutor {
         videoCodec,
         videoBitrate: bitrate,
         audioBitrate: '128k',
+        // Proxies exist to be scrubbed and jump-cut in the editor, where
+        // every cut is a seek: a keyframe at least every 2s bounds the
+        // decode window a seek has to churn through, and +faststart puts
+        // the MP4 index at the head so playback starts without fetching
+        // the tail of a multi-gigabyte file first.
+        forceKeyframes: 'expr:gte(t,n_forced*2)',
+        movflags: '+faststart',
+        // Preview quality, not archive quality — favor encode speed.
+        preset: 'veryfast',
       },
       onProgress
     );
@@ -102,7 +111,11 @@ export class FFmpegTranscodeExecutor implements ITranscodeExecutor {
   }
 
   private resolveBitrate(bitrate?: number): string {
-    if (!bitrate) return '8M';
+    // Editing proxy, not a delivery encode: 2 Mbps at 720p H.264 is plenty
+    // for preview and keeps hour-plus sources near ~1 GB instead of the
+    // 3-5 GB an 8M default produced — smaller files load, buffer, and seek
+    // dramatically faster in the timeline player.
+    if (!bitrate) return '2M';
     return `${Math.round(bitrate / 1000000)}M`;
   }
 }

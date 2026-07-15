@@ -524,6 +524,152 @@ export function findNextClip(
 }
 
 /**
+ * Source-time discontinuities at most this large (seconds) play through as
+ * continuous — split points that remove nothing must not force a seek.
+ */
+export const PLAYBACK_CONTINUITY_EPSILON = 1e-3;
+
+/**
+ * A maximal run of a clip's playback where source time advances linearly
+ * (rate 1) with timeline time within one media file. Region boundaries are
+ * the moments a player must seek — clip cuts and composite edit-list jumps —
+ * so the preview player preloads the far side of each boundary instead of
+ * seeking a live element.
+ */
+export interface PlaybackRegion {
+  /** Stable identity: the clip id, suffixed `#n` per composite run. */
+  key: string;
+  /** Absolute timeline time the region begins. */
+  timelineStart: number;
+  /** Absolute timeline time the region ends. */
+  timelineEnd: number;
+  /** Source-media time at timelineStart; advances linearly to timelineEnd. */
+  sourceStart: number;
+}
+
+/** Source-media time at a region's end. */
+export function regionSourceEnd(region: PlaybackRegion): number {
+  return region.sourceStart + (region.timelineEnd - region.timelineStart);
+}
+
+/**
+ * Split a placed clip into its continuous playback regions. Plain clips are a
+ * single region; composite clips get one region per edit-list run, with
+ * segments that touch in source time (within PLAYBACK_CONTINUITY_EPSILON)
+ * coalesced — playback runs straight through those boundaries, no seek
+ * needed. The analysis never modifies the stored segments.
+ */
+export function clipPlaybackRegions(placed: PlacedClip): PlaybackRegion[] {
+  const { clip, globalStart, globalEnd } = placed;
+  const wholeClip: PlaybackRegion = {
+    key: clip.id,
+    timelineStart: globalStart,
+    timelineEnd: globalEnd,
+    sourceStart: clip.start,
+  };
+  const segments = clip.SourceTimelineRef ? undefined : getClipSegments(clip);
+  if (!segments || segments.length === 0) return [wholeClip];
+
+  const windowed = [
+    ...windowCompositeSegments(segments, clip.start, clip.end),
+  ].sort((a, b) => a.start - b.start);
+  const regions: PlaybackRegion[] = [];
+  let offset = 0;
+  for (const seg of windowed) {
+    const duration = seg.end - seg.start;
+    if (duration <= 0) continue;
+    const last = regions[regions.length - 1];
+    if (
+      last &&
+      Math.abs(seg.start - regionSourceEnd(last)) <= PLAYBACK_CONTINUITY_EPSILON
+    ) {
+      last.timelineEnd += duration;
+    } else {
+      regions.push({
+        key: `${clip.id}#${regions.length}`,
+        timelineStart: globalStart + offset,
+        timelineEnd: globalStart + offset + duration,
+        sourceStart: seg.start,
+      });
+    }
+    offset += duration;
+  }
+  if (regions.length === 0) return [wholeClip];
+  // The summed region ends equal the placed effective duration; pin the last
+  // region to globalEnd so float drift can't leave a sliver gap at the tail.
+  regions[regions.length - 1].timelineEnd = globalEnd;
+  return regions;
+}
+
+/**
+ * The continuous playback region at a timeline time, clamped: times before
+ * the first region resolve to it and times at/after the clip end resolve to
+ * the last (mirroring findActiveClip's [globalStart, globalEnd) window).
+ */
+export function playbackRegionAt(
+  placed: PlacedClip,
+  time: number
+): PlaybackRegion {
+  const regions = clipPlaybackRegions(placed);
+  for (const region of regions) {
+    if (time < region.timelineEnd) return region;
+  }
+  return regions[regions.length - 1];
+}
+
+/**
+ * A moment the playhead's source position jumps: the start of the next
+ * continuous region, whether that's an upcoming clip or an edit-list jump
+ * inside the active composite clip.
+ */
+export interface PlaybackCut {
+  /** Absolute timeline time of the discontinuity. */
+  time: number;
+  /** The continuous region that begins at the cut. */
+  region: PlaybackRegion;
+  /** Media the incoming region plays. */
+  mediaId: string;
+  /** Clip owning the incoming region. */
+  clip: TimelineClip;
+}
+
+/**
+ * Find the next playback discontinuity strictly after a timeline time: the
+ * next edit-list jump inside the clip active at that time, or else the start
+ * of the next clip on the track (gaps included). Used by the preview player
+ * to preload the far side of the cut before the playhead reaches it.
+ */
+export function findNextPlaybackCut(
+  placed: PlacedClip[],
+  time: number
+): PlaybackCut | undefined {
+  const active = findActiveClip(placed, time);
+  if (active?.clip.MediaRef) {
+    const upcoming = clipPlaybackRegions(active).find(
+      (region) => region.timelineStart > time
+    );
+    if (upcoming) {
+      return {
+        time: upcoming.timelineStart,
+        region: upcoming,
+        mediaId: active.clip.MediaRef,
+        clip: active.clip,
+      };
+    }
+  }
+  const next = findNextClip(placed, time);
+  if (next?.clip.MediaRef) {
+    return {
+      time: next.globalStart,
+      region: clipPlaybackRegions(next)[0],
+      mediaId: next.clip.MediaRef,
+      clip: next.clip,
+    };
+  }
+  return undefined;
+}
+
+/**
  * The source-media time a clip plays at a given on-timeline offset from its
  * start. Composite clips map the offset through their edit list — windowed by
  * the clip's start/end trim — so cut and trimmed content is skipped, matching

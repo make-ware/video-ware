@@ -2,6 +2,7 @@ import { render, act, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
 import type { PlacedClip, PlaybackTrack, TimelineClip } from '@project/shared';
 import { TrackVideo } from '../track-video';
+import { PlaybackStallRegistry } from '../playback-stall-registry';
 
 // happy-dom has no media pipeline: readyState never advances, media events
 // never fire on their own, and no data loads. These tests drive the element
@@ -46,16 +47,22 @@ function makePlaced(
   mediaId: string,
   globalStart: number,
   globalEnd: number,
-  opts: { start?: number; media?: ReturnType<typeof makeMedia> } = {}
+  opts: {
+    start?: number;
+    end?: number;
+    segments?: Array<{ start: number; end: number }>;
+    media?: ReturnType<typeof makeMedia>;
+  } = {}
 ): PlacedClip {
   const start = opts.start ?? 0;
   const clip = {
     id,
     MediaRef: mediaId,
     start,
-    end: start + (globalEnd - globalStart),
+    end: opts.end ?? start + (globalEnd - globalStart),
     duration: globalEnd - globalStart,
     order: 0,
+    meta: opts.segments ? { segments: opts.segments } : undefined,
     expand: { MediaRef: opts.media ?? makeMedia(mediaId) },
   } as unknown as TimelineClip;
   return { clip, globalStart, globalEnd };
@@ -81,8 +88,18 @@ function setReadyState(el: HTMLVideoElement, value: number) {
   });
 }
 
-function renderTrack(track: PlaybackTrack, currentTime: number) {
-  const props = { track, zIndex: 0, isPlaying: true, muted: true };
+function renderTrack(
+  track: PlaybackTrack,
+  currentTime: number,
+  stallRegistry?: PlaybackStallRegistry
+) {
+  const props = {
+    track,
+    zIndex: 0,
+    isPlaying: true,
+    muted: true,
+    stallRegistry,
+  };
   const utils = render(<TrackVideo {...props} currentTime={currentTime} />);
   const setTime = async (time: number) => {
     utils.rerender(<TrackVideo {...props} currentTime={time} />);
@@ -148,17 +165,17 @@ describe('TrackVideo double-buffered prefetch', () => {
 
   it('preloads an upcoming different-media clip only within the lookahead window', async () => {
     const track = makeTrack([
-      makePlaced('c1', 'm1c', 0, 10),
-      makePlaced('c2', 'm2c', 10, 20),
+      makePlaced('c1', 'm1c', 0, 20),
+      makePlaced('c2', 'm2c', 20, 30),
     ]);
     const t = renderTrack(track, 1);
     const { standby } = await establishFront(t);
 
-    // 9s from the cut: outside PRELOAD_LOOKAHEAD_SECONDS, no prep
+    // 19s from the cut: outside PRELOAD_LOOKAHEAD_SECONDS, no prep
     expect(standby.src).toBe('');
 
-    await t.setTime(6);
-    // 4s from the cut: standby loads the next clip's media
+    await t.setTime(12);
+    // 8s from the cut: standby loads the next clip's media
     expect(standby.src).toBe(proxyUrl('m2c'));
   });
 
@@ -190,7 +207,8 @@ describe('TrackVideo double-buffered prefetch', () => {
     expect(pauseSpy).toHaveBeenCalled();
   });
 
-  it('leaves the standby alone for same-media consecutive clips', async () => {
+  it('double-buffers a same-media cut: standby pre-seeks the far side and swaps', async () => {
+    // c2 jumps to source 20s within the same media — a real discontinuity
     const track = makeTrack([
       makePlaced('c1', 'm1e', 0, 5),
       makePlaced('c2', 'm1e', 5, 10, { start: 20 }),
@@ -198,23 +216,72 @@ describe('TrackVideo double-buffered prefetch', () => {
     const t = renderTrack(track, 1);
     const { front, standby } = await establishFront(t);
 
-    await t.setTime(4.8);
+    // Within lookahead: the standby loads the same file, pre-seeked to 20s
+    expect(standby.src).toBe(proxyUrl('m1e'));
+    fireEvent.loadedMetadata(standby);
+    expect(standby.currentTime).toBe(20);
+
+    setReadyState(standby, 4);
+    fireEvent.canPlay(standby);
+    await t.setTime(5.2);
+    // The cut is a buffer swap, not a live seek on the playing element
+    expect(standby.style.visibility).toBe('visible');
+    expect(front.style.visibility).toBe('hidden');
+  });
+
+  it('plays straight through same-media clips that are contiguous in source time', async () => {
+    // c2 resumes exactly where c1's source window ends: no seek needed
+    const track = makeTrack([
+      makePlaced('c1', 'm1k', 0, 5),
+      makePlaced('c2', 'm1k', 5, 10, { start: 5 }),
+    ]);
+    const t = renderTrack(track, 1);
+    const { front, standby } = await establishFront(t);
+
+    // Continuous boundary: nothing to prep
     expect(standby.src).toBe('');
 
-    // Crossing the boundary keeps the same front element (seek continuation)
+    // Crossing it keeps the same front element, no swap, no hold
+    front.currentTime = 5.2;
     await t.setTime(5.2);
     expect(front.style.visibility).toBe('visible');
     expect(standby.src).toBe('');
   });
 
-  it('preps the next clip immediately while idling in a gap', async () => {
+  it('double-buffers an edit-list jump inside a composite clip', async () => {
+    // One clip, segments [0-5] + [20-25]: the 5s mark is a same-media cut
     const track = makeTrack([
-      makePlaced('c1', 'm1f', 0, 3),
-      makePlaced('c2', 'm2f', 8, 12),
+      makePlaced('c1', 'm1l', 0, 10, {
+        end: 25,
+        segments: [
+          { start: 0, end: 5 },
+          { start: 20, end: 25 },
+        ],
+      }),
     ]);
     const t = renderTrack(track, 1);
     const { front, standby } = await establishFront(t);
-    // 7s out: beyond the lookahead while a clip is active
+
+    // The upcoming jump preps through the standby, pre-seeked past the gap
+    expect(standby.src).toBe(proxyUrl('m1l'));
+    fireEvent.loadedMetadata(standby);
+    expect(standby.currentTime).toBe(20);
+
+    setReadyState(standby, 4);
+    fireEvent.canPlay(standby);
+    await t.setTime(5.3);
+    expect(standby.style.visibility).toBe('visible');
+    expect(front.style.visibility).toBe('hidden');
+  });
+
+  it('preps the next clip immediately while idling in a gap', async () => {
+    const track = makeTrack([
+      makePlaced('c1', 'm1f', 0, 3),
+      makePlaced('c2', 'm2f', 20, 24),
+    ]);
+    const t = renderTrack(track, 1);
+    const { front, standby } = await establishFront(t);
+    // 19s out: beyond the lookahead while a clip is active
     expect(standby.src).toBe('');
 
     await t.setTime(4);
@@ -240,7 +307,7 @@ describe('TrackVideo double-buffered prefetch', () => {
     expect(front.paused).toBe(true);
 
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(600);
     });
     // Hold window lapsed: channel hides until the incoming clip can render
     expect(front.style.visibility).toBe('hidden');
@@ -323,6 +390,74 @@ describe('TrackVideo double-buffered prefetch', () => {
     expect(second.src).toBe('');
     expect(first.style.visibility).toBe('hidden');
     expect(second.style.visibility).toBe('hidden');
+  });
+
+  it('reports a stall at an unprepared cut and clears it once the cut renders', async () => {
+    const registry = new PlaybackStallRegistry();
+    const track = makeTrack([
+      makePlaced('c1', 'm1m', 0, 5),
+      makePlaced('c2', 'm2m', 5, 10),
+    ]);
+    const t = renderTrack(track, 1, registry);
+    const { standby } = await establishFront(t);
+    expect(registry.anyStalled()).toBe(false);
+
+    // Standby prepped (src set) but not yet renderable at the cut: the
+    // channel reports itself stalled so the player freezes the clock.
+    await t.setTime(5.5);
+    expect(registry.anyStalled()).toBe(true);
+
+    setReadyState(standby, 4);
+    fireEvent.canPlay(standby);
+    expect(registry.anyStalled()).toBe(false);
+  });
+
+  it('never stalls the clock on media without a proxy', async () => {
+    const registry = new PlaybackStallRegistry();
+    const track = makeTrack([
+      makePlaced('c1', 'm-noproxy-stall', 0, 5, {
+        media: makeMedia('m-noproxy-stall', { proxy: false }),
+      }),
+    ]);
+    renderTrack(track, 1, registry);
+    await act(async () => {});
+    expect(registry.anyStalled()).toBe(false);
+  });
+
+  it('stops stalling when the incoming media errors instead of loading', async () => {
+    const registry = new PlaybackStallRegistry();
+    const track = makeTrack([
+      makePlaced('c1', 'm1o', 0, 5),
+      makePlaced('c2', 'm2o', 5, 10),
+    ]);
+    const t = renderTrack(track, 1, registry);
+    const { standby } = await establishFront(t);
+    expect(standby.src).toBe(proxyUrl('m2o'));
+
+    await t.setTime(5.5);
+    expect(registry.anyStalled()).toBe(true);
+
+    // A broken proxy must hide the channel, not freeze the clock forever
+    fireEvent.error(standby);
+    expect(registry.anyStalled()).toBe(false);
+  });
+
+  it('pauses its element while any other channel is stalled, resumes after', async () => {
+    const registry = new PlaybackStallRegistry();
+    const track = makeTrack([makePlaced('c1', 'm1n', 0, 10)]);
+    const t = renderTrack(track, 1, registry);
+    const { front } = await establishFront(t);
+    expect(front.paused).toBe(false);
+
+    // Another track can't render: the shared clock freezes, so this channel
+    // must not run ahead (it would get seek-corrected backwards forever).
+    registry.set('other-track', true);
+    await t.setTime(1.1);
+    expect(front.paused).toBe(true);
+
+    registry.set('other-track', false);
+    await t.setTime(1.2);
+    expect(front.paused).toBe(false);
   });
 
   it('applies track volume to both buffers', async () => {

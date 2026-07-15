@@ -163,6 +163,56 @@ describe('doctorTimeline', () => {
     expect(gaps[1].clipIds).toEqual(['c', 'd']); // 25s–30s
   });
 
+  it('warns on micro-gaps (clips nearly touching) with a ripple hint', async () => {
+    const pb = fakePb(
+      doctorStubs({
+        clips: [
+          {
+            id: 'a',
+            TimelineTrackRef: 'trk0',
+            MediaRef: 'm1',
+            order: 0,
+            start: 0,
+            end: 10,
+            duration: 10,
+            timelineStart: 0,
+            expand: mediaExpand,
+          },
+          // 40ms sliver after a — nearly touching, likely unintended
+          {
+            id: 'b',
+            TimelineTrackRef: 'trk0',
+            MediaRef: 'm1',
+            order: 1,
+            start: 0,
+            end: 5,
+            duration: 5,
+            timelineStart: 10.04,
+            expand: mediaExpand,
+          },
+        ],
+        timeline: {
+          id: 'tl1',
+          name: 'Cut',
+          WorkspaceRef: 'ws1',
+          duration: 15.04,
+        },
+      })
+    );
+
+    const report = await doctorTimeline(pb, 'tl1');
+
+    const microGap = report.findings.find((f) => f.code === 'micro-gap');
+    expect(microGap).toBeDefined();
+    expect(microGap?.level).toBe('warning');
+    expect(microGap?.clipIds).toEqual(['a', 'b']);
+    expect(microGap?.message).toContain('micro-gap');
+    expect(microGap?.message).toContain('vw timeline clips ripple b');
+    // Micro-gaps warn but don't fail the timeline
+    expect(report.ok).toBe(true);
+    expect(report.warnings).toBe(1);
+  });
+
   it('warns on nested-timeline window drift (source timeline shrank)', async () => {
     const timelines: Record<string, Record<string, unknown>> = {
       tl1: { id: 'tl1', name: 'Main', WorkspaceRef: 'ws1', duration: 10 },

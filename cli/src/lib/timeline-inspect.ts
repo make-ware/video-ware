@@ -6,8 +6,10 @@ import {
   TimelineMutator,
   TimelineTrackMutator,
   buildPlaybackTracks,
+  clusterOverlappingRanges,
   computeTimelineDuration,
   findActiveClip,
+  findRangeGaps,
   type MediaClipLabel,
   type PlacedClip,
   type Timeline,
@@ -120,7 +122,10 @@ export async function getTimelineOverview(
   };
 }
 
-const OVERLAP_EPSILON = 1e-6;
+const inspectRange = (clip: InspectClipInfo) => ({
+  start: clip.timelineStart,
+  end: clip.timelineEnd,
+});
 
 /**
  * Groups of same-track clips whose computed ranges overlap. Same-track
@@ -129,26 +134,7 @@ const OVERLAP_EPSILON = 1e-6;
  * reports it as an error.
  */
 export function overlapClusters(clips: InspectClipInfo[]): InspectClipInfo[][] {
-  const sorted = [...clips].sort((a, b) => a.timelineStart - b.timelineStart);
-  const clusters: InspectClipInfo[][] = [];
-  let current: InspectClipInfo[] = [];
-  let currentEnd = -Infinity;
-
-  for (const clip of sorted) {
-    if (
-      current.length > 0 &&
-      clip.timelineStart < currentEnd - OVERLAP_EPSILON
-    ) {
-      current.push(clip);
-      currentEnd = Math.max(currentEnd, clip.timelineEnd);
-    } else {
-      if (current.length > 1) clusters.push(current);
-      current = [clip];
-      currentEnd = clip.timelineEnd;
-    }
-  }
-  if (current.length > 1) clusters.push(current);
-  return clusters;
+  return clusterOverlappingRanges(clips, inspectRange);
 }
 
 /** A silent span between two consecutive clips on a track. */
@@ -161,24 +147,12 @@ export interface TrackGap {
 
 /** Gaps between consecutive placed clips on one track (not before the first). */
 export function trackGaps(clips: InspectClipInfo[]): TrackGap[] {
-  const sorted = [...clips].sort((a, b) => a.timelineStart - b.timelineStart);
-  const gaps: TrackGap[] = [];
-  let prev: InspectClipInfo | null = null;
-
-  for (const clip of sorted) {
-    if (prev && clip.timelineStart > prev.timelineEnd + OVERLAP_EPSILON) {
-      gaps.push({
-        start: prev.timelineEnd,
-        end: clip.timelineStart,
-        beforeClipId: prev.clip.id,
-        afterClipId: clip.clip.id,
-      });
-    }
-    if (!prev || clip.timelineEnd > prev.timelineEnd) {
-      prev = clip;
-    }
-  }
-  return gaps;
+  return findRangeGaps(clips, inspectRange).map((gap) => ({
+    start: gap.start,
+    end: gap.end,
+    beforeClipId: gap.before.clip.id,
+    afterClipId: gap.after.clip.id,
+  }));
 }
 
 export interface ActiveClipInfo extends InspectClipInfo {

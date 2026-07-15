@@ -22,6 +22,7 @@ import {
   FileCode,
   Monitor,
   Smartphone,
+  Stethoscope,
   Type,
   Heading1,
   ChevronDown,
@@ -37,6 +38,8 @@ import {
 import { CaptionEditorModal } from '@/components/captions';
 import { UniversalSearchModal } from './universal-search-modal';
 import { InsertTimelineDialog } from './insert-timeline-dialog';
+import { DoctorModal } from './doctor-modal';
+import { useTimelineDoctor } from './use-timeline-doctor';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
 import { TimelineOrientation, CaptionType } from '@project/shared';
@@ -72,6 +75,8 @@ export function TimelineEditorLayout() {
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [insertTimelineOpen, setInsertTimelineOpen] = useState(false);
+  const [doctorOpen, setDoctorOpen] = useState(false);
+  const doctorReport = useTimelineDoctor();
   const [captionEditorType, setCaptionEditorType] =
     useState<CaptionType | null>(null);
 
@@ -210,6 +215,16 @@ export function TimelineEditorLayout() {
     setRenderDialogOpen(true);
   }, []);
 
+  const handleOpenDoctor = useCallback(() => {
+    setDoctorOpen(true);
+  }, []);
+
+  // Actionable doctor issues (errors + warnings) surfaced in the menu label;
+  // info notes (ordinary gaps) are often intentional, so they don't count.
+  const doctorIssueCount = doctorReport
+    ? doctorReport.errors + doctorReport.warnings
+    : 0;
+
   // Contribute the timeline's output actions to the nav bar File menu.
   const fileMenuItems = useMemo<PageMenuItem[]>(
     () => [
@@ -242,15 +257,27 @@ export function TimelineEditorLayout() {
         separatorBefore: true,
         onSelect: handleExportFCPXML,
       },
+      {
+        id: 'doctor',
+        label:
+          doctorIssueCount > 0
+            ? `Doctor (${doctorIssueCount} issue${doctorIssueCount === 1 ? '' : 's'})`
+            : 'Doctor',
+        icon: Stethoscope,
+        separatorBefore: true,
+        onSelect: handleOpenDoctor,
+      },
     ],
     [
       hasUnsavedChanges,
       isLoading,
       isExporting,
+      doctorIssueCount,
       saveTimeline,
       handleOpenRenderDialog,
       handleOpenRenders,
       handleExportFCPXML,
+      handleOpenDoctor,
     ]
   );
 
@@ -483,6 +510,11 @@ export function TimelineEditorLayout() {
       <InsertTimelineDialog
         open={insertTimelineOpen}
         onOpenChange={setInsertTimelineOpen}
+      />
+      <DoctorModal
+        open={doctorOpen}
+        onOpenChange={setDoctorOpen}
+        report={doctorReport}
       />
       <RenderDialog
         open={renderDialogOpen}

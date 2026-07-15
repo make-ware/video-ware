@@ -7,6 +7,7 @@ export * from './composite-utils.js';
 export * from './segment-edits.js';
 export * from './captions.js';
 export * from './timeline-placement.js';
+export * from './timeline-doctor.js';
 export * from './nested-timeline.js';
 export * from './timeline-reflow.js';
 export * from './speaker.js';

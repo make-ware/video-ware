@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.3...video-ware-v0.9.4) (2026-07-15)
+
+
+### Bug Fixes
+
+* add doctor timeline ([7053375](https://github.com/make-ware/video-ware/commit/7053375a94106823f7089e9ce887c055c36403a6))
+* add ffmpeg lossless window render ([23e2c50](https://github.com/make-ware/video-ware/commit/23e2c50b65225c5f346efb581ed43206f95bcde2))
+* improve ffmpeg error logs ([51cff62](https://github.com/make-ware/video-ware/commit/51cff62d0236104ba83d0bc1abbbbc849575859e))
+* move actions to file and edit menu ([c3cb220](https://github.com/make-ware/video-ware/commit/c3cb220963b73399ff5484cefc514dd56509842b))
+
 ## [0.9.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.2...video-ware-v0.9.3) (2026-07-15)
 
 

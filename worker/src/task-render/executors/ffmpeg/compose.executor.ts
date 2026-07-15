@@ -20,6 +20,17 @@ import type {
 const RENDER_FPS = 30;
 
 /**
+ * Input count at which a render risks exhausting the OS thread/PID budget.
+ * The per-segment-input model opens one demuxer + decoder per input, and each
+ * decoder spawns its own (auto-sized) thread pool at startup — with hundreds
+ * of inputs on a many-core host that multiplies into thousands of threads,
+ * and pthread_create() starts failing with EAGAIN (observed at ~137 HEVC
+ * inputs inside a default-limited container). We warn rather than fail: the
+ * actual ceiling depends on the container's pids limit and core count.
+ */
+const HIGH_INPUT_COUNT_WARNING = 100;
+
+/**
  * Image formats safe for `-loop 1` input-level looping (image2 demuxer).
  * Anything else typed as an image (e.g. gif — its demuxer rejects `-loop`)
  * keeps the loop-filter chain instead.
@@ -74,14 +85,34 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       );
     }
 
+    let inputCount: number | undefined;
     try {
       // Build FFmpeg command for timeline composition
-      const { args: ffmpegArgs, totalDuration } = this.buildFFmpegCommand(
+      const {
+        args: ffmpegArgs,
+        totalDuration,
+        inputCount: builtInputCount,
+      } = this.buildFFmpegCommand(
         tracks,
         clipMediaMap,
         outputPath,
         outputSettings
       );
+      inputCount = builtInputCount;
+
+      this.logger.log(
+        `Timeline graph: ${inputCount} ffmpeg inputs across ` +
+          `${tracks.length} tracks, ${totalDuration}s`
+      );
+      if (inputCount >= HIGH_INPUT_COUNT_WARNING) {
+        this.logger.warn(
+          `Render opens ${inputCount} ffmpeg inputs — each spawns its own ` +
+            `decoder thread pool, which can exceed the container thread/PID ` +
+            `limit (pthread_create EAGAIN). If this render fails, raise the ` +
+            `limit (e.g. docker --pids-limit) or split the timeline into ` +
+            `shorter renders.`
+        );
+      }
 
       // Execute FFmpeg with progress tracking against the known timeline
       // duration (the first input's duration is meaningless for a composition)
@@ -133,6 +164,12 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       this.logger.log(`Timeline composition completed: ${outputPath}`);
       return { outputPath, probeOutput, isLocal: true };
     } catch (error) {
+      // Append the graph shape to the propagated message — the job failure
+      // record is often all an operator sees, and "N inputs" is the number
+      // that explains thread/memory exhaustion on segmented timelines.
+      if (error instanceof Error && inputCount !== undefined) {
+        error.message += ` [render graph: ${inputCount} inputs across ${tracks.length} tracks]`;
+      }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error(`Timeline composition failed: ${errorMessage}`);
@@ -150,7 +187,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     clipMediaMap: Record<string, { media: Media; filePath: string }>,
     outputPath: string,
     outputSettings: RenderTimelinePayload['outputSettings']
-  ): { args: string[]; totalDuration: number } {
+  ): { args: string[]; totalDuration: number; inputCount: number } {
     // -y: overwrite output without prompting. -nostdin: never read stdin, so
     // ffmpeg can't pause waiting for interactive input under a job runner.
     const args: string[] = ['-y', '-nostdin'];
@@ -619,7 +656,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     args.push(outputPath);
 
     this.logger.debug(`FFmpeg command: ffmpeg ${args.join(' ')}`);
-    return { args, totalDuration };
+    return { args, totalDuration, inputCount: inputCounter };
   }
 
   /**

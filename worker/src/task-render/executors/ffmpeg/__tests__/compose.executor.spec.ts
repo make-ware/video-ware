@@ -92,3 +92,67 @@ describe('FFmpegComposeExecutor drawtext escaping', () => {
     expect(filter).toContain('drawtext=expansion=none:text=');
   });
 });
+
+/**
+ * The job failure record is often all an operator sees. The per-segment-input
+ * model means input count — not track or media count — is what drives thread
+ * and memory exhaustion, so composition failures must carry the graph shape.
+ */
+describe('FFmpegComposeExecutor failure context', () => {
+  it('appends the render graph shape to composition failures', async () => {
+    const ffmpegService = {
+      executeWithProgress: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'FFmpeg execution failed: ffmpeg exited with code 245 (EAGAIN: resource temporarily unavailable)'
+          )
+        ),
+      probe: vi.fn(),
+    };
+    const executor = new FFmpegComposeExecutor(ffmpegService as never);
+
+    // Two segments of the same asset → two seeked inputs
+    const tracks: RenderTimelinePayload['tracks'] = [
+      {
+        id: 'track1',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg1',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 0, duration: 5, sourceStart: 0 },
+          },
+          {
+            id: 'seg2',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 5, duration: 5, sourceStart: 10 },
+          },
+        ],
+      },
+    ];
+    const clipMediaMap = {
+      asset1: {
+        media: { id: 'asset1' } as never,
+        filePath: '/tmp/1.mp4',
+      },
+    };
+
+    const err: Error = await executor
+      .execute(tracks, clipMediaMap, '/tmp/out.mp4', {
+        codec: 'libx264',
+        format: 'mp4',
+        resolution: '1920x1080',
+      })
+      .then(() => {
+        throw new Error('expected rejection');
+      })
+      .catch((e: Error) => e);
+
+    expect(err.message).toContain('exited with code 245');
+    expect(err.message).toContain('[render graph: 2 inputs across 1 tracks]');
+  });
+});

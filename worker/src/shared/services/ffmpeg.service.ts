@@ -95,6 +95,73 @@ export class FFmpegService implements OnApplicationShutdown {
   }
 
   /**
+   * ffmpeg interleaves CR-separated progress/stats lines (`frame=… time=…`,
+   * `size=… time=…`) with its real log output on stderr. They drive progress
+   * and liveness tracking but carry no diagnostic value, so they are excluded
+   * from the retained error buffer — on a long render the stats churn would
+   * otherwise evict the lines that explain the failure.
+   */
+  private static isProgressLine(line: string): boolean {
+    return /^\s*(?:frame|size)=/.test(line);
+  }
+
+  /**
+   * ffmpeg's CLI exits with its negative AVERROR truncated to an unsigned
+   * byte, so common OS errors surface as opaque codes (e.g. AVERROR(EAGAIN)
+   * = -11 → exit 245). Decode the usual suspects back to their errno names.
+   */
+  private static describeExitCode(code: number | null): string | undefined {
+    if (code === null || code <= 128 || code >= 256) return undefined;
+    const errnoNames: Record<number, string> = {
+      2: 'ENOENT: no such file or directory',
+      11: 'EAGAIN: resource temporarily unavailable',
+      12: 'ENOMEM: cannot allocate memory',
+      22: 'EINVAL: invalid argument',
+    };
+    return errnoNames[256 - code];
+  }
+
+  /**
+   * Match the retained stderr against known fatal signatures and return an
+   * actionable explanation. Ordered by specificity — the first match wins,
+   * and cascade noise (e.g. "Could not open encoder before EOF" after a
+   * thread-exhaustion failure) must not shadow the root cause.
+   */
+  private static describeKnownFailure(stderr: string): string | undefined {
+    if (
+      /pthread_create\(\) failed|Resource temporarily unavailable/.test(stderr)
+    ) {
+      return (
+        'ffmpeg could not spawn a new thread (EAGAIN) — every input file ' +
+        'opens its own decoder thread pool, so a heavily segmented render ' +
+        'can exceed the container thread/PID limit. Raise the limit ' +
+        '(e.g. docker --pids-limit / ulimit -u) or render fewer segments ' +
+        'in one pass.'
+      );
+    }
+    if (/Cannot allocate memory|Out of memory/.test(stderr)) {
+      return (
+        'ffmpeg ran out of memory — reduce render resolution/complexity ' +
+        'or raise the container memory limit.'
+      );
+    }
+    if (/No such file or directory/.test(stderr)) {
+      return 'an input file is missing or unreadable — check the source paths above.';
+    }
+    if (
+      /No such filter|Error initializing complex filters|Error initializing filter|Unable to parse option value/.test(
+        stderr
+      )
+    ) {
+      return (
+        'the filtergraph failed to parse or initialize — likely malformed ' +
+        'filter arguments (e.g. unescaped text reaching drawtext).'
+      );
+    }
+    return undefined;
+  }
+
+  /**
    * Kill any still-running children on worker shutdown (SIGTERM first, then
    * SIGKILL) so no encoder outlives the job that spawned it.
    */
@@ -148,7 +215,7 @@ export class FFmpegService implements OnApplicationShutdown {
 
       let stdout = '';
       const stderrLines: string[] = [];
-      const maxStderrLines = 20;
+      const maxStderrLines = 40;
 
       const startedAt = Date.now();
       let lastActivityAt = startedAt;
@@ -193,7 +260,13 @@ export class FFmpegService implements OnApplicationShutdown {
       child.stderr?.on('data', (data: Buffer) => {
         lastActivityAt = Date.now();
         const dataStr = data.toString();
-        const lines = dataStr.split('\n').filter((line) => line.length > 0);
+        // Progress lines are CR-terminated, so split on both separators —
+        // otherwise a whole run of stats updates glues into one giant "line".
+        const lines = dataStr
+          .split(/\r\n|\r|\n/)
+          .filter(
+            (line) => line.length > 0 && !FFmpegService.isProgressLine(line)
+          );
         stderrLines.push(...lines);
         if (stderrLines.length > maxStderrLines) {
           stderrLines.splice(0, stderrLines.length - maxStderrLines);
@@ -235,10 +308,15 @@ export class FFmpegService implements OnApplicationShutdown {
             )
           );
         } else {
+          const codeDesc = FFmpegService.describeExitCode(code);
+          const hint = FFmpegService.describeKnownFailure(stderr);
           reject(
             new Error(
               `${command} exited with code ${code}` +
-                `${signal ? ` (signal ${signal})` : ''}. stderr: ${stderr}`
+                `${codeDesc ? ` (${codeDesc})` : ''}` +
+                `${signal ? ` (signal ${signal})` : ''}.` +
+                `${hint ? ` Likely cause: ${hint}` : ''}` +
+                ` stderr: ${stderr}`
             )
           );
         }

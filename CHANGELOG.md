@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.2...video-ware-v0.9.3) (2026-07-15)
+
+
+### Bug Fixes
+
+* add version to logo and fix transcoding spinner ([71e68ac](https://github.com/make-ware/video-ware/commit/71e68ac87e55d0a7150c25ec35fd9acd5367cc72))
+* tune timeline buffer and file cleanup task ([1e589f5](https://github.com/make-ware/video-ware/commit/1e589f593a0b399f37000a78cf0a46517fd49b6c))
+* update cli actions ([64a2813](https://github.com/make-ware/video-ware/commit/64a2813c00810e8b475214140c528d6fd45eaebe))
+
 ## [0.9.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.1...video-ware-v0.9.2) (2026-07-14)
 
 

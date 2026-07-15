@@ -1,8 +1,10 @@
 'use client';
 
-import { useMemo, useState, useRef } from 'react';
+import { useCallback, useMemo, useState, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useMediaDetails } from '@/hooks/use-media-details';
+import { useRegisterPageMenu } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import { MediaVideoPlayer } from '@/components/video/media-video-player';
 import { MediaClipsLibrary } from '@/components/library';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
@@ -22,6 +24,7 @@ import {
   Eye,
   Info,
   Tag,
+  RotateCcw,
 } from 'lucide-react';
 import {
   MediaTypeBadge,
@@ -75,14 +78,30 @@ function MediaDetailsPageContent() {
     return clips.filter((clip) => predicate(clip.type));
   }, [clips, typeFilter]);
 
-  const handleClearClipSelection = () => {
+  const handleClearClipSelection = useCallback(() => {
     const newSearchParams = new URLSearchParams(searchParams.toString());
     newSearchParams.delete('clip');
     router.push(
       `/ws/${currentWorkspace?.id}/media/${id}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`,
       { scroll: false }
     );
-  };
+  }, [searchParams, router, currentWorkspace?.id, id]);
+
+  // Contribute the "reset clip" action to the nav bar Edit menu.
+  const editMenuItems = useMemo<PageMenuItem[]>(
+    () => [
+      {
+        id: 'reset-clip',
+        label: 'Reset to Full Video',
+        icon: RotateCcw,
+        disabled: !activeClipId,
+        onSelect: handleClearClipSelection,
+      },
+    ],
+    [activeClipId, handleClearClipSelection]
+  );
+
+  useRegisterPageMenu('edit', editMenuItems);
 
   const handleClipSelect = (clip: MediaClip) => {
     // If clicking the same clip, toggle it off (return to full video)
@@ -234,15 +253,6 @@ function MediaDetailsPageContent() {
         </div>
 
         <div className="flex gap-2 shrink-0 w-full sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 sm:flex-initial"
-            onClick={handleClearClipSelection}
-            disabled={!activeClipId}
-          >
-            Reset to Full Video
-          </Button>
           <Button
             variant="outline"
             size="sm"

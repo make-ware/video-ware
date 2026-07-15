@@ -13,7 +13,6 @@ import {
   Clapperboard,
   Activity,
   BarChart,
-  FileCode,
   HelpCircle,
   Info,
   User,
@@ -21,6 +20,8 @@ import {
 import Image from 'next/image';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
+import { usePageMenus } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import { WorkspaceSelector } from '@/components/workspace';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -99,18 +100,42 @@ function MobileSectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function MobileMenuAction({ item }: { item: PageMenuItem }) {
+  const Icon = item.icon;
+  if (item.disabled) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground/60 cursor-not-allowed">
+        {Icon && <Icon className="h-4 w-4" />}
+        {item.label}
+      </div>
+    );
+  }
+  return (
+    <SheetClose asChild>
+      <button
+        type="button"
+        onClick={item.onSelect}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-foreground transition-colors',
+          'hover:bg-accent hover:text-accent-foreground'
+        )}
+      >
+        {Icon && <Icon className="h-4 w-4" />}
+        {item.label}
+      </button>
+    </SheetClose>
+  );
+}
+
 export function NavigationBar({ className }: NavigationBarProps) {
   const { user, isAuthenticated, logout, isLoading } = useAuth();
   const { currentWorkspace } = useWorkspace();
   const pathname = usePathname();
+  const pageMenus = usePageMenus();
 
   const workspaceId = currentWorkspace?.id;
   const wsPrefix = workspaceId ? `/ws/${workspaceId}` : '';
   const hasWorkspace = !!workspaceId;
-
-  const isTimelineEditor =
-    /\/ws\/[^/]+\/timelines\/[^/]+/.test(pathname) &&
-    !pathname.endsWith('/timelines');
 
   const getUserInitials = (name?: string, email?: string) => {
     if (name) {
@@ -296,16 +321,23 @@ export function NavigationBar({ className }: NavigationBarProps) {
                       </div>
                     )}
 
-                    {/* File */}
-                    {hasWorkspace && (
+                    {/* File (page-provided) */}
+                    {pageMenus.file.length > 0 && (
                       <div className="px-2 pb-2 border-t pt-2">
                         <MobileSectionLabel>File</MobileSectionLabel>
-                        <MobileNavLink
-                          href="#"
-                          icon={FileCode}
-                          label="Export FCPXML"
-                          disabled={!isTimelineEditor}
-                        />
+                        {pageMenus.file.map((item) => (
+                          <MobileMenuAction key={item.id} item={item} />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Edit (page-provided) */}
+                    {pageMenus.edit.length > 0 && (
+                      <div className="px-2 pb-2 border-t pt-2">
+                        <MobileSectionLabel>Edit</MobileSectionLabel>
+                        {pageMenus.edit.map((item) => (
+                          <MobileMenuAction key={item.id} item={item} />
+                        ))}
                       </div>
                     )}
 

@@ -7,9 +7,11 @@ import { useWorkspace } from '@/hooks/use-workspace';
 import { useMedia } from '@/hooks/use-media';
 import { useMultiSelect } from '@/hooks/use-multi-select';
 import { useProcessingMedia } from '@/hooks/use-processing-media';
+import { useRegisterPageMenu } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import { MediaProvider } from '@/contexts/media-context';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, Film } from 'lucide-react';
+import { AlertCircle, Film, ListChecks, X } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -175,6 +177,29 @@ function MediaPageContent() {
     },
     [selectedIds, selectionCount, mediaMutator, clearSelection, refreshMedia]
   );
+
+  // Contribute selection actions to the nav bar Edit menu.
+  const editMenuItems = useMemo<PageMenuItem[]>(
+    () => [
+      {
+        id: 'select-all',
+        label: 'Select All',
+        icon: ListChecks,
+        disabled: mediaIds.length === 0,
+        onSelect: selectAll,
+      },
+      {
+        id: 'clear-selection',
+        label: 'Clear Selection',
+        icon: X,
+        disabled: selectionCount === 0,
+        onSelect: clearSelection,
+      },
+    ],
+    [mediaIds.length, selectionCount, selectAll, clearSelection]
+  );
+
+  useRegisterPageMenu('edit', editMenuItems);
 
   if (!currentWorkspace) {
     return null;

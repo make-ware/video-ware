@@ -149,7 +149,14 @@ export function NavigationBar({ className }: NavigationBarProps) {
               width={24}
               height={24}
             />
-            <span className="font-bold text-sm">Videoware</span>
+            <span className="flex flex-col">
+              <span className="font-bold text-sm leading-tight">Videoware</span>
+              {process.env.NEXT_PUBLIC_APP_VERSION && (
+                <span className="self-end text-[10px] leading-none text-muted-foreground">
+                  v{process.env.NEXT_PUBLIC_APP_VERSION}
+                </span>
+              )}
+            </span>
           </Link>
         </div>
 

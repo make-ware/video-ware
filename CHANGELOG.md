@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.4...video-ware-v0.9.5) (2026-07-16)
+
+
+### Bug Fixes
+
+* add directory cli commands ([5793455](https://github.com/make-ware/video-ware/commit/579345528db8faa4a632d76093dec6a067dc5c5f))
+* add timeline insert reference cli command ([23a837f](https://github.com/make-ware/video-ware/commit/23a837f43015b57180e0cc9d08985c5339ac5c10))
+* add upload cli command ([838e47e](https://github.com/make-ware/video-ware/commit/838e47eb6d71c45c4ad932b1a1d270a260327932))
+* improve ffmpeg render and add fps ([a295c1f](https://github.com/make-ware/video-ware/commit/a295c1f6c4a5ac112cfc093ea41600426196289d))
+
 ## [0.9.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.3...video-ware-v0.9.4) (2026-07-15)
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -31,27 +31,17 @@ export function WorkspaceLibrary({
 }: WorkspaceLibraryProps) {
   const { currentWorkspace } = useWorkspace();
   const { addClip } = useTimeline();
-  const { directories, currentDirectory, breadcrumbs, navigateTo } =
-    useDirectories(currentWorkspace?.id ?? '');
-
-  // Sync directory tree to match directoryFilter prop on initial mount / url change
-  useEffect(() => {
-    const currentId = currentDirectory?.id ?? null;
-    if (directoryFilter !== currentId) {
-      navigateTo(directoryFilter);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [directoryFilter]);
+  const { directories } = useDirectories(currentWorkspace?.id ?? '');
 
   const handleDirectorySelect = useCallback(
     (dirId: string | null) => {
-      navigateTo(dirId);
       onDirectoryFilterChange?.(dirId);
     },
-    [navigateTo, onDirectoryFilterChange]
+    [onDirectoryFilterChange]
   );
 
-  const directoryFilterId = currentDirectory?.id ?? undefined;
+  const directoryFilterId = directoryFilter ?? undefined;
+  const inDirectory = directoryFilter !== null;
 
   const [activeTab, setActiveTab] = useState<'media' | 'clips'>('clips');
 
@@ -198,20 +188,19 @@ export function WorkspaceLibrary({
             itemCount={mediaLib.items.length}
             itemLabel="media"
             directories={directories}
-            currentDirectory={currentDirectory}
-            breadcrumbs={breadcrumbs}
+            directoryFilter={directoryFilter}
             onDirectorySelect={handleDirectorySelect}
           />
           <LibraryGrid
             isLoading={mediaLib.isLoading}
             error={mediaLib.error}
-            emptyIcon={currentDirectory ? FolderOpen : Film}
+            emptyIcon={inDirectory ? FolderOpen : Film}
             emptyMessage={
-              currentDirectory ? 'No media in this folder' : 'No media found'
+              inDirectory ? 'No media in this folder' : 'No media found'
             }
             hasSearch={mediaSearch.length > 0}
             onClearDirectory={() => handleDirectorySelect(null)}
-            inDirectory={!!currentDirectory}
+            inDirectory={inDirectory}
           >
             {mediaLib.items.map((item) => (
               <LibraryItemCard
@@ -240,20 +229,19 @@ export function WorkspaceLibrary({
             itemCount={clipsLib.items.length}
             itemLabel="clip"
             directories={directories}
-            currentDirectory={currentDirectory}
-            breadcrumbs={breadcrumbs}
+            directoryFilter={directoryFilter}
             onDirectorySelect={handleDirectorySelect}
           />
           <LibraryGrid
             isLoading={clipsLib.isLoading}
             error={clipsLib.error}
-            emptyIcon={currentDirectory ? FolderOpen : Film}
+            emptyIcon={inDirectory ? FolderOpen : Film}
             emptyMessage={
-              currentDirectory ? 'No clips in this folder' : 'No clips found'
+              inDirectory ? 'No clips in this folder' : 'No clips found'
             }
             hasSearch={clipSearch.length > 0}
             onClearDirectory={() => handleDirectorySelect(null)}
-            inDirectory={!!currentDirectory}
+            inDirectory={inDirectory}
           >
             {clipsLib.items.map((item) => (
               <LibraryItemCard

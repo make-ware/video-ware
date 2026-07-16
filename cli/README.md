@@ -54,11 +54,11 @@ vw workspace list              # list workspaces (active marked with *)
 vw workspace use [id]          # set the active workspace (interactive when omitted)
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
-vw media list                  # list media (-d/--directory filters to one directory)
+vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
 vw media update <id>           # set label/description, move into a directory (--directory)
 vw media clip create           # create a media clip (sub-range of a media)
-vw media clip list             # list media clips in the active workspace
+vw media clip list             # list media clips (-d filters via the parent media's directory)
 vw media clip update <id>      # edit a media clip's label/description/trim
 vw media clip delete <id>      # delete a media clip
 vw media clip segments <id>    # show a clip's edit list (segments + gaps)
@@ -67,7 +67,12 @@ vw media clip cut <id>         # remove a source range, e.g. an umm (--from/--to
 vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
 vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
 
-vw directory list              # list media directories (optional folders, e.g. per shoot)
+vw dir list                    # list directories + media counts (optional flat folders)
+vw dir show <dir>              # one directory and the media filed in it
+vw dir create <name>           # create a directory (idempotent; path-safe names only)
+vw dir rename <dir> <name>     # rename a directory
+vw dir move <dir> <id...>      # file media into a directory ("/" or "none" unfiles them)
+vw dir delete <dir>            # delete (refuses non-empty; --force unfiles the media first)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
 vw label list                  # list labels for one media
@@ -202,6 +207,34 @@ that isn't a previous export is refused unless `--force` is passed.
 `--no-labels` skips label data, `-w <id>` overrides the active workspace,
 and `--json` prints the manifest instead of progress lines.
 
+## Directories (optional media folders)
+
+Directories organize, filter, and label media — nothing more. They are
+**optional** and **flat** (no nesting): a media without one simply sits at
+the workspace root, and every media command returns all media unless
+`-d/--directory` narrows it. Nothing is stored "inside" a directory and
+deleting one never deletes media.
+
+- **Names are unique per workspace** (case-insensitive, DB-enforced) and
+  **path-safe**: letters, digits, dashes, and underscores only, starting
+  with a letter or digit (e.g. `hawaii`, `b-roll_2024`). `vw dir create` is
+  idempotent — creating an existing name just returns it.
+- **Refs are flexible.** Every `<dir>` argument accepts a name (`hawaii`,
+  `/hawaii`) or a record id, matched case-insensitively with a
+  unique-substring fallback.
+- **`/` (or `root` / `none`) means "no directory".** As a filter it selects
+  unfiled media (`vw media list -d /`); as a move target it unfiles
+  (`vw dir move / MEDIA_ID`).
+- **Filing media:** `vw dir move <dir> <mediaId...>` moves a batch;
+  `vw media update <id> --directory <dir>` does one alongside other edits.
+  Uploads made in the webapp can also land in a directory at ingest.
+- **Media clips have no directory of their own** — they follow their parent
+  media, so `vw media clip list -d <dir>` filters clips through the source
+  media's directory.
+- **Deletion is safe by default.** `vw dir delete` refuses while media is
+  still filed in the directory; `--force` unfiles the media back to the
+  workspace root first.
+
 ## Timeline placement semantics
 
 - **Tracks are layers.** `layer 0` is the bottom of the visual stack; higher
@@ -285,9 +318,16 @@ into hundreds of tiny clips.
 vw media search beach                          # media matching "beach" (filename/label/description)
 vw media update MEDIA_ID \
   --label "Beach intro" --description "Opening drone shot"  # name/annotate a media
-vw directory list                              # directories are optional media folders
-vw media list --directory Hawaii               # only media filed under "Hawaii" (name or id)
-vw media update MEDIA_ID --directory Hawaii    # file a media (--directory none clears it)
+vw dir list                                    # directories are optional flat folders (with media counts)
+vw dir create hawaii                           # create a directory (idempotent; path-safe names only)
+vw media list --directory hawaii               # only media filed under "hawaii" (name or id)
+vw media list -d /                             # only unfiled media (workspace root)
+vw dir move hawaii M_ID1 M_ID2                 # file several media at once
+vw dir move none M_ID1                         # unfile (back to the workspace root)
+vw media update MEDIA_ID --directory hawaii    # file one media (--directory none clears it)
+vw media clip list -d hawaii                   # clips whose source media is in that directory
+vw dir rename hawaii hawaii-2024               # rename (unique per workspace)
+vw dir delete hawaii --force                   # delete; filed media are unfiled, never deleted
 vw media clip create -m MEDIA_ID -s 5 -e 12.5  # USER clip of media[5s..12.5s]
 vw media clip create -m MEDIA_ID --type range  # whole-media clip, typed "range"
 vw media clip create -m MEDIA_ID -s 5 -e 12.5 \

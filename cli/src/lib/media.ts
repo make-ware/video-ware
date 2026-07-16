@@ -8,6 +8,7 @@ import {
   deriveClipTimes,
   getCompositeSegments,
   validateTimeRange,
+  type Directory,
   type Media,
   type MediaClip,
   type MediaClipInput,
@@ -15,7 +16,7 @@ import {
 } from '@project/shared';
 import { mediaBounds, singleMediaType } from './timeline.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
-import { resolveDirectory } from './directory.js';
+import { isRootDirRef, resolveDirectory } from './directory.js';
 import type { OptionGroupOf } from './options.js';
 import { formatDuration, type Column } from './output.js';
 
@@ -56,7 +57,8 @@ export function mediaColumns(
 
 /**
  * Search a workspace's media by its label, description, or source upload
- * filename, optionally narrowed to a single directory. Mirrors the webapp's
+ * filename, optionally narrowed to a single directory (`directoryId: null`
+ * means unfiled media only — no directory set). Mirrors the webapp's
  * metadata search: the free-text `query` is bound via `pb.filter` to avoid
  * filter-string injection.
  */
@@ -65,20 +67,25 @@ export async function searchMedia(
   workspaceId: string,
   query: string,
   perPage = 50,
-  directoryId?: string
+  directoryId?: string | null
 ): Promise<ListResult<Media>> {
   const search =
     '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})';
-  const filter = directoryId
-    ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`, {
-        ws: workspaceId,
-        dir: directoryId,
-        q: query,
-      })
-    : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
-        ws: workspaceId,
-        q: query,
-      });
+  const filter =
+    directoryId === null
+      ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = "" && ${search}`, {
+          ws: workspaceId,
+          q: query,
+        })
+      : directoryId
+        ? pb.filter(
+            `WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`,
+            { ws: workspaceId, dir: directoryId, q: query }
+          )
+        : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
+            ws: workspaceId,
+            q: query,
+          });
   return new MediaMutator(pb).getList(1, perPage, filter, undefined, [
     'DirectoryRef',
   ]);
@@ -330,12 +337,60 @@ export async function deleteMediaClip(
   return { clip, referencingClipIds };
 }
 
+export interface MoveMediaResult {
+  /** Target directory, or null when the media were moved to the workspace root. */
+  directory: Directory | null;
+  moved: Media[];
+}
+
+/**
+ * Move one or more media into a directory — or back to the workspace root
+ * when `directoryRef` is a root ref (`/`, `root`, `none`). Every media is
+ * validated (exists, same workspace) before anything is written, so a bad id
+ * doesn't leave the batch half-moved.
+ */
+export async function moveMedia(
+  pb: TypedPocketBase,
+  workspaceId: string,
+  directoryRef: string,
+  mediaIds: string[]
+): Promise<MoveMediaResult> {
+  const directory: Directory | null = isRootDirRef(directoryRef)
+    ? null
+    : await resolveDirectory(pb, workspaceId, directoryRef);
+
+  const mutator = new MediaMutator(pb);
+  const targets: Media[] = [];
+  for (const id of mediaIds) {
+    const media = await mutator.getById(id);
+    if (!media) {
+      throw new Error(`Media not found: ${id} — nothing was moved.`);
+    }
+    if (media.WorkspaceRef !== workspaceId) {
+      throw new Error(
+        `Media ${id} belongs to another workspace — nothing was moved.`
+      );
+    }
+    targets.push(media);
+  }
+
+  const moved: Media[] = [];
+  for (const media of targets) {
+    moved.push(
+      await mutator.update(media.id, {
+        DirectoryRef: directory?.id ?? '',
+      } as Partial<Media>)
+    );
+  }
+  return { directory, moved };
+}
+
 export interface UpdateMediaOptions {
   /** Editor-facing media name (searchable). */
   label?: string;
   /** Editor-facing media notes (searchable). */
   description?: string;
-  /** Directory name or id to move the media into; 'none' clears it. */
+  /** Directory name or id to move the media into; '/' or 'none' clears it. */
   directory?: string;
 }
 
@@ -354,8 +409,9 @@ export const mediaFieldOptions = {
     description: 'media notes shown in the editor (searchable)',
   },
   directory: {
-    flags: '--directory <nameOrId>',
-    description: "move the media into a directory ('none' clears it)",
+    flags: '--directory <dir>',
+    description:
+      "move the media into a directory (name or id; '/' or 'none' clears it)",
   },
 } satisfies OptionGroupOf<UpdateMediaOptions>;
 
@@ -363,8 +419,8 @@ export const mediaFieldOptions = {
  * Patch a media's editor-facing label/description/directory. Only the fields
  * actually passed are written, so an unset flag leaves the stored value
  * untouched. `--directory` resolves a name or id within the media's own
- * workspace; the literal 'none' (or an empty value) detaches the media back
- * to the workspace root.
+ * workspace; a root ref ('/', 'root', 'none', or an empty value) detaches
+ * the media back to the workspace root.
  */
 export async function updateMedia(
   pb: TypedPocketBase,
@@ -385,10 +441,9 @@ export async function updateMedia(
   };
 
   if (opts.directory !== undefined) {
-    patch.DirectoryRef =
-      opts.directory === '' || opts.directory === 'none'
-        ? ''
-        : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
+    patch.DirectoryRef = isRootDirRef(opts.directory)
+      ? ''
+      : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
   }
 
   return mutator.update(mediaId, patch);

@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { directoryNameError } from '@project/shared';
 import type { UseDirectoryCrudReturn } from '@/hooks/use-directory-crud';
 
 type DirectoryDialogsProps = Pick<
@@ -46,6 +47,9 @@ export function DirectoryDialogs({
   handleDeleteClose,
   handleDeleteConfirm,
 }: DirectoryDialogsProps) {
+  // Only nag once there is something to validate.
+  const renameError = renameName.trim() ? directoryNameError(renameName) : null;
+
   return (
     <>
       {/* Rename dialog */}
@@ -67,14 +71,20 @@ export function DirectoryDialogs({
             onChange={(e) => setRenameName(e.target.value)}
             placeholder="Folder name"
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleRenameSubmit();
+              if (e.key === 'Enter' && !renameError) handleRenameSubmit();
             }}
           />
+          {renameError && (
+            <p className="text-sm text-destructive">{renameError}</p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={handleRenameClose}>
               Cancel
             </Button>
-            <Button onClick={handleRenameSubmit} disabled={!renameName.trim()}>
+            <Button
+              onClick={handleRenameSubmit}
+              disabled={!renameName.trim() || renameError !== null}
+            >
               Rename
             </Button>
           </DialogFooter>

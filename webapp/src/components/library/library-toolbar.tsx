@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
 import { MediaTypeFilter } from '@/components/media/media-type-filter';
 import { Search, Folder, FolderOpen } from 'lucide-react';
 import type { Directory } from '@project/shared';
@@ -27,10 +26,9 @@ interface LibraryToolbarProps {
   itemCount?: number;
   itemLabel?: string;
   searchPlaceholder?: string;
-  // Directory
+  // Directory filter (flat folders; null = all media)
   directories?: Directory[];
-  currentDirectory?: Directory | null;
-  breadcrumbs?: { id: string; name: string }[];
+  directoryFilter?: string | null;
   onDirectorySelect?: (directoryId: string | null) => void;
 }
 
@@ -45,8 +43,7 @@ export function LibraryToolbar({
   itemLabel = 'item',
   searchPlaceholder = 'Search...',
   directories,
-  currentDirectory,
-  breadcrumbs,
+  directoryFilter = null,
   onDirectorySelect,
 }: LibraryToolbarProps) {
   const showDirectoryNav =
@@ -101,42 +98,32 @@ export function LibraryToolbar({
       )}
 
       {showDirectoryNav && (
-        <div className="space-y-1.5">
-          {breadcrumbs && breadcrumbs.length > 0 && (
-            <DirectoryBreadcrumb
-              breadcrumbs={breadcrumbs}
-              onNavigate={(id) => onDirectorySelect!(id)}
-            />
-          )}
-          <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Button
+            variant={directoryFilter == null ? 'default' : 'outline'}
+            size="sm"
+            className="h-6 text-[11px] px-2"
+            onClick={() => onDirectorySelect!(null)}
+          >
+            <Folder className="mr-1 h-3 w-3" />
+            All
+          </Button>
+          {directories!.map((dir) => (
             <Button
-              variant={currentDirectory == null ? 'default' : 'outline'}
+              key={dir.id}
+              variant={directoryFilter === dir.id ? 'default' : 'outline'}
               size="sm"
               className="h-6 text-[11px] px-2"
-              onClick={() => onDirectorySelect!(null)}
+              onClick={() => onDirectorySelect!(dir.id)}
             >
-              <Folder className="mr-1 h-3 w-3" />
-              All
+              {directoryFilter === dir.id ? (
+                <FolderOpen className="mr-1 h-3 w-3" />
+              ) : (
+                <Folder className="mr-1 h-3 w-3" />
+              )}
+              <span className="truncate max-w-[100px]">{dir.name}</span>
             </Button>
-            {directories!.map((dir) => (
-              <Button
-                key={dir.id}
-                variant={
-                  currentDirectory?.id === dir.id ? 'default' : 'outline'
-                }
-                size="sm"
-                className="h-6 text-[11px] px-2"
-                onClick={() => onDirectorySelect!(dir.id)}
-              >
-                {currentDirectory?.id === dir.id ? (
-                  <FolderOpen className="mr-1 h-3 w-3" />
-                ) : (
-                  <Folder className="mr-1 h-3 w-3" />
-                )}
-                <span className="truncate max-w-[100px]">{dir.name}</span>
-              </Button>
-            ))}
-          </div>
+          ))}
         </div>
       )}
     </div>

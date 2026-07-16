@@ -4,6 +4,7 @@ import {
   createMediaClip,
   deleteMediaClip,
   mediaColumns,
+  moveMedia,
   parseClipType,
   searchMedia,
   updateMedia,
@@ -78,6 +79,108 @@ describe('searchMedia', () => {
     expect(options.filter).toContain('DirectoryRef = d1');
     expect(options.filter).toContain('label ~ beach');
   });
+
+  it('narrows to unfiled media when directoryId is null', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    await searchMedia(pb, 'ws1', 'beach', 50, null);
+
+    const [, , options] = getList.mock.calls[0];
+    expect(options.filter).toContain('DirectoryRef = ""');
+    expect(options.filter).toContain('label ~ beach');
+  });
+});
+
+describe('moveMedia', () => {
+  const directories = () => ({
+    getList: vi.fn(async () =>
+      listResult([
+        { id: 'd1', name: 'trips', WorkspaceRef: 'ws1' },
+        { id: 'd2', name: 'hawaii', WorkspaceRef: 'ws1' },
+      ])
+    ),
+  });
+
+  it('moves several media into a name-resolved directory', async () => {
+    const update = vi.fn(async (id: string, data: object) => ({ id, ...data }));
+    const pb = fakePb({
+      Directories: directories(),
+      Media: {
+        getOne: vi.fn(async (id: string) => ({ id, WorkspaceRef: 'ws1' })),
+        update,
+      },
+    });
+
+    const result = await moveMedia(pb, 'ws1', 'hawaii', ['m1', 'm2']);
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[0].slice(0, 2)).toEqual([
+      'm1',
+      { DirectoryRef: 'd2' },
+    ]);
+    expect(result.directory?.id).toBe('d2');
+    expect(result.moved).toHaveLength(2);
+  });
+
+  it('re-files media at the workspace root for a root ref', async () => {
+    const update = vi.fn(async (id: string, data: object) => ({ id, ...data }));
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn(async (id: string) => ({
+          id,
+          WorkspaceRef: 'ws1',
+          DirectoryRef: 'd2',
+        })),
+        update,
+      },
+    });
+
+    const result = await moveMedia(pb, 'ws1', '/', ['m1']);
+
+    expect(update.mock.calls[0].slice(0, 2)).toEqual([
+      'm1',
+      { DirectoryRef: '' },
+    ]);
+    expect(result.directory).toBeNull();
+  });
+
+  it('validates every media before writing anything', async () => {
+    const update = vi.fn();
+    const pb = fakePb({
+      Directories: directories(),
+      Media: {
+        getOne: vi.fn(async (id: string) =>
+          id === 'm1' ? { id, WorkspaceRef: 'ws1' } : null
+        ),
+        update,
+      },
+    });
+
+    await expect(
+      moveMedia(pb, 'ws1', 'hawaii', ['m1', 'missing'])
+    ).rejects.toThrow(/media not found: missing.*nothing was moved/is);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('rejects media from another workspace', async () => {
+    const update = vi.fn();
+    const pb = fakePb({
+      Directories: directories(),
+      Media: {
+        getOne: vi.fn(async (id: string) => ({ id, WorkspaceRef: 'ws2' })),
+        update,
+      },
+    });
+
+    await expect(moveMedia(pb, 'ws1', 'hawaii', ['m1'])).rejects.toThrow(
+      /another workspace/i
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
 });
 
 describe('mediaColumns', () => {
@@ -144,7 +247,7 @@ describe('updateMedia', () => {
     expect(result.label).toBe('Beach intro');
   });
 
-  it('resolves --directory to a DirectoryRef in the media workspace', async () => {
+  it('resolves --directory (name or path) to a DirectoryRef in the media workspace', async () => {
     const update = vi.fn(async (id: string, data) => ({ id, ...data }));
     const pb = fakePb({
       Media: {
@@ -152,35 +255,35 @@ describe('updateMedia', () => {
         update,
       },
       Directories: {
-        getOne: vi.fn(async () => ({
-          id: 'd1',
-          name: 'Hawaii',
-          WorkspaceRef: 'ws1',
-        })),
+        getList: vi.fn(async () =>
+          listResult([{ id: 'd1', name: 'Hawaii', WorkspaceRef: 'ws1' }])
+        ),
       },
     });
 
-    await updateMedia(pb, 'm1', { directory: 'd1' });
+    await updateMedia(pb, 'm1', { directory: '/hawaii' });
 
     expect(update.mock.calls[0][1]).toEqual({ DirectoryRef: 'd1' });
   });
 
-  it("clears the directory when --directory is 'none'", async () => {
-    const update = vi.fn(async (id: string, data) => ({ id, ...data }));
-    const pb = fakePb({
-      Media: {
-        getOne: vi.fn(async () => ({
-          id: 'm1',
-          WorkspaceRef: 'ws1',
-          DirectoryRef: 'd1',
-        })),
-        update,
-      },
-    });
+  it("clears the directory when --directory is 'none' or '/'", async () => {
+    for (const ref of ['none', '/']) {
+      const update = vi.fn(async (id: string, data) => ({ id, ...data }));
+      const pb = fakePb({
+        Media: {
+          getOne: vi.fn(async () => ({
+            id: 'm1',
+            WorkspaceRef: 'ws1',
+            DirectoryRef: 'd1',
+          })),
+          update,
+        },
+      });
 
-    await updateMedia(pb, 'm1', { directory: 'none' });
+      await updateMedia(pb, 'm1', { directory: ref });
 
-    expect(update.mock.calls[0][1]).toEqual({ DirectoryRef: '' });
+      expect(update.mock.calls[0][1]).toEqual({ DirectoryRef: '' });
+    }
   });
 
   it('throws when the media does not exist', async () => {

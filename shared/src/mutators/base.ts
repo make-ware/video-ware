@@ -9,11 +9,28 @@ import {
   type UnsubscribeFunc,
 } from 'pocketbase';
 import type { Expanded, TypedPocketBase } from '../types';
+import {
+  RecordConflictError,
+  RecordGoneError,
+  diffTopLevelFields,
+} from '../utils/record-conflict';
 
 export interface MutatorOptions {
   expand: string[];
   filter: string[];
   sort: string[];
+}
+
+/**
+ * Optimistic-concurrency guard for `updateWithGuard`: the `updated` value
+ * captured when the record was read, plus (optionally) the full snapshot so
+ * a conflict can report which fields changed remotely.
+ */
+export interface UpdateGuard<T> {
+  /** `updated` value from the read the patch was computed from. */
+  expectedUpdated: string;
+  /** The reader's snapshot; powers the changed-fields conflict report. */
+  snapshot?: Partial<T>;
 }
 
 // T represents the output model type that extends RecordModel
@@ -108,6 +125,51 @@ export abstract class BaseMutator<
     } catch (error) {
       return this.errorWrapper(error);
     }
+  }
+
+  /**
+   * Update with an optimistic-concurrency guard: when a guard is passed, the
+   * record is re-read immediately before writing and the patch is aborted
+   * with a RecordConflictError if its `updated` timestamp no longer matches
+   * the read the patch was computed from (RecordGoneError when the record
+   * was deleted in between). Without a guard this is a plain `update`.
+   *
+   * The check is client-side (read-then-write), so a sub-request race window
+   * remains — callers treat a clean pass as "very probably unchanged", not a
+   * transactional CAS.
+   */
+  async updateWithGuard(
+    id: string,
+    input: Partial<T>,
+    guard?: UpdateGuard<T>
+  ): Promise<T> {
+    if (guard) {
+      let current: T;
+      try {
+        current = await this.entityGetById(id);
+      } catch (error) {
+        if (this.isNotFoundError(error)) {
+          throw new RecordGoneError(
+            this.getCollection().collectionIdOrName,
+            id
+          );
+        }
+        throw error;
+      }
+      if (current.updated !== guard.expectedUpdated) {
+        throw new RecordConflictError({
+          collection: this.getCollection().collectionIdOrName,
+          recordId: id,
+          expectedUpdated: guard.expectedUpdated,
+          actualUpdated: String(current.updated ?? ''),
+          changedFields: diffTopLevelFields(
+            (guard.snapshot ?? {}) as Record<string, unknown>,
+            current as Record<string, unknown>
+          ),
+        });
+      }
+    }
+    return this.update(id, input);
   }
 
   /**

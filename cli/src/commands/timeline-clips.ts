@@ -22,7 +22,9 @@ import {
   parseSeconds,
   parseSignedSeconds,
   pickOptions,
+  withForceOption,
   withJsonOption,
+  withStrictOption,
 } from '../lib/options.js';
 import {
   formatDuration,
@@ -32,6 +34,12 @@ import {
   success,
   truncate,
 } from '../lib/output.js';
+import { withConflictRetry } from '../lib/conflict.js';
+import {
+  enforceStrict,
+  noopMessage,
+  printOpWarnings,
+} from '../lib/warnings.js';
 import { registerTimelineClipSegmentCommands } from './clip-segments.js';
 import { printLabelDetail, reportPlacement } from './timeline.js';
 
@@ -200,27 +208,50 @@ export function registerTimelineClipCommands(timeline: Command): void {
     }
   });
 
-  const update = workspaceOption(
-    clips
-      .command('update <clipId>')
-      .description('Update a timeline clip (label, description, trim, gain)')
-      .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+  const update = withForceOption(
+    withStrictOption(
+      workspaceOption(
+        clips
+          .command('update <clipId>')
+          .description(
+            'Update a timeline clip (label, description, trim, gain)'
+          )
+          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+      )
+    )
   );
   applyOptions(withJsonOption(update), clipUpdateOptions).action(
     async (clipId: string, opts) => {
       try {
         const pb = await requireClient();
-        const updated = await updateTimelineClip(pb, clipId, {
-          ...pickOptions(opts, clipUpdateOptions),
-          ...(opts.timeline ? { timelineId: opts.timeline } : {}),
-        });
-        if (opts.json) {
-          printRecord(updated, [], true);
-          return;
-        }
-        success(
-          `Updated clip ${updated.id} (${range(updated.start, updated.end)}, ${formatDuration(updated.duration)})`
+        const picked = pickOptions(opts, clipUpdateOptions);
+        const patchKeys = [
+          ...(picked.label !== undefined ? ['label'] : []),
+          ...(picked.description !== undefined ? ['description'] : []),
+          ...(picked.start !== undefined || picked.end !== undefined
+            ? ['start', 'end', 'duration']
+            : []),
+          ...(picked.gain !== undefined ? ['meta'] : []),
+        ];
+        const result = await withConflictRetry(
+          () =>
+            updateTimelineClip(pb, clipId, {
+              ...picked,
+              ...(opts.timeline ? { timelineId: opts.timeline } : {}),
+            }),
+          { patchKeys, force: opts.force }
         );
+        if (opts.json) {
+          printRecord(result, [], true);
+        } else if (result.noop) {
+          info(noopMessage(result.warnings) ?? 'Nothing to write.');
+        } else {
+          success(
+            `Updated clip ${result.clip.id} (${range(result.clip.start, result.clip.end)}, ${formatDuration(result.clip.duration)})`
+          );
+        }
+        printOpWarnings(result.warnings);
+        enforceStrict(result.warnings, opts.strict);
       } catch (err) {
         handleError(err);
       }
@@ -228,66 +259,96 @@ export function registerTimelineClipCommands(timeline: Command): void {
   );
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('move <clipId>')
-        .description('Move a clip to another track and/or timeline position')
-        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-        .option('--track <layer|id>', 'destination track (default: current)')
-        .option(
-          '--at <seconds>',
-          'new timeline position (default: keep current position)',
-          parseSeconds
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          clips
+            .command('move <clipId>')
+            .description(
+              'Move a clip to another track and/or timeline position'
+            )
+            .option(
+              '-t, --timeline <id>',
+              'timeline id (validated when passed)'
+            )
+            .option(
+              '--track <layer|id>',
+              'destination track (default: current)'
+            )
+            .option(
+              '--at <seconds>',
+              'new timeline position (default: keep current position)',
+              parseSeconds
+            )
+            .option(
+              '--overwrite',
+              'with --at: trim/remove overlapping clips instead of nudging forward'
+            )
+            .option(
+              '--ripple',
+              'land at the exact time and shift later clips right to make room'
+            )
+            .option(
+              '--dry-run',
+              'print the placement plan without writing anything'
+            )
         )
-        .option(
-          '--overwrite',
-          'with --at: trim/remove overlapping clips instead of nudging forward'
-        )
-        .option(
-          '--dry-run',
-          'print the placement plan without writing anything'
-        )
+      )
     )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
-      const result = await moveTimelineClip(pb, clipId, {
-        track: opts.track,
-        at: opts.at,
-        overwrite: opts.overwrite,
-        dryRun: opts.dryRun,
-        timelineId: opts.timeline,
-      });
+      const result = await withConflictRetry(
+        () =>
+          moveTimelineClip(pb, clipId, {
+            track: opts.track,
+            at: opts.at,
+            overwrite: opts.overwrite,
+            ripple: opts.ripple,
+            dryRun: opts.dryRun,
+            timelineId: opts.timeline,
+          }),
+        {
+          patchKeys: ['TimelineTrackRef', 'timelineStart'],
+          force: opts.force,
+        }
+      );
       if (opts.json) {
         printRecord(result, [], true);
-        return;
-      }
-      const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
-      if (result.dryRun) {
-        info(`Dry run — nothing written. Clip would move to ${where}`);
       } else {
-        success(`Moved clip ${result.clip!.id} to ${where}`);
+        const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
+        if (result.noop) {
+          info(noopMessage(result.warnings) ?? 'Nothing to write.');
+        } else if (result.dryRun) {
+          info(`Dry run — nothing written. Clip would move to ${where}`);
+        } else {
+          success(`Moved clip ${result.clip!.id} to ${where}`);
+        }
+        reportPlacement(result);
       }
-      reportPlacement(result);
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }
   });
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('ripple <clipId>')
-        .description(
-          'Shift a clip and everything after it on its track by ±seconds'
-        )
-        .requiredOption(
-          '--by <seconds>',
-          'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
-          parseSignedSeconds
-        )
-        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-        .option('--dry-run', 'print the shifts without writing anything')
+    withStrictOption(
+      workspaceOption(
+        clips
+          .command('ripple <clipId>')
+          .description(
+            'Shift a clip and everything after it on its track by ±seconds'
+          )
+          .requiredOption(
+            '--by <seconds>',
+            'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
+            parseSignedSeconds
+          )
+          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+          .option('--dry-run', 'print the shifts without writing anything')
+      )
     )
   ).action(async (clipId: string, opts) => {
     try {
@@ -299,47 +360,42 @@ export function registerTimelineClipCommands(timeline: Command): void {
       });
       if (opts.json) {
         printRecord(result, [], true);
-        return;
-      }
-      if (result.shifted.length === 0) {
-        info(
-          'Nothing to shift — the clip is already flush against the previous one.'
-        );
-        return;
-      }
-      const amount = `${result.by >= 0 ? '+' : ''}${result.by.toFixed(2)}s`;
-      if (result.dryRun) {
-        info(
-          `Dry run — nothing written. Would shift ${result.shifted.length} clip(s) on track ${result.track.layer} by ${amount}`
-        );
+      } else if (result.noop) {
+        info(noopMessage(result.warnings) ?? 'Nothing to shift.');
       } else {
-        success(
-          `Shifted ${result.shifted.length} clip(s) on track ${result.track.layer} by ${amount}`
-        );
+        const amount = `${result.by >= 0 ? '+' : ''}${result.by.toFixed(2)}s`;
+        if (result.dryRun) {
+          info(
+            `Dry run — nothing written. Would shift ${result.shifted.length} clip(s) on track ${result.track.layer} by ${amount}`
+          );
+        } else {
+          success(
+            `Shifted ${result.shifted.length} clip(s) on track ${result.track.layer} by ${amount}`
+          );
+        }
+        for (const shift of result.shifted) {
+          info(`  ${shift.clipId}: ${secs(shift.from)} → ${secs(shift.to)}`);
+        }
       }
-      if (result.by !== result.requestedBy) {
-        info(
-          `  requested ${result.requestedBy.toFixed(2)}s — clamped at the previous clip`
-        );
-      }
-      for (const shift of result.shifted) {
-        info(`  ${shift.clipId}: ${secs(shift.from)} → ${secs(shift.to)}`);
-      }
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }
   });
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('remove <clipId>')
-        .description('Remove a clip from its timeline')
-        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-        .option(
-          '--ripple',
-          'shift later clips on the track left to close the gap'
-        )
+    withStrictOption(
+      workspaceOption(
+        clips
+          .command('remove <clipId>')
+          .description('Remove a clip from its timeline')
+          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+          .option(
+            '--ripple',
+            'shift later clips on the track left to close the gap'
+          )
+      )
     )
   ).action(async (clipId: string, opts) => {
     try {
@@ -350,45 +406,58 @@ export function registerTimelineClipCommands(timeline: Command): void {
       });
       if (opts.json) {
         printRecord(result, [], true);
-        return;
-      }
-      success(
-        `Removed clip ${result.clip.id} from timeline ${result.clip.TimelineRef}`
-      );
-      for (const shift of result.shifted) {
-        info(
-          `  rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+      } else {
+        success(
+          `Removed clip ${result.clip.id} from timeline ${result.clip.TimelineRef}`
         );
+        for (const shift of result.shifted) {
+          info(
+            `  rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+          );
+        }
       }
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }
   });
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('reorder <clipIds...>')
-        .description(
-          'Replace the clip order: pass every clip id in the new sequence'
-        )
-        .requiredOption('-t, --timeline <id>', 'timeline id')
+    withStrictOption(
+      workspaceOption(
+        clips
+          .command('reorder <clipIds...>')
+          .description(
+            'Replace the clip order: pass every clip id in the new sequence'
+          )
+          .requiredOption('-t, --timeline <id>', 'timeline id')
+      )
     )
   ).action(async (clipIds: string[], opts) => {
     try {
       const pb = await requireClient();
-      const reordered = await reorderTimelineClips(pb, opts.timeline, clipIds);
+      const result = await reorderTimelineClips(pb, opts.timeline, clipIds);
       if (opts.json) {
         printRecord(
-          { items: reordered, totalItems: reordered.length },
+          {
+            items: result.clips,
+            totalItems: result.clips.length,
+            noop: result.noop,
+            warnings: result.warnings,
+          },
           [],
           true
         );
-        return;
+      } else if (result.noop) {
+        info(noopMessage(result.warnings) ?? 'Nothing to write.');
+      } else {
+        success(
+          `Reordered ${result.clips.length} clips on timeline ${opts.timeline}`
+        );
       }
-      success(
-        `Reordered ${reordered.length} clips on timeline ${opts.timeline}`
-      );
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }

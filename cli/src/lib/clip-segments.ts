@@ -2,6 +2,7 @@ import {
   ClipType,
   MediaClipMutator,
   MediaMutator,
+  TIMELINE_EPSILON,
   TimelineClipMutator,
   calculateEffectiveDuration,
   cutSegments,
@@ -18,7 +19,7 @@ import {
   type TimelineClip,
   type TypedPocketBase,
 } from '@project/shared';
-import { mediaBounds, syncTimelineDuration } from './timeline.js';
+import { mediaBounds, syncTimelineAfterWrite } from './timeline.js';
 import {
   assertOnTimeline,
   resolveTimelineEditList,
@@ -26,6 +27,13 @@ import {
   type RippleShift,
   type TimelineEditListSource,
 } from './timeline-clip.js';
+import {
+  clampedWarning,
+  noopNotice,
+  postWriteOverlapWarning,
+  shiftedOthersNotice,
+  type OpWarning,
+} from './warnings.js';
 
 /**
  * Segment-level edit operations (split/cut/trim/slip) shared by
@@ -110,6 +118,58 @@ function applySegmentOp(
   }
 }
 
+/**
+ * Whether an op left the edit list unchanged (within epsilon) — the
+ * generalized no-op check: a slip clamped to zero, a split at an existing
+ * boundary, a trim to the same edges. No-ops skip the write entirely so
+ * `updated` keeps meaning "content changed".
+ */
+function segmentsEqual(a: CompositeSegment[], b: CompositeSegment[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (seg, i) =>
+        Math.abs(seg.start - b[i].start) <= TIMELINE_EPSILON &&
+        Math.abs(seg.end - b[i].end) <= TIMELINE_EPSILON
+    )
+  );
+}
+
+const signed = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}s`;
+
+/** No-op / clamp warnings shared by both domains' edit paths. */
+function segmentEditWarnings(
+  clipId: string,
+  op: SegmentOp,
+  applied: AppliedOp,
+  noop: boolean
+): OpWarning[] {
+  if (noop) {
+    const message =
+      op.kind === 'slip'
+        ? 'nothing to slip — the segment is already flush against its ' +
+          `bounds (requested ${signed(applied.requestedBy ?? 0)})`
+        : 'the edit leaves the edit list unchanged — nothing to write';
+    return [noopNotice(message, [clipId])];
+  }
+  if (
+    op.kind === 'slip' &&
+    applied.requestedBy !== undefined &&
+    applied.appliedBy !== undefined &&
+    applied.appliedBy !== applied.requestedBy
+  ) {
+    return [
+      clampedWarning(
+        applied.requestedBy,
+        applied.appliedBy,
+        'by media bounds/neighbors',
+        [clipId]
+      ),
+    ];
+  }
+  return [];
+}
+
 /** Gaps between consecutive segments (skipped source content). */
 function segmentGaps(
   segments: CompositeSegment[]
@@ -144,9 +204,13 @@ export interface MediaClipSegmentsEditResult {
   times: SegmentTimes;
   /** True when a plain clip was auto-converted to type 'composite'. */
   converted: boolean;
+  /** True when the op left the edit list unchanged; nothing was written. */
+  noop: boolean;
   requestedBy?: number;
   appliedBy?: number;
   dryRun: boolean;
+  /** Soft outcomes: clamps, no-ops. */
+  warnings: OpWarning[];
 }
 
 /**
@@ -182,19 +246,26 @@ export async function editMediaClipSegments(
 
   const applied = applySegmentOp(before, op, bounds);
   const times = deriveClipTimes(applied.segments);
-  const noop = op.kind === 'slip' && applied.appliedBy === 0;
+  const noop = segmentsEqual(before, applied.segments);
+  const warnings = segmentEditWarnings(clipId, op, applied, noop);
 
   let updated: MediaClip | null = null;
   if (!opts.dryRun && !noop) {
-    updated = await mutator.update(clipId, {
-      ...(converted ? { type: ClipType.COMPOSITE } : {}),
-      start: times.start,
-      end: times.end,
-      duration: times.duration,
-      // merge, never replace: update() skips validation, so unknown keys
-      // like gapThreshold survive — keep it that way
-      clipData: { ...(clip.clipData ?? {}), segments: applied.segments },
-    });
+    // Guarded write: a concurrent editor's clipData/trim change must not be
+    // silently clobbered (clipData is one JSON column, replaced whole).
+    updated = await mutator.updateWithGuard(
+      clipId,
+      {
+        ...(converted ? { type: ClipType.COMPOSITE } : {}),
+        start: times.start,
+        end: times.end,
+        duration: times.duration,
+        // merge, never replace: update() skips validation, so unknown keys
+        // like gapThreshold survive — keep it that way
+        clipData: { ...(clip.clipData ?? {}), segments: applied.segments },
+      },
+      { expectedUpdated: clip.updated, snapshot: clip }
+    );
   }
 
   return {
@@ -203,10 +274,12 @@ export async function editMediaClipSegments(
     after: applied.segments,
     times,
     converted,
+    noop,
     ...(applied.requestedBy !== undefined
       ? { requestedBy: applied.requestedBy, appliedBy: applied.appliedBy }
       : {}),
     dryRun: !!opts.dryRun,
+    warnings,
   };
 }
 
@@ -222,9 +295,13 @@ export interface TimelineClipSegmentsEditResult {
   effectiveDelta: number;
   /** Downstream shifts applied (or planned, on a dry run) with --ripple. */
   rippled: RippleShift[];
+  /** True when the op left the edit list unchanged; nothing was written. */
+  noop: boolean;
   requestedBy?: number;
   appliedBy?: number;
   dryRun: boolean;
+  /** Soft outcomes: clamps, shifts, no-ops, concurrent-edit checks. */
+  warnings: OpWarning[];
 }
 
 /**
@@ -267,7 +344,8 @@ export async function editTimelineClipSegments(
   const applied = applySegmentOp(before, op, bounds);
   const times = deriveClipTimes(applied.segments);
   const effectiveDelta = roundToMs(times.duration - oldEffective);
-  const noop = op.kind === 'slip' && applied.appliedBy === 0;
+  const noop = segmentsEqual(before, applied.segments);
+  const warnings = segmentEditWarnings(clipId, op, applied, noop);
 
   let rippled: RippleShift[] = [];
   if (opts.ripple && effectiveDelta !== 0 && !noop) {
@@ -278,18 +356,51 @@ export async function editTimelineClipSegments(
       dryRun: opts.dryRun,
     });
     rippled = ripple.shifted;
+    if (ripple.downstreamCount > 0 && ripple.by !== ripple.requestedBy) {
+      warnings.push(
+        clampedWarning(
+          ripple.requestedBy,
+          ripple.by,
+          'so downstream clips stay clear of the anchor',
+          rippled.map((s) => s.clipId)
+        )
+      );
+    }
+    if (rippled.length > 0) {
+      warnings.push(
+        shiftedOthersNotice(
+          `--ripple shifted ${rippled.length} downstream clip(s) by ` +
+            `${signed(ripple.by)}`,
+          rippled.map((s) => s.clipId)
+        )
+      );
+    }
   }
 
   let updated: TimelineClip | null = null;
   if (!opts.dryRun && !noop) {
-    updated = await clipMutator.update(clipId, {
-      start: times.start,
-      end: times.end,
-      duration: times.duration,
-      // merge, never replace — gain/title/color survive
-      meta: { ...(clip.meta ?? {}), segments: applied.segments },
-    });
-    await syncTimelineDuration(pb, clip.TimelineRef);
+    // Guarded write: meta is one JSON column replaced whole, so a concurrent
+    // gain/title edit would otherwise be silently dropped by this write.
+    updated = await clipMutator.updateWithGuard(
+      clipId,
+      {
+        start: times.start,
+        end: times.end,
+        duration: times.duration,
+        // merge, never replace — gain/title/color survive
+        meta: { ...(clip.meta ?? {}), segments: applied.segments },
+      },
+      { expectedUpdated: clip.updated, snapshot: clip }
+    );
+    const check = await syncTimelineAfterWrite(pb, clip.TimelineRef, [
+      clipId,
+      ...rippled.map((s) => s.clipId),
+    ]);
+    warnings.push(
+      ...check.conflicts.map((f) =>
+        postWriteOverlapWarning(f, clip.TimelineRef)
+      )
+    );
   }
 
   return {
@@ -300,10 +411,12 @@ export async function editTimelineClipSegments(
     segmentsSource: editList.source,
     effectiveDelta,
     rippled,
+    noop,
     ...(applied.requestedBy !== undefined
       ? { requestedBy: applied.requestedBy, appliedBy: applied.appliedBy }
       : {}),
     dryRun: !!opts.dryRun,
+    warnings,
   };
 }
 

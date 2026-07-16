@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { RecordConflictError } from '@project/shared';
 import {
   moveTimelineClip,
   removeTimelineClip,
@@ -249,10 +250,9 @@ describe('updateTimelineClip on a nested-timeline clip', () => {
 
     await updateTimelineClip(pb, 'tc1', { start: 0, end: 8 });
 
+    // start/end/duration already match the stored clip, so no-op elision
+    // drops them; only the followSource flip is written
     expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
-      start: 0,
-      end: 8,
-      duration: 8,
       meta: { title: 'Intro', followSource: true },
     });
   });
@@ -775,7 +775,10 @@ describe('updateTimelineClip on a clip with an edit list', () => {
   });
 
   it('clamps a wider-than-list window to the edit list span', async () => {
-    const stubs = clipStubs({ clips: [clip] });
+    // start from a trimmed window so the clamped result differs from the
+    // stored values (an identical result would be elided as a no-op)
+    const trimmed = { ...clip, start: 5, end: 25, duration: 10 };
+    const stubs = clipStubs({ clips: [trimmed] });
     const pb = fakePb(stubs);
 
     await updateTimelineClip(pb, 'tc1', { start: 0, end: 45 });
@@ -794,6 +797,234 @@ describe('updateTimelineClip on a clip with an edit list', () => {
     await expect(
       updateTimelineClip(pb, 'tc1', { start: 12, end: 18 })
     ).rejects.toThrow(/no segment content/i);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('no-op elision', () => {
+  const placedClip = {
+    id: 'a',
+    TimelineRef: 'tl1',
+    TimelineTrackRef: 'trk0',
+    MediaRef: 'm1',
+    order: 0,
+    start: 0,
+    end: 3,
+    duration: 3,
+    timelineStart: 5,
+  };
+
+  it('move to the exact current position skips the write', async () => {
+    const stubs = clipStubs({ clips: [placedClip] });
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'a', { at: 5 });
+
+    expect(result.noop).toBe(true);
+    expect(result.warnings.map((w) => w.code)).toEqual(['noop']);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+    // no write → no duration re-sync either (updated stays meaningful)
+    expect(stubs.Timelines.getOne).not.toHaveBeenCalled();
+  });
+
+  it('still writes when healing a legacy clip without explicit placement', async () => {
+    const legacy = { ...placedClip, timelineStart: undefined };
+    const stubs = clipStubs({ clips: [legacy] });
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'a', { track: '0' });
+
+    expect(result.noop).toBe(false);
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      TimelineTrackRef: 'trk0',
+      timelineStart: 0,
+    });
+  });
+
+  it('update with values identical to the stored clip skips the write', async () => {
+    const stubs = clipStubs({ clips: [placedClip] });
+    const pb = fakePb(stubs);
+
+    const result = await updateTimelineClip(pb, 'a', { start: 0, end: 3 });
+
+    expect(result.noop).toBe(true);
+    expect(result.warnings.map((w) => w.code)).toEqual(['noop']);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+
+  it('reorder matching the stored order skips the writes', async () => {
+    const clips = [
+      { ...placedClip, id: 'a', order: 0 },
+      { ...placedClip, id: 'b', order: 1, timelineStart: 10 },
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await reorderTimelineClips(pb, 'tl1', ['a', 'b']);
+
+    expect(result.noop).toBe(true);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+
+  it('ripple clamped to zero reports noop without writing', async () => {
+    const clips = [
+      { ...placedClip, id: 'a', timelineStart: 0, end: 5, duration: 5 },
+      { ...placedClip, id: 'b', order: 1, timelineStart: 5 },
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await rippleTimelineClips(pb, 'b', { by: -2 });
+
+    expect(result.noop).toBe(true);
+    expect(result.by).toBe(0);
+    expect(result.warnings.map((w) => w.code)).toEqual(['noop']);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('edit warnings', () => {
+  const trackClip = (overrides: Record<string, unknown>) => ({
+    TimelineRef: 'tl1',
+    TimelineTrackRef: 'trk0',
+    MediaRef: 'm1',
+    start: 0,
+    end: 5,
+    duration: 5,
+    ...overrides,
+  });
+
+  it('a nudged move carries a warning-level nudged entry', async () => {
+    const clips = [
+      trackClip({
+        id: 'blocker',
+        order: 0,
+        end: 10,
+        duration: 10,
+        timelineStart: 0,
+      }),
+      trackClip({ id: 'mover', order: 1, timelineStart: 20 }),
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'mover', { at: 3 });
+
+    expect(result.nudged).toBe(true);
+    expect(result.placedAt).toBe(10);
+    const nudge = result.warnings.find((w) => w.code === 'nudged');
+    expect(nudge?.level).toBe('warning');
+    expect(nudge?.data).toEqual({ requestedAt: 3, placedAt: 10 });
+  });
+
+  it('move --ripple lands exactly at --at and shifts later clips right', async () => {
+    const clips = [
+      trackClip({
+        id: 'blocker',
+        order: 0,
+        end: 10,
+        duration: 10,
+        timelineStart: 0,
+      }),
+      trackClip({ id: 'mover', order: 1, timelineStart: 20 }),
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'mover', {
+      at: 3,
+      ripple: true,
+    });
+
+    expect(result.placedAt).toBe(3);
+    expect(result.nudged).toBe(false);
+    // blocker straddles 3s, so it clears the whole inserted range: 0 → 8
+    expect(result.shifted).toEqual([{ clipId: 'blocker', from: 0, to: 8 }]);
+    expect(stubs.TimelineClips.update).toHaveBeenCalledWith(
+      'blocker',
+      { timelineStart: 8 },
+      expect.anything()
+    );
+    const notice = result.warnings.find((w) => w.code === 'shifted-others');
+    expect(notice?.level).toBe('notice');
+    expect(notice?.clipIds).toEqual(['blocker']);
+  });
+
+  it('a clamped ripple carries a warning-level clamped entry', async () => {
+    const clips = [
+      trackClip({ id: 'a', order: 0, timelineStart: 0 }),
+      trackClip({ id: 'b', order: 1, timelineStart: 8, end: 3, duration: 3 }),
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await rippleTimelineClips(pb, 'b', { by: -5 });
+
+    expect(result.by).toBe(-3); // clamped at a's end (5s)
+    const clamp = result.warnings.find((w) => w.code === 'clamped');
+    expect(clamp?.level).toBe('warning');
+    expect(clamp?.data).toEqual({ requestedBy: -5, appliedBy: -3 });
+  });
+
+  it('surfaces a post-write overlap left by a concurrent editor', async () => {
+    const mover = trackClip({ id: 'mover', order: 0, timelineStart: 0 });
+    // the post-write re-fetch sees a clip another editor landed on [10,15)
+    const intruder = trackClip({
+      id: 'intruder',
+      order: 1,
+      timelineStart: 12,
+    });
+    const stubs = clipStubs({ clips: [mover] });
+    stubs.TimelineClips.getList = vi
+      .fn()
+      .mockResolvedValueOnce(listResult([mover]))
+      .mockResolvedValue(
+        listResult([{ ...mover, timelineStart: 10 }, intruder])
+      );
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'mover', { at: 10 });
+
+    const overlap = result.warnings.find(
+      (w) => w.code === 'post-write-overlap'
+    );
+    expect(overlap?.level).toBe('warning');
+    expect(overlap?.clipIds).toContain('mover');
+    expect(overlap?.message).toMatch(/vw timeline doctor/);
+  });
+});
+
+describe('concurrent-edit guard', () => {
+  it('aborts the write when the clip changed between read and write', async () => {
+    const stored = {
+      id: 'tc1',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 0,
+      start: 0,
+      end: 5,
+      duration: 5,
+      timelineStart: 0,
+      label: '',
+      updated: '2026-07-16 10:00:00.000Z',
+    };
+    const stubs = clipStubs({ clips: [stored] });
+    stubs.TimelineClips.getOne = vi
+      .fn()
+      // the op's initial read
+      .mockResolvedValueOnce(stored)
+      // the guard's re-read: another editor wrote in between
+      .mockResolvedValue({
+        ...stored,
+        updated: '2026-07-16 10:00:04.000Z',
+        label: 'remote rename',
+      });
+    const pb = fakePb(stubs);
+
+    await expect(
+      updateTimelineClip(pb, 'tc1', { label: 'my rename' })
+    ).rejects.toThrow(RecordConflictError);
     expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
   });
 });

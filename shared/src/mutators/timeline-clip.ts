@@ -95,9 +95,12 @@ export class TimelineClipMutator extends BaseMutator<
     timelineId: string,
     clipOrders: { id: string; order: number }[]
   ): Promise<TimelineClip[]> {
-    const updates = clipOrders.map(({ id, order }) =>
-      this.update(id, { order })
-    );
-    return Promise.all(updates);
+    // Sequential on purpose: parallel writes interleave nondeterministically
+    // with a concurrent editor's updates, and clip counts are small (≤500).
+    const updated: TimelineClip[] = [];
+    for (const { id, order } of clipOrders) {
+      updated.push(await this.update(id, { order }));
+    }
+    return updated;
   }
 }

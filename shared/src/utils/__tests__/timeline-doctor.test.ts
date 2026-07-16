@@ -281,3 +281,68 @@ describe('collectTimelineDoctorFindings', () => {
     ).toEqual([]);
   });
 });
+
+describe('track-structure findings', () => {
+  it('flags duplicate track layers as an error', () => {
+    const dupTracks = [
+      makeTrack({ id: 'trk0' }),
+      makeTrack({ id: 'trk0b', layer: 0 }),
+      makeTrack({ id: 'trk1', layer: 1 }),
+    ];
+    const findings = collectTimelineDoctorFindings({
+      clips: [],
+      tracks: dupTracks,
+    });
+    const dup = findings.filter((f) => f.code === 'duplicate-track-layer');
+    expect(dup).toHaveLength(1);
+    expect(dup[0].level).toBe('error');
+    expect(dup[0].layer).toBe(0);
+    expect(dup[0].message).toContain('trk0');
+    expect(dup[0].message).toContain('trk0b');
+  });
+
+  it('flags clips referencing a missing track as an error', () => {
+    const clips = [
+      makeClip({
+        id: 'orphaned',
+        TimelineTrackRef: 'deleted-track',
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 0,
+      }),
+      makeClip({
+        id: 'fine',
+        TimelineTrackRef: 'trk0',
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 0,
+      }),
+    ];
+    const findings = collectTimelineDoctorFindings({ clips, tracks });
+    const dangling = findings.filter((f) => f.code === 'dangling-track');
+    expect(dangling).toHaveLength(1);
+    expect(dangling[0].level).toBe('error');
+    expect(dangling[0].clipIds).toEqual(['orphaned']);
+  });
+
+  it('reports nothing for a consistent track structure', () => {
+    const clips = [
+      makeClip({
+        id: 'a',
+        TimelineTrackRef: 'trk0',
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 0,
+      }),
+    ];
+    const findings = collectTimelineDoctorFindings({ clips, tracks });
+    expect(
+      findings.filter(
+        (f) => f.code === 'dangling-track' || f.code === 'duplicate-track-layer'
+      )
+    ).toEqual([]);
+  });
+});

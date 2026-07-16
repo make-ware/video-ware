@@ -26,6 +26,8 @@ export type DoctorCode =
   | 'dangling-media'
   | 'dangling-media-clip'
   | 'dangling-caption'
+  | 'dangling-track'
+  | 'duplicate-track-layer'
   | 'stale-timeline-duration'
   | 'stale-clip-duration'
   | 'nested-window-drift'
@@ -242,11 +244,12 @@ type ClipWithExpand = TimelineClip & {
 /**
  * Run the shared health checks over a timeline's clips: same-track overlaps
  * (invalid per the data model), micro-gaps and ordinary gaps, stale stored
- * durations, and dangling references. Findings come back in discovery order
- * (per track: overlaps, gaps, per-clip checks; then the timeline-level
- * duration check) — pass them through sortDoctorFindings for a
- * most-severe-first report. Messages are neutral; the CLI appends its
- * remediation hints on top.
+ * durations, dangling references, and track-structure damage (duplicate
+ * layers, clips pointing at deleted tracks). Findings come back in discovery
+ * order (track structure; then per track: overlaps, gaps, per-clip checks;
+ * then the timeline-level duration check) — pass them through
+ * sortDoctorFindings for a most-severe-first report. Messages are neutral;
+ * the CLI appends its remediation hints on top.
  */
 export function collectTimelineDoctorFindings(
   input: TimelineDoctorInput,
@@ -254,6 +257,42 @@ export function collectTimelineDoctorFindings(
 ): DoctorFinding[] {
   const microGapThreshold = options.microGapThreshold ?? MICRO_GAP_THRESHOLD;
   const findings: DoctorFinding[] = [];
+
+  // Track-structure checks first: both states are produced by concurrent
+  // editors racing (double-materialized default track, track deleted while a
+  // clip still pointed at it) and both silently distort lane assignment.
+  const byLayer = new Map<number, TimelineTrackRecord[]>();
+  for (const track of input.tracks) {
+    byLayer.set(track.layer, [...(byLayer.get(track.layer) ?? []), track]);
+  }
+  for (const [layer, tracks] of byLayer) {
+    if (tracks.length > 1) {
+      findings.push({
+        level: 'error',
+        code: 'duplicate-track-layer',
+        layer,
+        clipIds: [],
+        message:
+          `tracks ${tracks.map((t) => t.id).join(', ')} all have layer ` +
+          `${layer} — layer addressing is ambiguous`,
+      });
+    }
+  }
+
+  const trackIds = new Set(input.tracks.map((t) => t.id));
+  for (const clip of input.clips) {
+    if (clip.TimelineTrackRef && !trackIds.has(clip.TimelineTrackRef)) {
+      findings.push({
+        level: 'error',
+        code: 'dangling-track',
+        clipIds: [clip.id],
+        message:
+          `clip ${clip.id} references missing track ` +
+          `${clip.TimelineTrackRef} — it belongs to no lane and silently ` +
+          'drops out of playback and rendering',
+      });
+    }
+  }
 
   for (const track of buildPlaybackTracks(input.clips, input.tracks)) {
     const placed = [

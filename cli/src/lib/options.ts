@@ -80,6 +80,22 @@ export function withJsonOption(cmd: Command): Command {
   return cmd.option('--json', 'print full records as JSON (machine-readable)');
 }
 
+/** Register the uniform `--strict` flag (edit commands: warnings → exit 1). */
+export function withStrictOption(cmd: Command): Command {
+  return cmd.option(
+    '--strict',
+    'exit 1 when the operation completes with warnings (nudged, clamped, …)'
+  );
+}
+
+/** Register the uniform `--force` flag (concurrent-edit conflict bypass). */
+export function withForceOption(cmd: Command): Command {
+  return cmd.option(
+    '--force',
+    're-apply over a concurrent edit to the same fields instead of aborting'
+  );
+}
+
 /** Parse a non-negative number of seconds; rejects NaN and negatives. */
 export function parseSeconds(value: string): number {
   const n = Number(value);

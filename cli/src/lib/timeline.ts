@@ -12,6 +12,7 @@ import {
   TimelineRenderMutator,
   TimelineTrackMutator,
   calculateEffectiveDuration,
+  collectTimelineDoctorFindings,
   computeClipPlacement,
   computeNestedTimelineDuration,
   computeTimelineDuration,
@@ -22,10 +23,12 @@ import {
   getClipRanges,
   getSortedTrackClips,
   planOverwriteAtTime,
+  planRippleInsert,
   planTimelineTreeReflow,
   validateTimeRange,
   wouldCreateTimelineCycle,
   type ClipTrim,
+  type DoctorFinding,
   type RenderTimelineConfig,
   type Timeline,
   type TimelineClip,
@@ -34,6 +37,15 @@ import {
   type TimelineTrackRecord,
   type TypedPocketBase,
 } from '@project/shared';
+import type { RippleShift } from './timeline-clip.js';
+import {
+  nudgedWarning,
+  postWriteOverlapWarning,
+  removedWarning,
+  shiftedOthersNotice,
+  trimmedNotice,
+  type OpWarning,
+} from './warnings.js';
 import {
   parseSeconds,
   parseUnitInterval,
@@ -268,13 +280,56 @@ export async function renumberClips(
 }
 
 /**
- * Recompute the timeline's duration from placed clips (furthest clip end
- * across tracks) and persist it when stale. Called after clip mutations.
+ * Materialize the implicit layer-0 lane for a legacy timeline, guarding
+ * against the concurrent-materialization race: two editors touching a
+ * track-less timeline at the same time would each create "Main Track",
+ * leaving two layer-0 tracks and making `--track <layer>` addressing throw
+ * forever after. After creating, re-read the tracks — if another layer-0
+ * track landed in between, delete ours and use the older survivor.
  */
-export async function syncTimelineDuration(
+export async function ensureDefaultTrack(
   pb: TypedPocketBase,
   timelineId: string
-): Promise<number> {
+): Promise<TimelineTrackRecord> {
+  const trackMutator = new TimelineTrackMutator(pb);
+  const created = await trackMutator.create({
+    TimelineRef: timelineId,
+    name: 'Main Track',
+    layer: 0,
+  });
+  const layerZero = (await trackMutator.getByTimeline(timelineId)).items
+    .filter((t) => t.layer === 0)
+    .sort((a, b) => (a.created < b.created ? -1 : 1));
+  if (layerZero.length > 1) {
+    const survivor = layerZero.find((t) => t.id !== created.id);
+    if (survivor) {
+      await trackMutator.delete(created.id);
+      return survivor;
+    }
+  }
+  return created;
+}
+
+export interface PostWriteCheck {
+  duration: number;
+  /** Error-level overlap findings involving the clips this op just wrote. */
+  conflicts: DoctorFinding[];
+}
+
+/**
+ * Post-write touchpoint for every clip mutation: recompute and persist the
+ * timeline's duration (elided when unchanged), and re-check the final track
+ * state for same-track overlaps involving the clips the op touched. The op
+ * itself never creates an overlap (placement nudges, ripples, or trims), so
+ * one appearing here means a concurrent editor wrote mid-operation — the
+ * caller surfaces it as a warning instead of leaving it for the next
+ * `timeline doctor` run to find.
+ */
+export async function syncTimelineAfterWrite(
+  pb: TypedPocketBase,
+  timelineId: string,
+  touchedClipIds: string[] = []
+): Promise<PostWriteCheck> {
   const clips = await new TimelineClipMutator(pb).getByTimeline(timelineId);
   const tracks = await new TimelineTrackMutator(pb).getByTimeline(timelineId);
   const duration = computeTimelineDuration(clips, tracks.items);
@@ -284,7 +339,30 @@ export async function syncTimelineDuration(
   if (timeline && timeline.duration !== duration) {
     await timelineMutator.update(timelineId, { duration });
   }
-  return duration;
+
+  let conflicts: DoctorFinding[] = [];
+  if (touchedClipIds.length > 0) {
+    conflicts = collectTimelineDoctorFindings({
+      clips,
+      tracks: tracks.items,
+    }).filter(
+      (f) =>
+        f.code === 'track-overlap' &&
+        f.clipIds.some((id) => touchedClipIds.includes(id))
+    );
+  }
+  return { duration, conflicts };
+}
+
+/**
+ * Recompute the timeline's duration from placed clips (furthest clip end
+ * across tracks) and persist it when stale. Called after clip mutations.
+ */
+export async function syncTimelineDuration(
+  pb: TypedPocketBase,
+  timelineId: string
+): Promise<number> {
+  return (await syncTimelineAfterWrite(pb, timelineId)).duration;
 }
 
 export interface InsertClipOptions {
@@ -309,6 +387,12 @@ export interface InsertClipOptions {
   after?: string;
   /** With `at`: trim/remove overlapped clips instead of nudging forward. */
   overwrite?: boolean;
+  /**
+   * With `at`/`after`: land at the exact requested time and shift later
+   * clips right (gap-preserving) instead of nudging this clip forward.
+   * Non-destructive counterpart to `overwrite`.
+   */
+  ripple?: boolean;
   /** Compute and report the placement without writing anything. */
   dryRun?: boolean;
   /** Editor-facing clip name; overrides the MediaClip's label. */
@@ -398,8 +482,12 @@ export interface InsertClipResult {
   trims: ClipTrim[];
   trimmedClipIds: string[];
   removedClipIds: string[];
+  /** Clips shifted right (or planned, on a dry run) under `--ripple`. */
+  shifted: RippleShift[];
   track: TimelineTrackRecord;
   dryRun: boolean;
+  /** Soft outcomes: nudges, trims/removals, shifts, concurrent-edit checks. */
+  warnings: OpWarning[];
 }
 
 /**
@@ -437,6 +525,12 @@ export async function insertClip(
   }
   if (opts.overwrite && opts.at === undefined) {
     throw new Error('--overwrite requires --at <seconds>.');
+  }
+  if (opts.ripple && opts.overwrite) {
+    throw new Error('--ripple and --overwrite are mutually exclusive.');
+  }
+  if (opts.ripple && opts.at === undefined && !opts.after) {
+    throw new Error('--ripple requires --at <seconds> or --after <clipId>.');
   }
 
   // Resolve the clip's source (media/MediaClip, caption, or nested timeline):
@@ -604,11 +698,7 @@ export async function insertClip(
   if (!targetTrack) {
     targetTrack = defaultTrack;
     if (!targetTrack) {
-      targetTrack = await trackMutator.create({
-        TimelineRef: opts.timelineId,
-        name: 'Main Track',
-        layer: 0,
-      });
+      targetTrack = await ensureDefaultTrack(pb, opts.timelineId);
       trackList.push(targetTrack);
     }
   }
@@ -623,6 +713,7 @@ export async function insertClip(
   const trims: ClipTrim[] = [];
   const trimmedClipIds: string[] = [];
   const removedClipIds: string[] = [];
+  const shifted: RippleShift[] = [];
 
   if (opts.at !== undefined) {
     mode = 'at';
@@ -633,14 +724,23 @@ export async function insertClip(
       trims.push(...plan.trims);
       for (const trim of plan.trims) {
         if (!opts.dryRun) {
-          await clipMutator.update(trim.clipId, {
-            start: trim.start,
-            end: trim.end,
-            // effective length from the planner — for composites this is the
-            // windowed gap-skipping sum, not end - start
-            duration: trim.duration,
-            timelineStart: trim.timelineStart,
-          });
+          // Guarded: a trim victim edited concurrently (its window came from
+          // this op's initial read) must not be silently re-trimmed.
+          const victim = allClips.find((c) => c.id === trim.clipId);
+          await clipMutator.updateWithGuard(
+            trim.clipId,
+            {
+              start: trim.start,
+              end: trim.end,
+              // effective length from the planner — for composites this is
+              // the windowed gap-skipping sum, not end - start
+              duration: trim.duration,
+              timelineStart: trim.timelineStart,
+            },
+            victim
+              ? { expectedUpdated: victim.updated, snapshot: victim }
+              : undefined
+          );
         }
         trimmedClipIds.push(trim.clipId);
       }
@@ -658,6 +758,8 @@ export async function insertClip(
         order = remaining.length;
       }
       placedAt = opts.at;
+    } else if (opts.ripple) {
+      placedAt = opts.at;
     } else {
       placedAt = findNonOverlappingTimelineStart(trackClips, opts.at, duration);
       nudged = placedAt !== opts.at;
@@ -669,12 +771,16 @@ export async function insertClip(
     const ranges = getClipRanges(trackClips);
     const index = sorted.findIndex((c) => c.id === target.id);
     requestedAt = ranges[index].end;
-    placedAt = findNonOverlappingTimelineStart(
-      trackClips,
-      requestedAt,
-      duration
-    );
-    nudged = placedAt !== requestedAt;
+    if (opts.ripple) {
+      placedAt = requestedAt;
+    } else {
+      placedAt = findNonOverlappingTimelineStart(
+        trackClips,
+        requestedAt,
+        duration
+      );
+      nudged = placedAt !== requestedAt;
+    }
   } else {
     mode = 'append';
     placedAt = computeClipPlacement(trackClips, null, duration);
@@ -688,6 +794,26 @@ export async function insertClip(
         afterClip = sorted[i];
       }
     });
+  }
+
+  if (opts.ripple) {
+    // Free the landing range by shifting every later clip right, preserving
+    // their spacing — the non-destructive way to honor the exact time.
+    const sorted = getSortedTrackClips(trackClips);
+    const ranges = getClipRanges(trackClips);
+    const startOf = new Map(sorted.map((c, i) => [c.id, ranges[i].start]));
+    for (const move of planRippleInsert(trackClips, placedAt, duration)) {
+      shifted.push({
+        clipId: move.clipId,
+        from: startOf.get(move.clipId) ?? move.timelineStart,
+        to: move.timelineStart,
+      });
+      if (!opts.dryRun) {
+        await clipMutator.update(move.clipId, {
+          timelineStart: move.timelineStart,
+        });
+      }
+    }
   }
 
   // Caption and nested-timeline clips carry the display title in meta
@@ -720,10 +846,39 @@ export async function insertClip(
     ...(Object.keys(meta).length > 0 ? { meta } : {}),
   };
 
+  const warnings: OpWarning[] = [];
+  if (nudged && requestedAt !== undefined) {
+    warnings.push(nudgedWarning(requestedAt, placedAt, []));
+  }
+  if (shifted.length > 0) {
+    const delta = shifted[0].to - shifted[0].from;
+    warnings.push(
+      shiftedOthersNotice(
+        `--ripple shifted ${shifted.length} later clip(s) right by ` +
+          `${delta.toFixed(2)}s to make room`,
+        shifted.map((s) => s.clipId)
+      )
+    );
+  }
+  if (trimmedClipIds.length > 0) warnings.push(trimmedNotice(trimmedClipIds));
+  if (removedClipIds.length > 0) warnings.push(removedWarning(removedClipIds));
+
   let clip: TimelineClip | null = null;
   if (!opts.dryRun) {
     clip = await clipMutator.create(input);
-    await syncTimelineDuration(pb, opts.timelineId);
+    const check = await syncTimelineAfterWrite(pb, opts.timelineId, [
+      clip.id,
+      ...shifted.map((s) => s.clipId),
+      ...trimmedClipIds,
+    ]);
+    warnings.push(
+      ...check.conflicts.map((f) => postWriteOverlapWarning(f, opts.timelineId))
+    );
+  }
+  if (clip) {
+    // retro-fill the created clip's id into the nudge entry
+    const nudgeEntry = warnings.find((w) => w.code === 'nudged');
+    if (nudgeEntry) nudgeEntry.clipIds = [clip.id];
   }
 
   return {
@@ -737,8 +892,10 @@ export async function insertClip(
     trims,
     trimmedClipIds,
     removedClipIds,
+    shifted,
     track: targetTrack,
     dryRun: !!opts.dryRun,
+    warnings,
   };
 }
 
@@ -813,17 +970,30 @@ export interface CreateRenderOptions {
   outputSettings: RenderTimelineConfig;
   /** User id for UserRef. Defaults to the authenticated user. */
   userId?: string;
+  /** Refuse (throw) instead of queueing when clips overlap on a track. */
+  strict?: boolean;
+}
+
+export interface CreateRenderResult {
+  render: TimelineRender;
+  /** Overlap warnings for the snapshot that was queued (empty when clean). */
+  warnings: OpWarning[];
 }
 
 /**
  * Create a TimelineRender record. A PocketBase hook turns this into a
  * `render_timeline` task that the worker picks up automatically; the same
  * record is updated with status/FileRef as the render progresses.
+ *
+ * Same-track overlaps are checked before queueing: an overlap bakes an
+ * invalid state into the output (often the residue of a concurrent edit
+ * burst), so it comes back as a warning — or, with `strict`, refuses the
+ * render outright.
  */
 export async function createRender(
   pb: TypedPocketBase,
   opts: CreateRenderOptions
-): Promise<TimelineRender> {
+): Promise<CreateRenderResult> {
   await assertRenderable(pb, opts.timelineId);
 
   const timeline = await new TimelineMutator(pb).getById(opts.timelineId);
@@ -837,6 +1007,28 @@ export async function createRender(
   const tracks = await new TimelineTrackMutator(pb).getByTimeline(
     opts.timelineId
   );
+
+  const warnings: OpWarning[] = collectTimelineDoctorFindings({
+    clips: rawClips,
+    tracks: tracks.items,
+  })
+    .filter((f) => f.code === 'track-overlap')
+    .map((f) => ({
+      level: 'warning' as const,
+      code: 'post-write-overlap' as const,
+      message:
+        `${f.message} — the render would bake this in; fix it first ` +
+        `(\`vw timeline doctor ${opts.timelineId}\`)`,
+      clipIds: f.clipIds,
+    }));
+  if (opts.strict && warnings.length > 0) {
+    throw new Error(
+      `Refusing to render (--strict): ${warnings[0].message}` +
+        (warnings.length > 1
+          ? ` (+${warnings.length - 1} more overlap(s))`
+          : '')
+    );
+  }
 
   // Nested-timeline clips flatten into the render snapshot: fetch the nested
   // tree and heal source-duration drift in memory first (never persisting —
@@ -867,7 +1059,7 @@ export async function createRender(
 
   const userId = opts.userId ?? pb.authStore.record?.id;
 
-  return new TimelineRenderMutator(pb).create({
+  const render = await new TimelineRenderMutator(pb).create({
     TimelineRef: opts.timelineId,
     WorkspaceRef: timeline.WorkspaceRef,
     ...(userId ? { UserRef: userId } : {}),
@@ -877,4 +1069,5 @@ export async function createRender(
     status: TaskStatus.QUEUED,
     progress: 1,
   });
+  return { render, warnings };
 }

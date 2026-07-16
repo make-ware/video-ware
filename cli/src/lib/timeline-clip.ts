@@ -4,6 +4,7 @@ import {
   TimelineClipMutator,
   TimelineTrackMutator,
   REFLOW_EPSILON,
+  TIMELINE_EPSILON,
   calculateEffectiveDuration,
   clampSegmentsToWindow,
   computeNestedTimelineDuration,
@@ -13,6 +14,8 @@ import {
   getCompositeSegments,
   getSortedTrackClips,
   planOverwriteAtTime,
+  planRippleDelete,
+  planRippleInsert,
   roundToMs,
   validateTimeRange,
   type Caption,
@@ -32,12 +35,23 @@ import {
 } from './options.js';
 import {
   clipsOnTrack,
+  ensureDefaultTrack,
   mediaBounds,
   renumberClips,
   resolveTrackRef,
   singleMediaType,
-  syncTimelineDuration,
+  syncTimelineAfterWrite,
 } from './timeline.js';
+import {
+  clampedWarning,
+  noopNotice,
+  nudgedWarning,
+  postWriteOverlapWarning,
+  removedWarning,
+  shiftedOthersNotice,
+  trimmedNotice,
+  type OpWarning,
+} from './warnings.js';
 
 /** Timeline-clip editing (update/move/remove/reorder) for the CLI. */
 
@@ -68,6 +82,18 @@ export function timelineClipLabelHint(clip: TimelineClipExpanded): string {
     return source?.label || source?.name || 'Timeline';
   }
   return clip.id;
+}
+
+/**
+ * Whether a patch value already matches the stored one: times compare within
+ * TIMELINE_EPSILON (positions round-trip through roundToMs, so exact float
+ * equality is fragile); everything else JSON-compares.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return Math.abs(a - b) <= TIMELINE_EPSILON;
+  }
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 /** Error when a `-t <timelineId>` expectation doesn't match the clip. */
@@ -155,6 +181,14 @@ export const clipUpdateOptions = {
   },
 } satisfies OptionGroupOf<UpdateTimelineClipOptions>;
 
+export interface UpdateClipResult {
+  /** The written clip — or the unchanged stored clip when `noop`. */
+  clip: TimelineClip;
+  /** True when every requested value already matched; nothing was written. */
+  noop: boolean;
+  warnings: OpWarning[];
+}
+
 /**
  * Patch a timeline clip. Trim changes are re-validated against the source
  * media and recompute the stored duration (and the timeline's). On a clip
@@ -163,12 +197,18 @@ export const clipUpdateOptions = {
  * the render intersects the list with the window, and `duration` becomes
  * the windowed effective (gap-skipping) length. Non-destructive: a later
  * update can widen the window back out to the full edit list.
+ *
+ * Values identical to the stored record are elided, and a fully-elided patch
+ * skips the write entirely (`noop`) — `updated` keeps meaning "content
+ * changed", which the concurrent-edit guard relies on. The write itself is
+ * guarded: if the clip changed since it was read, a RecordConflictError is
+ * thrown instead of clobbering the other editor's fields.
  */
 export async function updateTimelineClip(
   pb: TypedPocketBase,
   clipId: string,
   opts: UpdateTimelineClipOptions
-): Promise<TimelineClip> {
+): Promise<UpdateClipResult> {
   const clipMutator = new TimelineClipMutator(pb);
   const clip = await clipMutator.getById(clipId);
   if (!clip) {
@@ -286,11 +326,42 @@ export async function updateTimelineClip(
     throw new Error('Nothing to update — pass at least one field flag.');
   }
 
-  const updated = await clipMutator.update(clipId, patch);
-  if (trimChanged) {
-    await syncTimelineDuration(pb, clip.TimelineRef);
+  for (const key of Object.keys(patch) as (keyof TimelineClip)[]) {
+    if (sameValue(patch[key], clip[key])) {
+      delete patch[key];
+    }
   }
-  return updated;
+  if (Object.keys(patch).length === 0) {
+    return {
+      clip,
+      noop: true,
+      warnings: [
+        noopNotice(
+          `clip ${clipId} already matches the requested values — nothing to write`,
+          [clipId]
+        ),
+      ],
+    };
+  }
+
+  const updated = await clipMutator.updateWithGuard(clipId, patch, {
+    expectedUpdated: clip.updated,
+    snapshot: clip,
+  });
+  const warnings: OpWarning[] = [];
+  const wroteTrim =
+    patch.start !== undefined ||
+    patch.end !== undefined ||
+    patch.duration !== undefined;
+  if (wroteTrim) {
+    const check = await syncTimelineAfterWrite(pb, clip.TimelineRef, [clipId]);
+    warnings.push(
+      ...check.conflicts.map((f) =>
+        postWriteOverlapWarning(f, clip.TimelineRef)
+      )
+    );
+  }
+  return { clip: updated, noop: false, warnings };
 }
 
 export interface MoveTimelineClipOptions {
@@ -300,6 +371,12 @@ export interface MoveTimelineClipOptions {
   at?: number;
   /** With `at`: trim/remove overlapped clips instead of nudging forward. */
   overwrite?: boolean;
+  /**
+   * Land at the exact target time and shift later clips right
+   * (gap-preserving) instead of nudging this clip forward. Non-destructive
+   * counterpart to `overwrite`.
+   */
+  ripple?: boolean;
   /** Compute and report the placement without writing anything. */
   dryRun?: boolean;
   /** Timeline the clip is expected to live on (validated when passed). */
@@ -320,14 +397,23 @@ export interface MoveClipResult {
   trims: ClipTrim[];
   trimmedClipIds: string[];
   removedClipIds: string[];
+  /** Clips shifted right (or planned, on a dry run) under `--ripple`. */
+  shifted: RippleShift[];
+  /** True when the clip already sat exactly here; nothing was written. */
+  noop: boolean;
   dryRun: boolean;
+  /** Soft outcomes: nudges, trims/removals, shifts, concurrent-edit checks. */
+  warnings: OpWarning[];
 }
 
 /**
  * Move a clip to another track and/or timeline position. A bare `--track`
  * move keeps the clip's current computed position; collisions on the
- * destination nudge forward unless `overwrite`. Always writes an explicit
- * TimelineTrackRef and timelineStart (healing legacy unplaced clips).
+ * destination nudge forward unless `overwrite` (trim/remove) or `ripple`
+ * (shift later clips right). Always writes an explicit TimelineTrackRef and
+ * timelineStart (healing legacy unplaced clips) — except when the clip
+ * already sits exactly at the destination with both stored explicitly, which
+ * skips the write (`noop`) so `updated` keeps meaning "content changed".
  */
 export async function moveTimelineClip(
   pb: TypedPocketBase,
@@ -336,6 +422,9 @@ export async function moveTimelineClip(
 ): Promise<MoveClipResult> {
   if (opts.overwrite && opts.at === undefined) {
     throw new Error('--overwrite requires --at <seconds>.');
+  }
+  if (opts.ripple && opts.overwrite) {
+    throw new Error('--ripple and --overwrite are mutually exclusive.');
   }
   if (!opts.track && opts.at === undefined) {
     throw new Error('Pass --track and/or --at.');
@@ -353,13 +442,7 @@ export async function moveTimelineClip(
   const trackList = (await trackMutator.getByTimeline(timelineId)).items;
   if (trackList.length === 0) {
     // legacy timeline: materialize the implicit layer-0 lane
-    trackList.push(
-      await trackMutator.create({
-        TimelineRef: timelineId,
-        name: 'Main Track',
-        layer: 0,
-      })
-    );
+    trackList.push(await ensureDefaultTrack(pb, timelineId));
   }
   const currentTrack =
     trackList.find((t) => t.id === clip.TimelineTrackRef) ??
@@ -378,6 +461,7 @@ export async function moveTimelineClip(
   const trims: ClipTrim[] = [];
   const trimmedClipIds: string[] = [];
   const removedClipIds: string[] = [];
+  const shifted: RippleShift[] = [];
 
   let targetAt = opts.at;
   if (targetAt === undefined) {
@@ -391,18 +475,72 @@ export async function moveTimelineClip(
   const requestedAt = targetAt;
 
   const destClips = clipsOnTrack(allClips, trackList, destTrack.id);
+  if (opts.overwrite || opts.ripple) {
+    placedAt = targetAt;
+  } else {
+    placedAt = findNonOverlappingTimelineStart(
+      destClips,
+      targetAt,
+      duration,
+      clipId
+    );
+    nudged = placedAt !== targetAt;
+  }
+
+  // No-op elision: already exactly here with explicit track + position. A
+  // legacy clip missing either ref is NOT a noop — writing the explicit pin
+  // is this command's documented healing behavior.
+  if (
+    !opts.overwrite &&
+    clip.TimelineTrackRef === destTrack.id &&
+    clip.timelineStart !== undefined &&
+    clip.timelineStart !== null &&
+    Math.abs(clip.timelineStart - placedAt) <= TIMELINE_EPSILON
+  ) {
+    return {
+      clip,
+      track: destTrack,
+      placedAt,
+      placedEnd: placedAt + duration,
+      requestedAt,
+      nudged: false,
+      trims: [],
+      trimmedClipIds: [],
+      removedClipIds: [],
+      shifted: [],
+      noop: true,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice(
+          `clip ${clipId} is already at ${placedAt.toFixed(2)}s on track ` +
+            `${destTrack.layer} — nothing to write`,
+          [clipId]
+        ),
+      ],
+    };
+  }
+
   if (opts.overwrite) {
     const others = destClips.filter((c) => c.id !== clipId);
     const plan = planOverwriteAtTime(others, targetAt, duration);
     trims.push(...plan.trims);
     for (const trim of plan.trims) {
       if (!opts.dryRun) {
-        await clipMutator.update(trim.clipId, {
-          start: trim.start,
-          end: trim.end,
-          duration: trim.end - trim.start,
-          timelineStart: trim.timelineStart,
-        });
+        // Guarded: a trim victim edited concurrently (its window came from
+        // this op's initial read) must not be silently re-trimmed.
+        const victim = allClips.find((c) => c.id === trim.clipId);
+        await clipMutator.updateWithGuard(
+          trim.clipId,
+          {
+            start: trim.start,
+            end: trim.end,
+            duration: trim.end - trim.start,
+            timelineStart: trim.timelineStart,
+          },
+          victim
+            ? { expectedUpdated: victim.updated, snapshot: victim }
+            : undefined
+        );
       }
       trimmedClipIds.push(trim.clipId);
     }
@@ -416,22 +554,62 @@ export async function moveTimelineClip(
       const remaining = allClips.filter((c) => !removedClipIds.includes(c.id));
       await renumberClips(pb, timelineId, remaining);
     }
-    placedAt = targetAt;
-  } else {
-    placedAt = findNonOverlappingTimelineStart(
+  } else if (opts.ripple) {
+    // Free the landing range by shifting later clips right, spacing intact.
+    const sorted = getSortedTrackClips(destClips);
+    const ranges = getClipRanges(destClips);
+    const startOf = new Map(sorted.map((c, i) => [c.id, ranges[i].start]));
+    for (const move of planRippleInsert(
       destClips,
       targetAt,
       duration,
       clipId
-    );
-    nudged = placedAt !== targetAt;
+    )) {
+      shifted.push({
+        clipId: move.clipId,
+        from: startOf.get(move.clipId) ?? move.timelineStart,
+        to: move.timelineStart,
+      });
+      if (!opts.dryRun) {
+        await clipMutator.update(move.clipId, {
+          timelineStart: move.timelineStart,
+        });
+      }
+    }
   }
   patch.timelineStart = placedAt;
 
+  const warnings: OpWarning[] = [];
+  if (nudged) {
+    warnings.push(nudgedWarning(requestedAt, placedAt, [clipId]));
+  }
+  if (shifted.length > 0) {
+    const delta = shifted[0].to - shifted[0].from;
+    warnings.push(
+      shiftedOthersNotice(
+        `--ripple shifted ${shifted.length} later clip(s) right by ` +
+          `${delta.toFixed(2)}s to make room`,
+        shifted.map((s) => s.clipId)
+      )
+    );
+  }
+  if (trimmedClipIds.length > 0) warnings.push(trimmedNotice(trimmedClipIds));
+  if (removedClipIds.length > 0) warnings.push(removedWarning(removedClipIds));
+
   let updated: TimelineClip | null = null;
   if (!opts.dryRun) {
-    updated = await clipMutator.update(clipId, patch);
-    await syncTimelineDuration(pb, timelineId);
+    updated = await clipMutator.updateWithGuard(clipId, patch, {
+      expectedUpdated: clip.updated,
+      snapshot: clip,
+    });
+    const check = await syncTimelineAfterWrite(pb, timelineId, [
+      clipId,
+      ...shifted.map((s) => s.clipId),
+      ...trimmedClipIds,
+    ]);
+    warnings.push(
+      ...check.conflicts.map((f) => postWriteOverlapWarning(f, timelineId))
+    );
   }
 
   return {
@@ -444,7 +622,10 @@ export async function moveTimelineClip(
     trims,
     trimmedClipIds,
     removedClipIds,
+    shifted,
+    noop: false,
     dryRun: !!opts.dryRun,
+    warnings,
   };
 }
 
@@ -475,13 +656,7 @@ async function resolveClipLane(
   const trackList = (await trackMutator.getByTimeline(timelineId)).items;
   if (trackList.length === 0) {
     // legacy timeline: materialize the implicit layer-0 lane
-    trackList.push(
-      await trackMutator.create({
-        TimelineRef: timelineId,
-        name: 'Main Track',
-        layer: 0,
-      })
-    );
+    trackList.push(await ensureDefaultTrack(pb, timelineId));
   }
   const track =
     trackList.find((t) => t.id === clip.TimelineTrackRef) ??
@@ -504,6 +679,8 @@ export interface DownstreamRippleResult {
   by: number;
   requestedBy: number;
   shifted: RippleShift[];
+  /** Clips after the anchor on its lane — 0 means there was nothing to shift. */
+  downstreamCount: number;
 }
 
 /**
@@ -531,7 +708,13 @@ export async function rippleDownstreamClips(
   );
 
   if (downstream.length === 0 || by === 0) {
-    return { track, by: 0, requestedBy: by, shifted: [] };
+    return {
+      track,
+      by: 0,
+      requestedBy: by,
+      shifted: [],
+      downstreamCount: downstream.length,
+    };
   }
 
   const floor = Math.max(0, anchorStart + opts.newEffectiveDuration);
@@ -541,7 +724,13 @@ export async function rippleDownstreamClips(
   // ripple into a rightward one (e.g. downstream already overlaps the anchor).
   if (by < 0) applied = Math.min(0, applied);
   if (applied === 0) {
-    return { track, by: 0, requestedBy: by, shifted: [] };
+    return {
+      track,
+      by: 0,
+      requestedBy: by,
+      shifted: [],
+      downstreamCount: downstream.length,
+    };
   }
 
   const shifted: RippleShift[] = downstream.map(({ clip: c, range }) => ({
@@ -557,7 +746,13 @@ export async function rippleDownstreamClips(
     }
   }
 
-  return { track, by: applied, requestedBy: by, shifted };
+  return {
+    track,
+    by: applied,
+    requestedBy: by,
+    shifted,
+    downstreamCount: downstream.length,
+  };
 }
 
 export interface RippleClipsOptions {
@@ -576,7 +771,11 @@ export interface RippleResult {
   /** Seconds that were requested. */
   requestedBy: number;
   shifted: RippleShift[];
+  /** True when the clamp reduced the shift to zero; nothing was written. */
+  noop: boolean;
   dryRun: boolean;
+  /** Soft outcomes: clamps, no-ops, concurrent-edit checks. */
+  warnings: OpWarning[];
 }
 
 /**
@@ -619,25 +818,64 @@ export async function rippleTimelineClips(
   );
   const by = Math.max(opts.by, floor - anchorStart);
 
+  if (by === 0) {
+    return {
+      track,
+      by: 0,
+      requestedBy: opts.by,
+      shifted: [],
+      noop: true,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice(
+          'nothing to shift — the clip is already flush against the ' +
+            `previous one (requested ${opts.by.toFixed(2)}s)`,
+          [clipId]
+        ),
+      ],
+    };
+  }
+
   const shifted: RippleShift[] = group.map(({ clip: c, range }) => ({
     clipId: c.id,
     from: range.start,
     to: range.start + by,
   }));
 
-  if (!opts.dryRun && by !== 0) {
+  const warnings: OpWarning[] = [];
+  if (by !== opts.by) {
+    warnings.push(
+      clampedWarning(
+        opts.by,
+        by,
+        'at the previous clip',
+        shifted.map((s) => s.clipId)
+      )
+    );
+  }
+
+  if (!opts.dryRun) {
     for (const shift of shifted) {
       await clipMutator.update(shift.clipId, { timelineStart: shift.to });
     }
-    await syncTimelineDuration(pb, timelineId);
+    const check = await syncTimelineAfterWrite(
+      pb,
+      timelineId,
+      shifted.map((s) => s.clipId)
+    );
+    warnings.push(
+      ...check.conflicts.map((f) => postWriteOverlapWarning(f, timelineId))
+    );
   }
 
   return {
     track,
     by,
     requestedBy: opts.by,
-    shifted: by === 0 ? [] : shifted,
+    shifted,
+    noop: false,
     dryRun: !!opts.dryRun,
+    warnings,
   };
 }
 
@@ -652,13 +890,16 @@ export interface RemoveClipResult {
   clip: TimelineClip;
   /** Downstream clips shifted left to close the gap (`ripple` only). */
   shifted: RippleShift[];
+  /** Soft outcomes: ripple shifts, concurrent-edit checks. */
+  warnings: OpWarning[];
 }
 
 /**
  * Remove a clip, re-number the remaining clips densely (0..n-1), and re-sync
  * the timeline duration (webapp removeClipFromTimeline semantics). With
  * `ripple`, clips after the removed one on the same track shift left by the
- * removed clip's length, closing the gap.
+ * removed clip's length, closing the gap (shared planRippleDelete — the same
+ * planner the webapp uses).
  */
 export async function removeTimelineClip(
   pb: TypedPocketBase,
@@ -690,21 +931,12 @@ export async function removeTimelineClip(
       : allClips; // legacy timeline without track records: one implicit lane
     const sorted = getSortedTrackClips(laneClips);
     const ranges = getClipRanges(laneClips);
-    const index = sorted.findIndex((c) => c.id === clipId);
-    if (index >= 0) {
-      const removed = ranges[index];
-      const gap = removed.end - removed.start;
-      shifted = sorted
-        .map((c, i) => ({ clip: c, range: ranges[i] }))
-        .filter(
-          ({ clip: c, range }) => c.id !== clipId && range.start >= removed.end
-        )
-        .map(({ clip: c, range }) => ({
-          clipId: c.id,
-          from: range.start,
-          to: range.start - gap,
-        }));
-    }
+    const startOf = new Map(sorted.map((c, i) => [c.id, ranges[i].start]));
+    shifted = planRippleDelete(laneClips, [clipId]).map((move) => ({
+      clipId: move.clipId,
+      from: startOf.get(move.clipId) ?? move.timelineStart,
+      to: move.timelineStart,
+    }));
   }
 
   await clipMutator.delete(clipId);
@@ -713,19 +945,46 @@ export async function removeTimelineClip(
   }
   const remaining = await clipMutator.getByTimeline(timelineId);
   await renumberClips(pb, timelineId, remaining);
-  await syncTimelineDuration(pb, timelineId);
-  return { clip, shifted };
+  const check = await syncTimelineAfterWrite(
+    pb,
+    timelineId,
+    shifted.map((s) => s.clipId)
+  );
+
+  const warnings: OpWarning[] = [];
+  if (shifted.length > 0) {
+    const delta = shifted[0].from - shifted[0].to;
+    warnings.push(
+      shiftedOthersNotice(
+        `--ripple shifted ${shifted.length} later clip(s) left by ` +
+          `${delta.toFixed(2)}s to close the gap`,
+        shifted.map((s) => s.clipId)
+      )
+    );
+  }
+  warnings.push(
+    ...check.conflicts.map((f) => postWriteOverlapWarning(f, timelineId))
+  );
+  return { clip, shifted, warnings };
+}
+
+export interface ReorderClipsResult {
+  clips: TimelineClip[];
+  /** True when the stored order already matched; nothing was written. */
+  noop: boolean;
+  warnings: OpWarning[];
 }
 
 /**
  * Replace a timeline's clip order with the given complete sequence. The id
- * list must contain every clip on the timeline exactly once.
+ * list must contain every clip on the timeline exactly once. An order that
+ * already matches skips the writes entirely (`noop`).
  */
 export async function reorderTimelineClips(
   pb: TypedPocketBase,
   timelineId: string,
   orderedIds: string[]
-): Promise<TimelineClip[]> {
+): Promise<ReorderClipsResult> {
   const clipMutator = new TimelineClipMutator(pb);
   const clips = await clipMutator.getByTimeline(timelineId);
 
@@ -746,8 +1005,20 @@ export async function reorderTimelineClips(
     throw new Error(parts.join(' '));
   }
 
-  return clipMutator.reorderClips(
+  const orderOf = new Map(clips.map((c) => [c.id, c.order]));
+  if (orderedIds.every((id, index) => orderOf.get(id) === index)) {
+    return {
+      clips,
+      noop: true,
+      warnings: [
+        noopNotice('clip order already matches — nothing to write', orderedIds),
+      ],
+    };
+  }
+
+  const reordered = await clipMutator.reorderClips(
     timelineId,
     orderedIds.map((id, order) => ({ id, order }))
   );
+  return { clips: reordered, noop: false, warnings: [] };
 }

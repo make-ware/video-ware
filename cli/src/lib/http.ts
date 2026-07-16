@@ -45,10 +45,7 @@ export function apiFetch(
 }
 
 /** `fetch` for upload chunk PUTs (no agent-level timeouts — see above). */
-export function uploadFetch(
-  url: string,
-  init: RequestInit
-): Promise<Response> {
+export function uploadFetch(url: string, init: RequestInit): Promise<Response> {
   return undiciFetch(url, {
     ...(init as FetchInit),
     dispatcher: uploadAgent,

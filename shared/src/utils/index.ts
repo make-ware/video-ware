@@ -1,4 +1,5 @@
 export * from './error-handling.js';
+export * from './record-conflict.js';
 export * from './media-errors.js';
 export * from './retry.js';
 export * from './time.js';

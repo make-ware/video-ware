@@ -564,3 +564,59 @@ describe('inspectTimelineClipSegments', () => {
     );
   });
 });
+
+describe('segment-edit no-ops and warnings', () => {
+  it('a trim to the same edges is a noop and writes nothing', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...compositeClip }] });
+    const pb = fakePb(stubs);
+
+    // segment 0 already spans 0–10s — the edit list comes back identical
+    const result = await editMediaClipSegments(pb, 'mc2', {
+      kind: 'trim',
+      segment: 0,
+      start: 0,
+      end: 10,
+    });
+
+    expect(result.noop).toBe(true);
+    expect(result.warnings.map((w) => w.code)).toEqual(['noop']);
+    expect(stubs.MediaClips.update).not.toHaveBeenCalled();
+  });
+
+  it('a trim to the same edges is a noop for timeline clips too', async () => {
+    const clip = {
+      ...baseTimelineClip,
+      meta: { segments: [{ start: 0, end: 30 }] },
+    };
+    const stubs = segStubs({ timelineClips: [clip] });
+    const pb = fakePb(stubs);
+
+    const result = await editTimelineClipSegments(pb, 'tc1', {
+      kind: 'trim',
+      start: 0,
+      end: 30,
+    });
+
+    expect(result.noop).toBe(true);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+    // no write → no duration re-sync
+    expect(stubs.Timelines.getOne).not.toHaveBeenCalled();
+  });
+
+  it('a clamped slip carries a warning-level clamped entry', async () => {
+    const clip = { ...userClip, start: 0, end: 55, duration: 55 };
+    const stubs = segStubs({ mediaClips: [clip] });
+    const pb = fakePb(stubs);
+
+    // only 5s of headroom before the 60s media end
+    const result = await editMediaClipSegments(pb, 'mc1', {
+      kind: 'slip',
+      by: 20,
+    });
+
+    expect(result.appliedBy).toBe(5);
+    const clamp = result.warnings.find((w) => w.code === 'clamped');
+    expect(clamp?.level).toBe('warning');
+    expect(clamp?.data).toEqual({ requestedBy: 20, appliedBy: 5 });
+  });
+});

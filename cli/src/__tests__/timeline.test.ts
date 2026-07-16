@@ -6,6 +6,7 @@ import {
   insertClip,
   insertClips,
   resolveTrackRef,
+  syncTimelineAfterWrite,
   syncTimelineDuration,
 } from '../lib/timeline.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
@@ -58,6 +59,12 @@ function timelineStubs(opts: StubOptions = {}): Record<string, Stub> {
     },
     TimelineClips: {
       getList: vi.fn(async () => listResult(clips)),
+      // guarded writes re-read the record right before updating
+      getOne: vi.fn(async (id: string) => {
+        const clip = clips.find((c) => c.id === id);
+        if (!clip) throw notFound();
+        return clip;
+      }),
       create: vi.fn(async (data) => ({ ...data, id: 'newclip' })),
       update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
       delete: vi.fn(async () => true),
@@ -981,7 +988,7 @@ describe('createRender', () => {
       TimelineRenders: { create },
     });
 
-    const render = await createRender(pb, {
+    const { render } = await createRender(pb, {
       timelineId: 'tl1',
       outputSettings: OUTPUT,
     });
@@ -1261,7 +1268,7 @@ describe('createRender with nested timelines', () => {
     const stubs = nestedTimelineStubs(renderArgs());
     const pb = fakePb(stubs);
 
-    const render = await createRender(pb, {
+    const { render } = await createRender(pb, {
       timelineId: 'tl1',
       outputSettings: OUTPUT,
     });
@@ -1318,5 +1325,179 @@ describe('insertClip with a composite MediaClip', () => {
       timelineStart: 0,
     });
     expect(result.placedEnd).toBe(20);
+  });
+});
+
+describe('insert warnings and --ripple placement', () => {
+  const blocker = {
+    id: 'c1',
+    TimelineRef: 'tl1',
+    TimelineTrackRef: 'track1',
+    MediaRef: 'm1',
+    order: 0,
+    start: 0,
+    end: 10,
+    duration: 10,
+    timelineStart: 0,
+  };
+
+  it('a nudged insert carries a warning-level nudged entry', async () => {
+    const stubs = timelineStubs({ clips: [blocker] });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+    });
+
+    const nudge = result.warnings.find((w) => w.code === 'nudged');
+    expect(nudge?.level).toBe('warning');
+    expect(nudge?.data).toEqual({ requestedAt: 3, placedAt: 10 });
+    expect(nudge?.clipIds).toEqual(['newclip']);
+  });
+
+  it('--ripple lands exactly at --at and shifts later clips right', async () => {
+    const stubs = timelineStubs({ clips: [blocker] });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+      ripple: true,
+    });
+
+    expect(result.placedAt).toBe(3);
+    expect(result.nudged).toBe(false);
+    // c1 straddles 3s, so it clears the whole inserted range: 0 → 8
+    expect(result.shifted).toEqual([{ clipId: 'c1', from: 0, to: 8 }]);
+    expect(stubs.TimelineClips.update).toHaveBeenCalledWith(
+      'c1',
+      { timelineStart: 8 },
+      expect.anything()
+    );
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      timelineStart: 3,
+    });
+    const notice = result.warnings.find((w) => w.code === 'shifted-others');
+    expect(notice?.level).toBe('notice');
+  });
+
+  it('rejects --ripple combined with --overwrite or without a target time', async () => {
+    const pb = fakePb(timelineStubs());
+    await expect(
+      insertClip(pb, {
+        timelineId: 'tl1',
+        media: 'm1',
+        at: 3,
+        ripple: true,
+        overwrite: true,
+      })
+    ).rejects.toThrow(/mutually exclusive/);
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', ripple: true })
+    ).rejects.toThrow(/--ripple requires/);
+  });
+
+  it('--overwrite reports a trimmed notice and a removed warning', async () => {
+    const stubs = timelineStubs({
+      clips: [
+        { ...blocker, end: 4, duration: 4 },
+        {
+          ...blocker,
+          id: 'c2',
+          order: 1,
+          end: 2,
+          duration: 2,
+          timelineStart: 4,
+        },
+      ],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      media: 'm1',
+      start: 0,
+      end: 5,
+      at: 3,
+      overwrite: true,
+    });
+
+    const trimmed = result.warnings.find((w) => w.code === 'trimmed');
+    expect(trimmed?.level).toBe('notice');
+    expect(trimmed?.clipIds).toEqual(['c1']);
+    const removed = result.warnings.find((w) => w.code === 'removed');
+    expect(removed?.level).toBe('warning');
+    expect(removed?.clipIds).toEqual(['c2']);
+  });
+
+  it('a plain append emits no warnings', async () => {
+    const stubs = timelineStubs({ clips: [blocker] });
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, { timelineId: 'tl1', media: 'm1' });
+
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('syncTimelineAfterWrite', () => {
+  const overlapping = [
+    {
+      id: 'a',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'track1',
+      MediaRef: 'm1',
+      order: 0,
+      start: 0,
+      end: 5,
+      duration: 5,
+      timelineStart: 0,
+    },
+    {
+      id: 'b',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'track1',
+      MediaRef: 'm1',
+      order: 1,
+      start: 0,
+      end: 5,
+      duration: 5,
+      timelineStart: 3,
+    },
+  ];
+
+  it('reports overlaps involving the touched clips and elides an unchanged duration write', async () => {
+    const stubs = timelineStubs({
+      clips: overlapping,
+      timeline: { id: 'tl1', WorkspaceRef: 'ws1', duration: 8, version: 1 },
+    });
+    const pb = fakePb(stubs);
+
+    const check = await syncTimelineAfterWrite(pb, 'tl1', ['a']);
+
+    expect(check.duration).toBe(8);
+    // stored duration already matches → no write
+    expect(stubs.Timelines.update).not.toHaveBeenCalled();
+    expect(check.conflicts).toHaveLength(1);
+    expect(check.conflicts[0].code).toBe('track-overlap');
+    expect(check.conflicts[0].clipIds).toEqual(
+      expect.arrayContaining(['a', 'b'])
+    );
+  });
+
+  it('ignores overlaps that do not involve the touched clips', async () => {
+    const stubs = timelineStubs({ clips: overlapping });
+    const pb = fakePb(stubs);
+
+    const check = await syncTimelineAfterWrite(pb, 'tl1', ['unrelated']);
+
+    expect(check.conflicts).toEqual([]);
   });
 });

@@ -16,9 +16,17 @@ import {
   parseSeconds,
   parseSecondsList,
   parseSignedSeconds,
+  withForceOption,
   withJsonOption,
+  withStrictOption,
 } from '../lib/options.js';
 import { info, printRecord, success, table } from '../lib/output.js';
+import { withConflictRetry } from '../lib/conflict.js';
+import {
+  enforceStrict,
+  noopMessage,
+  printOpWarnings,
+} from '../lib/warnings.js';
 
 /**
  * Segment-level edit subcommands (split/cut/trim/slip/segments), registered
@@ -62,61 +70,50 @@ function reportEdit(
   clipId: string,
   op: SegmentOp,
   result: MediaClipSegmentsEditResult | TimelineClipSegmentsEditResult,
-  json?: boolean
+  opts: { json?: boolean; strict?: boolean }
 ): void {
-  if (json) {
+  if (opts.json) {
     printRecord(result, [], true);
-    return;
-  }
-
-  if (op.kind === 'slip' && result.appliedBy === 0) {
+  } else if (result.noop) {
     info(
-      'Nothing to slip — the segment is already flush against its bounds ' +
-        `(requested ${signed(result.requestedBy ?? 0)}).`
+      noopMessage(result.warnings) ??
+        'Nothing to write — the edit list is unchanged.'
     );
-    return;
-  }
-
-  const summary =
-    `${describeOp(op)} clip ${clipId}` +
-    (op.kind === 'slip' ? ` by ${signed(result.appliedBy ?? 0)}` : '') +
-    ` — effective ${secs(effectiveOf(result.before))} → ` +
-    `${secs(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? '' : 's'})`;
-
-  if (result.dryRun) {
-    info(`Dry run — nothing written. Would have: ${summary}`);
   } else {
-    success(summary);
-  }
+    const summary =
+      `${describeOp(op)} clip ${clipId}` +
+      (op.kind === 'slip' ? ` by ${signed(result.appliedBy ?? 0)}` : '') +
+      ` — effective ${secs(effectiveOf(result.before))} → ` +
+      `${secs(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? '' : 's'})`;
 
-  if (
-    op.kind === 'slip' &&
-    result.requestedBy !== undefined &&
-    result.appliedBy !== result.requestedBy
-  ) {
-    info(
-      `  requested ${signed(result.requestedBy)} — clamped by media bounds/neighbors`
-    );
-  }
-  if ('converted' in result && result.converted) {
-    info('  converted to a composite clip (edit list created)');
-  }
-  if ('segmentsSource' in result && result.segmentsSource !== 'meta') {
-    const from =
-      result.segmentsSource === 'mediaClip'
-        ? "the source MediaClip's edit list"
-        : "the clip's trim window";
-    info(
-      `  edit list initialized from ${from} — this clip now keeps its own copy`
-    );
-  }
-  if ('rippled' in result) {
-    for (const shift of result.rippled) {
+    if (result.dryRun) {
+      info(`Dry run — nothing written. Would have: ${summary}`);
+    } else {
+      success(summary);
+    }
+
+    if ('converted' in result && result.converted) {
+      info('  converted to a composite clip (edit list created)');
+    }
+    if ('segmentsSource' in result && result.segmentsSource !== 'meta') {
+      const from =
+        result.segmentsSource === 'mediaClip'
+          ? "the source MediaClip's edit list"
+          : "the clip's trim window";
       info(
-        `  rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+        `  edit list initialized from ${from} — this clip now keeps its own copy`
       );
     }
+    if ('rippled' in result) {
+      for (const shift of result.rippled) {
+        info(
+          `  rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+        );
+      }
+    }
   }
+  printOpWarnings(result.warnings);
+  enforceStrict(result.warnings, opts.strict);
 }
 
 /** Human/JSON reporting for the read-only `segments` subcommand. */
@@ -169,20 +166,49 @@ function segmentEditCommand(
   description: string
 ): Command {
   return withJsonOption(
-    workspaceOption(
-      parent
-        .command(`${name} <clipId>`)
-        .description(description)
-        .option('--dry-run', 'print the resulting edit list without writing')
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          parent
+            .command(`${name} <clipId>`)
+            .description(description)
+            .option(
+              '--dry-run',
+              'print the resulting edit list without writing'
+            )
+        )
+      )
     )
   );
 }
 
-interface TimelineEditFlags {
-  timeline?: string;
-  ripple?: boolean;
+interface SegmentEditFlags {
   dryRun?: boolean;
   json?: boolean;
+  strict?: boolean;
+  force?: boolean;
+}
+
+interface TimelineEditFlags extends SegmentEditFlags {
+  timeline?: string;
+  ripple?: boolean;
+}
+
+/** Run + report a media-clip segment edit with the concurrent-edit guard. */
+async function runMediaEdit(
+  clipId: string,
+  op: SegmentOp,
+  opts: SegmentEditFlags
+): Promise<void> {
+  const pb = await requireClient();
+  const result = await withConflictRetry(
+    () => editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
+    {
+      patchKeys: ['start', 'end', 'duration', 'clipData', 'type'],
+      force: opts.force,
+    }
+  );
+  reportEdit(clipId, op, result, opts);
 }
 
 /** Register split/cut/trim/slip/segments under `vw media clip`. */
@@ -199,14 +225,7 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
     )
     .action(async (clipId: string, opts) => {
       try {
-        const pb = await requireClient();
-        const op: SegmentOp = { kind: 'split', at: opts.at };
-        reportEdit(
-          clipId,
-          op,
-          await editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
-          opts.json
-        );
+        await runMediaEdit(clipId, { kind: 'split', at: opts.at }, opts);
       } catch (err) {
         handleError(err);
       }
@@ -229,13 +248,10 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
     )
     .action(async (clipId: string, opts) => {
       try {
-        const pb = await requireClient();
-        const op: SegmentOp = { kind: 'cut', from: opts.from, to: opts.to };
-        reportEdit(
+        await runMediaEdit(
           clipId,
-          op,
-          await editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
-          opts.json
+          { kind: 'cut', from: opts.from, to: opts.to },
+          opts
         );
       } catch (err) {
         handleError(err);
@@ -264,18 +280,15 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
     )
     .action(async (clipId: string, opts) => {
       try {
-        const pb = await requireClient();
-        const op: SegmentOp = {
-          kind: 'trim',
-          segment: opts.segment,
-          start: opts.start,
-          end: opts.end,
-        };
-        reportEdit(
+        await runMediaEdit(
           clipId,
-          op,
-          await editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
-          opts.json
+          {
+            kind: 'trim',
+            segment: opts.segment,
+            start: opts.start,
+            end: opts.end,
+          },
+          opts
         );
       } catch (err) {
         handleError(err);
@@ -300,17 +313,10 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
     )
     .action(async (clipId: string, opts) => {
       try {
-        const pb = await requireClient();
-        const op: SegmentOp = {
-          kind: 'slip',
-          by: opts.by,
-          segment: opts.segment,
-        };
-        reportEdit(
+        await runMediaEdit(
           clipId,
-          op,
-          await editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
-          opts.json
+          { kind: 'slip', by: opts.by, segment: opts.segment },
+          opts
         );
       } catch (err) {
         handleError(err);
@@ -348,16 +354,16 @@ export function registerTimelineClipSegmentCommands(clips: Command): void {
     opts: TimelineEditFlags
   ): Promise<void> => {
     const pb = await requireClient();
-    reportEdit(
-      clipId,
-      op,
-      await editTimelineClipSegments(pb, clipId, op, {
-        ripple: opts.ripple,
-        dryRun: opts.dryRun,
-        timelineId: opts.timeline,
-      }),
-      opts.json
+    const result = await withConflictRetry(
+      () =>
+        editTimelineClipSegments(pb, clipId, op, {
+          ripple: opts.ripple,
+          dryRun: opts.dryRun,
+          timelineId: opts.timeline,
+        }),
+      { patchKeys: ['start', 'end', 'duration', 'meta'], force: opts.force }
     );
+    reportEdit(clipId, op, result, opts);
   };
 
   timelineOption(

@@ -15,8 +15,11 @@ import {
 } from '../lib/timeline.js';
 import {
   timelineClipLabelHint,
+  type RippleShift,
   type TimelineClipExpanded,
 } from '../lib/timeline-clip.js';
+import { withConflictRetry } from '../lib/conflict.js';
+import { enforceStrict, printOpWarnings } from '../lib/warnings.js';
 import {
   clipLabelDetail,
   getTimelineOverview,
@@ -101,28 +104,26 @@ const showClipColumns = [
   },
 ];
 
-/** Print an insert/move placement report under the success line. */
+/**
+ * Print an insert/move placement report under the success line: per-clip
+ * trim and ripple-shift detail. Nudges and removals are not printed here —
+ * they surface as warning-level entries via printOpWarnings.
+ */
 export function reportPlacement(result: {
-  placedAt: number;
-  requestedAt?: number;
-  nudged: boolean;
   trims: ClipTrim[];
-  removedClipIds: string[];
+  shifted: RippleShift[];
   dryRun: boolean;
 }): void {
   const would = result.dryRun ? 'would be ' : '';
-  if (result.nudged && result.requestedAt !== undefined) {
-    info(
-      `  requested ${secs(result.requestedAt)} — nudged to ${secs(result.placedAt)} past existing clips`
-    );
-  }
   for (const trim of result.trims) {
     info(
       `  ${would}trimmed: ${trim.clipId} → source ${range(trim.start, trim.end)}, timeline ${secs(trim.timelineStart)}`
     );
   }
-  if (result.removedClipIds.length > 0) {
-    info(`  ${would}removed: ${result.removedClipIds.join(', ')}`);
+  for (const shift of result.shifted) {
+    info(
+      `  ${would}rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+    );
   }
 }
 
@@ -485,6 +486,18 @@ export function registerTimelineCommands(program: Command): void {
       '--overwrite',
       'with --at: trim/remove overlapping clips instead of nudging forward'
     )
+    .option(
+      '--ripple',
+      'with --at/--after: land at the exact time and shift later clips right'
+    )
+    .option(
+      '--strict',
+      'exit 1 when the operation completes with warnings (nudged, …)'
+    )
+    .option(
+      '--force',
+      're-apply over a concurrent edit to the same fields instead of aborting'
+    )
     .option('--dry-run', 'print the placement plan without writing anything');
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
@@ -515,6 +528,7 @@ export function registerTimelineCommands(program: Command): void {
           // option keys are camelCase; flags are kebab-case
           .map((key) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
         if (opts.overwrite) incompatible.push('overwrite');
+        if (opts.ripple) incompatible.push('ripple');
         if (opts.dryRun) incompatible.push('dry-run');
         if (incompatible.length > 0) {
           throw new Error(
@@ -528,15 +542,18 @@ export function registerTimelineCommands(program: Command): void {
           ...(picked.track !== undefined ? { track: picked.track } : {}),
           ...(picked.gain !== undefined ? { gain: picked.gain } : {}),
         });
+        const allWarnings = results.flatMap((r) => r.warnings);
         if (opts.json) {
           printRecord({ items: results, totalItems: results.length }, [], true);
-          return;
+        } else {
+          for (const result of results) {
+            success(
+              `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
+            );
+          }
         }
-        for (const result of results) {
-          success(
-            `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
-          );
-        }
+        printOpWarnings(allWarnings);
+        enforceStrict(allWarnings, opts.strict);
         return;
       }
 
@@ -549,27 +566,38 @@ export function registerTimelineCommands(program: Command): void {
         picked.media = (await pickMedia(pb, workspaceId)).id;
       }
 
-      const result: InsertClipResult = await insertClip(pb, {
-        timelineId,
-        overwrite: opts.overwrite,
-        dryRun: opts.dryRun,
-        ...picked,
-      });
+      const result: InsertClipResult = await withConflictRetry(
+        () =>
+          insertClip(pb, {
+            timelineId,
+            overwrite: opts.overwrite,
+            ripple: opts.ripple,
+            dryRun: opts.dryRun,
+            ...picked,
+          }),
+        {
+          // conflicts can only come from --overwrite trim victims
+          patchKeys: ['start', 'end', 'duration', 'timelineStart'],
+          force: opts.force,
+        }
+      );
 
       if (opts.json) {
         printRecord(result, [], true);
-        return;
-      }
-      if (result.dryRun) {
-        info(
-          `Dry run — nothing written. Clip would land at ${placementPhrase(result)}`
-        );
       } else {
-        success(
-          `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
-        );
+        if (result.dryRun) {
+          info(
+            `Dry run — nothing written. Clip would land at ${placementPhrase(result)}`
+          );
+        } else {
+          success(
+            `Inserted clip ${result.clip!.id} at ${placementPhrase(result)}`
+          );
+        }
+        reportPlacement(result);
       }
-      reportPlacement(result);
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }
@@ -723,6 +751,10 @@ export function registerTimelineCommands(program: Command): void {
       'max seconds to wait for completion before giving up (default: 1800)'
     )
     .option('--download <path>', 'download the output file on success')
+    .option(
+      '--strict',
+      'refuse to queue the render when clips overlap on a track'
+    )
     .action(async (opts) => {
       try {
         const pb = await requireClient();
@@ -742,7 +774,12 @@ export function registerTimelineCommands(program: Command): void {
           fps: opts.fps,
         });
 
-        const render = await createRender(pb, { timelineId, outputSettings });
+        const { render, warnings } = await createRender(pb, {
+          timelineId,
+          outputSettings,
+          strict: opts.strict,
+        });
+        printOpWarnings(warnings);
         success(`Render queued: ${render.id}`);
 
         if (opts.wait === false) {

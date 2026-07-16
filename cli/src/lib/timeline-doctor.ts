@@ -68,6 +68,20 @@ function withCliHint(finding: DoctorFinding): DoctorFinding {
         ...finding,
         message: `${finding.message}; remove the clip or restore the media`,
       };
+    case 'dangling-track':
+      return {
+        ...finding,
+        message:
+          `${finding.message}; re-home it with \`vw timeline clips move ` +
+          `${finding.clipIds[0]} --track <layer>\``,
+      };
+    case 'duplicate-track-layer':
+      return {
+        ...finding,
+        message:
+          `${finding.message}; re-layer or delete one with \`vw timeline ` +
+          'track update/delete <trackId>`',
+      };
     case 'dangling-caption':
       return {
         ...finding,

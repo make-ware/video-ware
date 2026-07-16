@@ -1,5 +1,5 @@
 // Mutator exports
-export { BaseMutator, type MutatorOptions } from './base';
+export { BaseMutator, type MutatorOptions, type UpdateGuard } from './base';
 export { UserMutator } from './user';
 
 // Media uploads and ingestion mutators

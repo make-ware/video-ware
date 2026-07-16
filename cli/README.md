@@ -262,8 +262,11 @@ deleting one never deletes media.
   batch of MediaClips in order. Every insert reports where the clip landed.
 - **`--at`/`--after` nudge by default.** If the requested time collides with
   an existing clip, the new clip is placed at the next free time and the
-  command reports the nudge. Pass `--overwrite` (with `--at`) to instead
-  trim/remove whatever overlaps (like the editor's playhead insert).
+  command reports the nudge as a warning. Pass `--ripple` to instead land at
+  the exact requested time and shift later clips right (gap-preserving,
+  non-destructive), or `--overwrite` (with `--at`) to trim/remove whatever
+  overlaps (like the editor's playhead insert). `--ripple` also works on
+  `clips move`; the two flags are mutually exclusive.
 - **`insert --source-timeline <id>` nests a timeline.** The inserted timeline
   plays as a single clip; `-s`/`-e` trim its own time axis, and its content
   is edited only in the source timeline. Inserts that would make a timeline
@@ -276,8 +279,33 @@ deleting one never deletes media.
   clip. `clips remove --ripple` closes the gap the removed clip leaves.
 - **`--dry-run`** on `insert`, `clips move`, and `clips ripple` prints the
   full plan (placement, trims, removals, shifts) without writing anything.
+- **Soft outcomes are structured warnings.** Every edit op returns a
+  `warnings` array (see *JSON output for agents*): `warning`-level entries
+  mean the outcome deviates from what was asked or is irreversible (`nudged`,
+  `clamped`, `removed`, `stale-read`, `post-write-overlap`) and print as `⚠`
+  lines on stderr; `notice`-level entries are the documented behavior of an
+  explicit flag (`shifted-others` under `--ripple`, `trimmed` under
+  `--overwrite`, `noop`). Warnings never change the exit code — pass
+  `--strict` to exit 1 when any warning-level entry exists (and on
+  `timeline render`, to refuse queueing while clips overlap).
+- **No-ops skip the write.** Moving a clip to its exact current position,
+  updating fields to their stored values, an already-matching reorder, or a
+  segment edit that leaves the edit list unchanged writes nothing and
+  reports `noop` — so a record's `updated` timestamp keeps meaning "content
+  changed". (Healing a legacy clip that lacks an explicit
+  `timelineStart`/track ref still writes the pin.)
+- **Concurrent edits are detected, not clobbered.** Edit ops re-check the
+  primary record right before writing; if another editor (webapp or a second
+  CLI) changed it in between, the op re-plans once against the fresh state
+  when the remote change touched *different* fields (reported as a
+  `stale-read` warning), and aborts with an error when it touched the *same*
+  fields or `meta` (one JSON column — a blind write would drop the other
+  editor's keys). Pass `--force` to re-apply your change over the fresh
+  state anyway. After writing, ops re-check the track and warn
+  (`post-write-overlap`) if a concurrent edit produced a same-track overlap.
 - **`timeline doctor <id>`** verifies the layout: same-track overlaps
-  (errors), dangling media/caption refs (errors), stale stored durations
+  (errors), dangling media/caption refs (errors), clips pointing at deleted
+  tracks and duplicate track layers (errors), stale stored durations
   (warnings), and gaps (info). It exits non-zero when errors exist, so
   agents can use it as an "am I done" gate. `timeline show` also warns
   inline when a track has overlapping clips.
@@ -502,13 +530,23 @@ document on stdout with nothing else:
 - `timeline insert` / `clips move` → the full placement result: `clip`
   (null on `--dry-run`), `placedAt`/`placedEnd`, `mode`
   (`append`/`after`/`at`, insert only), `afterClip`, `requestedAt`,
-  `nudged`, `trims`, `trimmedClipIds`, `removedClipIds`, `track`, `dryRun`;
+  `nudged`, `trims`, `trimmedClipIds`, `removedClipIds`, `shifted`
+  (`--ripple` moves), `noop` (move only), `dryRun`, `track`, `warnings`;
   batch `insert --clips` wraps the per-clip results in
   `{ items, totalItems }`
+- **every edit result carries `warnings`**: an array of `{ level:
+  "warning"|"notice", code, message, clipIds, data? }` with codes `nudged`,
+  `clamped`, `shifted-others`, `trimmed`, `removed`, `noop`, `stale-read`,
+  `post-write-overlap`. Ops that can skip the write also carry a top-level
+  `noop` boolean. Agents should check `warnings` after every edit; pass
+  `--strict` to turn warning-level entries into exit 1.
+- `clips update` → `{ clip, noop, warnings }` (previously the raw clip
+  record)
 - `clips ripple` → `{ track, by, requestedBy, shifted: [{ clipId, from,
-  to }], dryRun }` (`by` differs from `requestedBy` when clamped)
-- `clips remove` → `{ clip, shifted }`; `clips reorder` →
-  `{ items, totalItems }`
+  to }], noop, dryRun, warnings }` (`by` differs from `requestedBy` when
+  clamped)
+- `clips remove` → `{ clip, shifted, warnings }`; `clips reorder` →
+  `{ items, totalItems, noop, warnings }`
 - `timeline doctor` → `{ timelineId, timelineName, computedDuration,
   clipCount, trackCount, findings: [{ level, code, message, clipIds,
   layer }], errors, warnings, ok }`; the process exits non-zero when

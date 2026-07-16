@@ -13,6 +13,11 @@ export function error(message: string): void {
   console.error(`✗ ${message}`);
 }
 
+/** Print a warning line to stderr (⚠ prefix); stdout stays parseable. */
+export function warn(message: string): void {
+  console.error(`⚠ ${message}`);
+}
+
 /** A table column: header plus a cell accessor. */
 export type Column<T> = { header: string; value: (row: T) => string };
 

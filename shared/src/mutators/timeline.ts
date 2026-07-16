@@ -47,10 +47,9 @@ export class TimelineMutator extends BaseMutator<Timeline, TimelineInput> {
    * @returns Updated timeline with incremented version
    */
   async incrementVersion(id: string): Promise<Timeline> {
-    const timeline = await this.getById(id);
-    if (!timeline) {
-      throw new Error(`Timeline not found: ${id}`);
-    }
-    return this.update(id, { version: (timeline.version ?? 1) + 1 });
+    // PocketBase's atomic `+` field modifier: the increment happens
+    // server-side, so concurrent saves can't lose an increment the way a
+    // read-then-write would.
+    return this.update(id, { 'version+': 1 } as unknown as Partial<Timeline>);
   }
 }

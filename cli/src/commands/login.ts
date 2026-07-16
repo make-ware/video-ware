@@ -7,6 +7,10 @@ export function registerAuthCommands(program: Command): void {
     .command('login')
     .description('Authenticate with PocketBase and cache the session')
     .option('--url <url>', 'PocketBase URL')
+    .option(
+      '--app-url <url>',
+      'webapp origin serving /api-next, for uploads (only when it differs from the PocketBase URL)'
+    )
     .option('--email <email>', 'account email')
     .option('--password <password>', 'account password')
     .action(async (opts) => {

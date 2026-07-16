@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { registerAuthCommands } from './commands/login.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
+import { registerUploadCommands } from './commands/upload.js';
 import { registerMediaCommands } from './commands/media.js';
 import { registerDirectoryCommands } from './commands/directory.js';
 import { registerLabelCommands } from './commands/label.js';
@@ -48,6 +49,7 @@ program
 
 registerAuthCommands(program);
 registerWorkspaceCommands(program);
+registerUploadCommands(program);
 registerMediaCommands(program);
 registerDirectoryCommands(program);
 registerLabelCommands(program);

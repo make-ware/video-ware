@@ -54,6 +54,8 @@ vw workspace list              # list workspaces (active marked with *)
 vw workspace use [id]          # set the active workspace (interactive when omitted)
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
+vw upload <file...>            # upload video/audio/image files (--directory files them; --wait polls ingest)
+
 vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
 vw media update <id>           # set label/description, move into a directory (--directory)
@@ -226,8 +228,9 @@ deleting one never deletes media.
   unfiled media (`vw media list -d /`); as a move target it unfiles
   (`vw dir move / MEDIA_ID`).
 - **Filing media:** `vw dir move <dir> <mediaId...>` moves a batch;
-  `vw media update <id> --directory <dir>` does one alongside other edits.
-  Uploads made in the webapp can also land in a directory at ingest.
+  `vw media update <id> --directory <dir>` does one alongside other edits;
+  `vw upload <file...> --directory <dir>` files new media at ingest (as does
+  the webapp's upload dialog).
 - **Media clips have no directory of their own** — they follow their parent
   media, so `vw media clip list -d <dir>` filters clips through the source
   media's directory.
@@ -525,11 +528,36 @@ The command wires itself — it already spreads
 `pickOptions(opts, clipFieldOptions)` into `createMediaClip`. The same group
 can be reused by future commands (e.g. `clip update`).
 
+## Uploading media
+
+`vw upload <file...>` sends local video/audio/image files through the same
+Next.js route the webapp uses (`/api-next/uploads/upload`), in sequential
+100 MB chunks so Cloudflare-fronted deployments work. Finishing the upload
+triggers ingest automatically: the worker creates the Media record and
+generates the proxy/thumbnails.
+
+```bash
+vw upload beach.mp4                        # upload into the active workspace
+vw upload *.mp4 --directory hawaii         # several files, filed into a directory
+vw upload interview.mov --wait             # block until the media is ingested
+vw upload clip.mp4 --json                  # machine-readable result (agents)
+```
+
+The route lives on the **webapp** origin. In the monolith deployment one
+origin serves both PocketBase (`/api/`) and the webapp (`/api-next/`), so no
+extra configuration is needed. When the two differ (e.g. split local dev),
+set the webapp origin explicitly — precedence: `--app-url` flag →
+`appUrl` in the config file (written by `vw login --app-url`) →
+`$VW_APP_URL` → derived from the PocketBase URL (a PB URL on
+`localhost:8090` maps to `http://localhost:3000`).
+
 ## Configuration
 
-State is stored at `~/.config/video-ware/config.json` (URL, auth token, active
-workspace). The PocketBase URL defaults to `$POCKETBASE_URL` and can be set with
-`vw login --url`.
+State is stored at `~/.config/video-ware/config.json` (URL, webapp origin for
+uploads, auth token, active workspace). The PocketBase URL defaults to
+`$POCKETBASE_URL` and can be set with `vw login --url`; the webapp origin
+(only needed when it differs from the PocketBase URL) with
+`vw login --app-url`.
 
 ## How rendering works
 

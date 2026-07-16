@@ -5,10 +5,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 /**
  * Persisted CLI state. Lives at ~/.config/video-ware/config.json.
  * `token`/`userId`/`userEmail` are written by `vw login`; `workspaceId`/
- * `workspaceName` by `vw workspace use`.
+ * `workspaceName` by `vw workspace use`; `appUrl` by `vw login --app-url`
+ * (only needed when the webapp origin differs from the PocketBase URL,
+ * e.g. split-origin local dev).
  */
 export interface CliConfig {
   url?: string;
+  appUrl?: string;
   token?: string;
   userId?: string;
   userEmail?: string;

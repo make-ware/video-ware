@@ -11,10 +11,12 @@ import {
 
 export const CLIP_TYPE_OPTIONS = [
   { value: 'all', label: 'All Types' },
-  { value: 'user', label: 'My Clips' },
-  { value: 'clips', label: 'Clips' },
-  { value: ClipType.OBJECT, label: 'Object' },
-  { value: ClipType.FACE, label: 'Face' },
+  { value: ClipType.USER, label: 'My Clips' },
+  { value: ClipType.COMPOSITE, label: 'Composite' },
+  { value: ClipType.SHOT, label: 'Shots' },
+  { value: ClipType.OBJECT, label: 'Objects' },
+  { value: ClipType.PERSON, label: 'People' },
+  { value: ClipType.FACE, label: 'Faces' },
   { value: ClipType.SPEECH, label: 'Speech' },
 ];
 

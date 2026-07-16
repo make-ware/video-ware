@@ -49,6 +49,9 @@ export function WorkspaceLibrary({
   const [clipSearch, setClipSearch] = useState('');
   const [clipSort, setClipSort] = useState<LibrarySortBy>('recent');
   const [clipMediaType, setClipMediaType] = useState('all');
+  // Clip-type filter ('all' | ClipType). Defaults to all so CLI/label-derived
+  // clips (object, face, speech, shot, …) are visible, not just user clips.
+  const [clipType, setClipType] = useState('all');
 
   // Media tab state
   const [mediaSearch, setMediaSearch] = useState('');
@@ -69,9 +72,7 @@ export function WorkspaceLibrary({
         }
       : null,
     searchQuery: clipSearch,
-    // Scope the clips tab to user-created clips (auto-generated label clips
-    // are surfaced elsewhere); the visible dropdown filters by media type.
-    typeFilter: 'user',
+    typeFilter: clipType,
     mediaTypeFilter: clipMediaType,
     sortBy: clipSort,
   });
@@ -223,6 +224,8 @@ export function WorkspaceLibrary({
             onSearchChange={setClipSearch}
             sortBy={clipSort}
             onSortChange={setClipSort}
+            clipTypeFilter={clipType}
+            onClipTypeFilterChange={setClipType}
             mediaTypeFilter={clipMediaType}
             onMediaTypeFilterChange={setClipMediaType}
             searchPlaceholder="Search clips..."

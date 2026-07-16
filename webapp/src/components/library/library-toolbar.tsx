@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MediaTypeFilter } from '@/components/media/media-type-filter';
+import { ClipTypeFilter } from '@/components/clip/clip-type-filter';
 import { Search, Folder, FolderOpen } from 'lucide-react';
 import type { Directory } from '@project/shared';
 import type { LibrarySortBy } from './types';
@@ -23,6 +24,9 @@ interface LibraryToolbarProps {
   /** Media-type filter ('all' | 'video' | 'audio' | 'image'). Hidden when undefined. */
   mediaTypeFilter?: string;
   onMediaTypeFilterChange?: (value: string) => void;
+  /** Clip-type filter ('all' | ClipType). Hidden when undefined. */
+  clipTypeFilter?: string;
+  onClipTypeFilterChange?: (value: string) => void;
   itemCount?: number;
   itemLabel?: string;
   searchPlaceholder?: string;
@@ -39,6 +43,8 @@ export function LibraryToolbar({
   onSortChange,
   mediaTypeFilter,
   onMediaTypeFilterChange,
+  clipTypeFilter,
+  onClipTypeFilterChange,
   itemCount,
   itemLabel = 'item',
   searchPlaceholder = 'Search...',
@@ -50,6 +56,8 @@ export function LibraryToolbar({
     directories !== undefined && onDirectorySelect !== undefined;
   const showTypeFilter =
     mediaTypeFilter !== undefined && onMediaTypeFilterChange !== undefined;
+  const showClipTypeFilter =
+    clipTypeFilter !== undefined && onClipTypeFilterChange !== undefined;
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3 border-b flex-shrink-0">
@@ -78,13 +86,24 @@ export function LibraryToolbar({
           </SelectContent>
         </Select>
       </div>
-      {(showTypeFilter || itemCount !== undefined) && (
-        <div className="flex items-center justify-between">
-          {showTypeFilter ? (
-            <MediaTypeFilter
-              value={mediaTypeFilter!}
-              onChange={onMediaTypeFilterChange!}
-            />
+      {(showTypeFilter || showClipTypeFilter || itemCount !== undefined) && (
+        <div className="flex items-center justify-between gap-2">
+          {showTypeFilter || showClipTypeFilter ? (
+            <div className="flex items-center gap-2 min-w-0">
+              {showClipTypeFilter && (
+                <ClipTypeFilter
+                  value={clipTypeFilter!}
+                  onChange={onClipTypeFilterChange!}
+                  className="w-[130px] h-7 text-xs"
+                />
+              )}
+              {showTypeFilter && (
+                <MediaTypeFilter
+                  value={mediaTypeFilter!}
+                  onChange={onMediaTypeFilterChange!}
+                />
+              )}
+            </div>
           ) : (
             <div />
           )}

@@ -716,6 +716,7 @@ export function registerTimelineCommands(program: Command): void {
     .option('--resolution <WxH>', 'output resolution, e.g. 1920x1080')
     .option('--width <px>', 'output width (use with --height)')
     .option('--height <px>', 'output height (use with --width)')
+    .option('--fps <rate>', 'output frame rate, e.g. 24 or 30 (default: 30)')
     .option('--no-wait', 'enqueue and exit without polling for completion')
     .option(
       '--timeout <seconds>',
@@ -738,6 +739,7 @@ export function registerTimelineCommands(program: Command): void {
           height: opts.height,
           codec: opts.codec,
           format: opts.format,
+          fps: opts.fps,
         });
 
         const render = await createRender(pb, { timelineId, outputSettings });

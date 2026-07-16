@@ -11,7 +11,7 @@ import type {
 import { planRenderWindows, clipTracksToWindow } from './render-windows';
 
 /**
- * Every segment branch is normalized to this constant frame rate and the black
+ * Every segment branch is normalized to the output frame rate and the black
  * base canvas generates at it too, so the overlay chain's framesync always
  * sees aligned timestamps. A VFR source (or a source at a different rate than
  * the base) otherwise makes framesync buffer frames while waiting for a
@@ -19,7 +19,17 @@ import { planRenderWindows, clipTracksToWindow } from './render-windows';
  * Note: the base `color` source previously ran at its 25fps default, so this
  * is also an explicit output-rate bump from 25 to 30.
  */
-const RENDER_FPS = 30;
+const DEFAULT_RENDER_FPS = 30;
+
+/**
+ * Output rate from settings, integer rates only (24/25/30/60…). The whole
+ * frame-grid quantization below assumes an integer fps, so anything else
+ * falls back to the default rather than producing a subtly-misaligned grid.
+ */
+const resolveRenderFps = (fps: number | undefined): number =>
+  fps !== undefined && Number.isInteger(fps) && fps >= 1 && fps <= 120
+    ? fps
+    : DEFAULT_RENDER_FPS;
 
 /**
  * Bounded multi-pass render (Tier 2). ffmpeg opens every demuxer + decoder
@@ -35,10 +45,10 @@ const DEFAULT_MAX_INPUTS_PER_PASS = 24;
 const DEFAULT_RENDER_WINDOW_SEC = 60;
 
 /**
- * All parts share one exact, 30fps-divisible mp4 timescale (512 × 30) so
+ * All parts share one exact, fps-divisible mp4 timescale (512 × fps) so
  * concat-copied parts join without timestamp rounding drift.
  */
-const PART_VIDEO_TIMESCALE = 15360;
+const partVideoTimescale = (fps: number): number => 512 * fps;
 
 const intFromEnv = (name: string, fallback: number): number => {
   const raw = process.env[name];
@@ -85,13 +95,24 @@ const STATIC_IMAGE_EXTENSIONS = new Set([
  * Memory-stability contract (the render OOM fixes live here):
  * - One seeked input (`-ss`/`-t` before `-i`) per segment, so FFmpeg decodes
  *   only each segment's window instead of whole sources through `trim`.
- * - Branches are fps-normalized (RENDER_FPS) so framesync buffering stays
+ * - Branches are fps-normalized (output fps) so framesync buffering stays
  *   bounded. Threading is left to ffmpeg's auto-sizing — with the above in
  *   place, threads scale the working set only linearly.
  * - Above RENDER_MAX_INPUTS_PER_PASS total inputs, the render switches to
  *   the bounded multi-pass mode (see executeMultiPass): windowed video-only
  *   passes + one audio pass + lossless concat, so peak decoder count is
  *   capped no matter how long the timeline is.
+ *
+ * Frame-exactness contract (the black-frame-at-cut fixes live here):
+ * - Every visual segment's timeline placement is quantized to whole output
+ *   frames (frameOf), so segments that touch in ms-time tile exactly —
+ *   composite-clip cuts can't leave an output frame owned by neither side.
+ * - Overlay enable windows sit on half-frame offsets, immune to float
+ *   rounding at boundaries; eof_action=repeat holds a branch's last frame
+ *   through its window when the decode comes up short (24fps source on a
+ *   30fps grid, VFR, seek slop) instead of flashing the black canvas.
+ * - Audio stays on the millisecond grid: cut precision for dialogue is
+ *   higher there, and a ≤half-frame AV skew is imperceptible.
  */
 @Injectable()
 export class FFmpegComposeExecutor implements IRenderExecutor {
@@ -374,6 +395,33 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     const filterComplex: string[] = [];
     let inputCounter = 0;
 
+    const fps = resolveRenderFps(outputSettings.fps);
+
+    // ---- Frame-grid quantization (the black-frame-at-cut-points fix) ----
+    //
+    // Segment times arrive on the millisecond grid, but output frames live on
+    // the 1/fps grid — neither grid contains the other, so a cut like 10.234s
+    // falls BETWEEN frames. Rendered naively, each such cut can leave 1–2
+    // frame slots covered by neither neighbor (the earlier branch's decoded
+    // frames run out before its enable window closes, and the later branch's
+    // first frame gets snapped to a slot its enable window hasn't opened
+    // yet), which the overlay then fills with the black base canvas.
+    //
+    // Instead, every visual segment is quantized to whole output frames:
+    // start/end round to the nearest frame boundary, so segments that touch
+    // in ms-time tile exactly in frame-time. Rounding goes through integer
+    // milliseconds first so two float expressions of the same boundary (e.g.
+    // a segment end summed as start+duration vs. the next segment's start)
+    // can never round to different frames.
+    const frameOf = (t: number): number =>
+      Math.round((Math.round(t * 1000) * fps) / 1000);
+
+    // Seconds formatter for filtergraph/args values: µs precision, no float
+    // artifacts (18.599999999999998) and no trailing zeros. Frame-grid values
+    // like 307/30 print as 10.233333 — the sub-µs error is absorbed by fps
+    // rounding and the half-frame enable offsets below.
+    const fmtSec = (t: number): string => String(Number(t.toFixed(6)));
+
     // One seeked input PER SEGMENT (not per asset): `-ss`/`-t` before `-i`
     // seeks the demuxer to the keyframe before the window and stops after
     // `duration`, so frames outside the window never enter the filtergraph.
@@ -381,22 +429,22 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // source in full from t=0 and fanned the frames into every segment
     // branch — the dominant render OOM driver. N segments of one asset now
     // open N window-bounded demuxers instead, which is far cheaper.
-    // Values are expected to be fmtTime-rounded by the caller.
+    // Values are expected to be rounded (fmtTime/frame grid) by the caller.
     const addSeekedInput = (
       filePath: string,
       sourceStart: number,
       duration: number
     ): number => {
       if (sourceStart > 0) {
-        args.push('-ss', String(sourceStart));
+        args.push('-ss', fmtSec(sourceStart));
       }
-      args.push('-t', String(duration), '-i', filePath);
+      args.push('-t', fmtSec(duration), '-i', filePath);
       return inputCounter++;
     };
 
     // Static images loop one frame at input level for the segment duration.
     const addImageInput = (filePath: string, duration: number): number => {
-      args.push('-loop', '1', '-t', String(duration), '-i', filePath);
+      args.push('-loop', '1', '-t', fmtSec(duration), '-i', filePath);
       return inputCounter++;
     };
 
@@ -520,12 +568,47 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     if (options.totalDurationOverride !== undefined) {
       totalDuration = fmtTime(options.totalDurationOverride);
     }
-    // r= pins the canvas to RENDER_FPS explicitly (color defaults to 25fps),
-    // matching the fps-normalized segment branches so framesync never buffers
-    // waiting for off-grid timestamps.
+    // The canvas is quantized to the same frame grid as the segments, so its
+    // frame count always matches the furthest segment's end frame — no
+    // trailing black flash-frame, no missing final slot.
+    totalDuration = Math.max(1, frameOf(totalDuration)) / fps;
+
+    // Sub-frame data gaps quantize away below; anything wider renders as
+    // base-canvas black. A black hole narrower than the doctor's micro-gap
+    // threshold (0.1s) is almost never editorial intent, so call it out —
+    // this is the render-time counterpart of `vw timeline doctor`.
+    if (options.mode !== 'audio-only') {
+      for (const track of sortedTracks) {
+        if (track.type === 'audio') continue;
+        const frameWindows = track.segments
+          .filter((seg) => seg.assetId && seg.type !== 'text')
+          .map((seg) => ({
+            id: seg.id,
+            startFrame: frameOf(seg.time.start),
+            endFrame: frameOf(seg.time.start + seg.time.duration),
+          }))
+          .sort((a, b) => a.startFrame - b.startFrame);
+        for (let i = 1; i < frameWindows.length; i++) {
+          const gapFrames =
+            frameWindows[i].startFrame - frameWindows[i - 1].endFrame;
+          if (gapFrames > 0 && gapFrames / fps < 0.1) {
+            this.logger.warn(
+              `Track ${track.id}: ${gapFrames}-frame black gap at ` +
+                `${fmtSec(frameWindows[i - 1].endFrame / fps)}s between ` +
+                `segments ${frameWindows[i - 1].id} and ${frameWindows[i].id}` +
+                ` — likely an unintended micro-gap (see timeline doctor)`
+            );
+          }
+        }
+      }
+    }
+
+    // r= pins the canvas to the output fps explicitly (color defaults to
+    // 25fps), matching the fps-normalized segment branches so framesync never
+    // buffers waiting for off-grid timestamps.
     if (options.mode !== 'audio-only') {
       filterComplex.push(
-        `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
+        `color=c=black:s=${targetWidth}x${targetHeight}:r=${fps}:d=${fmtSec(totalDuration)}[base]`
       );
     }
 
@@ -739,9 +822,24 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           throw new Error(`Media not found for asset ID: ${seg.assetId}`);
         }
 
+        // Quantize the segment to whole output frames (see frameOf above).
+        // Segments that touch in ms-time share a frame boundary exactly, so
+        // consecutive composite cuts tile with no uncovered slot. The source
+        // in-point stays on the ms grid — WHICH content plays is an editorial
+        // choice; only WHERE it lands snaps to the frame grid.
+        const startFrame = frameOf(seg.time.start);
+        const endFrame = frameOf(seg.time.start + seg.time.duration);
+        if (endFrame <= startFrame) {
+          // Shorter than half an output frame — nothing to show.
+          this.logger.debug(
+            `Skipping sub-frame segment ${seg.id} ` +
+              `(${fmtSec(seg.time.duration)}s at ${fps}fps)`
+          );
+          continue;
+        }
         const sourceStart = fmtTime(seg.time.sourceStart || 0);
-        const duration = fmtTime(seg.time.duration);
-        const start = fmtTime(seg.time.start);
+        const duration = (endFrame - startFrame) / fps;
+        const start = startFrame / fps;
 
         // Scale logic
         let scaleFilter = '';
@@ -757,7 +855,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         // Branch chain: setpts shifts the (already seeked) window to its
         // timeline position; fps last so duplicated frames are cheap
         // references to already-scaled frames and land exactly on the base
-        // canvas's RENDER_FPS grid.
+        // canvas's output-fps grid.
         let idx: number;
         let branchPrefix = '';
         if (seg.type === 'image') {
@@ -771,25 +869,40 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
             // Demuxer can't loop this format — freeze the first frame with
             // the loop filter and bound it with trim, as before.
             idx = addPlainInput(clip.filePath);
-            branchPrefix = `loop=loop=-1:size=1:start=0,trim=start=${sourceStart}:duration=${duration},`;
+            branchPrefix = `loop=loop=-1:size=1:start=0,trim=start=${fmtSec(sourceStart)}:duration=${fmtSec(duration)},`;
           }
         } else {
           idx = addSeekedInput(clip.filePath, sourceStart, duration);
         }
 
         filterComplex.push(
-          `[${idx}:v]${branchPrefix}setpts=PTS-STARTPTS+${start}/TB${scaleFilter},fps=${RENDER_FPS}[v_seg_${seg.id}]`
+          `[${idx}:v]${branchPrefix}setpts=PTS-STARTPTS+${fmtSec(start)}/TB${scaleFilter},fps=${fps}[v_seg_${seg.id}]`
         );
 
-        // Overlay
+        // Overlay. The enable window is expressed on HALF-FRAME offsets:
+        // frame k of the base canvas has t = k/fps, so a window of
+        // [(startFrame−0.5)/fps, (endFrame−0.5)/fps] enables exactly frames
+        // startFrame … endFrame−1 — every boundary sits mid-interval, where
+        // no frame timestamp (or its double-rounding noise) can ever land.
+        // Adjacent segments share the boundary value, so each output frame
+        // belongs to exactly one side of a cut.
+        //
+        // eof_action=repeat (not pass): a branch whose decoded frames run
+        // out before its window closes — 24fps sources on a 30fps grid, VFR,
+        // seek slop, media that physically ends early — holds its last frame
+        // for the remaining slot(s) instead of dropping through to the black
+        // canvas. This is what turns "occasional black flash at a cut" into
+        // "at worst one held frame".
         const overlayLabel = `[v_over_${seg.id}]`;
         const xPos = seg.video?.x || 0;
         const yPos = seg.video?.y || 0;
-        const segmentEnd = fmtTime(start + duration);
-        const enable = `between(t,${start},${segmentEnd})`;
+        const enableFrom =
+          startFrame === 0 ? '0' : fmtSec((startFrame - 0.5) / fps);
+        const enableTo = fmtSec((endFrame - 0.5) / fps);
+        const enable = `between(t,${enableFrom},${enableTo})`;
 
         filterComplex.push(
-          `${lastVideoLabel}[v_seg_${seg.id}]overlay=x=${xPos}:y=${yPos}:enable='${enable}':eof_action=pass${overlayLabel}`
+          `${lastVideoLabel}[v_seg_${seg.id}]overlay=x=${xPos}:y=${yPos}:enable='${enable}':eof_action=repeat${overlayLabel}`
         );
         lastVideoLabel = overlayLabel;
       }
@@ -811,7 +924,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         );
       } else {
         filterComplex.push(
-          `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
+          `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtSec(totalDuration)}[outa]`
         );
       }
     }
@@ -849,7 +962,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     }
 
     if (options.mode === 'video-only') {
-      args.push('-video_track_timescale', String(PART_VIDEO_TIMESCALE));
+      args.push('-video_track_timescale', String(partVideoTimescale(fps)));
     }
 
     if (options.mode !== 'video-only') {

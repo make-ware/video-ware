@@ -38,6 +38,16 @@ const RESOLUTIONS: Record<
   ],
 };
 
+// Supported output frame rates. 30 is the default the renderer assumes when
+// fps is unset (see RenderTimelineConfig / DEFAULT_RENDER_FPS in the worker).
+const FPS_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 24, label: '24 fps' },
+  { value: 30, label: '30 fps' },
+  { value: 60, label: '60 fps' },
+];
+
+const DEFAULT_FPS = 30;
+
 // Maps a resolution to its tier index so a user picking 1080p stays at the
 // same tier when toggling orientation.
 function findTierIndex(
@@ -64,6 +74,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
   const [resolution, setResolution] = useState(
     RESOLUTIONS[initialOrientation][1].value
   );
+  const [fps, setFps] = useState<number>(DEFAULT_FPS);
   const [includeCaptions, setIncludeCaptions] = useState(true);
   const [includeSubtitles, setIncludeSubtitles] = useState(false);
   const [includeTransitions, setIncludeTransitions] = useState(true);
@@ -79,6 +90,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
         : TimelineOrientation.LANDSCAPE;
     setOrientation(next);
     setResolution(RESOLUTIONS[next][1].value);
+    setFps(DEFAULT_FPS);
   }, [open, timeline?.orientation]);
 
   const handleOrientationChange = (next: TimelineOrientation) => {
@@ -94,6 +106,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
       await createRenderTask({
         resolution,
         orientation,
+        fps,
         codec: 'libx264',
         format: 'mp4',
         includeCaptions,
@@ -111,7 +124,7 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="w-full max-w-lg sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Render Timeline</DialogTitle>
           <DialogDescription>
@@ -157,6 +170,28 @@ export function RenderDialog({ open, onOpenChange }: RenderDialogProps) {
                   {RESOLUTIONS[orientation].map((r) => (
                     <SelectItem key={r.value} value={r.value}>
                       {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="fps" className="text-right">
+              Frame Rate
+            </Label>
+            <div className="col-span-3">
+              <Select
+                value={String(fps)}
+                onValueChange={(v) => setFps(Number(v))}
+              >
+                <SelectTrigger id="fps">
+                  <SelectValue placeholder="Select frame rate" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FPS_OPTIONS.map((f) => (
+                    <SelectItem key={f.value} value={String(f.value)}>
+                      {f.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

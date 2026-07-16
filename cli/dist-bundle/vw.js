@@ -42431,11 +42431,19 @@ function buildRenderConfig(opts) {
   if (!opts.resolution && opts.width && opts.height) {
     resolution = `${opts.width}x${opts.height}`;
   }
-  return {
+  const config2 = {
     resolution,
     codec: opts.codec ?? DEFAULTS.codec,
     format: opts.format ?? DEFAULTS.format
   };
+  if (opts.fps !== void 0) {
+    const fps = Number(opts.fps);
+    if (!Number.isInteger(fps) || fps < 1 || fps > 120) {
+      throw new Error("--fps must be an integer frame rate (e.g. 24 or 30).");
+    }
+    config2.fps = fps;
+  }
+  return config2;
 }
 var TERMINAL = /* @__PURE__ */ new Set([
   TaskStatus.SUCCESS,
@@ -43566,7 +43574,7 @@ function registerTimelineCommands(program3) {
       handleError(err);
     }
   });
-  timeline.command("render").description("Render a timeline").option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option("--format <fmt>", "output container format (default: mp4)").option("--codec <codec>", "video codec (default: h264)").option("--resolution <WxH>", "output resolution, e.g. 1920x1080").option("--width <px>", "output width (use with --height)").option("--height <px>", "output height (use with --width)").option("--no-wait", "enqueue and exit without polling for completion").option(
+  timeline.command("render").description("Render a timeline").option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option("--format <fmt>", "output container format (default: mp4)").option("--codec <codec>", "video codec (default: h264)").option("--resolution <WxH>", "output resolution, e.g. 1920x1080").option("--width <px>", "output width (use with --height)").option("--height <px>", "output height (use with --width)").option("--fps <rate>", "output frame rate, e.g. 24 or 30 (default: 30)").option("--no-wait", "enqueue and exit without polling for completion").option(
     "--timeout <seconds>",
     "max seconds to wait for completion before giving up (default: 1800)"
   ).option("--download <path>", "download the output file on success").action(async (opts) => {
@@ -43582,7 +43590,8 @@ function registerTimelineCommands(program3) {
         width: opts.width,
         height: opts.height,
         codec: opts.codec,
-        format: opts.format
+        format: opts.format,
+        fps: opts.fps
       });
       const render = await createRender(pb, { timelineId, outputSettings });
       success(`Render queued: ${render.id}`);

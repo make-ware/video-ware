@@ -32,11 +32,14 @@ export interface WindowPlanOptions {
 const fmtTime = (t: number): number => Math.round(t * 1000) / 1000;
 
 /**
- * Window cut points snap to 0.1s multiples: 0.1s is simultaneously ms-exact
- * (survives fmtTime) and on the 30fps frame grid (0.1 × 30 = 3 frames), so
- * per-part durations stay exact and no skew accumulates across concat joins.
+ * Window cut points snap to whole seconds: an integer second is
+ * simultaneously ms-exact (survives fmtTime) and on the frame grid of EVERY
+ * integer output rate (24/25/30/60 × 1s are all whole frame counts), so
+ * per-part durations stay exact and no skew accumulates across concat
+ * joins regardless of the configured render fps. (The previous 0.1s grid
+ * was only frame-exact at 30fps — 0.1s at 24fps is 2.4 frames.)
  */
-const snapToTenth = (t: number): number => Math.round(t * 10) / 10;
+const snapToSecond = (t: number): number => Math.round(t);
 
 interface Interval {
   start: number;
@@ -63,7 +66,7 @@ function collectVisualIntervals(tracks: TimelineTrack[]): Interval[] {
 
 /**
  * Greedily partition [0, totalDuration] into contiguous windows. From each
- * window start, candidate cut points are the 0.1s-snapped visual segment
+ * window start, candidate cut points are the second-snapped visual segment
  * boundaries within the window reach plus the reach itself; the largest
  * candidate whose half-open overlap count stays within the input cap wins.
  * When even the smallest candidate exceeds the cap (clips stacked at one
@@ -90,7 +93,7 @@ export function planRenderWindows(
     const candidates = new Set<number>([reach]);
     for (const interval of intervals) {
       for (const boundary of [interval.start, interval.end]) {
-        const snapped = snapToTenth(boundary);
+        const snapped = snapToSecond(boundary);
         if (snapped > t0 && snapped < reach) candidates.add(snapped);
       }
     }

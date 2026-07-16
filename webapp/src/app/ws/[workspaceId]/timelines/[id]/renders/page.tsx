@@ -430,6 +430,14 @@ function TimelineRendersPageContent() {
                               {(file.meta.renderSettings as { codec?: string })
                                 ?.codec || 'N/A'}
                             </div>
+                            <div>
+                              <span className="text-muted-foreground">
+                                Frame Rate:
+                              </span>{' '}
+                              {(file.meta.renderSettings as { fps?: number })
+                                ?.fps ?? 30}{' '}
+                              fps
+                            </div>
                           </div>
                         </div>
                       )}

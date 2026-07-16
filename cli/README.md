@@ -374,6 +374,7 @@ vw timeline clips remove CLIP_ID --ripple     # delete and close the gap
 vw timeline doctor TIMELINE_ID                # verify layout invariants
 vw timeline inspect -t TIMELINE_ID --at 6 --labels
 vw timeline render -t TIMELINE_ID --resolution 1280x720 --download out.mp4
+vw timeline render -t TIMELINE_ID --fps 24    # output frame rate (default 30)
 vw timeline render -t TIMELINE_ID --no-wait   # queue only, don't poll
 ```
 

@@ -2,7 +2,6 @@ import type { Command } from 'commander';
 import {
   UploadMutator,
   UploadStatus,
-  type Media,
   type TypedPocketBase,
   type Upload,
 } from '@project/shared';
@@ -15,7 +14,6 @@ import {
   DEFAULT_CHUNK_SIZE,
   chunkPlan,
   formatBytes,
-  pollUploadIngest,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
@@ -29,14 +27,12 @@ interface UploadCommandOptions {
   workspace?: string;
   directory?: string;
   appUrl?: string;
-  wait?: boolean;
   json?: boolean;
 }
 
 interface UploadResult {
   file: string;
   upload?: Upload;
-  media?: Media;
   error?: string;
 }
 
@@ -48,7 +44,6 @@ async function uploadOne(
     workspaceId: string;
     appUrl: string;
     directoryId?: string;
-    wait?: boolean;
     json?: boolean;
     setCurrentUploadId: (id: string | null) => void;
   }
@@ -85,17 +80,9 @@ async function uploadOne(
   }
   if (!quiet) success(`Uploaded ${name} → upload ${upload.id}`);
 
-  if (!ctx.wait) {
-    return { file: filePath, upload };
-  }
-
-  const media = await pollUploadIngest(pb, upload.id, {
-    onUpdate: (stage) => {
-      if (!quiet) info(`  ${stage}`);
-    },
-  });
-  if (!quiet) success(`Media ${media.id} ready`);
-  return { file: filePath, upload, media };
+  // Ingest (transcode, labels) runs in the worker and can take a long time;
+  // the CLI deliberately does not wait for it — check `vw media list`.
+  return { file: filePath, upload };
 }
 
 export function registerUploadCommands(program: Command): void {
@@ -122,10 +109,6 @@ export function registerUploadCommands(program: Command): void {
       .option(
         '--app-url <url>',
         'webapp origin serving /api-next (default: derived from the PocketBase URL)'
-      )
-      .option(
-        '--wait',
-        'poll until the media is ingested and its proxy is ready'
       )
   ).action(async (files: string[], opts: UploadCommandOptions) => {
     try {
@@ -164,8 +147,14 @@ export function registerUploadCommands(program: Command): void {
       try {
         for (const [i, file] of files.entries()) {
           if (i > 0) {
-            // Keep the token fresh across long multi-file batches.
-            await pb.collection('Users').authRefresh();
+            // Keep the token fresh across long multi-file batches —
+            // best-effort: a transient network blip here must not abort the
+            // whole batch, and a genuinely expired token surfaces as a
+            // clear auth failure on the next file's upload anyway.
+            await pb
+              .collection('Users')
+              .authRefresh()
+              .catch(() => undefined);
           }
           try {
             results.push(
@@ -173,7 +162,6 @@ export function registerUploadCommands(program: Command): void {
                 workspaceId,
                 appUrl,
                 directoryId,
-                wait: opts.wait,
                 json: opts.json,
                 setCurrentUploadId: (id) => {
                   currentUploadId = id;

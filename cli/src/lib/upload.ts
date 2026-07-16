@@ -4,8 +4,6 @@ import type { FileHandle } from 'node:fs/promises';
 import {
   MediaMutator,
   MediaType,
-  TaskMutator,
-  TaskStatus,
   UploadMutator,
   UploadStatus,
   type Media,
@@ -13,6 +11,7 @@ import {
   type Upload,
 } from '@project/shared';
 import { loadConfig } from './config.js';
+import { resetUploadConnections, uploadFetch } from './http.js';
 import { resolveUrl } from './pocketbase.js';
 
 /**
@@ -179,9 +178,9 @@ export interface UploadFileOptions {
   appUrl: string;
   directoryId?: string;
   chunkSize?: number;
-  /** Retries per chunk on network errors / 5xx (4xx fails fast). */
+  /** Retries per chunk on network errors / 429 / 5xx (other 4xx fail fast). */
   maxRetries?: number;
-  /** Base for the 2^attempt exponential backoff; tests pass 0. */
+  /** Base for the 2^attempt exponential backoff (capped); tests pass 0. */
   backoffBaseMs?: number;
   /** Per-chunk request timeout. */
   timeoutMs?: number;
@@ -203,6 +202,25 @@ class ChunkRequestError extends Error {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Ceiling on the exponential retry backoff. */
+const MAX_BACKOFF_MS = 30_000;
+
+/**
+ * Flatten a fetch failure's `cause` chain into one readable line. Node's
+ * fetch reports bare "fetch failed" and buries the actual reason (e.g. an
+ * HTTP/2 ENHANCE_YOUR_CALM reset from a proxy) one or two causes deep.
+ */
+export function describeNetworkError(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  while (current instanceof Error && parts.length < 4) {
+    const code = (current as NodeJS.ErrnoException).code;
+    parts.push(code ? `${current.message} [${code}]` : current.message);
+    current = current.cause;
+  }
+  return parts.length > 0 ? parts.join(': ') : String(err);
 }
 
 /** Read one chunk into memory via positioned reads (guards short reads). */
@@ -272,7 +290,7 @@ async function putChunk(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await uploadFetch(url, {
       method: 'PUT',
       headers,
       body: params.buffer,
@@ -283,7 +301,7 @@ async function putChunk(
     throw new ChunkRequestError(
       timedOut
         ? `chunk ${params.chunk.index + 1} timed out`
-        : `network error (${err instanceof Error ? err.message : String(err)}) — ` +
+        : `network error (${describeNetworkError(err)}) — ` +
             `is the webapp reachable at ${url}?`,
       true
     );
@@ -296,10 +314,10 @@ async function putChunk(
   };
 
   if (!res.ok) {
-    // 4xx (auth/validation) won't self-heal; 5xx might.
+    // 4xx (auth/validation) won't self-heal; 429 (rate limit) and 5xx might.
     throw new ChunkRequestError(
       body.error ?? `HTTP ${res.status}`,
-      res.status >= 500
+      res.status === 429 || res.status >= 500
     );
   }
   return { complete: body.complete === true, upload: body.upload };
@@ -364,7 +382,13 @@ async function driveChunkProtocol(
               (err instanceof Error ? err.message : String(err))
           );
         }
-        await sleep(2 ** (attempt + 1) * params.backoffBaseMs);
+        // A retry on the connection that just failed tends to fail the same
+        // way (a reset socket is served straight from the pool), so start
+        // the next attempt on a fresh connection.
+        resetUploadConnections();
+        await sleep(
+          Math.min(2 ** (attempt + 1) * params.backoffBaseMs, MAX_BACKOFF_MS)
+        );
       }
     }
   }
@@ -388,7 +412,7 @@ export async function uploadFile(
     appUrl,
     directoryId,
     chunkSize = DEFAULT_CHUNK_SIZE,
-    maxRetries = 3,
+    maxRetries = 5,
     backoffBaseMs = 1000,
     timeoutMs = 10 * 60 * 1000,
     onCreated,
@@ -514,9 +538,9 @@ export interface ReplaceFileOptions {
   /** Webapp origin serving `/api-next` (see resolveAppUrl). */
   appUrl: string;
   chunkSize?: number;
-  /** Retries per chunk on network errors / 5xx (4xx fails fast). */
+  /** Retries per chunk on network errors / 429 / 5xx (other 4xx fail fast). */
   maxRetries?: number;
-  /** Base for the 2^attempt exponential backoff; tests pass 0. */
+  /** Base for the 2^attempt exponential backoff (capped); tests pass 0. */
   backoffBaseMs?: number;
   /** Per-chunk request timeout. */
   timeoutMs?: number;
@@ -542,7 +566,7 @@ export async function replaceUploadFile(
     upload,
     appUrl,
     chunkSize = DEFAULT_CHUNK_SIZE,
-    maxRetries = 3,
+    maxRetries = 5,
     backoffBaseMs = 1000,
     timeoutMs = 10 * 60 * 1000,
     onProgress,
@@ -575,73 +599,3 @@ export async function replaceUploadFile(
   }
 }
 
-/** Default ceiling on how long `pollUploadIngest` waits before giving up. */
-export const DEFAULT_INGEST_MAX_WAIT_MS = 10 * 60 * 1000;
-
-/**
- * Poll until the worker finishes ingesting an upload. The Upload record
- * itself never advances past `uploaded` — the worker creates a Media record
- * (initially `isActive: false`) and flips it active when the transcode flow
- * completes — so this polls the Media. Failures surface through the Upload
- * record (`failed`) or a failed ingest Task (`sourceId` = the upload id).
- */
-export async function pollUploadIngest(
-  pb: TypedPocketBase,
-  uploadId: string,
-  opts: {
-    intervalMs?: number;
-    maxWaitMs?: number;
-    onUpdate?: (stage: string) => void;
-  } = {}
-): Promise<Media> {
-  const intervalMs = opts.intervalMs ?? 2000;
-  const maxWaitMs = opts.maxWaitMs ?? DEFAULT_INGEST_MAX_WAIT_MS;
-  const uploadMutator = new UploadMutator(pb);
-  const mediaMutator = new MediaMutator(pb);
-  const taskMutator = new TaskMutator(pb);
-  const deadline = Date.now() + maxWaitMs;
-  let lastStage = '';
-
-  while (true) {
-    const upload = await uploadMutator.getById(uploadId);
-    if (!upload) {
-      throw new Error(`Upload ${uploadId} not found.`);
-    }
-    if (upload.status === UploadStatus.FAILED) {
-      throw new Error(upload.errorMessage || 'Upload failed during ingest.');
-    }
-
-    const tasks = await taskMutator.getBySourceId(uploadId);
-    const failedTask = tasks.items.find(
-      (task) => task.status === TaskStatus.FAILED
-    );
-    if (failedTask) {
-      throw new Error(
-        `Ingest task ${failedTask.type} failed` +
-          (failedTask.errorLog ? `: ${failedTask.errorLog}` : '.')
-      );
-    }
-
-    const media = await mediaMutator.getByUpload(uploadId);
-    if (media?.isActive) {
-      return media;
-    }
-
-    const stage = media
-      ? `processing — media ${media.id}, proxy pending`
-      : 'uploaded — waiting for ingest';
-    if (stage !== lastStage) {
-      opts.onUpdate?.(stage);
-      lastStage = stage;
-    }
-
-    if (Date.now() + intervalMs > deadline) {
-      throw new Error(
-        `Timed out after ${Math.round(maxWaitMs / 1000)}s waiting for ingest ` +
-          `of upload ${uploadId} (last stage: ${lastStage}). The worker may ` +
-          'still be processing — check `vw media list`.'
-      );
-    }
-    await sleep(intervalMs);
-  }
-}

@@ -1,6 +1,7 @@
 import PocketBase from 'pocketbase';
 import type { TypedPocketBase } from '@project/shared';
 import { loadConfig } from './config.js';
+import { apiFetch } from './http.js';
 
 /** Raised when a command needs auth but no valid cached token exists. */
 export class NotAuthenticatedError extends Error {
@@ -25,6 +26,13 @@ export function resolveUrl(override?: string): string {
 export function createClient(url?: string): TypedPocketBase {
   const pb = new PocketBase(resolveUrl(url)) as unknown as TypedPocketBase;
   pb.autoCancellation(false);
+  // Route all SDK traffic through the CLI's HTTP/1.1 agent (see http.ts) —
+  // Node's default fetch may negotiate HTTP/2, which proxies like the
+  // Cloudflare edge throttle with ENHANCE_YOUR_CALM stream resets.
+  pb.beforeSend = (url, options) => {
+    options.fetch = apiFetch;
+    return { url, options };
+  };
   return pb;
 }
 

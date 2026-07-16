@@ -24,6 +24,7 @@
     "@project/shared": "workspace:*",
     "commander": "^14.0.0",
     "pocketbase": "0.27.0",
+    "undici": "^7.16.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {

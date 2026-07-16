@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Media, Upload } from '@project/shared';
 import {
   chunkPlan,
+  describeNetworkError,
   formatBytes,
   mediaTypeForFile,
-  pollUploadIngest,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
@@ -15,12 +15,27 @@ import {
   validateReplacementFile,
   validateUploadFile,
 } from '../lib/upload.js';
-import { fakePb, listResult } from './fake-pb.js';
+import { fakePb } from './fake-pb.js';
+
+// The real module pins undici agents to HTTP/1.1; in tests, chunk PUTs
+// delegate to the stubbed global fetch so assertions stay on fetchMock,
+// and connection resets are observable via the spy.
+const { resetConnectionsSpy } = vi.hoisted(() => ({
+  resetConnectionsSpy: vi.fn(),
+}));
+vi.mock('../lib/http.js', () => ({
+  uploadFetch: (url: string, init: RequestInit): Promise<Response> =>
+    globalThis.fetch(url, init),
+  apiFetch: (url: RequestInfo | URL, config?: RequestInit): Promise<Response> =>
+    globalThis.fetch(url, config),
+  resetUploadConnections: resetConnectionsSpy,
+}));
 
 let tmpDir: string;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'vw-upload-'));
+  resetConnectionsSpy.mockClear();
 });
 
 afterEach(async () => {
@@ -221,6 +236,60 @@ describe('uploadFile', () => {
     ).resolves.toEqual({ id: 'up1' });
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(uploads.update).not.toHaveBeenCalled();
+    // Each retry starts on a fresh connection (two failures → two resets).
+    expect(resetConnectionsSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries 429 rate-limit responses', async () => {
+    const file = await makeFile(5);
+    const uploads = uploadsStub();
+    const pb = fakePb({ Uploads: uploads });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(429, { error: 'slow down' }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { complete: true, upload: { id: 'up1' } })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      uploadFile(pb, {
+        filePath: file,
+        workspaceId: 'ws1',
+        appUrl: 'http://app.test',
+        chunkSize: 10,
+        backoffBaseMs: 0,
+      })
+    ).resolves.toEqual({ id: 'up1' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(uploads.update).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the fetch failure cause chain in the final error', async () => {
+    const file = await makeFile(5);
+    const uploads = uploadsStub();
+    const pb = fakePb({ Uploads: uploads });
+    const streamError = Object.assign(
+      new Error('Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM'),
+      { code: 'ERR_HTTP2_STREAM_ERROR' }
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new TypeError('fetch failed'), { cause: streamError })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      uploadFile(pb, {
+        filePath: file,
+        workspaceId: 'ws1',
+        appUrl: 'http://app.test',
+        chunkSize: 10,
+        maxRetries: 1,
+        backoffBaseMs: 0,
+      })
+    ).rejects.toThrow(/NGHTTP2_ENHANCE_YOUR_CALM.*ERR_HTTP2_STREAM_ERROR/);
   });
 
   it('marks the record failed and throws when retries are exhausted', async () => {
@@ -463,86 +532,25 @@ describe('replaceUploadFile', () => {
   });
 });
 
-describe('pollUploadIngest', () => {
-  const notFound = Object.assign(new Error('not found'), { status: 404 });
-
-  it('resolves with the media once it becomes active, deduping stages', async () => {
-    const getOne = vi.fn(async () => ({ id: 'up1', status: 'uploaded' }));
-    const getList = vi.fn(async () => listResult([]));
-    const getFirstListItem = vi
-      .fn()
-      .mockRejectedValueOnce(notFound)
-      .mockRejectedValueOnce(notFound)
-      .mockResolvedValueOnce({ id: 'm1', isActive: false })
-      .mockResolvedValueOnce({ id: 'm1', isActive: true });
-    const pb = fakePb({
-      Uploads: { getOne },
-      Media: { getFirstListItem },
-      Tasks: { getList },
+describe('describeNetworkError', () => {
+  it('flattens the cause chain with error codes', () => {
+    const inner = Object.assign(
+      new Error('Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM'),
+      { code: 'ERR_HTTP2_STREAM_ERROR' }
+    );
+    const outer = Object.assign(new TypeError('fetch failed'), {
+      cause: inner,
     });
-
-    const stages: string[] = [];
-    const media = await pollUploadIngest(pb, 'up1', {
-      intervalMs: 0,
-      onUpdate: (stage) => stages.push(stage),
-    });
-
-    expect(media).toEqual({ id: 'm1', isActive: true });
-    expect(stages).toEqual([
-      'uploaded — waiting for ingest',
-      'processing — media m1, proxy pending',
-    ]);
+    expect(describeNetworkError(outer)).toBe(
+      'fetch failed: Stream closed with error code ' +
+        'NGHTTP2_ENHANCE_YOUR_CALM [ERR_HTTP2_STREAM_ERROR]'
+    );
   });
 
-  it('rejects when the upload record is marked failed', async () => {
-    const pb = fakePb({
-      Uploads: {
-        getOne: vi.fn(async () => ({
-          id: 'up1',
-          status: 'failed',
-          errorMessage: 'boom',
-        })),
-      },
-      Media: { getFirstListItem: vi.fn() },
-      Tasks: { getList: vi.fn() },
-    });
-
-    await expect(
-      pollUploadIngest(pb, 'up1', { intervalMs: 0 })
-    ).rejects.toThrow('boom');
-  });
-
-  it('rejects when an ingest task failed', async () => {
-    const pb = fakePb({
-      Uploads: {
-        getOne: vi.fn(async () => ({ id: 'up1', status: 'uploaded' })),
-      },
-      Media: { getFirstListItem: vi.fn() },
-      Tasks: {
-        getList: vi.fn(async () =>
-          listResult([
-            { type: 'process_upload', status: 'failed', errorLog: 'ffmpeg' },
-          ])
-        ),
-      },
-    });
-
-    await expect(
-      pollUploadIngest(pb, 'up1', { intervalMs: 0 })
-    ).rejects.toThrow(/process_upload failed: ffmpeg/i);
-  });
-
-  it('rejects when the deadline passes before the media is active', async () => {
-    const pb = fakePb({
-      Uploads: {
-        getOne: vi.fn(async () => ({ id: 'up1', status: 'uploaded' })),
-      },
-      Media: { getFirstListItem: vi.fn().mockRejectedValue(notFound) },
-      Tasks: { getList: vi.fn(async () => listResult([])) },
-    });
-
-    await expect(
-      pollUploadIngest(pb, 'up1', { intervalMs: 2, maxWaitMs: 1 })
-    ).rejects.toThrow(/timed out/i);
+  it('handles plain errors and non-errors', () => {
+    expect(describeNetworkError(new Error('socket hang up'))).toBe(
+      'socket hang up'
+    );
+    expect(describeNetworkError('boom')).toBe('boom');
   });
 });

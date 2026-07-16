@@ -556,9 +556,12 @@ so plain `vw upload <file...>` still works.
 ```bash
 vw upload create beach.mp4                 # upload into the active workspace
 vw upload create *.mp4 --directory hawaii  # several files, filed into a directory
-vw upload create interview.mov --wait      # block until the media is ingested
 vw upload create clip.mp4 --json           # machine-readable result (agents)
 ```
+
+The command returns as soon as the file is uploaded — ingest (transcode,
+thumbnails) continues in the worker and can take a while; check progress
+with `vw media list`.
 
 The route lives on the **webapp** origin. In the monolith deployment one
 origin serves both PocketBase (`/api/`) and the webapp (`/api-next/`), so no

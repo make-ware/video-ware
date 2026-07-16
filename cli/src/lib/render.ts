@@ -7,6 +7,7 @@ import {
   type TimelineRender,
   type TypedPocketBase,
 } from '@project/shared';
+import { apiFetch } from './http.js';
 
 const DEFAULTS = {
   resolution: '1920x1080',
@@ -148,7 +149,7 @@ export async function downloadRender(
       'Output file is not hosted in PocketBase (likely S3/GCS) — cannot download directly.'
     );
   }
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) {
     throw new Error(`Download failed: ${res.status} ${res.statusText}`);
   }

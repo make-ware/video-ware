@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
-import { FolderPlus } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { FolderPlus, Folder } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 import { useDirectories } from '@/hooks/use-directories';
 import { useDirectoryCrud } from '@/hooks/use-directory-crud';
-import { DirectoryBreadcrumb } from './directory-breadcrumb';
 import { DirectoryListItem } from './directory-list-item';
 import { DirectoryCreateInline } from './directory-create-inline';
 import { DirectoryDialogs } from './directory-dialogs';
@@ -20,33 +20,31 @@ export function DirectorySelector({
   workspaceId,
   onDirectoryChange,
 }: DirectorySelectorProps) {
-  const {
-    directories,
-    currentDirectory,
-    breadcrumbs,
-    navigateTo,
-    createDirectory,
-    renameDirectory,
-    deleteDirectory,
-  } = useDirectories(workspaceId);
+  const { directories, createDirectory, renameDirectory, deleteDirectory } =
+    useDirectories(workspaceId);
+
+  // null = workspace root (no directory)
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const handleSelect = useCallback(
+    (directoryId: string | null) => {
+      setSelectedId(directoryId);
+      onDirectoryChange(directoryId);
+    },
+    [onDirectoryChange]
+  );
 
   const crud = useDirectoryCrud({
     createDirectory,
     renameDirectory,
-    deleteDirectory,
+    // Deleting the selected directory falls back to the workspace root.
+    deleteDirectory: async (id: string) => {
+      await deleteDirectory(id);
+      if (id === selectedId) handleSelect(null);
+    },
   });
 
-  // Sync directoryId to parent whenever navigation changes
-  useEffect(() => {
-    onDirectoryChange(currentDirectory?.id ?? null);
-  }, [currentDirectory, onDirectoryChange]);
-
-  const handleNavigate = useCallback(
-    (directoryId: string | null) => {
-      navigateTo(directoryId);
-    },
-    [navigateTo]
-  );
+  const selected = directories.find((d) => d.id === selectedId);
 
   return (
     <>
@@ -55,10 +53,9 @@ export function DirectorySelector({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
             <span className="shrink-0">Upload to:</span>
-            <DirectoryBreadcrumb
-              breadcrumbs={breadcrumbs}
-              onNavigate={handleNavigate}
-            />
+            <span className="truncate font-medium text-foreground">
+              {selected ? selected.name : 'Workspace root'}
+            </span>
           </div>
           <Button
             variant="outline"
@@ -84,11 +81,22 @@ export function DirectorySelector({
         {directories.length > 0 && (
           <ScrollArea className="max-h-40">
             <div className="space-y-1">
+              <button
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium text-left cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors',
+                  selectedId === null && 'border-primary bg-accent'
+                )}
+                onClick={() => handleSelect(null)}
+              >
+                <Folder className="h-4 w-4 text-muted-foreground" />
+                Workspace root
+              </button>
               {directories.map((dir) => (
                 <DirectoryListItem
                   key={dir.id}
                   directory={dir}
-                  onNavigate={(id) => handleNavigate(id)}
+                  isSelected={selectedId === dir.id}
+                  onSelect={(id) => handleSelect(id)}
                   onRename={crud.handleRenameOpen}
                   onDelete={crud.handleDeleteOpen}
                 />

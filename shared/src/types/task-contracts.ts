@@ -265,6 +265,12 @@ export interface RenderTimelineConfig {
   format: string;
   /** Output resolution (e.g., '1920x1080') */
   resolution: string;
+  /**
+   * Output frame rate. The renderer quantizes every cut to this frame grid,
+   * so it is the single authority on where a cut can land (default 30).
+   * Integer rates only (e.g. 24, 25, 30, 60).
+   */
+  fps?: number;
   /** Output orientation; when set, target dimensions are normalized to match */
   orientation?: TimelineOrientation;
   /**

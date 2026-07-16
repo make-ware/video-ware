@@ -116,8 +116,15 @@ describe('FFmpegComposeExecutor', () => {
     const filterComplex = args[filterComplexIndex + 1];
 
     expect(filterComplex).toContain('color=c=black');
-    expect(filterComplex).toContain("overlay=x=0:y=0:enable='between(t,0,5)'");
-    expect(filterComplex).toContain("overlay=x=0:y=0:enable='between(t,5,10)'");
+    // Enable windows sit on half-frame offsets: at 30fps the [0,5)+[5,10)
+    // cut becomes [0,149.5/30)+[149.5/30,299.5/30), so every output frame
+    // belongs to exactly one side of the cut (frame-exactness contract).
+    expect(filterComplex).toContain(
+      "overlay=x=0:y=0:enable='between(t,0,4.983333)'"
+    );
+    expect(filterComplex).toContain(
+      "overlay=x=0:y=0:enable='between(t,4.983333,9.983333)'"
+    );
   });
 
   it('applies stability flags: seeked inputs, slow preset, no -s, threads left to ffmpeg', async () => {
@@ -224,10 +231,10 @@ describe('FFmpegComposeExecutor', () => {
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-    // Check for PIP scaling and overlay
+    // Check for PIP scaling and overlay ([2,7) → half-frame offsets at 30fps)
     expect(filterComplex).toContain('scale=320:180');
     expect(filterComplex).toContain('overlay=x=100:y=100');
-    expect(filterComplex).toContain("enable='between(t,2,7)'");
+    expect(filterComplex).toContain("enable='between(t,1.983333,6.983333)'");
   });
 
   it('should handle text overlay', async () => {
@@ -605,11 +612,13 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).toContain('PTS-STARTPTS+8.1/TB');
     expect(filterComplex).toContain('PTS-STARTPTS+16.4/TB');
 
-    // Verify overlay enable windows match timeline positions
-    expect(filterComplex).toContain("enable='between(t,0,6.9)'");
-    expect(filterComplex).toContain("enable='between(t,6.9,8.1)'");
-    expect(filterComplex).toContain("enable='between(t,8.1,16.4)'");
-    expect(filterComplex).toContain("enable='between(t,16.4,18.6)'");
+    // Verify overlay enable windows match timeline positions (half-frame
+    // offsets at 30fps; consecutive windows share the exact boundary string,
+    // so no output frame is left uncovered at a cut)
+    expect(filterComplex).toContain("enable='between(t,0,6.883333)'");
+    expect(filterComplex).toContain("enable='between(t,6.883333,8.083333)'");
+    expect(filterComplex).toContain("enable='between(t,8.083333,16.383333)'");
+    expect(filterComplex).toContain("enable='between(t,16.383333,18.583333)'");
 
     // Verify base duration covers total (18.6s)
     expect(filterComplex).toContain('d=18.6');
@@ -664,8 +673,8 @@ describe('FFmpegComposeExecutor', () => {
 
     expect(joined).toContain('-ss 1.8 -t 3.3 -i /tmp/source.mp4');
     expect(joined).toContain('-ss 12.3 -t 1.2 -i /tmp/source.mp4');
-    expect(filterComplex).toContain("enable='between(t,10,13.3)'");
-    expect(filterComplex).toContain("enable='between(t,13.3,14.5)'");
+    expect(filterComplex).toContain("enable='between(t,9.983333,13.283333)'");
+    expect(filterComplex).toContain("enable='between(t,13.283333,14.483333)'");
     expect(filterComplex).toContain('PTS-STARTPTS+10/TB');
     expect(filterComplex).toContain('PTS-STARTPTS+13.3/TB');
     expect(filterComplex).toContain('d=14.5');
@@ -707,7 +716,7 @@ describe('FFmpegComposeExecutor', () => {
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
     expect(args.join(' ')).toContain('-ss 2.1 -t 4.5 -i /tmp/source.mp4');
-    expect(filterComplex).toContain("enable='between(t,0,4.5)'");
+    expect(filterComplex).toContain("enable='between(t,0,4.483333)'");
     expect(filterComplex).toContain('d=4.5');
   });
 
@@ -764,9 +773,9 @@ describe('FFmpegComposeExecutor', () => {
     const args = executeSpy.mock.calls[0][0] as string[];
     const filterComplex = args[args.indexOf('-filter_complex') + 1];
 
-    expect(filterComplex).toContain("enable='between(t,0,5)'");
-    expect(filterComplex).toContain("enable='between(t,5,9)'");
-    expect(filterComplex).toContain("enable='between(t,9,12)'");
+    expect(filterComplex).toContain("enable='between(t,0,4.983333)'");
+    expect(filterComplex).toContain("enable='between(t,4.983333,8.983333)'");
+    expect(filterComplex).toContain("enable='between(t,8.983333,11.983333)'");
     const joined = args.join(' ');
     // sourceStart 0 → no -ss, just -t
     expect(joined).toContain('-t 5 -i /tmp/a.mp4');
@@ -824,7 +833,7 @@ describe('FFmpegComposeExecutor', () => {
     expect(filterComplex).not.toMatch(/0\.60+0+1/);
     // Should have clean rounded values
     expect(filterComplex).toContain('d=0.9');
-    expect(filterComplex).toContain("enable='between(t,0.6,0.9)'");
+    expect(filterComplex).toContain("enable='between(t,0.583333,0.883333)'");
   });
 
   it('should handle audio segments from composite clip (same source, multiple segments)', async () => {
@@ -1193,11 +1202,11 @@ describe('FFmpegComposeExecutor', () => {
       expect(args).toContain('/tmp/nested.mp4');
 
       // Parent clip plays [0,4)
-      expect(filterComplex).toContain("enable='between(t,0,4)'");
+      expect(filterComplex).toContain("enable='between(t,0,3.983333)'");
       // Nested child clip [0,6) trimmed to [1,5) => parent window [4,8),
       // source in-point 3 + 1 head-trim = 4 (input-level seek)
       expect(args.join(' ')).toContain('-ss 4 -t 4 -i /tmp/nested.mp4');
-      expect(filterComplex).toContain("enable='between(t,4,8)'");
+      expect(filterComplex).toContain("enable='between(t,3.983333,7.983333)'");
 
       // Canvas spans the full 8s composition
       expect(filterComplex).toContain('d=8[base]');
@@ -1240,6 +1249,155 @@ describe('FFmpegComposeExecutor', () => {
         .sort((a, b) => (a.layer || 0) - (b.layer || 0));
       expect(sorted[0].id).toBe('p0');
       expect(sorted[1].id).toBe(nestedVideo!.id);
+    });
+  });
+
+  describe('frame-exact cuts (black-frame regression)', () => {
+    // Composite dialogue cuts land on the millisecond grid (word boundaries),
+    // which the 1/fps frame grid does not contain — e.g. 10.234s falls
+    // between frames at 30fps. Rendered naively this leaves 1–2 output frame
+    // slots at each cut covered by neither neighbor, which the overlay chain
+    // fills with the black base canvas: the "occasional black frame" bug.
+    // These tests pin the two defenses: frame-grid quantization with
+    // half-frame enable windows (no slot is ever ambiguous or unowned), and
+    // eof_action=repeat (a short-decoding branch holds its last frame
+    // instead of dropping to black).
+
+    const clipMediaMap = {
+      m1: { media: { id: 'm1' }, filePath: '/tmp/source.mp4' } as any,
+    };
+
+    const baseSettings = {
+      codec: 'libx264',
+      format: 'mp4',
+      resolution: '1920x1080',
+    };
+
+    const run = async (
+      tracks: TimelineTrack[],
+      outputSettings: Record<string, unknown> = {}
+    ) => {
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      await executor.execute(tracks, clipMediaMap, '/tmp/output.mp4', {
+        ...baseSettings,
+        ...outputSettings,
+      } as never);
+      const args = executeSpy.mock.calls[0][0] as string[];
+      return {
+        args,
+        joined: args.join(' '),
+        filterComplex: args[args.indexOf('-filter_complex') + 1],
+      };
+    };
+
+    const segment = (
+      id: string,
+      start: number,
+      duration: number,
+      sourceStart: number
+    ) => ({
+      id,
+      assetId: 'm1',
+      type: 'video' as const,
+      time: { start, duration, sourceStart },
+    });
+
+    const track = (segments: TimelineTrack['segments']): TimelineTrack[] => [
+      { id: 'track1', type: 'video', layer: 0, segments },
+    ];
+
+    it('tiles ms-grid word-boundary cuts with no unowned frame slot', async () => {
+      // A word cut at 10.234s — NOT on the 30fps grid (10.234 × 30 = 307.02)
+      const { filterComplex } = await run(
+        track([segment('a', 0, 10.234, 1.5), segment('b', 10.234, 1.767, 14.9)])
+      );
+
+      // Both sides quantize to frame 307, and the shared boundary appears as
+      // the SAME half-frame string (306.5/30) in both enable windows: frame
+      // 306 belongs to `a`, frame 307 to `b`, nothing to neither.
+      const enables = [...filterComplex.matchAll(/between\(t,([^)]+)\)/g)].map(
+        (m) => m[1].split(',')
+      );
+      expect(enables).toHaveLength(2);
+      const [[aFrom, aTo], [bFrom, bTo]] = enables;
+      expect(aFrom).toBe('0');
+      expect(aTo).toBe(bFrom); // exact string equality — no gap, no overlap
+      expect(aTo).toBe('10.216667'); // (307 − 0.5)/30
+      expect(bTo).toBe('11.983333'); // round(12.001·30)=360 → (360 − 0.5)/30
+    });
+
+    it('holds the last frame at a cut instead of dropping to black canvas', async () => {
+      const { filterComplex } = await run(
+        track([segment('a', 0, 10.234, 1.5), segment('b', 10.234, 2, 14.9)])
+      );
+
+      // eof_action=repeat: when a branch's decoded frames run out before its
+      // enable window closes (24fps source on a 30fps grid, VFR, seek slop),
+      // the overlay repeats its last frame rather than passing the black
+      // base through.
+      expect(filterComplex).toContain('eof_action=repeat');
+      expect(filterComplex).not.toContain('eof_action=pass');
+    });
+
+    it('is immune to float drift between two expressions of one boundary', async () => {
+      // 0.1+0.2 !== 0.3 in floats; both sides of the seam must still
+      // quantize to the same frame because rounding goes through integer ms.
+      const seamAsSum = 0.1 + 0.2; // 0.30000000000000004
+      const { filterComplex } = await run(
+        track([segment('a', 0, seamAsSum, 0), segment('b', 0.3, 0.5, 5)])
+      );
+
+      const enables = [...filterComplex.matchAll(/between\(t,([^)]+)\)/g)].map(
+        (m) => m[1].split(',')
+      );
+      const [[, aTo], [bFrom]] = enables;
+      expect(aTo).toBe(bFrom);
+    });
+
+    it('drops sub-frame slivers without disturbing their neighbors', async () => {
+      // 10ms sliver between two real segments: less than half a frame at
+      // 30fps, so it can never own an output frame — it must vanish rather
+      // than open a seeked input (and its neighbors still tile).
+      const { filterComplex, args } = await run(
+        track([
+          segment('a', 0, 5, 0),
+          segment('sliver', 5, 0.01, 30),
+          segment('b', 5.01, 4.99, 40),
+        ])
+      );
+
+      expect(args.filter((a) => a === '-i')).toHaveLength(2);
+      expect(filterComplex).not.toContain('v_seg_sliver');
+      const enables = [...filterComplex.matchAll(/between\(t,([^)]+)\)/g)].map(
+        (m) => m[1].split(',')
+      );
+      expect(enables).toHaveLength(2);
+      const [[, aTo], [bFrom]] = enables;
+      // a ends at frame 150, b starts at frame round(5010·30/1000)=150 — the
+      // sliver's slot collapses and the survivors still share a boundary.
+      expect(aTo).toBe(bFrom);
+    });
+
+    it('honors outputSettings.fps for the whole grid (canvas, branches, cuts)', async () => {
+      const { filterComplex, joined } = await run(
+        track([segment('a', 0, 5, 2), segment('b', 5, 5, 20)]),
+        { fps: 24 }
+      );
+
+      expect(filterComplex).toContain(':r=24:');
+      expect(filterComplex).toContain('fps=24');
+      expect(joined).toContain('-ss 2 -t 5 -i /tmp/source.mp4');
+      // Cut at 5s = frame 120 at 24fps → boundary (120 − 0.5)/24
+      expect(filterComplex).toContain("enable='between(t,0,4.979167)'");
+      expect(filterComplex).toContain("enable='between(t,4.979167,9.979167)'");
+    });
+
+    it('falls back to 30fps for non-integer rates', async () => {
+      const { filterComplex } = await run(track([segment('a', 0, 5, 0)]), {
+        fps: 29.97,
+      });
+      expect(filterComplex).toContain(':r=30:');
+      expect(filterComplex).toContain('fps=30');
     });
   });
 
@@ -1319,8 +1477,8 @@ describe('FFmpegComposeExecutor', () => {
       expect(joined).not.toContain('-ss 2 ');
 
       // Segments land back-to-back in effective time
-      expect(filterComplex).toContain("enable='between(t,0,4)'");
-      expect(filterComplex).toContain("enable='between(t,4,7)'");
+      expect(filterComplex).toContain("enable='between(t,0,3.983333)'");
+      expect(filterComplex).toContain("enable='between(t,3.983333,6.983333)'");
       // The canvas spans the windowed effective duration, not the full 12s
       expect(filterComplex).toContain('d=7[base]');
       expect(filterComplex).not.toContain('d=12[base]');
@@ -1337,8 +1495,8 @@ describe('FFmpegComposeExecutor', () => {
 
       expect(joined).toContain('-ss 2 -t 6 -i /tmp/source.mp4');
       expect(joined).toContain('-ss 20 -t 6 -i /tmp/source.mp4');
-      expect(filterComplex).toContain("enable='between(t,0,6)'");
-      expect(filterComplex).toContain("enable='between(t,6,12)'");
+      expect(filterComplex).toContain("enable='between(t,0,5.983333)'");
+      expect(filterComplex).toContain("enable='between(t,5.983333,11.983333)'");
       expect(filterComplex).toContain('d=12[base]');
     });
 
@@ -1349,7 +1507,7 @@ describe('FFmpegComposeExecutor', () => {
       expect(joined).toContain('-ss 20 -t 3 -i /tmp/source.mp4');
       // The first segment (source 2–8) is gone entirely
       expect(joined).not.toContain('-ss 2 ');
-      expect(filterComplex).toContain("enable='between(t,0,3)'");
+      expect(filterComplex).toContain("enable='between(t,0,2.983333)'");
       expect(filterComplex).toContain('d=3[base]');
       // Exactly one video overlay + one audio branch survive
       expect(filterComplex).toMatch(/amix=inputs=1/);
@@ -1388,7 +1546,7 @@ describe('FFmpegComposeExecutor', () => {
       expect(joined).toContain('-ss 22 -t 4 -i /tmp/source.mp4');
       expect(joined).not.toContain('-ss 2 ');
       expect(joined).not.toContain('-ss 20 ');
-      expect(filterComplex).toContain("enable='between(t,0,4)'");
+      expect(filterComplex).toContain("enable='between(t,0,3.983333)'");
       expect(filterComplex).toContain('d=4[base]');
     });
   });

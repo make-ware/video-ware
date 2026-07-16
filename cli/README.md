@@ -54,11 +54,13 @@ vw workspace list              # list workspaces (active marked with *)
 vw workspace use [id]          # set the active workspace (interactive when omitted)
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
-vw media list                  # list media in the active workspace
-vw media search <query>        # search media by filename, label, or description
-vw media update <id>           # set a media's editor-facing label/description
+vw upload <file...>            # upload video/audio/image files (--directory files them; --wait polls ingest)
+
+vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
+vw media search <query>        # search media by filename, label, or description (-d filters)
+vw media update <id>           # set label/description, move into a directory (--directory)
 vw media clip create           # create a media clip (sub-range of a media)
-vw media clip list             # list media clips in the active workspace
+vw media clip list             # list media clips (-d filters via the parent media's directory)
 vw media clip update <id>      # edit a media clip's label/description/trim
 vw media clip delete <id>      # delete a media clip
 vw media clip segments <id>    # show a clip's edit list (segments + gaps)
@@ -66,6 +68,13 @@ vw media clip split <id>       # split the edit list at source time(s) (--at)
 vw media clip cut <id>         # remove a source range, e.g. an umm (--from/--to)
 vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
 vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
+
+vw dir list                    # list directories + media counts (optional flat folders)
+vw dir show <dir>              # one directory and the media filed in it
+vw dir create <name>           # create a directory (idempotent; path-safe names only)
+vw dir rename <dir> <name>     # rename a directory
+vw dir move <dir> <id...>      # file media into a directory ("/" or "none" unfiles them)
+vw dir delete <dir>            # delete (refuses non-empty; --force unfiles the media first)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
 vw label list                  # list labels for one media
@@ -84,7 +93,7 @@ vw timeline update <id>        # update name/label/description/orientation
 vw timeline show <id>          # inspect tracks, settings, and placed clips
 vw timeline doctor <id>        # health-check: overlaps, gaps, stale durations
 vw timeline inspect            # what plays on each track at --at <seconds>
-vw timeline insert             # append media/MediaClips/captions to a track (--at/--after to place)
+vw timeline insert             # append media/MediaClips/captions/timelines to a track (--at/--after to place)
 vw timeline render             # render a timeline and wait for the output
 
 vw timeline track create       # add a track on the next layer up
@@ -200,6 +209,35 @@ that isn't a previous export is refused unless `--force` is passed.
 `--no-labels` skips label data, `-w <id>` overrides the active workspace,
 and `--json` prints the manifest instead of progress lines.
 
+## Directories (optional media folders)
+
+Directories organize, filter, and label media — nothing more. They are
+**optional** and **flat** (no nesting): a media without one simply sits at
+the workspace root, and every media command returns all media unless
+`-d/--directory` narrows it. Nothing is stored "inside" a directory and
+deleting one never deletes media.
+
+- **Names are unique per workspace** (case-insensitive, DB-enforced) and
+  **path-safe**: letters, digits, dashes, and underscores only, starting
+  with a letter or digit (e.g. `hawaii`, `b-roll_2024`). `vw dir create` is
+  idempotent — creating an existing name just returns it.
+- **Refs are flexible.** Every `<dir>` argument accepts a name (`hawaii`,
+  `/hawaii`) or a record id, matched case-insensitively with a
+  unique-substring fallback.
+- **`/` (or `root` / `none`) means "no directory".** As a filter it selects
+  unfiled media (`vw media list -d /`); as a move target it unfiles
+  (`vw dir move / MEDIA_ID`).
+- **Filing media:** `vw dir move <dir> <mediaId...>` moves a batch;
+  `vw media update <id> --directory <dir>` does one alongside other edits;
+  `vw upload <file...> --directory <dir>` files new media at ingest (as does
+  the webapp's upload dialog).
+- **Media clips have no directory of their own** — they follow their parent
+  media, so `vw media clip list -d <dir>` filters clips through the source
+  media's directory.
+- **Deletion is safe by default.** `vw dir delete` refuses while media is
+  still filed in the directory; `--force` unfiles the media back to the
+  workspace root first.
+
 ## Timeline placement semantics
 
 - **Tracks are layers.** `layer 0` is the bottom of the visual stack; higher
@@ -222,6 +260,13 @@ and `--json` prints the manifest instead of progress lines.
   an existing clip, the new clip is placed at the next free time and the
   command reports the nudge. Pass `--overwrite` (with `--at`) to instead
   trim/remove whatever overlaps (like the editor's playhead insert).
+- **`insert --source-timeline <id>` nests a timeline.** The inserted timeline
+  plays as a single clip; `-s`/`-e` trim its own time axis, and its content
+  is edited only in the source timeline. Inserts that would make a timeline
+  contain itself (directly or transitively) are rejected. A full-span insert
+  follows the source's live duration until trimmed (`clips update -s/-e`);
+  `timeline reflow` heals drift after the source changes, and renders flatten
+  the nested tree automatically.
 - **`clips ripple <id> --by <±s>`** shifts a clip and everything after it on
   its track, preserving spacing — leftward shifts clamp at the previous
   clip. `clips remove --ripple` closes the gap the removed clip leaves.
@@ -283,6 +328,16 @@ into hundreds of tiny clips.
 vw media search beach                          # media matching "beach" (filename/label/description)
 vw media update MEDIA_ID \
   --label "Beach intro" --description "Opening drone shot"  # name/annotate a media
+vw dir list                                    # directories are optional flat folders (with media counts)
+vw dir create hawaii                           # create a directory (idempotent; path-safe names only)
+vw media list --directory hawaii               # only media filed under "hawaii" (name or id)
+vw media list -d /                             # only unfiled media (workspace root)
+vw dir move hawaii M_ID1 M_ID2                 # file several media at once
+vw dir move none M_ID1                         # unfile (back to the workspace root)
+vw media update MEDIA_ID --directory hawaii    # file one media (--directory none clears it)
+vw media clip list -d hawaii                   # clips whose source media is in that directory
+vw dir rename hawaii hawaii-2024               # rename (unique per workspace)
+vw dir delete hawaii --force                   # delete; filed media are unfiled, never deleted
 vw media clip create -m MEDIA_ID -s 5 -e 12.5  # USER clip of media[5s..12.5s]
 vw media clip create -m MEDIA_ID --type range  # whole-media clip, typed "range"
 vw media clip create -m MEDIA_ID -s 5 -e 12.5 \
@@ -319,6 +374,7 @@ vw timeline clips remove CLIP_ID --ripple     # delete and close the gap
 vw timeline doctor TIMELINE_ID                # verify layout invariants
 vw timeline inspect -t TIMELINE_ID --at 6 --labels
 vw timeline render -t TIMELINE_ID --resolution 1280x720 --download out.mp4
+vw timeline render -t TIMELINE_ID --fps 24    # output frame rate (default 30)
 vw timeline render -t TIMELINE_ID --no-wait   # queue only, don't poll
 ```
 
@@ -480,11 +536,36 @@ The command wires itself — it already spreads
 `pickOptions(opts, clipFieldOptions)` into `createMediaClip`. The same group
 can be reused by future commands (e.g. `clip update`).
 
+## Uploading media
+
+`vw upload <file...>` sends local video/audio/image files through the same
+Next.js route the webapp uses (`/api-next/uploads/upload`), in sequential
+100 MB chunks so Cloudflare-fronted deployments work. Finishing the upload
+triggers ingest automatically: the worker creates the Media record and
+generates the proxy/thumbnails.
+
+```bash
+vw upload beach.mp4                        # upload into the active workspace
+vw upload *.mp4 --directory hawaii         # several files, filed into a directory
+vw upload interview.mov --wait             # block until the media is ingested
+vw upload clip.mp4 --json                  # machine-readable result (agents)
+```
+
+The route lives on the **webapp** origin. In the monolith deployment one
+origin serves both PocketBase (`/api/`) and the webapp (`/api-next/`), so no
+extra configuration is needed. When the two differ (e.g. split local dev),
+set the webapp origin explicitly — precedence: `--app-url` flag →
+`appUrl` in the config file (written by `vw login --app-url`) →
+`$VW_APP_URL` → derived from the PocketBase URL (a PB URL on
+`localhost:8090` maps to `http://localhost:3000`).
+
 ## Configuration
 
-State is stored at `~/.config/video-ware/config.json` (URL, auth token, active
-workspace). The PocketBase URL defaults to `$POCKETBASE_URL` and can be set with
-`vw login --url`.
+State is stored at `~/.config/video-ware/config.json` (URL, webapp origin for
+uploads, auth token, active workspace). The PocketBase URL defaults to
+`$POCKETBASE_URL` and can be set with `vw login --url`; the webapp origin
+(only needed when it differs from the PocketBase URL) with
+`vw login --app-url`.
 
 ## How rendering works
 

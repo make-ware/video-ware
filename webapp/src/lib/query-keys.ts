@@ -24,8 +24,7 @@ export const qk = {
     }) => ['clips', 'library', args] as const,
   },
   directories: {
-    children: (workspaceId: string, parentId: string | null) =>
-      ['directories', workspaceId, parentId] as const,
+    list: (workspaceId: string) => ['directories', workspaceId] as const,
     detail: (id: string) => ['directories', 'detail', id] as const,
   },
   timelines: {

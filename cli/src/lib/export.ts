@@ -97,6 +97,8 @@ export interface MediaIndexEntry {
   clipCount: number;
   /** Rows per label type; only types with at least one row appear. */
   labelCounts: Partial<Record<LabelType, number>>;
+  /** Directory name; present only when the media is filed in one. */
+  directory?: string;
 }
 
 /**
@@ -247,8 +249,11 @@ export async function exportWorkspace(
 
   prepareExportDir(opts.dir, opts.force);
 
-  // Media, with just the source upload expanded for a human-readable name.
-  const mediaMutator = new MediaMutator(pb, { expand: ['UploadRef'] });
+  // Media, with the source upload expanded for a human-readable name and
+  // the (optional) directory expanded for its name.
+  const mediaMutator = new MediaMutator(pb, {
+    expand: ['UploadRef', 'DirectoryRef'],
+  });
   const media = (await fetchAll((page) =>
     mediaMutator.getByWorkspace(opts.workspaceId, page, PER_PAGE)
   )) as MediaWithUpload[];
@@ -316,9 +321,13 @@ export async function exportWorkspace(
   for (const m of media) {
     const dir = join(mediaDir, m.id);
     mkdirSync(dir, { recursive: true });
-    // Keep only UploadRef (its .name is the original filename); drop the
+    // Keep only UploadRef (its .name is the original filename) and the
+    // optional DirectoryRef (its .name is the folder); drop the
     // thumbnail/sprite/filmstrip/proxy expansions the mutator adds.
-    writeJson(join(dir, 'media.json'), stripExpand(m, ['UploadRef']));
+    writeJson(
+      join(dir, 'media.json'),
+      stripExpand(m, ['UploadRef', 'DirectoryRef'])
+    );
 
     // One file per clip, so every entity is addressable on its own.
     const mediaClips = clipsByMedia.get(m.id) ?? [];
@@ -361,6 +370,9 @@ export async function exportWorkspace(
       height: m.height,
       clipCount: mediaClips.length,
       labelCounts,
+      ...(m.DirectoryRef
+        ? { directory: m.expand?.DirectoryRef?.name ?? m.DirectoryRef }
+        : {}),
     });
   }
   writeJson(join(mediaDir, 'index.json'), listDoc(mediaIndex));
@@ -553,7 +565,8 @@ manifest.json           what was exported, when, and how much
 workspace.json          the Workspace record
 media/
   index.json            one row per media: name, type, duration, clipCount,
-                        labelCounts — scan this first
+                        labelCounts, directory (only when the media is filed
+                        in one) — scan this first
   <mediaId>/
     media.json          the Media record (expand.UploadRef.name is the
                         original filename)

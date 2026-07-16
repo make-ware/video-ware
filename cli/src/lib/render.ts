@@ -20,6 +20,7 @@ export interface RenderConfigOptions {
   height?: string;
   codec?: string;
   format?: string;
+  fps?: string;
 }
 
 /** Build a RenderTimelineConfig from CLI flags, applying sensible defaults. */
@@ -30,11 +31,22 @@ export function buildRenderConfig(
   if (!opts.resolution && opts.width && opts.height) {
     resolution = `${opts.width}x${opts.height}`;
   }
-  return {
+  const config: RenderTimelineConfig = {
     resolution,
     codec: opts.codec ?? DEFAULTS.codec,
     format: opts.format ?? DEFAULTS.format,
   };
+  if (opts.fps !== undefined) {
+    // The renderer quantizes every cut to this frame grid, so it only
+    // accepts integer rates (and falls back to 30 otherwise) — reject bad
+    // values here where the user can still fix the flag.
+    const fps = Number(opts.fps);
+    if (!Number.isInteger(fps) || fps < 1 || fps > 120) {
+      throw new Error('--fps must be an integer frame rate (e.g. 24 or 30).');
+    }
+    config.fps = fps;
+  }
+  return config;
 }
 
 const TERMINAL = new Set<string>([

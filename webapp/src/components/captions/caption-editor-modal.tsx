@@ -98,24 +98,26 @@ export function CaptionEditorModal({
   useEffect(() => {
     if (!open) return;
     if (caption) {
-      setName(caption.name ?? '');
-      setCaptionType(
-        (Array.isArray(caption.captionType)
+      const resolvedType = (
+        Array.isArray(caption.captionType)
           ? caption.captionType[0]
-          : caption.captionType) as CaptionType
-      );
+          : caption.captionType
+      ) as CaptionType;
+      const savedStyle = (caption.style ?? {}) as CaptionStyle;
+      setName(caption.name ?? '');
+      setCaptionType(resolvedType);
       setText(caption.text);
       setDuration(caption.duration || DEFAULT_DURATION);
       const existingCues = (caption.cues ?? []) as CaptionCue[];
       setCues(existingCues);
       setAnimated(existingCues.length > 0);
       setStyle({
-        ...defaultStyleFor(
-          (Array.isArray(caption.captionType)
-            ? caption.captionType[0]
-            : caption.captionType) as CaptionType
-        ),
-        ...((caption.style ?? {}) as CaptionStyle),
+        ...defaultStyleFor(resolvedType),
+        ...savedStyle,
+        // A saved caption's style is authoritative for the background: an
+        // absent backgroundColor means the user turned the background off, so
+        // don't let the type default (#000000) reintroduce it on reopen.
+        backgroundColor: savedStyle.backgroundColor,
       });
     } else {
       setName('');

@@ -1,10 +1,14 @@
 import { RecordService } from 'pocketbase';
 import type { ListResult } from 'pocketbase';
-import { DirectoryInputSchema } from '../schema';
+import { DirectoryInputSchema, DirectoryNameSchema } from '../schema';
 import type { Directory, DirectoryInput, DirectoryRelations } from '../schema';
 import type { Expanded, TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
 
+/**
+ * Directories are flat: no nesting, and a DB unique index keeps names unique
+ * per workspace (case-insensitive).
+ */
 export class DirectoryMutator extends BaseMutator<
   Directory,
   DirectoryInput,
@@ -20,7 +24,7 @@ export class DirectoryMutator extends BaseMutator<
 
   protected setDefaults(): MutatorOptions {
     return {
-      expand: ['WorkspaceRef', 'ParentDirectoryRef'],
+      expand: ['WorkspaceRef'],
       filter: [],
       sort: ['name'],
     };
@@ -33,7 +37,7 @@ export class DirectoryMutator extends BaseMutator<
   }
 
   /**
-   * Get all directories in a workspace (flat list)
+   * Get all directories in a workspace
    */
   async getByWorkspace<
     E extends keyof DirectoryRelations = keyof DirectoryRelations,
@@ -53,68 +57,19 @@ export class DirectoryMutator extends BaseMutator<
   }
 
   /**
-   * Get direct children of a directory
-   */
-  async getChildren<
-    E extends keyof DirectoryRelations = keyof DirectoryRelations,
-  >(
-    parentId: string,
-    page = 1,
-    perPage = 50,
-    expand?: E | E[]
-  ): Promise<ListResult<Expanded<Directory, DirectoryRelations, E>>> {
-    return this.getList(
-      page,
-      perPage,
-      `ParentDirectoryRef = "${parentId}"`,
-      undefined,
-      expand
-    );
-  }
-
-  /**
-   * Get root directories in a workspace (no parent)
-   */
-  async getRootDirectories<
-    E extends keyof DirectoryRelations = keyof DirectoryRelations,
-  >(
-    workspaceId: string,
-    page = 1,
-    perPage = 50,
-    expand?: E | E[]
-  ): Promise<ListResult<Expanded<Directory, DirectoryRelations, E>>> {
-    return this.getList(
-      page,
-      perPage,
-      [`WorkspaceRef = "${workspaceId}"`, `ParentDirectoryRef = ""`],
-      undefined,
-      expand
-    );
-  }
-
-  /**
-   * Rename a directory
+   * Rename a directory (the new name is validated against the shared
+   * path-safe name rule; update() alone would skip it)
    */
   async rename(id: string, name: string): Promise<Directory> {
-    return this.update(id, { name } as Partial<Directory>);
+    const parsed = DirectoryNameSchema.parse(name);
+    return this.update(id, { name: parsed } as Partial<Directory>);
   }
 
   /**
-   * Delete a directory only if it has no children and no media
+   * Delete a directory only if no media is filed in it
    * Throws if the directory is non-empty
    */
   async deleteIfEmpty(id: string): Promise<boolean> {
-    // Check for child directories
-    const children = await this.getList(
-      1,
-      1,
-      this.pb.filter('ParentDirectoryRef = {:id}', { id })
-    );
-    if (children.totalItems > 0) {
-      throw new Error('Cannot delete directory: it contains child directories');
-    }
-
-    // Check for media in this directory
     const media = await this.pb.collection('Media').getList(1, 1, {
       filter: this.pb.filter('DirectoryRef = {:id}', { id }),
     });

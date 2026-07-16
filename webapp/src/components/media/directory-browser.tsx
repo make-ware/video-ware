@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { FolderPlus, Folder, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { DirectoryBreadcrumb } from '@/components/uploads/directory-breadcrumb';
 import { DirectoryCreateInline } from '@/components/uploads/directory-create-inline';
 import { DirectoryDialogs } from '@/components/uploads/directory-dialogs';
 import { useDirectories } from '@/hooks/use-directories';
@@ -29,59 +28,33 @@ export function DirectoryBrowser({
   directoryFilter,
   onDirectoryFilterChange,
 }: DirectoryBrowserProps) {
-  const {
-    directories,
-    currentDirectory,
-    breadcrumbs,
-    navigateTo,
-    createDirectory,
-    renameDirectory,
-    deleteDirectory,
-  } = useDirectories(workspaceId);
+  const { directories, createDirectory, renameDirectory, deleteDirectory } =
+    useDirectories(workspaceId);
 
   const crud = useDirectoryCrud({
     createDirectory,
     renameDirectory,
-    deleteDirectory,
+    // Deleting the directory that is currently filtering clears the filter.
+    deleteDirectory: async (id: string) => {
+      await deleteDirectory(id);
+      if (id === directoryFilter) onDirectoryFilterChange(null);
+    },
   });
-
-  // Sync directory tree to match directoryFilter (initial load with ?dir= or back/forward)
-  useEffect(() => {
-    const currentId = currentDirectory?.id ?? null;
-    if (directoryFilter !== currentId) {
-      navigateTo(directoryFilter);
-    }
-    // Only react to directoryFilter changes, not currentDirectory
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [directoryFilter]);
 
   const handleSelect = useCallback(
     (directoryId: string) => {
-      navigateTo(directoryId);
       onDirectoryFilterChange(directoryId);
     },
-    [navigateTo, onDirectoryFilterChange]
+    [onDirectoryFilterChange]
   );
 
   const handleShowAll = useCallback(() => {
-    navigateTo(null);
     onDirectoryFilterChange(null);
-  }, [navigateTo, onDirectoryFilterChange]);
+  }, [onDirectoryFilterChange]);
 
   return (
     <>
       <div className="space-y-2">
-        {/* Breadcrumb navigation (shown when inside a subfolder) */}
-        {breadcrumbs.length > 0 && (
-          <DirectoryBreadcrumb
-            breadcrumbs={breadcrumbs}
-            onNavigate={(id) => {
-              navigateTo(id);
-              onDirectoryFilterChange(id);
-            }}
-          />
-        )}
-
         {/* Folder list */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Show All chip */}

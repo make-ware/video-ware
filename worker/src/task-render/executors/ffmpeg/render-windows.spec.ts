@@ -104,7 +104,7 @@ describe('planRenderWindows', () => {
     expect(windows[1]).toEqual({ start: 10, end: 20, inputCount: 1 });
   });
 
-  it('snaps cap-forced cuts to 0.1s multiples', () => {
+  it('snaps cap-forced cuts to whole seconds (frame-exact at any integer fps)', () => {
     const tracks: TimelineTrack[] = [
       {
         id: 'video',
@@ -133,11 +133,13 @@ describe('planRenderWindows', () => {
     });
 
     expectContiguousCoverage(windows, 6);
-    // The clip boundary at 2.04 snaps to the ms-exact, 30fps-aligned 2.0
+    // The clip boundary at 2.04 snaps to 2.0 — an integer second is ms-exact
+    // AND a whole frame count at every integer output rate (24/25/30/60),
+    // so concat joins can't accumulate skew regardless of render fps.
     expect(windows[0].end).toBe(2);
-    // Every internal boundary lands on the 0.1s grid
+    // Every internal boundary lands on the whole-second grid
     for (const w of windows.slice(0, -1)) {
-      expect(Math.round(w.end * 10)).toBeCloseTo(w.end * 10, 9);
+      expect(Number.isInteger(w.end)).toBe(true);
     }
   });
 

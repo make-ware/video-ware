@@ -5,6 +5,7 @@ import { success } from './output.js';
 
 export interface LoginOptions {
   url?: string;
+  appUrl?: string;
   email?: string;
   password?: string;
 }
@@ -31,6 +32,7 @@ export async function login(opts: LoginOptions): Promise<void> {
 
   updateConfig({
     url,
+    ...(opts.appUrl ? { appUrl: opts.appUrl } : {}),
     token: pb.authStore.token,
     userId: authData.record.id,
     userEmail: authData.record.email ?? email,

@@ -234,6 +234,25 @@ describe('FFmpegComposeExecutor bounded multi-pass', () => {
     expect(result.outputPath).toBe(outputPath);
   });
 
+  it('derives the part timescale and canvas rate from the configured fps', async () => {
+    vi.stubEnv('RENDER_MAX_INPUTS_PER_PASS', '2');
+    const { tracks, clipMediaMap, outputSettings } = makeFixture();
+    const { ffmpegService, calls } = makeFFmpegServiceMock();
+    const executor = new FFmpegComposeExecutor(ffmpegService as never);
+
+    await executor.execute(tracks, clipMediaMap, outputPath, {
+      ...outputSettings,
+      fps: 24,
+    });
+
+    // 512 × 24 — exact and fps-divisible, so concat joins stay drift-free
+    // at 24fps just as 15360 does at 30fps.
+    for (const part of calls.slice(0, 2)) {
+      expect(part).toContain('12288');
+      expect(filterOf(part)).toContain(':r=24:');
+    }
+  });
+
   it('keeps the single-pass path when inputs fit under the default cap', async () => {
     const { tracks, clipMediaMap, outputSettings } = makeFixture();
     const { ffmpegService, calls } = makeFFmpegServiceMock();

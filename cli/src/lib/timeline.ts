@@ -4,6 +4,7 @@ import {
   MAX_TIMELINE_TRACKS,
   MediaClipMutator,
   MediaMutator,
+  REFLOW_EPSILON,
   TaskStatus,
   TimelineClipMutator,
   TimelineMutator,
@@ -12,14 +13,18 @@ import {
   TimelineTrackMutator,
   calculateEffectiveDuration,
   computeClipPlacement,
+  computeNestedTimelineDuration,
   computeTimelineDuration,
+  fetchNestedTimelineMap,
   findNonOverlappingTimelineStart,
   getCompositeSegments,
   generateTracks,
   getClipRanges,
   getSortedTrackClips,
   planOverwriteAtTime,
+  planTimelineTreeReflow,
   validateTimeRange,
+  wouldCreateTimelineCycle,
   type ClipTrim,
   type RenderTimelineConfig,
   type Timeline,
@@ -290,9 +295,11 @@ export interface InsertClipOptions {
   clip?: string;
   /** Caption id to insert as a text/title clip (mutually exclusive with media/clip). */
   caption?: string;
-  /** Trim start in the source (seconds). For captions, into the caption's cue timeline. Defaults to 0 (or the MediaClip's). */
+  /** Timeline id to insert as a nested (precomposed) clip (mutually exclusive with the others). */
+  sourceTimeline?: string;
+  /** Trim start in the source (seconds). For captions/timelines, into their own time axis. Defaults to 0 (or the MediaClip's). */
   start?: number;
-  /** Trim end in the source (seconds). Defaults to the media/caption duration (or the MediaClip's). */
+  /** Trim end in the source (seconds). Defaults to the media/caption/timeline duration (or the MediaClip's). */
   end?: number;
   /** Target track: layer number or record id. Defaults to (or creates) the layer-0 track. */
   track?: string;
@@ -324,15 +331,20 @@ export const insertOptions = {
     flags: '--caption <id>',
     description: 'Caption id to insert as a text/title clip',
   },
+  sourceTimeline: {
+    flags: '--source-timeline <id>',
+    description: 'timeline id to insert as a nested clip (plays that timeline)',
+  },
   start: {
     flags: '-s, --start <seconds>',
     description:
-      'trim start in the source (caption cue timeline for --caption)',
+      "trim start in the source (the caption's or nested timeline's own time axis)",
     parse: parseSeconds,
   },
   end: {
     flags: '-e, --end <seconds>',
-    description: 'trim end in the source (caption cue timeline for --caption)',
+    description:
+      "trim end in the source (the caption's or nested timeline's own time axis)",
     parse: parseSeconds,
   },
   track: {
@@ -403,14 +415,22 @@ export async function insertClip(
   pb: TypedPocketBase,
   opts: InsertClipOptions
 ): Promise<InsertClipResult> {
-  const sources = [opts.media, opts.clip, opts.caption].filter(Boolean);
+  const sources = [
+    opts.media,
+    opts.clip,
+    opts.caption,
+    opts.sourceTimeline,
+  ].filter(Boolean);
   if (sources.length === 0) {
     throw new Error(
-      'Pass --media <id>, --clip <mediaClipId>, or --caption <captionId>.'
+      'Pass --media <id>, --clip <mediaClipId>, --caption <captionId>, ' +
+        'or --source-timeline <timelineId>.'
     );
   }
   if (sources.length > 1) {
-    throw new Error('--media, --clip, and --caption are mutually exclusive.');
+    throw new Error(
+      '--media, --clip, --caption, and --source-timeline are mutually exclusive.'
+    );
   }
   if (opts.at !== undefined && opts.after) {
     throw new Error('--at and --after are mutually exclusive.');
@@ -419,18 +439,77 @@ export async function insertClip(
     throw new Error('--overwrite requires --at <seconds>.');
   }
 
-  // Resolve the clip's source (media/MediaClip or caption): its trim window,
-  // duration, provenance ref, and default label/description. Placement below
-  // is identical for every source — it only needs `duration`.
+  // Resolve the clip's source (media/MediaClip, caption, or nested timeline):
+  // its trim window, duration, provenance ref, and default label/description.
+  // Placement below is identical for every source — it only needs `duration`.
   let mediaId: string | undefined;
   let mediaClip: Awaited<ReturnType<MediaClipMutator['getById']>> | undefined;
   let caption: Awaited<ReturnType<CaptionMutator['getById']>> | undefined;
+  let sourceTimeline: Timeline | undefined;
+  let followSource = false;
   let start: number;
   let end: number;
   let defaultLabel: string | undefined;
   let defaultDescription: string | undefined;
 
-  if (opts.caption) {
+  if (opts.sourceTimeline) {
+    sourceTimeline =
+      (await new TimelineMutator(pb).getById(opts.sourceTimeline)) ?? undefined;
+    if (!sourceTimeline) {
+      throw new Error(`Timeline not found: ${opts.sourceTimeline}`);
+    }
+    const [sourceClips, sourceTracks] = await Promise.all([
+      new TimelineClipMutator(pb).getByTimeline(sourceTimeline.id),
+      new TimelineTrackMutator(pb).getByTimeline(sourceTimeline.id),
+    ]);
+
+    // Walk the source's own nested references to reject transitive cycles
+    // (webapp addTimelineToTimeline semantics).
+    const nested = await fetchNestedTimelineMap(
+      pb,
+      sourceClips,
+      new Set([sourceTimeline.id])
+    );
+    nested[sourceTimeline.id] = {
+      timeline: sourceTimeline,
+      clips: sourceClips,
+      tracks: sourceTracks.items,
+    };
+    if (wouldCreateTimelineCycle(opts.timelineId, sourceTimeline.id, nested)) {
+      throw new Error(
+        'Cannot insert this timeline: it would contain itself ' +
+          '(circular reference).'
+      );
+    }
+
+    // Live content duration (furthest placed clip end) — the stored
+    // Timelines.duration only refreshes on save, so it can't be trusted here.
+    const sourceDuration = computeNestedTimelineDuration(
+      nested[sourceTimeline.id]
+    );
+    if (sourceDuration <= 0) {
+      throw new Error(
+        `Timeline ${sourceTimeline.id} has no placed clips — nothing to insert.`
+      );
+    }
+
+    // start/end trim the source timeline's own time axis (like a media clip
+    // trims source media). A fresh clip spans the whole timeline.
+    start = opts.start ?? 0;
+    end = opts.end ?? sourceDuration;
+    if (!(start >= 0 && start < end) || end > sourceDuration + REFLOW_EPSILON) {
+      throw new Error(
+        `Invalid time range: start=${start}, end=${end}, ` +
+          `timeline duration=${sourceDuration}`
+      );
+    }
+    // Full-span inserts keep following the source's live duration until the
+    // user trims them; an explicit trim opts out immediately.
+    followSource =
+      start <= REFLOW_EPSILON && end >= sourceDuration - REFLOW_EPSILON;
+    defaultLabel = opts.label;
+    defaultDescription = opts.description;
+  } else if (opts.caption) {
     caption = await new CaptionMutator(pb).getById(opts.caption);
     if (!caption) {
       throw new Error(`Caption not found: ${opts.caption}`);
@@ -611,10 +690,15 @@ export async function insertClip(
     });
   }
 
-  // Caption clips carry the display title in meta (matching the webapp's
-  // addCaptionToTimeline); gain applies to either kind of clip.
+  // Caption and nested-timeline clips carry the display title in meta
+  // (matching the webapp's addCaptionToTimeline / addTimelineToTimeline);
+  // gain applies to every kind of clip.
   const meta: NonNullable<TimelineClipInput['meta']> = {};
   if (caption) meta.title = caption.name || caption.text;
+  if (sourceTimeline) {
+    meta.title = sourceTimeline.label || sourceTimeline.name;
+    meta.followSource = followSource;
+  }
   if (opts.gain !== undefined) meta.gain = opts.gain;
 
   const input: TimelineClipInput = {
@@ -623,6 +707,7 @@ export async function insertClip(
     ...(mediaId ? { MediaRef: mediaId } : {}),
     ...(mediaClip ? { MediaClipRef: mediaClip.id } : {}),
     ...(caption ? { CaptionRef: caption.id } : {}),
+    ...(sourceTimeline ? { SourceTimelineRef: sourceTimeline.id } : {}),
     ...(defaultLabel !== undefined ? { label: defaultLabel } : {}),
     ...(defaultDescription !== undefined
       ? { description: defaultDescription }
@@ -701,10 +786,12 @@ async function assertRenderable(
 
   const mediaMutator = new MediaMutator(pb);
   for (const clip of clips) {
-    if (!clip.MediaRef && !clip.CaptionRef) {
-      throw new Error(`Clip ${clip.id} has neither media nor caption.`);
+    if (!clip.MediaRef && !clip.CaptionRef && !clip.SourceTimelineRef) {
+      throw new Error(
+        `Clip ${clip.id} has no media, caption, or source timeline.`
+      );
     }
-    if (!clip.MediaRef) continue; // caption clips validate elsewhere
+    if (!clip.MediaRef) continue; // caption/nested clips validate elsewhere
 
     const media = await mediaMutator.getById(clip.MediaRef);
     if (!media) {
@@ -744,13 +831,39 @@ export async function createRender(
     throw new Error(`Timeline not found: ${opts.timelineId}`);
   }
 
-  const clips = await new TimelineClipMutator(pb).getByTimeline(
+  const rawClips = await new TimelineClipMutator(pb).getByTimeline(
     opts.timelineId
   );
   const tracks = await new TimelineTrackMutator(pb).getByTimeline(
     opts.timelineId
   );
-  const trackList = generateTracks(clips, tracks.items);
+
+  // Nested-timeline clips flatten into the render snapshot: fetch the nested
+  // tree and heal source-duration drift in memory first (never persisting —
+  // a render only reads), exactly like the webapp's createRenderTask.
+  const nestedTimelines = await fetchNestedTimelineMap(
+    pb,
+    rawClips,
+    new Set([opts.timelineId])
+  );
+  for (const clip of rawClips) {
+    if (clip.SourceTimelineRef && !nestedTimelines[clip.SourceTimelineRef]) {
+      throw new Error(
+        `Clip ${clip.id} references missing timeline ${clip.SourceTimelineRef}.`
+      );
+    }
+  }
+  const reflow = planTimelineTreeReflow({
+    rootTimelineId: opts.timelineId,
+    clips: rawClips,
+    tracks: tracks.items,
+    nestedTimelines,
+  });
+
+  const trackList = generateTracks(reflow.updatedClips, tracks.items, {
+    nestedTimelines: reflow.updatedNested,
+    rootTimelineId: opts.timelineId,
+  });
 
   const userId = opts.userId ?? pb.authStore.record?.id;
 

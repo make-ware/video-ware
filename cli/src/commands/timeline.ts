@@ -470,8 +470,9 @@ export function registerTimelineCommands(program: Command): void {
   const insert = timeline
     .command('insert')
     .description(
-      'Insert media, a MediaClip, or a caption into a timeline track ' +
-        '(appends to the end of the track unless --at/--after)'
+      'Insert media, a MediaClip, a caption, or another timeline (nested) ' +
+        'into a timeline track (appends to the end of the track unless ' +
+        '--at/--after)'
     )
     .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
@@ -501,6 +502,7 @@ export function registerTimelineCommands(program: Command): void {
             'media',
             'clip',
             'caption',
+            'sourceTimeline',
             'at',
             'after',
             'start',
@@ -508,7 +510,10 @@ export function registerTimelineCommands(program: Command): void {
             'label',
             'description',
           ] as const
-        ).filter((key) => picked[key] !== undefined);
+        )
+          .filter((key) => picked[key] !== undefined)
+          // option keys are camelCase; flags are kebab-case
+          .map((key) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
         if (opts.overwrite) incompatible.push('overwrite');
         if (opts.dryRun) incompatible.push('dry-run');
         if (incompatible.length > 0) {
@@ -535,7 +540,12 @@ export function registerTimelineCommands(program: Command): void {
         return;
       }
 
-      if (!picked.media && !picked.clip && !picked.caption) {
+      if (
+        !picked.media &&
+        !picked.clip &&
+        !picked.caption &&
+        !picked.sourceTimeline
+      ) {
         picked.media = (await pickMedia(pb, workspaceId)).id;
       }
 
@@ -706,6 +716,7 @@ export function registerTimelineCommands(program: Command): void {
     .option('--resolution <WxH>', 'output resolution, e.g. 1920x1080')
     .option('--width <px>', 'output width (use with --height)')
     .option('--height <px>', 'output height (use with --width)')
+    .option('--fps <rate>', 'output frame rate, e.g. 24 or 30 (default: 30)')
     .option('--no-wait', 'enqueue and exit without polling for completion')
     .option(
       '--timeout <seconds>',
@@ -728,6 +739,7 @@ export function registerTimelineCommands(program: Command): void {
           height: opts.height,
           codec: opts.codec,
           format: opts.format,
+          fps: opts.fps,
         });
 
         const render = await createRender(pb, { timelineId, outputSettings });

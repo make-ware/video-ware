@@ -15,6 +15,7 @@ export const RenderTimelineConfigSchema = z.object({
   format: z.string(),
   // Optional render flags consumed by the worker's compose step — must be
   // preserved (not stripped) when stored on a TimelineRender / task payload.
+  fps: z.number().optional(),
   orientation: z.nativeEnum(TimelineOrientation).optional(),
   includeCaptions: z.boolean().optional(),
   includeSubtitles: z.boolean().optional(),

@@ -167,7 +167,11 @@ export function registerTimelineClipCommands(timeline: Command): void {
       }
 
       const hint = timelineClipLabelHint(clip);
-      const kind = clip.CaptionRef ? 'caption' : 'media';
+      const kind = clip.CaptionRef
+        ? 'caption'
+        : clip.SourceTimelineRef
+          ? 'timeline'
+          : 'media';
       info(`Clip ${clip.id} — "${truncate(hint, 40)}" (${kind})`);
       if (placement) {
         const trackName = placement.layer;
@@ -176,7 +180,9 @@ export function registerTimelineClipCommands(timeline: Command): void {
         );
       }
       info(
-        `  source: ${range(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef}`
+        `  source: ${range(clip.start, clip.end)} of ${
+          clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef
+        }`
       );
       const gain = clip.meta?.gain;
       const stored =

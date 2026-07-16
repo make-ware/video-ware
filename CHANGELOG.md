@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.5...video-ware-v0.9.6) (2026-07-16)
+
+
+### Bug Fixes
+
+* add cli commands, upload and job ([5a71275](https://github.com/make-ware/video-ware/commit/5a712752ffd6a0f181a9b2ef8067cc302a172e22))
+* add clip type filter for timeline editor ([3173a5e](https://github.com/make-ware/video-ware/commit/3173a5e70d5159a99cb7ceb5d7c28431b8d4944b))
+* CLI upload client errors ([1632e2e](https://github.com/make-ware/video-ware/commit/1632e2ef844a7b1ca377cab74481c1a38e557d64))
+
 ## [0.9.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.4...video-ware-v0.9.5) (2026-07-16)
 
 

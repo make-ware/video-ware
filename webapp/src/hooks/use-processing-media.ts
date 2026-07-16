@@ -24,20 +24,32 @@ function mediaIdForTask(task: Task): string | null {
 }
 
 /**
- * Build a map of media id → spinner label. When a media item has several
- * active tasks, a running task's label wins over a merely queued one.
+ * Whether `task` should be shown over `other` when both target the same
+ * media. A running task wins over a merely queued one; among tasks with the
+ * same status the oldest wins — tasks are enqueued in pipeline order, so the
+ * oldest active task is the stage currently in progress.
  */
-function buildProcessingMap(tasks: Task[]): Map<string, string> {
-  const labels = new Map<string, string>();
-  const weights = new Map<string, number>();
+function takesPrecedence(task: Task, other: Task): boolean {
+  if (task.status !== other.status) return task.status === 'running';
+  return task.created < other.created;
+}
+
+/**
+ * Build a map of media id → spinner label for the media's current task.
+ */
+export function buildProcessingMap(tasks: Task[]): Map<string, string> {
+  const currentTasks = new Map<string, Task>();
   for (const task of tasks) {
     const mediaId = mediaIdForTask(task);
     if (!mediaId) continue;
-    const weight = task.status === 'running' ? 2 : 1;
-    if (weight >= (weights.get(mediaId) ?? 0)) {
-      labels.set(mediaId, taskLabel(task));
-      weights.set(mediaId, weight);
+    const existing = currentTasks.get(mediaId);
+    if (!existing || takesPrecedence(task, existing)) {
+      currentTasks.set(mediaId, task);
     }
+  }
+  const labels = new Map<string, string>();
+  for (const [mediaId, task] of currentTasks) {
+    labels.set(mediaId, taskLabel(task));
   }
   return labels;
 }
@@ -65,6 +77,7 @@ export function useProcessingMedia(workspaceId: string | undefined) {
       try {
         const result = await pb.collection('Tasks').getList<Task>(1, 200, {
           filter: `WorkspaceRef = "${workspaceId}" && (status = "queued" || status = "running") && (type = "process_upload" || type = "detect_labels")`,
+          sort: 'created',
         });
         if (!cancelled) {
           setProcessingMedia(buildProcessingMap(result.items));

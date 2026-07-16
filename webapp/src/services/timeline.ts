@@ -27,13 +27,16 @@ import {
   generateTracks,
   validateTimeRange,
   MAX_TIMELINE_TRACKS,
-  MAX_NESTED_TIMELINE_DEPTH,
+  REFLOW_EPSILON,
   calculateEffectiveDuration,
-  collectNestedTimelineIds,
   computeNestedTimelineDuration,
+  computeTimelineDuration,
+  fetchNestedTimelineMap,
   getCompositeSegments,
   wouldCreateTimelineCycle,
   planRippleDelete,
+  planTimelineTreeReflow,
+  type ClipReflowChange,
   type NestedTimelineMap,
 } from '@project/shared';
 
@@ -105,64 +108,54 @@ export class TimelineService {
 
   /**
    * Fetch clips + tracks for every timeline referenced by nested-timeline
-   * clips, breadth-first through nested-in-nested references up to
-   * MAX_NESTED_TIMELINE_DEPTH. `visited` seeds the ids to skip (the root
-   * timeline itself, so self-references never fetch).
+   * clips (the shared BFS walk). `visited` seeds the ids to skip (the root
+   * timeline itself, so self-references never fetch). Delegates to the shared
+   * `fetchNestedTimelineMap` so the editor and the CLI heal against an
+   * identically fetched tree.
    */
   private async fetchNestedTimelines(
     clips: TimelineClip[],
     visited: Set<string>
   ): Promise<NestedTimelineMap> {
-    const map: NestedTimelineMap = {};
-    let frontier = collectNestedTimelineIds(clips).filter(
-      (id) => !visited.has(id)
-    );
+    return fetchNestedTimelineMap(this.pb, clips, visited);
+  }
 
-    for (
-      let depth = 0;
-      frontier.length > 0 && depth < MAX_NESTED_TIMELINE_DEPTH;
-      depth++
-    ) {
-      frontier.forEach((id) => visited.add(id));
-      const results = await Promise.all(
-        frontier.map(async (id) => {
-          try {
-            const [timeline, nestedClips, nestedTracks] = await Promise.all([
-              this.timelineMutator.getById(id),
-              this.timelineClipMutator.getByTimeline(id),
-              this.timelineTrackMutator.getByTimeline(id),
-            ]);
-            if (!timeline) return null;
-            return {
-              id,
-              data: {
-                timeline,
-                clips: nestedClips,
-                tracks: nestedTracks.items,
-              },
-            };
-          } catch {
-            // Deleted or inaccessible source timeline: the clip stays but
-            // plays/renders as nothing (missing-source, like missing media)
-            return null;
-          }
-        })
-      );
-
-      const next: string[] = [];
-      for (const result of results) {
-        if (!result) continue;
-        map[result.id] = result.data;
-        next.push(
-          ...collectNestedTimelineIds(result.data.clips).filter(
-            (id) => !visited.has(id)
-          )
-        );
-      }
-      frontier = [...new Set(next)];
+  /**
+   * Heal drift between nested-timeline clips and their source timelines'
+   * live durations (gap-preserving reflow) in memory, so the editor,
+   * validation, and render all see the same placements. Never persists:
+   * loading or rendering a timeline must not write to it, and reflow plans
+   * span nested child timelines — clips owned by other timelines that other
+   * users may be editing. `saveTimeline` persists `rootChanges` (this
+   * timeline's own clips only) at that explicit write touchpoint; a whole
+   * tree is durably healed via `vw timeline reflow`. Idempotent: a clean
+   * tree returns the inputs unchanged.
+   */
+  private reflowTree(
+    timelineId: string,
+    clips: TimelineClip[],
+    tracks: TimelineTrackRecord[],
+    nestedTimelines: NestedTimelineMap
+  ): {
+    clips: TimelineClip[];
+    nestedTimelines: NestedTimelineMap;
+    rootChanges: ClipReflowChange[];
+  } {
+    const result = planTimelineTreeReflow({
+      rootTimelineId: timelineId,
+      clips,
+      tracks,
+      nestedTimelines,
+    });
+    if (!result.hasDrift) {
+      return { clips, nestedTimelines, rootChanges: [] };
     }
 
-    return map;
+    return {
+      clips: result.updatedClips,
+      nestedTimelines: result.updatedNested,
+      rootChanges: result.root.changes,
+    };
   }
 
   // ============================================================================
@@ -212,11 +205,16 @@ export class TimelineService {
       new Set([id])
     );
 
+    // Source timelines may have grown/shrunk since these clips were last
+    // written — heal drift in memory so the editor shows live placements.
+    // Loading is a pure read: nothing is persisted here (see reflowTree).
+    const healed = this.reflowTree(id, clips, tracks.items, nestedTimelines);
+
     return {
       ...timeline,
-      clips,
+      clips: healed.clips,
       tracks: tracks.items,
-      nestedTimelines,
+      nestedTimelines: healed.nestedTimelines,
     };
   }
 
@@ -464,7 +462,12 @@ export class TimelineService {
       start: 0,
       end: sourceDuration,
       duration: sourceDuration,
-      meta: { title: sourceTimeline.label || sourceTimeline.name },
+      // Fresh inserts span the whole source and keep following its live
+      // duration until the user trims them.
+      meta: {
+        title: sourceTimeline.label || sourceTimeline.name,
+        followSource: true,
+      },
     };
 
     if (timelineStart !== undefined) {
@@ -674,12 +677,22 @@ export class TimelineService {
         clips: sourceClips,
         tracks: sourceTracks.items,
       });
-      if (start < 0 || end <= start || end > sourceDuration) {
+      if (start < 0 || end <= start || end > sourceDuration + REFLOW_EPSILON) {
         throw new Error(
           `Invalid time range: start=${start}, end=${end}, duration=${sourceDuration}`
         );
       }
       data.duration = end - start;
+      // A full-span window (untrim) follows the source's live duration from
+      // here on; any narrower trim stops following. Either way the clip is
+      // back in a user-chosen state, so an out-of-range clamp is cleared.
+      const meta: NonNullable<TimelineClip['meta']> = {
+        ...(typeof clip.meta === 'object' && clip.meta ? clip.meta : {}),
+        followSource:
+          start <= REFLOW_EPSILON && end >= sourceDuration - REFLOW_EPSILON,
+      };
+      delete meta.sourceOutOfRange;
+      data.meta = meta;
       return this.timelineClipMutator.update(timelineClipId, data);
     }
 
@@ -769,14 +782,38 @@ export class TimelineService {
    */
   async saveTimeline(timelineId: string): Promise<Timeline> {
     // Get timeline clips
-    const clips = await this.timelineClipMutator.getByTimeline(timelineId);
+    const rawClips = await this.timelineClipMutator.getByTimeline(timelineId);
     // Get tracks
     const tracksList =
       await this.timelineTrackMutator.getByTimeline(timelineId);
-    const nestedTimelines = await this.fetchNestedTimelines(
-      clips,
+    const rawNested = await this.fetchNestedTimelines(
+      rawClips,
       new Set([timelineId])
     );
+
+    // Heal source-duration drift so the stored timelineData snapshot is
+    // consistent with the clips as persisted. Save is this timeline's
+    // explicit write touchpoint, so its own healed clips persist here — but
+    // only its own: nested children belong to other timelines and heal in
+    // memory only (persisted when *they* are saved, or via `vw timeline
+    // reflow`).
+    const { clips, nestedTimelines, rootChanges } = this.reflowTree(
+      timelineId,
+      rawClips,
+      tracksList.items,
+      rawNested
+    );
+    if (rootChanges.length > 0) {
+      // Save is durable by contract: if a heal write fails, fail the save
+      // rather than store a timelineData/duration snapshot describing
+      // geometry the persisted clips don't actually have. Reflow is
+      // idempotent, so a retried save re-plans the identical writes.
+      await Promise.all(
+        rootChanges.map(({ clipId, ...fields }) =>
+          this.timelineClipMutator.update(clipId, fields)
+        )
+      );
+    }
 
     // Generate tracks
     const tracks = generateTracks(clips, tracksList.items, {
@@ -784,10 +821,11 @@ export class TimelineService {
       rootTimelineId: timelineId,
     });
 
-    // Calculate duration
-    const duration = clips.reduce((sum, clip) => {
-      return sum + clip.duration;
-    }, 0);
+    // Timeline length: the furthest placed clip end across tracks (what the
+    // doctor's computedDuration and the CLI's syncTimelineDuration compute)
+    // — not the sum of clip durations, which overcounts stacked tracks and
+    // ignores gaps.
+    const duration = computeTimelineDuration(clips, tracksList.items);
 
     // Increment version
     const timeline = await this.timelineMutator.incrementVersion(timelineId);
@@ -801,15 +839,14 @@ export class TimelineService {
   }
 
   /**
-   * Calculate total duration of a timeline
+   * Timeline length in seconds: the furthest placed clip end across tracks
+   * (equals the sum of clip durations only for a single gapless sequential
+   * track).
    * @param timelineId Timeline ID
    * @returns Total duration in seconds
    */
   async calculateDuration(timelineId: string): Promise<number> {
-    const clips = await this.timelineClipMutator.getByTimeline(timelineId);
-    return clips.reduce((sum, clip) => {
-      return sum + clip.duration;
-    }, 0);
+    return this.getTimelineContentDuration(timelineId);
   }
 
   /**
@@ -861,15 +898,42 @@ export class TimelineService {
   // ============================================================================
 
   /**
-   * Validate a timeline for rendering
+   * Validate a timeline for rendering. Validates the same data a render
+   * would consume: drift against nested source timelines is healed in
+   * memory first, so this gate always agrees with createRenderTask (which
+   * heals before validating). Pure read — nothing is persisted.
    * @param timelineId Timeline ID
    * @returns ValidationResult with any errors found
    */
   async validateTimeline(timelineId: string): Promise<ValidationResult> {
-    const errors: ValidationError[] = [];
+    const rawClips = await this.timelineClipMutator.getByTimeline(timelineId);
+    const tracks = await this.timelineTrackMutator.getByTimeline(timelineId);
+    const rawNested = await this.fetchNestedTimelines(
+      rawClips,
+      new Set([timelineId])
+    );
+    const { clips, nestedTimelines } = this.reflowTree(
+      timelineId,
+      rawClips,
+      tracks.items,
+      rawNested
+    );
+    return this.validateClips(timelineId, clips, nestedTimelines);
+  }
 
-    // Get timeline clips
-    const clips = await this.timelineClipMutator.getByTimeline(timelineId);
+  /**
+   * Validate already-fetched clips against the given nested-timeline data —
+   * the same data reflow healed against, so validation and healing can never
+   * disagree. Read-only backstop: reflow is the single healing mechanism,
+   * and out-of-bounds nested windows surviving it are real logic bugs that
+   * should fail loudly.
+   */
+  private async validateClips(
+    timelineId: string,
+    clips: TimelineClip[],
+    nestedTimelines: NestedTimelineMap
+  ): Promise<ValidationResult> {
+    const errors: ValidationError[] = [];
 
     // Check if timeline has clips
     if (clips.length === 0) {
@@ -918,10 +982,8 @@ export class TimelineService {
 
       // Nested-timeline clips validate against their source timeline
       if (clip.SourceTimelineRef) {
-        const sourceTimeline = await this.timelineMutator
-          .getById(clip.SourceTimelineRef)
-          .catch(() => null);
-        if (!sourceTimeline) {
+        const sourceData = nestedTimelines[clip.SourceTimelineRef];
+        if (!sourceData) {
           errors.push({
             code: 'INVALID_SOURCE_TIMELINE_REF',
             message: `Timeline clip references non-existent timeline: ${clip.SourceTimelineRef}`,
@@ -932,18 +994,26 @@ export class TimelineService {
           });
           continue;
         }
-        const [sourceClips, sourceTracks] = await Promise.all([
-          this.timelineClipMutator.getByTimeline(clip.SourceTimelineRef),
-          this.timelineTrackMutator.getByTimeline(clip.SourceTimelineRef),
-        ]);
-        const sourceDuration = computeNestedTimelineDuration({
-          clips: sourceClips,
-          tracks: sourceTracks.items,
-        });
+        const sourceDuration = computeNestedTimelineDuration(sourceData);
+        // Same abstain band as reflow (resolveClipTarget): a source whose
+        // extent is within float noise of zero is "empty" — reflow won't
+        // window a clip against it, so validation must not demand that the
+        // clip's offsets fit it either.
+        if (sourceDuration <= REFLOW_EPSILON) {
+          errors.push({
+            code: 'EMPTY_SOURCE_TIMELINE',
+            message: `Timeline clip references an empty source timeline`,
+            itemId: clip.id,
+            itemType: 'timelineClip',
+            field: 'SourceTimelineRef',
+            actual: clip.SourceTimelineRef,
+          });
+          continue;
+        }
         if (
           clip.start < 0 ||
           clip.end <= clip.start ||
-          clip.end > sourceDuration
+          clip.end > sourceDuration + REFLOW_EPSILON
         ) {
           errors.push({
             code: 'OFFSET_OUT_OF_BOUNDS',
@@ -1217,8 +1287,33 @@ export class TimelineService {
     config: RenderFlowConfig,
     userId?: string
   ): Promise<TimelineRender> {
-    // Validate timeline
-    const validationResult = await this.validateTimeline(timelineId);
+    const rawClips = await this.timelineClipMutator.getByTimeline(timelineId);
+    const tracksList =
+      await this.timelineTrackMutator.getByTimeline(timelineId);
+    const rawNested = await this.fetchNestedTimelines(
+      rawClips,
+      new Set([timelineId])
+    );
+
+    // Heal source-duration drift before validating: a source timeline edited
+    // since this timeline's clips were written must not fail the render.
+    // In-memory only — the render consumes the flattened timelineData
+    // snapshot built below, so nothing needs persisting, and a write
+    // (especially to another timeline's clips) must never be able to fail a
+    // render that only reads them.
+    const { clips, nestedTimelines } = this.reflowTree(
+      timelineId,
+      rawClips,
+      tracksList.items,
+      rawNested
+    );
+
+    // Validate the healed data (the same data the flatten below consumes)
+    const validationResult = await this.validateClips(
+      timelineId,
+      clips,
+      nestedTimelines
+    );
     if (!validationResult.valid) {
       const errorMessages = validationResult.errors
         .map((e) => e.message)
@@ -1235,13 +1330,6 @@ export class TimelineService {
     // Generate tracks, feeding each media clip's transcripts so the renderer
     // can burn auto subtitles in alongside custom caption clips (subtitles
     // gated by includeSubtitles, caption/title clips by includeCaptions).
-    const clips = await this.timelineClipMutator.getByTimeline(timelineId);
-    const tracksList =
-      await this.timelineTrackMutator.getByTimeline(timelineId);
-    const nestedTimelines = await this.fetchNestedTimelines(
-      clips,
-      new Set([timelineId])
-    );
     // Include media inside nested timelines so their transcripts burn in too
     const allClips = [
       ...clips,

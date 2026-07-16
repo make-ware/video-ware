@@ -85,7 +85,7 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
   protected async processParentJob(job: Job<ParentJobData>): Promise<void> {
     const { taskId } = job.data;
 
-    this.logger.log(`Processing parent job for task ${taskId}`);
+    this.logger.debug(`Processing parent job for task ${taskId}`);
 
     // Task status is now managed by the base class event handlers
     // No need to manually update here as it will be set by onActive event
@@ -94,7 +94,7 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
     // BullMQ automatically handles this - parent job only completes when all children are done
     const childrenValues = await job.getChildrenValues();
 
-    this.logger.log(
+    this.logger.debug(
       `All ${Object.keys(childrenValues).length} children completed for task ${taskId}`
     );
 
@@ -123,19 +123,22 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
         await this.pocketbaseService.updateMedia(payload.mediaId, {
           isActive: true,
         });
-        this.logger.log(`Set Media ${payload.mediaId} to active`);
+        this.logger.debug(`Set Media ${payload.mediaId} to active`);
       }
     }
 
-    // Task succeeded - base class will handle the status update on completion
-    this.logger.log(`Task ${taskId} completed successfully`);
+    // Task succeeded - base class will handle the status update on completion.
+    // The canonical "completed" signal (with step counts) is emitted at `log`
+    // level by BaseFlowProcessor.handleParentCompleted; keep this one at debug
+    // to avoid a duplicate info-level line per task.
+    this.logger.debug(`Task ${taskId} completed successfully`);
   }
 
   protected async processStepJob(job: Job<StepJobData>): Promise<StepResult> {
     const startedAt = new Date();
     const { stepType, input } = job.data;
 
-    this.logger.log(`Processing step ${stepType} for job ${job.id}`);
+    this.logger.debug(`Processing step ${stepType} for job ${job.id}`);
 
     if (!input) {
       throw new Error(`Input is missing for step ${stepType}`);
@@ -191,7 +194,7 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
           throw new Error(`Unknown step type: ${stepType}`);
       }
 
-      this.logger.log(`Step ${stepType} completed successfully`);
+      this.logger.debug(`Step ${stepType} completed successfully`);
 
       return {
         stepType,

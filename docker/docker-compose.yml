@@ -88,6 +88,15 @@ services:
       - NEXT_PUBLIC_POCKETBASE_URL=${NEXT_PUBLIC_POCKETBASE_URL:-http://localhost:8090}
       # Internal URL for SSR to access PocketBase
       - POCKETBASE_URL=http://pocketbase:8090
+      # MUST match the worker's storage config: the webapp's upload API routes
+      # write files via the same storage backend the worker reads from. Without
+      # these, uploads fall back to a relative path inside the webapp
+      # container's ephemeral layer and the worker never finds them.
+      - STORAGE_TYPE=${STORAGE_TYPE:-local}
+      - WORKER_DATA_DIR=/data/storage
+    volumes:
+      # Same volume as PocketBase/worker so webapp-written uploads are shared
+      - ./data:/data
     depends_on:
       pocketbase:
         condition: service_healthy

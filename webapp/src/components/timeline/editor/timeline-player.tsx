@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useSyncExternalStore,
+} from 'react';
 import { useTimeline } from '@/hooks/use-timeline';
 import {
   Play,
@@ -11,6 +17,7 @@ import {
   VolumeX,
   Captions,
   CaptionsOff,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +33,7 @@ import {
 import { CaptionOverlay } from '@/components/captions';
 import { TranscriptOverlay } from '@/components/transcripts/transcript-overlay';
 import { TrackVideo } from './track-video';
+import { PlaybackStallRegistry } from './playback-stall-registry';
 
 export function TimelinePlayer() {
   const {
@@ -42,6 +50,16 @@ export function TimelinePlayer() {
 
   const [isMuted, setIsMuted] = useState(false);
   const lastUpdateRef = useRef<number>(0);
+
+  // Channels report whether they can render the playhead's frame; the
+  // playback loop freezes the clock while any can't, so playback waits for
+  // buffers (huge proxies, slow cuts) instead of running ahead of the video.
+  const [stallRegistry] = useState(() => new PlaybackStallRegistry());
+  const isBuffering = useSyncExternalStore(
+    stallRegistry.subscribe,
+    stallRegistry.getSnapshot,
+    () => false
+  );
 
   // Resolve clips (including nested-timeline clips, expanded into extra
   // channels) to the bounded set of media player channels the preview drives
@@ -136,21 +154,25 @@ export function TimelinePlayer() {
       const delta = (timestamp - lastUpdateRef.current) / 1000;
       lastUpdateRef.current = timestamp;
 
-      setCurrentTime((prev) => {
-        const next = prev + delta;
-        if (next >= duration) {
-          setIsPlaying(false);
-          return duration;
-        }
-        return next;
-      });
+      // A stalled channel freezes the shared clock: the playhead waits for
+      // the buffer instead of running ahead of what the players can render.
+      if (!stallRegistry.anyStalled()) {
+        setCurrentTime((prev) => {
+          const next = prev + delta;
+          if (next >= duration) {
+            setIsPlaying(false);
+            return duration;
+          }
+          return next;
+        });
+      }
 
       animationFrame = requestAnimationFrame(update);
     };
 
     animationFrame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(animationFrame);
-  }, [isPlaying, duration, setCurrentTime, setIsPlaying]);
+  }, [isPlaying, duration, setCurrentTime, setIsPlaying, stallRegistry]);
 
   // UI Control Handlers
   const togglePlay = () => setIsPlaying(!isPlaying);
@@ -179,8 +201,16 @@ export function TimelinePlayer() {
             currentTime={currentTime}
             isPlaying={isPlaying}
             muted={isMuted}
+            stallRegistry={stallRegistry}
           />
         ))}
+
+        {/* Buffering indicator: a channel can't render the playhead frame */}
+        {isBuffering && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+            <Loader2 className="h-10 w-10 animate-spin text-white/80" />
+          </div>
+        )}
 
         {/* Caption overlays (ad-hoc captions and title screens) */}
         {activeCaptions.map(({ clipId, caption, localTime }) => (

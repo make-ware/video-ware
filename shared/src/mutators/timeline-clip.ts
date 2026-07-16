@@ -23,6 +23,7 @@ export class TimelineClipMutator extends BaseMutator<
         'TimelineRef',
         'MediaRef',
         'MediaRef.UploadRef',
+        'MediaRef.proxyFileRef',
         'MediaRef.thumbnailFileRef',
         'MediaRef.spriteFileRef',
         'MediaRef.filmstripFileRefs',

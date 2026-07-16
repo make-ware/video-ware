@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useWorkspace } from '@/hooks/use-workspace';
+import { usePageMenus } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import {
   Menubar,
   MenubarContent,
@@ -52,6 +54,22 @@ interface AppMenubarProps {
   className?: string;
 }
 
+/** Render page-provided menu items into a Menubar content area. */
+function renderPageMenuItems(items: PageMenuItem[]) {
+  return items.map((item) => {
+    const Icon = item.icon;
+    return (
+      <React.Fragment key={item.id}>
+        {item.separatorBefore && <MenubarSeparator />}
+        <MenubarItem disabled={item.disabled} onClick={item.onSelect}>
+          {Icon && <Icon className="mr-2 h-4 w-4" />}
+          {item.label}
+        </MenubarItem>
+      </React.Fragment>
+    );
+  });
+}
+
 export function AppMenubar({ className }: AppMenubarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -62,6 +80,7 @@ export function AppMenubar({ className }: AppMenubarProps) {
     isLoading: workspaceLoading,
   } = useWorkspace();
   const { theme, setTheme } = useTheme();
+  const pageMenus = usePageMenus();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
@@ -225,6 +244,30 @@ export function AppMenubar({ className }: AppMenubarProps) {
             })}
             <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
           </>
+        )}
+
+        {/* File menu (page-provided) */}
+        {pageMenus.file.length > 0 && (
+          <MenubarMenu>
+            <MenubarTrigger className="text-xs font-medium px-2 py-1">
+              File
+            </MenubarTrigger>
+            <MenubarContent>
+              {renderPageMenuItems(pageMenus.file)}
+            </MenubarContent>
+          </MenubarMenu>
+        )}
+
+        {/* Edit menu (page-provided) */}
+        {pageMenus.edit.length > 0 && (
+          <MenubarMenu>
+            <MenubarTrigger className="text-xs font-medium px-2 py-1">
+              Edit
+            </MenubarTrigger>
+            <MenubarContent>
+              {renderPageMenuItems(pageMenus.edit)}
+            </MenubarContent>
+          </MenubarMenu>
         )}
 
         {/* Help Menu */}

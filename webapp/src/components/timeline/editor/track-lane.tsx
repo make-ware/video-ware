@@ -2,7 +2,15 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import type { TimelineClip, TimelineTrackRecord } from '@project/shared';
+import {
+  analyzeTrackJunctions,
+  clusterOverlappingRanges,
+  getClipRanges,
+  getSortedTrackClips,
+  type PlacedClip,
+  type TimelineClip,
+  type TimelineTrackRecord,
+} from '@project/shared';
 import { ClipBlock } from './clip-block';
 import { calculateClipPosition } from './clip-position';
 
@@ -91,6 +99,34 @@ export function TrackLane({
     };
   });
 
+  // Junction indicators: how consecutive clips meet (touching seams vs.
+  // nearly-touching micro-gaps) plus any same-track overlap regions. Same
+  // classification the timeline doctor reports; hidden while a drag is in
+  // flight since the committed positions lag the preview.
+  const dragInFlight = !!resizeOverride || !!movingClipId;
+  const { junctions, overlapRegions } = React.useMemo(() => {
+    const sorted = getSortedTrackClips(clips);
+    const ranges = getClipRanges(clips);
+    const placed: PlacedClip[] = sorted.map((clip, i) => ({
+      clip,
+      globalStart: ranges[i].start,
+      globalEnd: ranges[i].end,
+    }));
+    const clusters = clusterOverlappingRanges(placed, (p) => ({
+      start: p.globalStart,
+      end: p.globalEnd,
+    }));
+    return {
+      junctions: analyzeTrackJunctions(placed),
+      overlapRegions: clusters.map((cluster) => ({
+        key: cluster.map((p) => p.clip.id).join('-'),
+        start: cluster[0].globalStart,
+        end: Math.max(...cluster.map((p) => p.globalEnd)),
+        count: cluster.length,
+      })),
+    };
+  }, [clips]);
+
   const handleDragOver = (e: React.DragEvent) => {
     if (isLocked) {
       e.dataTransfer.dropEffect = 'none';
@@ -146,6 +182,50 @@ export function TrackLane({
           onDoubleClick={() => onClipDoubleClick?.(clip)}
         />
       ))}
+
+      {/* Junction indicators (hidden mid-drag; positions lag the preview) */}
+      {!dragInFlight &&
+        junctions.map((junction) =>
+          junction.kind === 'micro-gap' ? (
+            // Amber sliver covering the gap itself — clips are nearly
+            // touching, which is usually an unintended drop position.
+            <div
+              key={`gap-${junction.beforeClipId}-${junction.afterClipId}`}
+              className="absolute top-0 bottom-0 z-20 bg-amber-500/70"
+              style={{
+                left: junction.time * pixelsPerSecond,
+                width: Math.max(junction.gap * pixelsPerSecond, 3),
+              }}
+              title={`${Math.max(1, Math.round(junction.gap * 1000))}ms gap — clips are nearly touching`}
+            />
+          ) : (
+            // Small centered pill at the seam of touching clips: sky when the
+            // source media continues seamlessly, emerald for a hard cut.
+            <div
+              key={`join-${junction.beforeClipId}-${junction.afterClipId}`}
+              className={cn(
+                'absolute top-1/2 z-20 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none',
+                junction.kind === 'continuous'
+                  ? 'bg-sky-400/80'
+                  : 'bg-emerald-400/80'
+              )}
+              style={{ left: junction.time * pixelsPerSecond }}
+            />
+          )
+        )}
+
+      {/* Same-track overlap regions (invalid per the data model) */}
+      {!dragInFlight &&
+        overlapRegions.map((region) => (
+          <div
+            key={`overlap-${region.key}`}
+            className="absolute top-0 bottom-0 z-20 border-x-2 border-red-500/70 bg-red-500/20 pointer-events-none"
+            style={{
+              left: region.start * pixelsPerSecond,
+              width: Math.max((region.end - region.start) * pixelsPerSecond, 3),
+            }}
+          />
+        ))}
 
       {/* Locked indicator overlay */}
       {isLocked && (

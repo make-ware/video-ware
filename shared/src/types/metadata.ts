@@ -220,10 +220,13 @@ export const TaskResultSchema = z.union([
     fileId: z.string(),
     processorVersion: z.string(),
   }),
-  // CleanupResult — counts emitted by the `cleanup` task.
+  // CleanupResult — counts emitted by the `cleanup` task. Results written
+  // before the unreferenced-files sweep existed lack that count, so it stays
+  // optional here (the fallback record catches them anyway).
   z.object({
     refsLinked: z.number(),
     staleFilesPruned: z.number(),
+    unreferencedFilesPruned: z.number().optional(),
     artifactsDeleted: z.number(),
     artifactsFailed: z.number(),
     localDirsPurged: z.number(),
@@ -237,6 +240,7 @@ export const TaskResultSchema = z.union([
 export interface CleanupResult {
   refsLinked: number;
   staleFilesPruned: number;
+  unreferencedFilesPruned: number;
   artifactsDeleted: number;
   artifactsFailed: number;
   localDirsPurged: number;
@@ -316,6 +320,12 @@ export const TimelineClipMetadataSchema = z.object({
     .optional(),
   mediaMissing: z.boolean().optional(), // set when source media is deleted
   gain: z.number().min(0).max(1).optional(), // per-clip audio gain, 0.0–1.0 (default 1.0)
+  // Nested-timeline clips only: window follows the source timeline's live
+  // duration (untrimmed). Cleared when the user trims away from full span.
+  followSource: z.boolean().optional(),
+  // Set by reflow when a trimmed window fell wholly beyond a shrunk source
+  // and was clamped to its tail; cleared on the next successful user trim.
+  sourceOutOfRange: z.boolean().optional(),
 });
 
 // ============================================================================

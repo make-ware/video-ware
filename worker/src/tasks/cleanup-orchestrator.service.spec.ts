@@ -1,5 +1,5 @@
 import { expect, vi, describe, it, beforeEach } from 'vitest';
-import { TaskType, FileStatus, type Task } from '@project/shared';
+import { TaskType, FileStatus, FileType, type Task } from '@project/shared';
 import { CleanupOrchestratorService } from './cleanup-orchestrator.service';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { StorageService } from '../shared/services/storage.service';
@@ -21,6 +21,7 @@ describe('CleanupOrchestratorService', () => {
   };
   const mediaMutator = { getList: vi.fn() };
   const fileMutator = { getById: vi.fn(), update: vi.fn(), getList: vi.fn() };
+  const timelineRenderMutator = { getList: vi.fn() };
   const artifactMutator = {
     getPending: vi.fn(),
     delete: vi.fn(),
@@ -32,6 +33,7 @@ describe('CleanupOrchestratorService', () => {
     taskMutator,
     mediaMutator,
     fileMutator,
+    timelineRenderMutator,
     artifactMutator,
     updateTask: vi.fn(),
     deleteFile: vi.fn(),
@@ -57,6 +59,7 @@ describe('CleanupOrchestratorService', () => {
     fileMutator.getById.mockResolvedValue(null);
     fileMutator.update.mockResolvedValue(undefined);
     fileMutator.getList.mockResolvedValue(emptyPage);
+    timelineRenderMutator.getList.mockResolvedValue(emptyPage);
     artifactMutator.getPending.mockResolvedValue(emptyPage);
     artifactMutator.delete.mockResolvedValue(true);
     artifactMutator.markFailed.mockResolvedValue(undefined);
@@ -114,6 +117,7 @@ describe('CleanupOrchestratorService', () => {
     expect(taskMutator.markSuccess).toHaveBeenCalledWith('cl-1', {
       refsLinked: 1,
       staleFilesPruned: 2,
+      unreferencedFilesPruned: 0,
       artifactsDeleted: 2,
       artifactsFailed: 0,
       localDirsPurged: 4,
@@ -128,7 +132,7 @@ describe('CleanupOrchestratorService', () => {
     mediaMutator.getList.mockResolvedValue(
       page([{ id: 'm-1', UploadRef: 'u-1' }])
     );
-    // fileMutator.getList is used only by pruneStaleFiles now — keep it empty.
+    // fileMutator.getList (prune + sweep candidates) stays empty.
     fileMutator.getList.mockResolvedValue(emptyPage);
     storage.reconcileLocal.mockResolvedValue(2);
 
@@ -219,6 +223,46 @@ describe('CleanupOrchestratorService', () => {
       })
     );
     expect(pb.deleteFile).toHaveBeenCalledWith('del-1');
+  });
+
+  it('prunes unreferenced derived files but keeps referenced ones', async () => {
+    // m-1 still points at f-keep; render r-1 still points at f-render.
+    mediaMutator.getList.mockResolvedValue(
+      page([{ id: 'm-1', UploadRef: 'u-1', proxyFileRef: 'f-keep' }])
+    );
+    fileMutator.getById.mockResolvedValue({ id: 'f-keep', MediaRef: 'm-1' });
+    timelineRenderMutator.getList.mockResolvedValue(
+      page([{ id: 'r-1', FileRef: 'f-render' }])
+    );
+    // pruneStaleFiles sees nothing; the sweep sees three aged derived files,
+    // of which only f-old (a superseded proxy) is unreferenced.
+    fileMutator.getList
+      .mockResolvedValueOnce(emptyPage)
+      .mockResolvedValueOnce(
+        page([{ id: 'f-keep' }, { id: 'f-old' }, { id: 'f-render' }])
+      )
+      .mockResolvedValue(emptyPage);
+
+    await service.run(cleanupTask);
+
+    expect(pb.deleteFile).toHaveBeenCalledTimes(1);
+    expect(pb.deleteFile).toHaveBeenCalledWith('f-old');
+    expect(taskMutator.markSuccess).toHaveBeenCalledWith(
+      'cl-1',
+      expect.objectContaining({ unreferencedFilesPruned: 1 })
+    );
+
+    // The sweep filter targets derived types only, older than the grace window.
+    const sweepFilterArgs = filterFn.mock.calls[filterFn.mock.calls.length - 1];
+    expect(sweepFilterArgs?.[0]).toContain('created < {:cutoff}');
+    expect(sweepFilterArgs?.[0]).not.toContain(FileType.ORIGINAL);
+    expect(sweepFilterArgs?.[1]).toEqual(
+      expect.objectContaining({
+        type0: FileType.PROXY,
+        type5: FileType.RENDER,
+        cutoff: expect.any(String),
+      })
+    );
   });
 
   it('marks the task failed on an unexpected top-level error', async () => {

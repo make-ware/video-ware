@@ -6,6 +6,7 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
 import { StorageBackendType } from '../enums';
+import { resolveLocalStorageBasePath } from './base-path';
 import type {
   StorageBackend,
   StorageResult,
@@ -31,40 +32,17 @@ export class LocalStorageBackend implements StorageBackend {
 
   constructor(config: LocalStorageConfig) {
     this.basePath = config.basePath;
-    this.resolvedBasePath = this.resolveBasePath(config.basePath);
+    this.resolvedBasePath = resolveLocalStorageBasePath(config.basePath);
   }
 
   /**
-   * Resolve a (possibly relative) basePath to an absolute path.
-   *
-   * In a monorepo, different workspaces (webapp/worker) may run with different CWDs.
-   * This searches upward from process.cwd() for a matching path.
+   * The absolute base directory all storage keys resolve under. Exposed so
+   * callers that build local filesystem paths directly (e.g. the worker's
+   * StorageService) use the exact same resolution as this backend instead of
+   * re-deriving it.
    */
-  private resolveBasePath(basePath: string): string {
-    if (path.isAbsolute(basePath)) return basePath;
-
-    // Best-effort upward search so "data" works from repo root or nested workspaces.
-    // The ignore comments keep bundler file-tracing (e.g. Turbopack's NFT) from
-    // treating this as a dynamic require and pulling in the whole project.
-    let current = process.cwd();
-    for (let i = 0; i < 8; i++) {
-      const candidate = path.resolve(
-        /* turbopackIgnore: true */ current,
-        basePath
-      );
-      try {
-        if (fs.existsSync(/* turbopackIgnore: true */ candidate))
-          return candidate;
-      } catch {
-        // ignore
-      }
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
-    }
-
-    // Fallback: resolve relative to current working directory.
-    return path.resolve(/* turbopackIgnore: true */ process.cwd(), basePath);
+  getResolvedBasePath(): string {
+    return this.resolvedBasePath;
   }
 
   /**

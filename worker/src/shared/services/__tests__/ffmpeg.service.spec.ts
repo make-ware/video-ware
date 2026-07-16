@@ -639,6 +639,95 @@ describe('FFmpegService', () => {
       ).rejects.toThrow(/likely out of memory/);
     });
 
+    it('decodes exit 245 and explains pthread_create/EAGAIN failures', async () => {
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: {
+          on: vi.fn((event, callback) => {
+            if (event === 'data') {
+              setTimeout(
+                () =>
+                  callback(
+                    Buffer.from(
+                      '[vist#137:0/hevc @ 0x1] [dec:hevc @ 0x2] pthread_create() failed: Resource temporarily unavailable\n' +
+                        '[vost#0:0/libx264 @ 0x3] Could not open encoder before EOF\n' +
+                        'Conversion failed!\n'
+                    )
+                  ),
+                10
+              );
+            }
+          }),
+        },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(245, null), 20);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      spawnMock.mockReturnValueOnce(mockProcess as any);
+
+      const err: Error = await service
+        .executeWithProgress(['-i', '/input.mp4', '/out.mp4'], vi.fn(), 60)
+        .then(() => {
+          throw new Error('expected rejection');
+        })
+        .catch((e: Error) => e);
+
+      expect(err.message).toContain(
+        'code 245 (EAGAIN: resource temporarily unavailable)'
+      );
+      expect(err.message).toContain(
+        'Likely cause: ffmpeg could not spawn a new thread'
+      );
+      // The cascade noise is retained as stderr but must not shadow the hint
+      expect(err.message).toContain('pthread_create() failed');
+    });
+
+    it('keeps diagnostic stderr when progress stats churn past the line cap', async () => {
+      // CR-separated progress lines, as ffmpeg actually emits them
+      const progressChurn = Array.from(
+        { length: 100 },
+        (_, i) =>
+          `frame=${i} fps=30 q=28.0 size=1024KiB time=00:00:01.00 bitrate=2000kbits/s speed=1x`
+      ).join('\r');
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: {
+          on: vi.fn((event, callback) => {
+            if (event === 'data') {
+              setTimeout(() => {
+                callback(
+                  Buffer.from('[matroska @ 0x1] Cannot allocate memory\n')
+                );
+                callback(Buffer.from(progressChurn));
+              }, 10);
+            }
+          }),
+        },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(1, null), 20);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      spawnMock.mockReturnValueOnce(mockProcess as any);
+
+      const err: Error = await service
+        .executeWithProgress(['-i', '/input.mp4', '/out.mp4'], vi.fn(), 60)
+        .then(() => {
+          throw new Error('expected rejection');
+        })
+        .catch((e: Error) => e);
+
+      // The real error survives the churn; the stats lines are dropped
+      expect(err.message).toContain('Cannot allocate memory');
+      expect(err.message).not.toContain('frame=');
+      expect(err.message).toContain('Likely cause: ffmpeg ran out of memory');
+    });
+
     it('skips probing the first input when totalDuration is provided', async () => {
       const mockProcess = {
         stdout: { on: vi.fn() },

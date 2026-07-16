@@ -74,7 +74,8 @@ worker: queue/ → task-*/processors → task-*/executors → task-*/normalizers
 
 - **Mutators** (`shared/src/mutators/`): `BaseMutator<T, TInput>` base class wrapping PocketBase CRUD with Zod validation. Each collection has a dedicated mutator. Used by both webapp and worker.
 - **Job definitions** (`shared/src/jobs/`): Typed contracts for transcode, render, labels, and recommendations jobs with step-level input/output types.
-- **Storage** (`shared/src/storage/`): Interface-based `StorageBackend` with `LocalStorageBackend` and `S3StorageBackend` implementations, created via factory function.
+- **Storage** (`shared/src/storage/`): Interface-based `StorageBackend` with `LocalStorageBackend` and `S3StorageBackend` implementations, created via factory function. Server-only entrypoint (see below).
+- **Browser/server split in shared**: `@project/shared` is consumed by the browser (Next.js client), the Next.js server, and the NestJS worker. Every entrypoint except `./storage` must stay browser-safe (no Node built-ins in its import graph) — enforced by `shared/src/__tests__/browser-safety.test.ts`. Server-only entrypoints map the `browser` condition in package.json `exports` to a throwing stub (`storage/browser-stub.ts`) so accidental client imports fail loudly at build/dev time. When adding a Node-only module to shared: give it its own entrypoint, add a browser-stub `exports` mapping, and list it under `SERVER_ONLY` in the browser-safety test. Pure helpers needed by the browser must live in isomorphic entrypoints, never in server-only ones.
 - **Worker processors** (`worker/src/task-*/`): Each task type has processors (BullMQ handlers), executors (step implementations), normalizers (API response → DB schema), and services.
 - **Environment validation** (`shared/src/env.ts`): All env vars validated with Zod via `validateEnv()` / `parseEnvOrThrow()`.
 
@@ -86,6 +87,37 @@ worker: queue/ → task-*/processors → task-*/executors → task-*/normalizers
 - No `console.log` in shared workspace
 - Prettier: single quotes, semicolons, trailing commas (es5), 80 char width, 2-space indent
 - Vitest for all testing (not Jest) — webapp uses `happy-dom` environment, worker and shared use `node`
+
+## Logging
+
+The worker uses the built-in **NestJS logger** (`new Logger(ClassName.name)`), not
+`console.*`. Verbosity is controlled by `LOG_LEVEL`
+(`verbose | debug | info | warn | error`), mapped onto NestJS levels in
+[`worker/src/config/log-level.ts`](worker/src/config/log-level.ts) and applied once at
+`NestFactory.create`. **`LOG_LEVEL` defaults to `debug`** — a plain local run shows the
+full operational trace; set `LOG_LEVEL=info` (or higher) in production for a
+signal-only stream.
+
+Choosing a level when writing a log line — the guiding question is _"would an operator
+want to see this at `info` in production?"_:
+
+- **`error`** — an operation failed unrecoverably (task/step exhausted retries, an
+  unhandled throw). Include the stack for `Error`s.
+- **`warn`** — degraded-but-handled: a retryable step failure, a best-effort cleanup
+  that failed, a tolerated missing/skipped condition.
+- **`log`** (NestJS "info") — durable, coarse-grained signals worth keeping in
+  production. Roughly **one line per task or per lifecycle event**, never per step or per
+  file: service/config startup, "Task X started", "Task X completed successfully: N
+  steps…", one-time migration/cleanup summaries.
+- **`debug`** — routine per-step / per-job / per-file operational detail: individual
+  step start/complete, per-child job-completed events, individual file
+  upload/download/delete, per-directory cleanup/purge. This is the "ignore me unless I'm
+  debugging" tier.
+- **`verbose`** — extremely chatty tracing (e.g. "created temp directory").
+
+Rule of thumb: if a message fires once per media file, per step, or per storage
+operation, it's `debug`. Reserve `log` for whole-task and process-lifecycle milestones so
+raising `LOG_LEVEL` to `info` leaves a clean, low-volume signal stream.
 
 ## Node/Engine Requirements
 

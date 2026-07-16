@@ -250,7 +250,7 @@ export abstract class BaseFlowProcessor
    */
   @OnWorkerEvent('completed')
   async onCompleted(job: Job) {
-    this.logger.log(`Job ${job.id} (${job.name}) completed`);
+    this.logger.debug(`Job ${job.id} (${job.name}) completed`);
 
     if (job.name === 'parent') {
       await this.handleParentCompleted(job as Job<ParentJobData>);
@@ -401,7 +401,7 @@ export abstract class BaseFlowProcessor
           result: taskResult,
         });
 
-        this.logger.log(
+        this.logger.debug(
           `Step ${result.stepType} completed for task ${stepData.taskId}`
         );
       } catch (error) {

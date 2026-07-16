@@ -159,11 +159,28 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
         mimeType: 'video/mp4',
       });
 
-      // Update Media record
+      // Update Media record. On a re-transcode the Media already points at a
+      // proxy; delete that File only AFTER the Media points at the new one so
+      // a failed update never strands the Media on a deleted proxy. Deleting
+      // the record removes the PB-native blob immediately; an external blob
+      // is tombstoned into Artifacts by the files-delete hook and reaped by
+      // the cleanup task.
       if (media) {
+        const previousProxyFileId = media.proxyFileRef;
         await this.pocketbaseService.updateMedia(media.id, {
           proxyFileRef: proxyFile.id,
         });
+        if (previousProxyFileId && previousProxyFileId !== proxyFile.id) {
+          // Best-effort: deleteFile logs and returns false on failure, and the
+          // cleanup task's unreferenced-files sweep catches any leftovers.
+          const deleted =
+            await this.pocketbaseService.deleteFile(previousProxyFileId);
+          if (deleted) {
+            this.logger.debug(
+              `Deleted superseded proxy file ${previousProxyFileId} for media ${media.id}`
+            );
+          }
+        }
       }
 
       return { proxyPath, proxyFileId: proxyFile.id };

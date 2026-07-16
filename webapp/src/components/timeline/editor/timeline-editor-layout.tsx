@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TimelinePlayer } from './timeline-player';
 import { TimelineView } from './timeline-view';
 import { CollapsiblePanel } from '@/components/ui/collapsible-panel';
@@ -8,6 +8,8 @@ import { WorkspaceLibrary } from '@/components/library';
 import { RenderDialog } from './render-dialog';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useWorkspace } from '@/hooks/use-workspace';
+import { useRegisterPageMenu } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import { Button } from '@/components/ui/button';
 import {
   Save,
@@ -20,6 +22,7 @@ import {
   FileCode,
   Monitor,
   Smartphone,
+  Stethoscope,
   Type,
   Heading1,
   ChevronDown,
@@ -35,6 +38,8 @@ import {
 import { CaptionEditorModal } from '@/components/captions';
 import { UniversalSearchModal } from './universal-search-modal';
 import { InsertTimelineDialog } from './insert-timeline-dialog';
+import { DoctorModal } from './doctor-modal';
+import { useTimelineDoctor } from './use-timeline-doctor';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { MediaMutator } from '@project/shared/mutator';
 import { TimelineOrientation, CaptionType } from '@project/shared';
@@ -70,6 +75,8 @@ export function TimelineEditorLayout() {
   const [renderDialogOpen, setRenderDialogOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [insertTimelineOpen, setInsertTimelineOpen] = useState(false);
+  const [doctorOpen, setDoctorOpen] = useState(false);
+  const doctorReport = useTimelineDoctor();
   const [captionEditorType, setCaptionEditorType] =
     useState<CaptionType | null>(null);
 
@@ -144,7 +151,7 @@ export function TimelineEditorLayout() {
     [timelineHeight]
   );
 
-  const handleExportFCPXML = async () => {
+  const handleExportFCPXML = useCallback(async () => {
     if (!timeline) return;
 
     try {
@@ -194,7 +201,87 @@ export function TimelineEditorLayout() {
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [timeline]);
+
+  const handleOpenRenders = useCallback(() => {
+    if (currentWorkspace && timeline) {
+      router.push(
+        `/ws/${currentWorkspace.id}/timelines/${timeline.id}/renders`
+      );
+    }
+  }, [currentWorkspace, router, timeline]);
+
+  const handleOpenRenderDialog = useCallback(() => {
+    setRenderDialogOpen(true);
+  }, []);
+
+  const handleOpenDoctor = useCallback(() => {
+    setDoctorOpen(true);
+  }, []);
+
+  // Actionable doctor issues (errors + warnings) surfaced in the menu label;
+  // info notes (ordinary gaps) are often intentional, so they don't count.
+  const doctorIssueCount = doctorReport
+    ? doctorReport.errors + doctorReport.warnings
+    : 0;
+
+  // Contribute the timeline's output actions to the nav bar File menu.
+  const fileMenuItems = useMemo<PageMenuItem[]>(
+    () => [
+      {
+        id: 'save',
+        label: hasUnsavedChanges ? 'Save' : 'Saved',
+        icon: hasUnsavedChanges ? Save : Check,
+        disabled: !hasUnsavedChanges || isLoading,
+        onSelect: saveTimeline,
+      },
+      {
+        id: 'render',
+        label: 'Render',
+        icon: Play,
+        disabled: isLoading,
+        separatorBefore: true,
+        onSelect: handleOpenRenderDialog,
+      },
+      {
+        id: 'renders',
+        label: 'Renders',
+        icon: Download,
+        onSelect: handleOpenRenders,
+      },
+      {
+        id: 'export-xml',
+        label: 'Export XML',
+        icon: FileCode,
+        disabled: isExporting,
+        separatorBefore: true,
+        onSelect: handleExportFCPXML,
+      },
+      {
+        id: 'doctor',
+        label:
+          doctorIssueCount > 0
+            ? `Doctor (${doctorIssueCount} issue${doctorIssueCount === 1 ? '' : 's'})`
+            : 'Doctor',
+        icon: Stethoscope,
+        separatorBefore: true,
+        onSelect: handleOpenDoctor,
+      },
+    ],
+    [
+      hasUnsavedChanges,
+      isLoading,
+      isExporting,
+      doctorIssueCount,
+      saveTimeline,
+      handleOpenRenderDialog,
+      handleOpenRenders,
+      handleExportFCPXML,
+      handleOpenDoctor,
+    ]
+  );
+
+  useRegisterPageMenu('file', fileMenuItems);
 
   if (!timeline) return null;
 
@@ -238,6 +325,15 @@ export function TimelineEditorLayout() {
             <h2 className="font-semibold truncate max-w-[120px] lg:max-w-[200px] text-sm lg:text-base">
               {timeline.name}
             </h2>
+            {hasUnsavedChanges && (
+              <span
+                className="text-muted-foreground shrink-0 text-sm lg:text-base"
+                title="Unsaved changes"
+                aria-label="Unsaved changes"
+              >
+                *
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -331,67 +427,6 @@ export function TimelineEditorLayout() {
               <Layers className="h-4 w-4 lg:mr-2" />
               <span className="hidden lg:inline">Timeline</span>
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportFCPXML}
-              disabled={isExporting}
-              className="h-8 px-2 lg:px-3"
-              title="Export FCPXML for DaVinci Resolve"
-            >
-              {isExporting ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : (
-                <FileCode className="h-4 w-4 lg:mr-2" />
-              )}
-              <span className="hidden lg:inline">Export XML</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (currentWorkspace) {
-                  router.push(
-                    `/ws/${currentWorkspace.id}/timelines/${timeline.id}/renders`
-                  );
-                }
-              }}
-              className="h-8 px-2 lg:px-3"
-            >
-              <Download className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">Renders</span>
-            </Button>
-            <Button
-              onClick={() => setRenderDialogOpen(true)}
-              disabled={isLoading}
-              variant="default"
-              size="sm"
-              className="h-8 px-2 lg:px-3 bg-primary hover:bg-primary/90"
-            >
-              <Play className="h-4 w-4 lg:mr-2 fill-current" />
-              <span className="hidden lg:inline">Render</span>
-            </Button>
-            <Button
-              onClick={saveTimeline}
-              disabled={!hasUnsavedChanges || isLoading}
-              variant={hasUnsavedChanges ? 'default' : 'outline'}
-              size="sm"
-              className="min-w-[70px] lg:min-w-[80px] h-8"
-            >
-              {isLoading ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : hasUnsavedChanges ? (
-                <>
-                  <Save className="h-4 w-4 lg:mr-2" />
-                  <span className="hidden lg:inline">Save</span>
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 lg:mr-2" />
-                  <span className="hidden lg:inline">Saved</span>
-                </>
-              )}
-            </Button>
           </div>
         </div>
 
@@ -475,6 +510,11 @@ export function TimelineEditorLayout() {
       <InsertTimelineDialog
         open={insertTimelineOpen}
         onOpenChange={setInsertTimelineOpen}
+      />
+      <DoctorModal
+        open={doctorOpen}
+        onOpenChange={setDoctorOpen}
+        report={doctorReport}
       />
       <RenderDialog
         open={renderDialogOpen}

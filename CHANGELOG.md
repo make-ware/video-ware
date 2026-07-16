@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.9.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.3...video-ware-v0.9.4) (2026-07-15)
+
+
+### Bug Fixes
+
+* add doctor timeline ([7053375](https://github.com/make-ware/video-ware/commit/7053375a94106823f7089e9ce887c055c36403a6))
+* add ffmpeg lossless window render ([23e2c50](https://github.com/make-ware/video-ware/commit/23e2c50b65225c5f346efb581ed43206f95bcde2))
+* improve ffmpeg error logs ([51cff62](https://github.com/make-ware/video-ware/commit/51cff62d0236104ba83d0bc1abbbbc849575859e))
+* move actions to file and edit menu ([c3cb220](https://github.com/make-ware/video-ware/commit/c3cb220963b73399ff5484cefc514dd56509842b))
+
+## [0.9.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.2...video-ware-v0.9.3) (2026-07-15)
+
+
+### Bug Fixes
+
+* add version to logo and fix transcoding spinner ([71e68ac](https://github.com/make-ware/video-ware/commit/71e68ac87e55d0a7150c25ec35fd9acd5367cc72))
+* tune timeline buffer and file cleanup task ([1e589f5](https://github.com/make-ware/video-ware/commit/1e589f593a0b399f37000a78cf0a46517fd49b6c))
+* update cli actions ([64a2813](https://github.com/make-ware/video-ware/commit/64a2813c00810e8b475214140c528d6fd45eaebe))
+
+## [0.9.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.1...video-ware-v0.9.2) (2026-07-14)
+
+
+### Bug Fixes
+
+* add non-destructive timeline shifting ([98785bd](https://github.com/make-ware/video-ware/commit/98785bdfed029b88c19d7e0dfc5afb9f95bc5ca8))
+* add timeline preview double buffer ([8902b4e](https://github.com/make-ware/video-ware/commit/8902b4ec3d188730684c094e273b1f322a7b2243))
+* allow delete timeline renders ([c0fc4a3](https://github.com/make-ware/video-ware/commit/c0fc4a364ad33afe51856b695e6c276136a31816))
+
+## [0.9.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.0...video-ware-v0.9.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* add robust permissions ([b7bc41b](https://github.com/make-ware/video-ware/commit/b7bc41bc4500ad3a322ab08ad5bf293b9b9baec3))
+* caption not rendering properly ([4fafc05](https://github.com/make-ware/video-ware/commit/4fafc05d8f29bf1c39dd7a0153929d09fbd71fda))
+* dev worker directory mapping ([627aee4](https://github.com/make-ware/video-ware/commit/627aee4cfcffd156747404f45746274ab5e36dee))
+* lock down workspace collection rules ([72724b3](https://github.com/make-ware/video-ware/commit/72724b303ba2e6a2fded99360de1e0440af72fef))
+* reduce logging noise ([9771c66](https://github.com/make-ware/video-ware/commit/9771c662cefde4d5dc232cd8639d3dfc5fd3a8fa))
+
 ## [0.9.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.8.10...video-ware-v0.9.0) (2026-07-11)
 
 

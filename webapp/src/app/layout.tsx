@@ -6,6 +6,7 @@ import { PocketBaseProvider } from '@/contexts/pocketbase-context';
 import { AuthProvider } from '@/contexts/auth-context';
 import { WorkspaceProvider } from '@/contexts/workspace-context';
 import { UploadQueueProvider } from '@/contexts/upload-queue-context';
+import { PageMenuProvider } from '@/contexts/page-menu-context';
 import { NavigationBar } from '@/components/layout/navigation-bar';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme-provider';
@@ -47,9 +48,11 @@ export default function RootLayout({
                     enableSystem
                     disableTransitionOnChange
                   >
-                    <NavigationBar />
-                    <main className="min-h-screen">{children}</main>
-                    <Toaster />
+                    <PageMenuProvider>
+                      <NavigationBar />
+                      <main className="min-h-screen">{children}</main>
+                      <Toaster />
+                    </PageMenuProvider>
                   </ThemeProvider>
                 </UploadQueueProvider>
               </WorkspaceProvider>

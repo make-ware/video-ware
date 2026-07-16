@@ -52,6 +52,10 @@ onRecordCreateRequest((e) => {
       // No membership yet -> create one.
     }
 
+    console.log(
+      `Creating workspace membership for user ${userId} in workspace ${workspaceId}`
+    );
+
     const members = $app.findCollectionByNameOrId('WorkspaceMembers');
     const member = new Record(members);
     member.set('WorkspaceRef', workspaceId);

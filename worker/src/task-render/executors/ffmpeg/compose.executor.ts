@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import * as fs from 'fs';
 import * as path from 'path';
 import { FFmpegService } from '../../../shared/services/ffmpeg.service';
 import type { IRenderExecutor, RenderExecutorResult } from '../interfaces';
@@ -7,6 +8,7 @@ import type {
   Media,
   TimelineTrack,
 } from '@project/shared';
+import { planRenderWindows, clipTracksToWindow } from './render-windows';
 
 /**
  * Every segment branch is normalized to this constant frame rate and the black
@@ -18,6 +20,48 @@ import type {
  * is also an explicit output-rate bump from 25 to 30.
  */
 const RENDER_FPS = 30;
+
+/**
+ * Bounded multi-pass render (Tier 2). ffmpeg opens every demuxer + decoder
+ * at startup, so a single-pass render of a heavily segmented timeline
+ * (one seeked input per segment) exhausts threads (pthread_create EAGAIN,
+ * observed at ~137 HEVC inputs) and then memory (each open HEVC decoder
+ * holds reference-frame buffers — kernel OOM kill). Above the input cap the
+ * timeline renders in sequential time windows (video-only parts), audio
+ * renders in one cheap full-timeline pass, and a lossless concat assembles
+ * the output — peak memory/threads become independent of timeline length.
+ */
+const DEFAULT_MAX_INPUTS_PER_PASS = 24;
+const DEFAULT_RENDER_WINDOW_SEC = 60;
+
+/**
+ * All parts share one exact, 30fps-divisible mp4 timescale (512 × 30) so
+ * concat-copied parts join without timestamp rounding drift.
+ */
+const PART_VIDEO_TIMESCALE = 15360;
+
+const intFromEnv = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
+ * Pass shape for buildFFmpegCommand. 'full' is the single-pass path,
+ * byte-identical to the pre-Tier-2 behaviour. 'video-only' renders one
+ * window's visual tracks (no audio graph, part timescale pinned);
+ * 'audio-only' renders the whole timeline's audio graph (no canvas, no
+ * video encode).
+ */
+interface BuildOptions {
+  mode: 'full' | 'video-only' | 'audio-only';
+  /**
+   * Exact duration for the black base canvas. A window must pad to its
+   * planned end even when its content ends early — a short part would
+   * desynchronize everything after it at concat time.
+   */
+  totalDurationOverride?: number;
+}
 
 /**
  * Image formats safe for `-loop 1` input-level looping (image2 demuxer).
@@ -44,6 +88,10 @@ const STATIC_IMAGE_EXTENSIONS = new Set([
  * - Branches are fps-normalized (RENDER_FPS) so framesync buffering stays
  *   bounded. Threading is left to ffmpeg's auto-sizing — with the above in
  *   place, threads scale the working set only linearly.
+ * - Above RENDER_MAX_INPUTS_PER_PASS total inputs, the render switches to
+ *   the bounded multi-pass mode (see executeMultiPass): windowed video-only
+ *   passes + one audio pass + lossless concat, so peak decoder count is
+ *   capped no matter how long the timeline is.
  */
 @Injectable()
 export class FFmpegComposeExecutor implements IRenderExecutor {
@@ -74,22 +122,50 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       );
     }
 
+    let inputCount: number | undefined;
     try {
       // Build FFmpeg command for timeline composition
-      const { args: ffmpegArgs, totalDuration } = this.buildFFmpegCommand(
+      const {
+        args: ffmpegArgs,
+        totalDuration,
+        inputCount: builtInputCount,
+      } = this.buildFFmpegCommand(
         tracks,
         clipMediaMap,
         outputPath,
         outputSettings
       );
+      inputCount = builtInputCount;
 
-      // Execute FFmpeg with progress tracking against the known timeline
-      // duration (the first input's duration is meaningless for a composition)
-      await this.ffmpegService.executeWithProgress(
-        ffmpegArgs,
-        onProgress || (() => {}),
-        totalDuration
+      this.logger.log(
+        `Timeline graph: ${inputCount} ffmpeg inputs across ` +
+          `${tracks.length} tracks, ${totalDuration}s`
       );
+
+      const maxInputsPerPass = intFromEnv(
+        'RENDER_MAX_INPUTS_PER_PASS',
+        DEFAULT_MAX_INPUTS_PER_PASS
+      );
+      if (inputCount <= maxInputsPerPass) {
+        // Execute FFmpeg with progress tracking against the known timeline
+        // duration (the first input's duration is meaningless for a
+        // composition)
+        await this.ffmpegService.executeWithProgress(
+          ffmpegArgs,
+          onProgress || (() => {}),
+          totalDuration
+        );
+      } else {
+        await this.executeMultiPass(
+          tracks,
+          clipMediaMap,
+          outputPath,
+          outputSettings,
+          totalDuration,
+          maxInputsPerPass,
+          onProgress
+        );
+      }
 
       // Probe the rendered video to get metadata
       const probeResult = await this.ffmpegService.probe(outputPath);
@@ -133,11 +209,151 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       this.logger.log(`Timeline composition completed: ${outputPath}`);
       return { outputPath, probeOutput, isLocal: true };
     } catch (error) {
+      // Append the graph shape to the propagated message — the job failure
+      // record is often all an operator sees, and "N inputs" is the number
+      // that explains thread/memory exhaustion on segmented timelines.
+      if (error instanceof Error && inputCount !== undefined) {
+        error.message += ` [render graph: ${inputCount} inputs across ${tracks.length} tracks]`;
+      }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error(`Timeline composition failed: ${errorMessage}`);
       throw error;
     }
+  }
+
+  /**
+   * Bounded multi-pass render: sequential video-only window passes, one
+   * full-timeline audio pass, then a lossless concat + mux. Intermediates
+   * live in `<renderDir>/parts/`, which the existing cleanupRenderDir (and
+   * stale sweep) reclaim — no extra cleanup needed here, on failure either.
+   */
+  private async executeMultiPass(
+    tracks: TimelineTrack[],
+    clipMediaMap: Record<string, { media: Media; filePath: string }>,
+    outputPath: string,
+    outputSettings: RenderTimelinePayload['outputSettings'],
+    totalDuration: number,
+    maxInputsPerPass: number,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    const windowSec = intFromEnv(
+      'RENDER_WINDOW_SEC',
+      DEFAULT_RENDER_WINDOW_SEC
+    );
+    const windows = planRenderWindows(tracks, totalDuration, {
+      windowSec,
+      maxInputsPerPass,
+    });
+    const partsDir = path.join(path.dirname(outputPath), 'parts');
+    await fs.promises.mkdir(partsDir, { recursive: true });
+
+    this.logger.log(
+      `Bounded multi-pass render: ${windows.length} video windows ` +
+        `(≤${maxInputsPerPass} inputs/pass, target ${windowSec}s/window) ` +
+        `+ audio pass + concat`
+    );
+
+    const report = onProgress || (() => {});
+
+    // Pass A: sequential per-window video-only renders → 0–90% of progress,
+    // weighted by window duration.
+    const partPaths: string[] = [];
+    let renderedSec = 0;
+    for (const [i, window] of windows.entries()) {
+      const windowLen = window.end - window.start;
+      if (window.inputCount > maxInputsPerPass) {
+        this.logger.warn(
+          `Render window ${i} [${window.start}s–${window.end}s] overlaps ` +
+            `${window.inputCount} inputs (cap ${maxInputsPerPass}) — ` +
+            `simultaneously stacked clips cannot be split by time, so this ` +
+            `pass opens them all; it may still exhaust threads/memory`
+        );
+      }
+      const partPath = path.join(
+        partsDir,
+        `part-${String(i).padStart(3, '0')}.mp4`
+      );
+      const { args } = this.buildFFmpegCommand(
+        clipTracksToWindow(tracks, window),
+        clipMediaMap,
+        partPath,
+        outputSettings,
+        { mode: 'video-only', totalDurationOverride: windowLen }
+      );
+      this.logger.debug(
+        `Rendering window ${i + 1}/${windows.length} ` +
+          `[${window.start}s–${window.end}s], ${window.inputCount} inputs`
+      );
+      const baseSec = renderedSec;
+      await this.ffmpegService.executeWithProgress(
+        args,
+        (p) => report(((baseSec + (p / 100) * windowLen) / totalDuration) * 90),
+        windowLen
+      );
+      renderedSec += windowLen;
+      partPaths.push(partPath);
+    }
+
+    // Pass B: one full-timeline audio-only pass → 90–97%. Audio decoders are
+    // cheap (no frame threads, no reference-frame buffers), and a single pass
+    // keeps per-segment afades intact and avoids AAC priming-gap artifacts
+    // that windowed audio would produce at every concat join.
+    const audioPath = path.join(partsDir, 'audio.m4a');
+    const { args: audioArgs } = this.buildFFmpegCommand(
+      tracks,
+      clipMediaMap,
+      audioPath,
+      outputSettings,
+      { mode: 'audio-only' }
+    );
+    this.logger.debug(`Rendering audio pass (${totalDuration}s)`);
+    await this.ffmpegService.executeWithProgress(
+      audioArgs,
+      (p) => report(90 + (p / 100) * 7),
+      totalDuration
+    );
+
+    // Pass C: lossless assembly → 97–100%. Parts share codec settings and
+    // timescale, so the concat demuxer stream-copies them; audio is already
+    // aac and is stream-copied too.
+    const listPath = path.join(partsDir, 'list.txt');
+    const escapeConcatPath = (p: string) => p.replace(/'/g, "'\\''");
+    await fs.promises.writeFile(
+      listPath,
+      partPaths.map((p) => `file '${escapeConcatPath(p)}'`).join('\n') + '\n',
+      'utf8'
+    );
+    const concatArgs = [
+      '-y',
+      '-nostdin',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      listPath,
+      '-i',
+      audioPath,
+      '-map',
+      '0:v',
+      '-map',
+      '1:a',
+      '-c',
+      'copy',
+      '-f',
+      outputSettings.format,
+      outputPath,
+    ];
+    this.logger.debug(
+      `Concatenating ${partPaths.length} parts + audio into ${outputPath}`
+    );
+    await this.ffmpegService.executeWithProgress(
+      concatArgs,
+      (p) => report(97 + (p / 100) * 3),
+      totalDuration
+    );
+    report(100);
   }
 
   /**
@@ -149,8 +365,9 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     tracks: TimelineTrack[],
     clipMediaMap: Record<string, { media: Media; filePath: string }>,
     outputPath: string,
-    outputSettings: RenderTimelinePayload['outputSettings']
-  ): { args: string[]; totalDuration: number } {
+    outputSettings: RenderTimelinePayload['outputSettings'],
+    options: BuildOptions = { mode: 'full' }
+  ): { args: string[]; totalDuration: number; inputCount: number } {
     // -y: overwrite output without prompting. -nostdin: never read stdin, so
     // ffmpeg can't pause waiting for interactive input under a job runner.
     const args: string[] = ['-y', '-nostdin'];
@@ -239,9 +456,18 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // parsing (crashing the render with "Filter not found") or silently drops
     // surrounding text — so we map it to the typographic apostrophe (U+2019),
     // which renders identically for caption/speech text and keeps the quoting
-    // intact.
+    // intact. Control characters are stripped: freetype has no glyph for them,
+    // so drawtext renders each as a .notdef "tofu" box (□) — a stray CR from a
+    // CRLF line ending is the classic case. Line breaks are handled upstream by
+    // splitting into one drawtext per line (drawtext ≥ ffmpeg 8 also draws a
+    // tofu for a bare LF), so no newline should ever reach here; the strip is a
+    // final guard against any residual control byte.
     const escapeDrawtext = (text: string) =>
-      text.replace(/\\/g, '\\\\').replace(/'/g, '’').replace(/:/g, '\\:');
+      text
+        .replace(/[\u0000-\u001f\u007f]/g, '') // eslint-disable-line no-control-regex
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, '’')
+        .replace(/:/g, '\\:');
 
     // Map caption placement presets to drawtext expressions
     const alignToX = (align?: 'left' | 'center' | 'right') => {
@@ -291,16 +517,24 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
       }
     }
     totalDuration = totalDuration || 1;
+    if (options.totalDurationOverride !== undefined) {
+      totalDuration = fmtTime(options.totalDurationOverride);
+    }
     // r= pins the canvas to RENDER_FPS explicitly (color defaults to 25fps),
     // matching the fps-normalized segment branches so framesync never buffers
     // waiting for off-grid timestamps.
-    filterComplex.push(
-      `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
-    );
+    if (options.mode !== 'audio-only') {
+      filterComplex.push(
+        `color=c=black:s=${targetWidth}x${targetHeight}:r=${RENDER_FPS}:d=${fmtTime(totalDuration)}[base]`
+      );
+    }
 
     // Process Video/Image/Text Tracks
     for (const track of sortedTracks) {
       if (track.type === 'audio') {
+        // Audio renders in its own pass in multi-pass mode; a video-only
+        // window never opens audio inputs.
+        if (options.mode === 'video-only') continue;
         // Audio handled separately
         for (const seg of track.segments) {
           if (!seg.assetId) continue;
@@ -354,6 +588,10 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         }
         continue;
       }
+
+      // The audio-only pass builds no visual graph at all — no canvas, no
+      // decoders, no drawtext.
+      if (options.mode === 'audio-only') continue;
 
       // Visual Tracks (Video, Image, Text)
       for (const seg of track.segments) {
@@ -433,17 +671,63 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
                   },
                 ];
 
+          // Line height for stacked multi-line text. Matches the editor
+          // overlay's `leading-snug` (line-height 1.375) so preview and render
+          // break lines at the same rhythm.
+          const lineHeight = Math.round(fontSize * 1.375);
+
+          // Vertical position of a given line in a multi-line block. drawtext
+          // anchors each call at the top-left of its own text, so we place the
+          // whole block using its total height (lines × lineHeight) and then
+          // offset each line down by its index. A caller-supplied y is treated
+          // as the block top; otherwise the position preset centres/pins the
+          // block against the canvas (`h`).
+          const yForLine = (lineIndex: number, lineCount: number) => {
+            const offset = lineIndex * lineHeight;
+            const custom = seg.text?.y;
+            if (custom !== undefined) return `(${custom})+${offset}`;
+            const blockH = lineCount * lineHeight;
+            const position = seg.text?.position;
+            if (position === 'top') return `h*0.08+${offset}`;
+            if (position === 'bottom') return `h-${blockH}-h*0.08+${offset}`;
+            return `(h-${blockH})/2+${offset}`;
+          };
+
           entries.forEach((entry, cueIndex) => {
             if (!entry.text || entry.end <= entry.start) return;
 
             const enable = `between(t,${entry.start},${entry.end})`;
-            const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
 
-            filterComplex.push(
-              `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
-            );
+            // Split on any line-ending convention and render one drawtext per
+            // line rather than passing a control character to drawtext. A raw
+            // CR/LF has no glyph, so freetype draws it as a .notdef "tofu" box
+            // (the reported "John Smith□New Beginnings"); CRLF yields two, and
+            // drawtext ≥ ffmpeg 8 even boxes a bare LF. There is no usable \n
+            // escape under expansion=none either. Per-line drawtext sidesteps
+            // all of that and self-centres each line via the text_w-based x
+            // expression — no `text_align` (ffmpeg ≥ 7.0 only) required.
+            const lines = entry.text.split(/\r\n|\r|\n/);
 
-            lastVideoLabel = nextLabel;
+            // Single-line text keeps the original y expression so existing
+            // captions/subtitles render byte-for-byte as before.
+            if (lines.length <= 1) {
+              const nextLabel = `[v_txt_${seg.id}_${cueIndex}]`;
+              filterComplex.push(
+                `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(entry.text)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${y}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
+              );
+              lastVideoLabel = nextLabel;
+              return;
+            }
+
+            lines.forEach((line, lineIndex) => {
+              // Blank lines keep their vertical slot but draw nothing.
+              if (!line) return;
+              const nextLabel = `[v_txt_${seg.id}_${cueIndex}_${lineIndex}]`;
+              filterComplex.push(
+                `${lastVideoLabel}drawtext=expansion=none:text='${escapeDrawtext(line)}'${fontArg}:fontsize=${fontSize}:fontcolor=${fontColor}:x=${x}:y=${yForLine(lineIndex, lines.length)}${styleArgs}${boxArgs}:enable='${enable}'${nextLabel}`
+              );
+              lastVideoLabel = nextLabel;
+            });
           });
           continue;
         }
@@ -520,14 +804,16 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     // full clip count (e.g. ÷3 for 3 clips) while later clips get progressively
     // louder. With normalize off each clip plays at its intended level; the
     // alimiter then guards against clipping when audio genuinely overlaps.
-    if (audioInputs.length > 0) {
-      filterComplex.push(
-        `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest:normalize=0,alimiter=limit=0.95[outa]`
-      );
-    } else {
-      filterComplex.push(
-        `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
-      );
+    if (options.mode !== 'video-only') {
+      if (audioInputs.length > 0) {
+        filterComplex.push(
+          `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=longest:normalize=0,alimiter=limit=0.95[outa]`
+        );
+      } else {
+        filterComplex.push(
+          `anullsrc=channel_layout=stereo:sample_rate=44100:d=${fmtTime(totalDuration)}[outa]`
+        );
+      }
     }
 
     // Map Final Video
@@ -538,33 +824,48 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
     args.push('-filter_complex', filterComplex.join('; '));
 
     // Map output streams
-    args.push('-map', lastVideoLabel, '-map', '[outa]');
+    if (options.mode === 'audio-only') {
+      args.push('-map', '[outa]');
+    } else if (options.mode === 'video-only') {
+      args.push('-map', lastVideoLabel);
+    } else {
+      args.push('-map', lastVideoLabel, '-map', '[outa]');
+    }
 
-    // Add output settings
-    args.push('-c:v', outputSettings.codec);
+    if (options.mode !== 'audio-only') {
+      // Add output settings
+      args.push('-c:v', outputSettings.codec);
 
-    // Add quality settings based on codec
-    this.addQualitySettings(
-      args,
-      outputSettings.codec,
-      targetWidth,
-      targetHeight
-    );
+      // Add quality settings based on codec
+      this.addQualitySettings(
+        args,
+        outputSettings.codec,
+        targetWidth,
+        targetHeight
+      );
 
-    // No -s here: the filtergraph already emits canvas-sized frames, and -s
-    // would insert a redundant second scaler.
+      // No -s here: the filtergraph already emits canvas-sized frames, and -s
+      // would insert a redundant second scaler.
+    }
 
-    // Add audio codec with high quality settings (higher bitrate = larger files, better quality)
-    args.push('-c:a', 'aac', '-b:a', '320k', '-ar', '48000');
+    if (options.mode === 'video-only') {
+      args.push('-video_track_timescale', String(PART_VIDEO_TIMESCALE));
+    }
 
-    // Add output format
-    args.push('-f', outputSettings.format);
+    if (options.mode !== 'video-only') {
+      // Add audio codec with high quality settings (higher bitrate = larger files, better quality)
+      args.push('-c:a', 'aac', '-b:a', '320k', '-ar', '48000');
+    }
+
+    // Add output format. Intermediate parts are always mp4 regardless of the
+    // requested final container — only the concat pass writes that format.
+    args.push('-f', options.mode === 'full' ? outputSettings.format : 'mp4');
 
     // Add output file
     args.push(outputPath);
 
     this.logger.debug(`FFmpeg command: ffmpeg ${args.join(' ')}`);
-    return { args, totalDuration };
+    return { args, totalDuration, inputCount: inputCounter };
   }
 
   /**

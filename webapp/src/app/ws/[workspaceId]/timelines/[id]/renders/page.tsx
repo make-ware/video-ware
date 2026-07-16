@@ -22,7 +22,18 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  Trash2,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import Link from 'next/link';
 import type { RecordSubscription } from 'pocketbase';
 import pb from '@/lib/pocketbase-client';
@@ -45,6 +56,10 @@ function TimelineRendersPageContent() {
   const [renders, setRenders] = useState<RenderRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [renderToDelete, setRenderToDelete] = useState<RenderRecord | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!timelineId) return;
@@ -118,6 +133,43 @@ function TimelineRendersPageContent() {
       if (unsubscribe) unsubscribe();
     };
   }, [timelineId]);
+
+  // Delete a render and reclaim its storage. The output File is standalone
+  // (one per render), so we remove it too. Deleting the File triggers the
+  // Files-delete hook that tombstones any external (S3/local) blob for the
+  // cleanup worker; PB-native blobs are removed by PocketBase directly.
+  const handleConfirmDelete = useCallback(async () => {
+    if (!renderToDelete) return;
+    const render = renderToDelete;
+
+    setIsDeleting(true);
+    try {
+      await pb.collection('TimelineRenders').delete(render.id);
+
+      const fileId = render.expand?.FileRef?.id ?? render.FileRef;
+      if (fileId) {
+        try {
+          await pb.collection('Files').delete(fileId);
+        } catch (fileErr) {
+          // The render record is already gone; a leaked output blob is
+          // recoverable by the weekly storage-cleanup task, so don't fail the
+          // whole delete over it.
+          console.warn('Failed to delete render output file:', fileErr);
+        }
+      }
+
+      // The realtime subscription also prunes this, but drop it locally so the
+      // card disappears immediately even if the event lags.
+      setRenders((prev) => prev.filter((r) => r.id !== render.id));
+      setRenderToDelete(null);
+      toast.success('Render deleted');
+    } catch (err) {
+      console.error('Failed to delete render:', err);
+      toast.error('Failed to delete render');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [renderToDelete]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -290,17 +342,28 @@ function TimelineRendersPageContent() {
                         )}
                       </CardDescription>
                     </div>
-                    {isDownloadable && downloadUrl && (
-                      <Button asChild className="gap-2">
-                        <a
-                          href={downloadUrl}
-                          download={file?.name || `render-${render.id}.mp4`}
-                        >
-                          <Download className="h-4 w-4" />
-                          Download
-                        </a>
+                    <div className="flex items-center gap-2">
+                      {isDownloadable && downloadUrl && (
+                        <Button asChild className="gap-2">
+                          <a
+                            href={downloadUrl}
+                            download={file?.name || `render-${render.id}.mp4`}
+                          >
+                            <Download className="h-4 w-4" />
+                            Download
+                          </a>
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => setRenderToDelete(render)}
+                        aria-label={`Delete render version ${render.version ?? ''}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
-                    )}
+                    </div>
                   </div>
                 </CardHeader>
 
@@ -378,6 +441,39 @@ function TimelineRendersPageContent() {
           })}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!renderToDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setRenderToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Render</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete version{' '}
+              {renderToDelete?.version ?? ''}? This permanently removes the
+              rendered video file and frees its storage. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDelete();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

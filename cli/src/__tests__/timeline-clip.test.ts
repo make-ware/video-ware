@@ -178,6 +178,94 @@ describe('updateTimelineClip', () => {
   });
 });
 
+describe('updateTimelineClip on a nested-timeline clip', () => {
+  // Parent tl1 holds a nested clip playing tl2; tl2's live extent is 8s.
+  const nestedClip = {
+    id: 'tc1',
+    TimelineRef: 'tl1',
+    TimelineTrackRef: 'trk0',
+    SourceTimelineRef: 'tl2',
+    order: 0,
+    start: 0,
+    end: 8,
+    duration: 8,
+    timelineStart: 0,
+    meta: { title: 'Intro', followSource: true, sourceOutOfRange: true },
+  };
+  const childClips = [
+    {
+      id: 'c1',
+      TimelineRef: 'tl2',
+      TimelineTrackRef: 'trk2',
+      MediaRef: 'm1',
+      order: 0,
+      start: 0,
+      end: 8,
+      duration: 8,
+      timelineStart: 0,
+    },
+  ];
+
+  /** clipStubs, but with clip/track lists routed by the filter's timeline. */
+  function nestedClipStubs(): Record<string, Stub> {
+    const stubs = clipStubs({ clips: [nestedClip] });
+    const idFromFilter = (filter?: string): string =>
+      /"([^"]+)"/.exec(filter ?? '')?.[1] ?? '';
+    stubs.TimelineClips.getList = vi.fn(
+      async (_p: number, _pp: number, options: { filter?: string }) =>
+        listResult(
+          idFromFilter(options?.filter) === 'tl2' ? childClips : [nestedClip]
+        )
+    );
+    stubs.TimelineTracks.getList = vi.fn(
+      async (_p: number, _pp: number, options: { filter?: string }) =>
+        listResult(
+          idFromFilter(options?.filter) === 'tl2'
+            ? [{ id: 'trk2', layer: 0, name: 'Main', TimelineRef: 'tl2' }]
+            : [{ id: 'trk0', layer: 0, name: 'Main', TimelineRef: 'tl1' }]
+        )
+    );
+    return stubs;
+  }
+
+  it('trims against the live source duration and stops following', async () => {
+    const stubs = nestedClipStubs();
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { start: 2, end: 6 });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 2,
+      end: 6,
+      duration: 4,
+      // narrower trim opts out of following; the stale clamp flag clears
+      meta: { title: 'Intro', followSource: false },
+    });
+  });
+
+  it('re-follows the source on an untrim back to the full span', async () => {
+    const stubs = nestedClipStubs();
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { start: 0, end: 8 });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 0,
+      end: 8,
+      duration: 8,
+      meta: { title: 'Intro', followSource: true },
+    });
+  });
+
+  it('rejects a trim beyond the live source duration', async () => {
+    const pb = fakePb(nestedClipStubs());
+
+    await expect(
+      updateTimelineClip(pb, 'tc1', { start: 0, end: 9 })
+    ).rejects.toThrow(/invalid time range/i);
+  });
+});
+
 describe('moveTimelineClip', () => {
   it('keeps the computed position when only changing tracks', async () => {
     // a and b flow sequentially on trk0; b starts at 3

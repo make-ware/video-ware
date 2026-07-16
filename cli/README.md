@@ -93,7 +93,7 @@ vw timeline update <id>        # update name/label/description/orientation
 vw timeline show <id>          # inspect tracks, settings, and placed clips
 vw timeline doctor <id>        # health-check: overlaps, gaps, stale durations
 vw timeline inspect            # what plays on each track at --at <seconds>
-vw timeline insert             # append media/MediaClips/captions to a track (--at/--after to place)
+vw timeline insert             # append media/MediaClips/captions/timelines to a track (--at/--after to place)
 vw timeline render             # render a timeline and wait for the output
 
 vw timeline track create       # add a track on the next layer up
@@ -260,6 +260,13 @@ deleting one never deletes media.
   an existing clip, the new clip is placed at the next free time and the
   command reports the nudge. Pass `--overwrite` (with `--at`) to instead
   trim/remove whatever overlaps (like the editor's playhead insert).
+- **`insert --source-timeline <id>` nests a timeline.** The inserted timeline
+  plays as a single clip; `-s`/`-e` trim its own time axis, and its content
+  is edited only in the source timeline. Inserts that would make a timeline
+  contain itself (directly or transitively) are rejected. A full-span insert
+  follows the source's live duration until trimmed (`clips update -s/-e`);
+  `timeline reflow` heals drift after the source changes, and renders flatten
+  the nested tree automatically.
 - **`clips ripple <id> --by <±s>`** shifts a clip and everything after it on
   its track, preserving spacing — leftward shifts clamp at the previous
   clip. `clips remove --ripple` closes the gap the removed clip leaves.

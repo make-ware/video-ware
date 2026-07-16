@@ -3476,11 +3476,11 @@ var require_yoctocolors_cjs = __commonJS({
     "use strict";
     var tty = __require("tty");
     var hasColors = tty?.WriteStream?.prototype?.hasColors?.() ?? false;
-    var format = (open, close) => {
+    var format = (open2, close) => {
       if (!hasColors) {
         return (input) => input;
       }
-      const openCode = `\x1B[${open}m`;
+      const openCode = `\x1B[${open2}m`;
       const closeCode = `\x1B[${close}m`;
       return (input) => {
         const string4 = input + "";
@@ -18052,6 +18052,7 @@ async function login(opts) {
   const authData = await pb.collection("Users").authWithPassword(email3, password);
   updateConfig({
     url: url2,
+    ...opts.appUrl ? { appUrl: opts.appUrl } : {},
     token: pb.authStore.token,
     userId: authData.record.id,
     userEmail: authData.record.email ?? email3
@@ -18080,7 +18081,10 @@ function handleError(err) {
 
 // src/commands/login.ts
 function registerAuthCommands(program3) {
-  program3.command("login").description("Authenticate with PocketBase and cache the session").option("--url <url>", "PocketBase URL").option("--email <email>", "account email").option("--password <password>", "account password").action(async (opts) => {
+  program3.command("login").description("Authenticate with PocketBase and cache the session").option("--url <url>", "PocketBase URL").option(
+    "--app-url <url>",
+    "webapp origin serving /api-next, for uploads (only when it differs from the PocketBase URL)"
+  ).option("--email <email>", "account email").option("--password <password>", "account password").action(async (opts) => {
     try {
       await login(opts);
     } catch (err) {
@@ -32115,6 +32119,49 @@ function JSONField(schema) {
 }
 
 // ../shared/dist/index.js
+var AUTHENTICATED = '@request.auth.id != ""';
+function withDot(chain) {
+  return chain ? `${chain}.` : "";
+}
+function memberRule(chain) {
+  return `${withDot(chain)}WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id`;
+}
+function memberCreateRule(chain) {
+  return `${AUTHENTICATED} && @request.body.${withDot(chain)}WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id`;
+}
+function workspaceScopedPermissions(chain = "WorkspaceRef") {
+  const member = memberRule(chain);
+  return {
+    listRule: member,
+    viewRule: member,
+    createRule: memberCreateRule(chain),
+    updateRule: member,
+    deleteRule: member
+  };
+}
+var workspacesCollectionPermissions = {
+  listRule: memberRule(""),
+  viewRule: memberRule(""),
+  createRule: AUTHENTICATED,
+  updateRule: memberRule(""),
+  deleteRule: memberRule("")
+};
+var superuserWriteWorkspaceReadPermissions = {
+  listRule: `${AUTHENTICATED} && (WorkspaceRef = "" || ${memberRule("WorkspaceRef")})`,
+  viewRule: `${AUTHENTICATED} && (WorkspaceRef = "" || ${memberRule("WorkspaceRef")})`,
+  createRule: null,
+  updateRule: null,
+  deleteRule: null
+};
+var UploadStatus = /* @__PURE__ */ ((UploadStatus2) => {
+  UploadStatus2["QUEUED"] = "queued";
+  UploadStatus2["UPLOADING"] = "uploading";
+  UploadStatus2["UPLOADED"] = "uploaded";
+  UploadStatus2["PROCESSING"] = "processing";
+  UploadStatus2["READY"] = "ready";
+  UploadStatus2["FAILED"] = "failed";
+  return UploadStatus2;
+})(UploadStatus || {});
 var StorageBackendType = /* @__PURE__ */ ((StorageBackendType2) => {
   StorageBackendType2["LOCAL"] = "local";
   StorageBackendType2["S3"] = "s3";
@@ -32235,14 +32282,7 @@ var ArtifactInputSchema = external_exports.object({
 var ArtifactCollection = defineCollection({
   collectionName: "Artifacts",
   schema: ArtifactSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    // create/update/delete are superuser-only (null rule).
-    createRule: null,
-    updateRule: null,
-    deleteRule: null
-  }
+  permissions: superuserWriteWorkspaceReadPermissions
 });
 var CaptionCueSchema = external_exports.object({
   /** Text displayed during this cue */
@@ -32346,13 +32386,7 @@ var CaptionInputSchema = external_exports.object({
 var CaptionCollection = defineCollection({
   collectionName: "Captions",
   schema: CaptionSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE INDEX idx_captions_workspace ON Captions (WorkspaceRef)",
     "CREATE INDEX idx_captions_media ON Captions (MediaRef)"
@@ -32370,28 +32404,39 @@ var ClipLabelSearchSchema = external_exports.object({
   /** Label confidence (0..1) — used for ranking. */
   confidence: external_exports.number()
 }).extend(baseSchema);
+var DIRECTORY_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+var DIRECTORY_NAME_MAX = 60;
+var DIRECTORY_NAME_RULE = "letters, digits, dashes, and underscores only, starting with a letter or digit";
+function directoryNameError(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return "Name is required";
+  if (trimmed.length > DIRECTORY_NAME_MAX) {
+    return `Name must be at most ${DIRECTORY_NAME_MAX} characters`;
+  }
+  if (!DIRECTORY_NAME_PATTERN.test(trimmed)) {
+    return `Directory names allow ${DIRECTORY_NAME_RULE}`;
+  }
+  return null;
+}
+var DirectoryNameSchema = external_exports.string().trim().min(1, "Name is required").max(
+  DIRECTORY_NAME_MAX,
+  `Name must be at most ${DIRECTORY_NAME_MAX} characters`
+).regex(
+  DIRECTORY_NAME_PATTERN,
+  `Directory names allow ${DIRECTORY_NAME_RULE}`
+);
 var DirectorySchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
-  ParentDirectoryRef: RelationField({
-    collection: "Directories"
-  }).optional(),
   name: TextField()
 }).extend(baseSchema);
 var DirectoryInputSchema = external_exports.object({
   WorkspaceRef: external_exports.string().min(1, "Workspace is required"),
-  ParentDirectoryRef: external_exports.string().optional(),
-  name: external_exports.string().min(1, "Name is required")
+  name: DirectoryNameSchema
 });
 var DirectoryCollection = defineCollection({
   collectionName: "Directories",
   schema: DirectorySchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var EntitySchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
@@ -32426,18 +32471,7 @@ var EntityInputSchema = external_exports.object({
 var EntityCollection = defineCollection({
   collectionName: "Entities",
   schema: EntitySchema,
-  permissions: {
-    // Authenticated users can list entities
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view entities
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create entities
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update entities
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete entities
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // One entity per (workspace, kind, name) — duplicates are merges waiting
     // to happen; disambiguate real duplicates in the name itself
@@ -32620,10 +32654,13 @@ var TaskResultSchema = external_exports.union([
     fileId: external_exports.string(),
     processorVersion: external_exports.string()
   }),
-  // CleanupResult — counts emitted by the `cleanup` task.
+  // CleanupResult — counts emitted by the `cleanup` task. Results written
+  // before the unreferenced-files sweep existed lack that count, so it stays
+  // optional here (the fallback record catches them anyway).
   external_exports.object({
     refsLinked: external_exports.number(),
     staleFilesPruned: external_exports.number(),
+    unreferencedFilesPruned: external_exports.number().optional(),
     artifactsDeleted: external_exports.number(),
     artifactsFailed: external_exports.number(),
     localDirsPurged: external_exports.number(),
@@ -32685,8 +32722,14 @@ var TimelineClipMetadataSchema = external_exports.object({
   segments: external_exports.array(external_exports.object({ start: external_exports.number(), end: external_exports.number() })).optional(),
   mediaMissing: external_exports.boolean().optional(),
   // set when source media is deleted
-  gain: external_exports.number().min(0).max(1).optional()
+  gain: external_exports.number().min(0).max(1).optional(),
   // per-clip audio gain, 0.0–1.0 (default 1.0)
+  // Nested-timeline clips only: window follows the source timeline's live
+  // duration (untrimmed). Cleared when the user trims away from full span.
+  followSource: external_exports.boolean().optional(),
+  // Set by reflow when a trimmed window fell wholly beyond a shrunk source
+  // and was clamped to its tail; cleared on the next successful user trim.
+  sourceOutOfRange: external_exports.boolean().optional()
 });
 var TimelineRenderMetadataSchema = external_exports.object({});
 var FileSchema = external_exports.object({
@@ -32770,18 +32813,7 @@ var FileInputSchema = external_exports.object({
 var FileCollection = defineCollection({
   collectionName: "Files",
   schema: FileSchema,
-  permissions: {
-    // Authenticated users can list files
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view files
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create files
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update files
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete files
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var LabelEntitySchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
@@ -32843,18 +32875,7 @@ var LabelEntityInputSchema = external_exports.object({
 var LabelEntityCollection = defineCollection({
   collectionName: "LabelEntity",
   schema: LabelEntitySchema,
-  permissions: {
-    // Authenticated users can list label entities
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label entities
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label entities
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label entities
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label entities
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // Unique constraint on entityHash for deduplication
     "CREATE UNIQUE INDEX idx_label_entity_hash ON LabelEntity (entityHash)",
@@ -32940,13 +32961,7 @@ var LabelFaceInputSchema = external_exports.object({
 var LabelFaceCollection = defineCollection({
   collectionName: "LabelFaces",
   schema: LabelFaceSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_face_hash ON LabelFaces (faceHash)",
     "CREATE INDEX idx_label_face_workspace ON LabelFaces (WorkspaceRef)",
@@ -32972,18 +32987,7 @@ var LabelJobInputSchema = external_exports.object({
 var LabelJobCollection = defineCollection({
   collectionName: "LabelJobs",
   schema: LabelJobSchema,
-  permissions: {
-    // Authenticated users can list label jobs
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label jobs
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label jobs
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label jobs
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label jobs
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions("MediaRef.WorkspaceRef")
 });
 var LabelObjectSchema = external_exports.object({
   // --- Relations ---
@@ -33034,13 +33038,7 @@ var LabelObjectInputSchema = external_exports.object({
 var LabelObjectCollection = defineCollection({
   collectionName: "LabelObjects",
   schema: LabelObjectSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_object_hash ON LabelObjects (objectHash)",
     "CREATE INDEX idx_label_object_workspace ON LabelObjects (WorkspaceRef)",
@@ -33104,13 +33102,7 @@ var LabelPersonInputSchema = external_exports.object({
 var LabelPersonCollection = defineCollection({
   collectionName: "LabelPerson",
   schema: LabelPersonSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_person_hash ON LabelPerson (personHash)",
     "CREATE INDEX idx_label_person_workspace ON LabelPerson (WorkspaceRef)",
@@ -33173,13 +33165,7 @@ var LabelSegmentInputSchema = external_exports.object({
 var LabelSegmentCollection = defineCollection({
   collectionName: "LabelSegments",
   schema: LabelSegmentSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_segment_hash ON LabelSegment (segmentHash)",
     "CREATE INDEX idx_label_segment_workspace ON LabelSegment (WorkspaceRef)",
@@ -33227,13 +33213,7 @@ var LabelShotInputSchema = external_exports.object({
 var LabelShotCollection = defineCollection({
   collectionName: "LabelShots",
   schema: LabelShotSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_shot_hash ON LabelShot (shotHash)",
     "CREATE INDEX idx_label_shot_workspace ON LabelShot (WorkspaceRef)",
@@ -33291,13 +33271,7 @@ var LabelSpeakerInputSchema = external_exports.object({
 var LabelSpeakerCollection = defineCollection({
   collectionName: "LabelSpeaker",
   schema: LabelSpeakerSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_speaker_hash ON LabelSpeaker (speakerHash)",
     "CREATE INDEX idx_label_speaker_workspace ON LabelSpeaker (WorkspaceRef)",
@@ -33364,13 +33338,7 @@ var LabelSpeechInputSchema = external_exports.object({
 var LabelSpeechCollection = defineCollection({
   collectionName: "LabelSpeech",
   schema: LabelSpeechSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_speech_hash ON LabelSpeech (speechHash)",
     "CREATE INDEX idx_label_speech_workspace ON LabelSpeech (WorkspaceRef)",
@@ -33417,13 +33385,7 @@ var LabelTextInputSchema = external_exports.object({
 var LabelTextCollection = defineCollection({
   collectionName: "LabelText",
   schema: LabelTextSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE UNIQUE INDEX idx_label_text_hash ON LabelText (textHash)",
     "CREATE INDEX idx_label_text_workspace ON LabelText (WorkspaceRef)",
@@ -33488,18 +33450,7 @@ var LabelTrackInputSchema = external_exports.object({
 var LabelTrackCollection = defineCollection({
   collectionName: "LabelTrack",
   schema: LabelTrackSchema,
-  permissions: {
-    // Authenticated users can list label tracks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view label tracks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create label tracks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update label tracks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete label tracks
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     // Unique constraint on trackHash for deduplication
     "CREATE UNIQUE INDEX idx_label_track_hash ON LabelTrack (trackHash)",
@@ -33602,13 +33553,7 @@ var MediaClipLabelInputSchema = external_exports.object({
 var MediaClipLabelCollection = defineCollection({
   collectionName: "MediaClipLabels",
   schema: MediaClipLabelSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE INDEX idx_mediaclip_labels_workspace ON MediaClipLabels (WorkspaceRef)",
     "CREATE INDEX idx_mediaclip_labels_clip ON MediaClipLabels (MediaClipRef)",
@@ -33670,18 +33615,7 @@ var MediaClipInputSchema = external_exports.object({
 var MediaClipCollection = defineCollection({
   collectionName: "MediaClips",
   schema: MediaClipSchema,
-  permissions: {
-    // Authenticated users can list media clips
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view media clips
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create media clips
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update media clips
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete media clips
-    deleteRule: '@request.auth.id != ""'
-  },
+  permissions: workspaceScopedPermissions(),
   indexes: [
     "CREATE INDEX idx_mediaclips_workspace ON MediaClips (WorkspaceRef)",
     "CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)"
@@ -33755,18 +33689,7 @@ var MediaInputSchema = external_exports.object({
 var MediaCollection = defineCollection({
   collectionName: "Media",
   schema: MediaSchema,
-  permissions: {
-    // Authenticated users can list media
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view media
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create media
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update media
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete media
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var TaskSchema = external_exports.object({
   sourceType: TextField(),
@@ -33849,18 +33772,7 @@ var TaskInputSchema = external_exports.object({
 var TaskCollection = defineCollection({
   collectionName: "Tasks",
   schema: TaskSchema,
-  permissions: {
-    // Authenticated users can list tasks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view tasks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create tasks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update tasks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete tasks
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var TimelineClipSchema = external_exports.object({
   TimelineRef: RelationField({ collection: "Timelines" }),
@@ -33914,18 +33826,7 @@ var TimelineClipInputSchema = external_exports.object({
 var TimelineClipCollection = defineCollection({
   collectionName: "TimelineClips",
   schema: TimelineClipSchema,
-  permissions: {
-    // Authenticated users can list timeline clips
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline clips
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline clips
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline clips
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline clips
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions("TimelineRef.WorkspaceRef")
 });
 var TimelineRenderSchema = external_exports.object({
   TimelineRef: RelationField({ collection: "Timelines" }),
@@ -33978,18 +33879,7 @@ var TimelineRenderInputSchema = external_exports.object({
 var TimelineRenderCollection = defineCollection({
   collectionName: "TimelineRenders",
   schema: TimelineRenderSchema,
-  permissions: {
-    // Authenticated users can list timeline renders
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline renders
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline renders
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline renders
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline renders
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var TimelineTrackSchema2 = external_exports.object({
   TimelineRef: RelationField({ collection: "Timelines" }),
@@ -34021,18 +33911,7 @@ var TimelineTrackInputSchema = external_exports.object({
 var TimelineTrackCollection = defineCollection({
   collectionName: "TimelineTracks",
   schema: TimelineTrackSchema2,
-  permissions: {
-    // Authenticated users can list timeline tracks
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timeline tracks
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timeline tracks
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timeline tracks
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timeline tracks
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions("TimelineRef.WorkspaceRef")
 });
 var TimeOffsetSchema = external_exports.object({
   seconds: external_exports.number().int().min(0),
@@ -34079,18 +33958,7 @@ var TimelineInputSchema = external_exports.object({
 var TimelineCollection = defineCollection({
   collectionName: "Timelines",
   schema: TimelineSchema,
-  permissions: {
-    // Authenticated users can list timelines
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view timelines
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create timelines
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update timelines
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete timelines
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var UploadSchema = external_exports.object({
   name: TextField().min(1, "Name is required").max(255, "Name too long"),
@@ -34154,18 +34022,7 @@ var UploadInputSchema = external_exports.object({
 var UploadCollection = defineCollection({
   collectionName: "Uploads",
   schema: UploadSchema,
-  permissions: {
-    // Authenticated users can list uploads
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view uploads
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create uploads
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update uploads
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete uploads
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var UsageEventSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
@@ -34190,13 +34047,7 @@ var UsageEventInputSchema = external_exports.object({
 var UsageEventCollection = defineCollection({
   collectionName: "UsageEvents",
   schema: UsageEventSchema,
-  permissions: {
-    listRule: '@request.auth.id != ""',
-    viewRule: '@request.auth.id != ""',
-    createRule: '@request.auth.id != ""',
-    updateRule: '@request.auth.id != ""',
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var UserSchema = external_exports.object({
   name: TextField({ min: 0, max: 255 }).optional(),
@@ -34269,18 +34120,7 @@ var WorkspaceMemberInputSchema = external_exports.object({
 var WorkspaceMemberCollection = defineCollection({
   collectionName: "WorkspaceMembers",
   schema: WorkspaceMemberSchema,
-  permissions: {
-    // Users can list members of workspaces they belong to
-    listRule: '@request.auth.id != ""',
-    // Users can view members of workspaces they belong to
-    viewRule: '@request.auth.id != ""',
-    // Users can add members
-    createRule: '@request.auth.id != ""',
-    // Users can update their own member roles
-    updateRule: '@request.auth.id != ""',
-    // Users can remove themselves from workspaces
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspaceScopedPermissions()
 });
 var WorkspaceSchema = external_exports.object({
   name: TextField().min(1, "Name is required").max(100, "Name too long"),
@@ -34295,18 +34135,7 @@ var WorkspaceInputSchema = external_exports.object({
 var WorkspaceCollection = defineCollection({
   collectionName: "Workspaces",
   schema: WorkspaceSchema,
-  permissions: {
-    // Authenticated users can list workspaces they are members of
-    listRule: '@request.auth.id != ""',
-    // Authenticated users can view workspaces they are members of
-    viewRule: '@request.auth.id != ""',
-    // Authenticated users can create workspaces
-    createRule: '@request.auth.id != ""',
-    // Authenticated users can update (will be refined with workspace member checks)
-    updateRule: '@request.auth.id != ""',
-    // Authenticated users can delete (will be refined with workspace member checks)
-    deleteRule: '@request.auth.id != ""'
-  }
+  permissions: workspacesCollectionPermissions
 });
 var LoadingManager = class {
   loadingStates = /* @__PURE__ */ new Map();
@@ -34531,6 +34360,541 @@ function clampCuesToWindow(cues, windowStart, windowEnd) {
   }
   return result;
 }
+var BaseMutator = class {
+  pb;
+  // Define a default property that subclasses will override
+  options = {
+    expand: [],
+    filter: [],
+    sort: []
+  };
+  constructor(pb, options) {
+    this.pb = pb;
+    this.initializeOptions();
+    if (options) {
+      this.overrideOptions(options);
+    }
+  }
+  initializeOptions() {
+    this.options = this.setDefaults();
+  }
+  /**
+   * Initialize options with class-specific defaults
+   * Subclasses should override this instead of directly setting options
+   */
+  setDefaults() {
+    return {
+      expand: [],
+      filter: [],
+      sort: []
+    };
+  }
+  /**
+   * Merge provided options with current options
+   */
+  overrideOptions(newOptions) {
+    if (newOptions.expand !== void 0) {
+      this.options.expand = newOptions.expand;
+    }
+    if (newOptions.filter !== void 0) {
+      this.options.filter = newOptions.filter;
+    }
+    if (newOptions.sort !== void 0) {
+      this.options.sort = newOptions.sort;
+    }
+  }
+  toSnakeCase(str) {
+    return str.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  }
+  /**
+   * Create a new entity
+   */
+  async create(input) {
+    try {
+      const data = await this.validateInput(input);
+      const record2 = await this.entityCreate(data);
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Update an existing entity
+   */
+  async update(id, input) {
+    try {
+      const record2 = await this.entityUpdate(id, input);
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Create or update entity (upsert)
+   */
+  async upsert(input) {
+    if (input?.id) {
+      return await this.update(input.id, input);
+    }
+    return await this.create(input);
+  }
+  /**
+   * Get entity by ID
+   */
+  async getById(id, expand) {
+    try {
+      const record2 = await this.entityGetById(id, expand);
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.handleError(error49, { allowNotFound: true });
+    }
+  }
+  /**
+   * Get first entity by filter
+   */
+  async getFirstByFilter(filter, expand, sort) {
+    try {
+      const record2 = await this.entityGetFirstByFilter(
+        filter,
+        expand,
+        sort
+      );
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.handleError(error49, { allowNotFound: true });
+    }
+  }
+  /**
+   * Get list of entities
+   */
+  async getList(page = 1, perPage = 100, filter, sort, expand) {
+    try {
+      const result = await this.entityGetList(
+        page,
+        perPage,
+        filter,
+        sort,
+        expand
+      );
+      return await this.processListResult(result);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Delete entity by ID
+   */
+  async delete(id) {
+    try {
+      return await this.entityDelete(id);
+    } catch (error49) {
+      return this.handleError(error49, { returnValue: false });
+    }
+  }
+  /**
+   * Process a single record before returning it
+   * Can be overridden to handle special cases like mapped entities
+   */
+  async processRecord(record2) {
+    return record2;
+  }
+  /**
+   * Process a list result before returning it
+   * Can be overridden to handle special cases like mapped entities
+   */
+  async processListResult(result) {
+    const processedItems = await Promise.all(
+      result.items.map((item) => this.processRecord(item))
+    );
+    return {
+      ...result,
+      items: processedItems
+    };
+  }
+  /**
+   * Prepare expand parameter
+   * Combines default expands with provided expands
+   */
+  prepareExpand(expand) {
+    if (!this.options.expand.length && !expand) {
+      return void 0;
+    }
+    let expandArray = [...this.options.expand];
+    if (expand) {
+      if (typeof expand === "string") {
+        expandArray = expandArray.concat(
+          expand.split(",").map((e2) => e2.trim())
+        );
+      } else {
+        expandArray = expandArray.concat(expand);
+      }
+    }
+    const uniqueExpands = [...new Set(expandArray)].filter(
+      (e2) => e2 !== "" && e2 !== void 0
+    );
+    if (!uniqueExpands.length) {
+      return void 0;
+    }
+    return uniqueExpands.join(",");
+  }
+  /**
+   * Prepare filter parameter
+   * Combines default filters with provided filters
+   */
+  prepareFilter(filter) {
+    if (!this.options.filter.length && !filter) {
+      return void 0;
+    }
+    let filterArray = [...this.options.filter];
+    if (filter) {
+      if (typeof filter === "string") {
+        if (filter) filterArray.push(filter);
+      } else {
+        filterArray = filterArray.concat(filter);
+      }
+    }
+    const validFilters = filterArray.filter((f) => f !== "" && f !== void 0);
+    if (!validFilters.length) {
+      return void 0;
+    }
+    return validFilters.join("&&");
+  }
+  /**
+   * Prepare sort parameter
+   * Uses provided sort or falls back to default sort
+   */
+  prepareSort(sort) {
+    if (sort && sort !== "") {
+      return sort;
+    }
+    if (this.options.sort.length) {
+      const validSorts = this.options.sort.filter(
+        (s2) => s2 !== "" && s2 !== void 0
+      );
+      if (validSorts.length) {
+        return validSorts.join(",");
+      }
+    }
+    return void 0;
+  }
+  /**
+   * Perform the actual create operation
+   */
+  async entityCreate(data) {
+    const finalExpand = this.prepareExpand();
+    const options = finalExpand ? { expand: finalExpand } : {};
+    return await this.getCollection().create(
+      data,
+      options
+    );
+  }
+  /**
+   * Perform the actual update operation
+   */
+  async entityUpdate(id, data) {
+    const finalExpand = this.prepareExpand();
+    const options = finalExpand ? { expand: finalExpand } : {};
+    return await this.getCollection().update(id, data, options);
+  }
+  /**
+   * Perform the actual getById operation
+   */
+  async entityGetById(id, expand) {
+    const finalExpand = this.prepareExpand(expand);
+    const options = finalExpand ? { expand: finalExpand } : {};
+    return await this.getCollection().getOne(id, options);
+  }
+  /**
+   * Perform the actual getFirstByFilter operation
+   */
+  async entityGetFirstByFilter(filter, expand, sort) {
+    const finalFilter = this.prepareFilter(filter);
+    const finalExpand = this.prepareExpand(expand);
+    const finalSort = this.prepareSort(sort);
+    const options = {};
+    if (finalExpand) options.expand = finalExpand;
+    if (finalSort) options.sort = finalSort;
+    return await this.getCollection().getFirstListItem(
+      finalFilter || "",
+      options
+    );
+  }
+  /**
+   * Perform the actual getList operation
+   * Returns a list result with items of type T
+   */
+  async entityGetList(page, perPage, filter, sort, expand) {
+    const finalFilter = this.prepareFilter(filter);
+    const finalExpand = this.prepareExpand(expand);
+    const finalSort = this.prepareSort(sort);
+    const options = {};
+    if (finalFilter) options.filter = finalFilter;
+    if (finalExpand) options.expand = finalExpand;
+    if (finalSort) options.sort = finalSort;
+    return await this.getCollection().getList(page, perPage, options);
+  }
+  /**
+   * Perform the actual delete operation
+   */
+  async entityDelete(id) {
+    await this.getCollection().delete(id);
+    return true;
+  }
+  /**
+   * Error handler for common errors
+   * @param error The error to handle
+   * @param options Handler options
+   * @returns The value to return if the error is handled, or throws if not handled
+   */
+  handleError(error49, options = { logError: true }) {
+    const { allowNotFound = false, returnValue, logError = true } = options;
+    const isSilencedNotFound = allowNotFound && this.isNotFoundError(error49);
+    if (logError && !isSilencedNotFound) {
+      console.error(`Error in ${this.constructor.name}:`, error49);
+    }
+    if (isSilencedNotFound) {
+      return null;
+    }
+    if (returnValue !== void 0) {
+      return returnValue;
+    }
+    throw error49;
+  }
+  /**
+   * Check if an error is a "not found" error
+   */
+  isNotFoundError(error49) {
+    if (!error49) return false;
+    if (typeof error49 === "object" && "status" in error49 && error49.status === 404) {
+      return true;
+    }
+    return error49 instanceof Error && (error49.message.includes("404") || error49.message.toLowerCase().includes("not found"));
+  }
+  /**
+   * Standard error handling wrapper (legacy method, consider using handleError instead)
+   */
+  errorWrapper(error49) {
+    console.error(`Error in ${this.constructor.name}:`, error49);
+    throw error49;
+  }
+  /**
+   * Subscribe to changes on a specific record
+   * @param id The ID of the record to subscribe to
+   * @param callback Function to call when changes occur
+   * @param expand Optional expand parameters
+   * @returns Promise that resolves to an unsubscribe function
+   */
+  async subscribeToRecord(id, callback, expand) {
+    const finalExpand = this.prepareExpand(expand);
+    const options = finalExpand ? { expand: finalExpand } : {};
+    return this.getCollection().subscribe(
+      id,
+      callback,
+      options
+    );
+  }
+  /**
+   * Subscribe to changes on the entire collection
+   * @param callback Function to call when changes occur
+   * @param expand Optional expand parameters
+   * @returns Promise that resolves to an unsubscribe function
+   */
+  async subscribeToCollection(callback, expand) {
+    const finalExpand = this.prepareExpand(expand);
+    const options = finalExpand ? { expand: finalExpand } : {};
+    return this.getCollection().subscribe(
+      "*",
+      callback,
+      options
+    );
+  }
+  /**
+   * Unsubscribe from a specific record's changes
+   * @param id The ID of the record to unsubscribe from
+   */
+  unsubscribeFromRecord(id) {
+    this.getCollection().unsubscribe(id);
+  }
+  /**
+   * Unsubscribe from collection-wide changes
+   */
+  unsubscribeFromCollection() {
+    this.getCollection().unsubscribe("*");
+  }
+  /**
+   * Unsubscribe from all subscriptions in this collection
+   */
+  unsubscribeAll() {
+    this.getCollection().unsubscribe();
+  }
+};
+var TimelineMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("Timelines");
+  }
+  setDefaults() {
+    return {
+      expand: ["WorkspaceRef", "UserRef"],
+      filter: [],
+      sort: ["-created"]
+      // Sort by created date descending by default
+    };
+  }
+  async validateInput(input) {
+    return TimelineInputSchema.parse(input);
+  }
+  /**
+   * Get timelines by workspace
+   * @param workspaceId The workspace ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 50)
+   * @returns List of timelines for the workspace
+   */
+  async getByWorkspace(workspaceId, page = 1, perPage = 50) {
+    return this.getList(page, perPage, `WorkspaceRef = "${workspaceId}"`);
+  }
+  /**
+   * Increment the version number of a timeline
+   * @param id The timeline ID
+   * @returns Updated timeline with incremented version
+   */
+  async incrementVersion(id) {
+    const timeline = await this.getById(id);
+    if (!timeline) {
+      throw new Error(`Timeline not found: ${id}`);
+    }
+    return this.update(id, { version: (timeline.version ?? 1) + 1 });
+  }
+};
+var TimelineClipMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("TimelineClips");
+  }
+  setDefaults() {
+    return {
+      expand: [
+        "TimelineRef",
+        "MediaRef",
+        "MediaRef.UploadRef",
+        "MediaRef.proxyFileRef",
+        "MediaRef.thumbnailFileRef",
+        "MediaRef.spriteFileRef",
+        "MediaRef.filmstripFileRefs",
+        "MediaClipRef",
+        "CaptionRef",
+        "SourceTimelineRef"
+      ],
+      filter: [],
+      sort: ["order"]
+      // Sort by order position by default
+    };
+  }
+  async validateInput(input) {
+    return TimelineClipInputSchema.parse(input);
+  }
+  /**
+   * Get timeline clips by timeline
+   * @param timelineId The timeline ID
+   * @returns List of timeline clips sorted by order
+   */
+  async getByTimeline(timelineId) {
+    const result = await this.getList(
+      1,
+      500,
+      // Get all clips (reasonable max)
+      `TimelineRef = "${timelineId}"`,
+      "order"
+      // Explicit sort by order
+    );
+    return result.items;
+  }
+  /**
+   * Get the maximum order value for a timeline
+   * @param timelineId The timeline ID
+   * @returns Maximum order value, or -1 if no clips exist
+   */
+  async getMaxOrder(timelineId) {
+    const clips = await this.getByTimeline(timelineId);
+    if (clips.length === 0) {
+      return -1;
+    }
+    return Math.max(...clips.map((c) => c.order));
+  }
+  /**
+   * Get timeline clips by media
+   * @param mediaId The media ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 500)
+   * @returns List of timeline clips referencing this media
+   */
+  async getByMedia(mediaId, page = 1, perPage = 500) {
+    return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
+  }
+  /**
+   * Reorder clips in a timeline
+   * @param timelineId The timeline ID (for validation)
+   * @param clipOrders Array of clip IDs with their new order positions
+   * @returns Array of updated timeline clips
+   */
+  async reorderClips(timelineId, clipOrders) {
+    const updates = clipOrders.map(
+      ({ id, order }) => this.update(id, { order })
+    );
+    return Promise.all(updates);
+  }
+};
+var TimelineTrackMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("TimelineTracks");
+  }
+  setDefaults() {
+    return {
+      expand: [],
+      filter: [],
+      sort: ["layer"]
+      // Sort by layer ascending (0 is bottom)
+    };
+  }
+  async validateInput(input) {
+    return TimelineTrackInputSchema.parse(input);
+  }
+  /**
+   * Get tracks by timeline
+   * @param timelineId The timeline ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 50)
+   * @returns List of tracks for the timeline
+   */
+  async getByTimeline(timelineId, page = 1, perPage = 50) {
+    return this.getList(page, perPage, `TimelineRef = "${timelineId}"`);
+  }
+  /**
+   * Get the maximum layer number for a timeline
+   * @param timelineId The timeline ID
+   * @returns The maximum layer number, or -1 if no tracks exist
+   */
+  async getMaxLayer(timelineId) {
+    const result = await this.getList(
+      1,
+      1,
+      `TimelineRef = "${timelineId}"`,
+      "-layer"
+    );
+    if (result.items.length === 0) {
+      return -1;
+    }
+    return result.items[0].layer;
+  }
+};
 function getClipSegments(clip) {
   if (clip.meta?.segments && clip.meta.segments.length > 0) {
     return clip.meta.segments;
@@ -34645,7 +35009,7 @@ function computeClipPlacement(trackClips, selectedClipId, newClipDuration) {
     newClipDuration
   );
 }
-function buildPlaybackTracks(clips, tracks) {
+function groupClipsByTrack(clips, tracks) {
   const defaultTrack = tracks.find((t2) => t2.layer === 0) ?? tracks[0];
   const clipsByTrack = /* @__PURE__ */ new Map();
   for (const clip of clips) {
@@ -34654,6 +35018,10 @@ function buildPlaybackTracks(clips, tracks) {
     trackClips.push(clip);
     clipsByTrack.set(trackId, trackClips);
   }
+  return clipsByTrack;
+}
+function buildPlaybackTracks(clips, tracks) {
+  const clipsByTrack = groupClipsByTrack(clips, tracks);
   const playbackTracks = [];
   const buildTrack = (trackId, track, trackClips) => {
     const sorted = getSortedTrackClips(trackClips);
@@ -34705,6 +35073,69 @@ function computeTimelineDuration(clips, tracks) {
   }
   return max;
 }
+function collectNestedTimelineIds(clips) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const clip of clips) {
+    if (clip.SourceTimelineRef) ids.add(clip.SourceTimelineRef);
+  }
+  return [...ids];
+}
+function wouldCreateTimelineCycle(parentTimelineId, childTimelineId, nested) {
+  if (parentTimelineId === childTimelineId) return true;
+  const visited = /* @__PURE__ */ new Set();
+  const queue = [childTimelineId];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === parentTimelineId) return true;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const data = nested[id];
+    if (data) queue.push(...collectNestedTimelineIds(data.clips));
+  }
+  return false;
+}
+async function fetchNestedTimelineMap(pb, clips, visited) {
+  const timelineMutator = new TimelineMutator(pb);
+  const clipMutator = new TimelineClipMutator(pb);
+  const trackMutator = new TimelineTrackMutator(pb);
+  const map2 = {};
+  let frontier = collectNestedTimelineIds(clips).filter(
+    (id) => !visited.has(id)
+  );
+  for (let depth = 0; frontier.length > 0 && depth < MAX_NESTED_TIMELINE_DEPTH; depth++) {
+    frontier.forEach((id) => visited.add(id));
+    const results = await Promise.all(
+      frontier.map(async (id) => {
+        try {
+          const [timeline, nestedClips, nestedTracks] = await Promise.all([
+            timelineMutator.getById(id),
+            clipMutator.getByTimeline(id),
+            trackMutator.getByTimeline(id)
+          ]);
+          if (!timeline) return null;
+          return {
+            id,
+            data: { timeline, clips: nestedClips, tracks: nestedTracks.items }
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+    const next = [];
+    for (const result of results) {
+      if (!result) continue;
+      map2[result.id] = result.data;
+      next.push(
+        ...collectNestedTimelineIds(result.data.clips).filter(
+          (id) => !visited.has(id)
+        )
+      );
+    }
+    frontier = [...new Set(next)];
+  }
+  return map2;
+}
 function projectChildWindow(clipGlobalStart, trimStart, trimEnd, childStart, childEnd) {
   const visibleStart = Math.max(childStart, trimStart);
   const visibleEnd = Math.min(childEnd, trimEnd);
@@ -34714,6 +35145,19 @@ function projectChildWindow(clipGlobalStart, trimStart, trimEnd, childStart, chi
     parentEnd: clipGlobalStart + (visibleEnd - trimStart),
     headTrim: visibleStart - childStart
   };
+}
+function computeNestedTimelineDuration(data) {
+  let max = 0;
+  for (const track of buildPlaybackTracks(data.clips, data.tracks)) {
+    for (const placed of [
+      ...track.mediaClips,
+      ...track.captionClips,
+      ...track.timelineClips
+    ]) {
+      max = Math.max(max, placed.globalEnd);
+    }
+  }
+  return max;
 }
 function effectiveVolume(trackSettings, clipGain) {
   if (trackSettings?.isMuted) return 0;
@@ -35361,6 +35805,363 @@ function clampSegmentsToWindow(segments, start, end, bounds) {
   })).filter((seg) => seg.end - seg.start > 0);
   return normalizeSegments(pieces, bounds);
 }
+var TIMELINE_EPSILON = 1e-6;
+var MICRO_GAP_THRESHOLD = 0.1;
+var LEVEL_ORDER = {
+  error: 0,
+  warning: 1,
+  info: 2
+};
+var secs = (v) => `${v.toFixed(2)}s`;
+var millis = (v) => `${Math.max(1, Math.round(v * 1e3))}ms`;
+function clusterOverlappingRanges(items, rangeOf) {
+  const sorted = [...items].sort((a, b) => rangeOf(a).start - rangeOf(b).start);
+  const clusters = [];
+  let current = [];
+  let currentEnd = -Infinity;
+  for (const item of sorted) {
+    const { start, end } = rangeOf(item);
+    if (current.length > 0 && start < currentEnd - TIMELINE_EPSILON) {
+      current.push(item);
+      currentEnd = Math.max(currentEnd, end);
+    } else {
+      if (current.length > 1) clusters.push(current);
+      current = [item];
+      currentEnd = end;
+    }
+  }
+  if (current.length > 1) clusters.push(current);
+  return clusters;
+}
+function findRangeGaps(items, rangeOf) {
+  const sorted = [...items].sort((a, b) => rangeOf(a).start - rangeOf(b).start);
+  const gaps = [];
+  let prev = null;
+  for (const item of sorted) {
+    const { start, end } = rangeOf(item);
+    if (prev && start > rangeOf(prev).end + TIMELINE_EPSILON) {
+      gaps.push({
+        start: rangeOf(prev).end,
+        end: start,
+        before: prev,
+        after: item
+      });
+    }
+    if (!prev || end > rangeOf(prev).end) {
+      prev = item;
+    }
+  }
+  return gaps;
+}
+function collectTimelineDoctorFindings(input, options = {}) {
+  const microGapThreshold = options.microGapThreshold ?? MICRO_GAP_THRESHOLD;
+  const findings = [];
+  for (const track of buildPlaybackTracks(input.clips, input.tracks)) {
+    const placed = [
+      ...track.mediaClips,
+      ...track.captionClips,
+      ...track.timelineClips
+    ].sort((a, b) => a.globalStart - b.globalStart);
+    const rangeOf = (p) => ({
+      start: p.globalStart,
+      end: p.globalEnd
+    });
+    for (const cluster of clusterOverlappingRanges(placed, rangeOf)) {
+      const start = cluster[0].globalStart;
+      const end = Math.max(...cluster.map((c) => c.globalEnd));
+      findings.push({
+        level: "error",
+        code: "track-overlap",
+        layer: track.layer,
+        clipIds: cluster.map((c) => c.clip.id),
+        start,
+        end,
+        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs(start)} and ${secs(end)} \u2014 same-track overlaps are invalid`
+      });
+    }
+    for (const gap of findRangeGaps(placed, rangeOf)) {
+      const width = gap.end - gap.start;
+      const shared = {
+        layer: track.layer,
+        clipIds: [gap.before.clip.id, gap.after.clip.id],
+        start: gap.start,
+        end: gap.end
+      };
+      if (width < microGapThreshold) {
+        findings.push({
+          level: "warning",
+          code: "micro-gap",
+          ...shared,
+          message: `track ${track.layer}: ${millis(width)} micro-gap at ${secs(gap.start)}\u2013${secs(gap.end)} \u2014 clips are nearly touching; this is usually unintended`
+        });
+      } else {
+        findings.push({
+          level: "info",
+          code: "track-gap",
+          ...shared,
+          message: `track ${track.layer}: ${secs(width)} gap at ${secs(gap.start)}\u2013${secs(gap.end)}`
+        });
+      }
+    }
+    for (const placedClip of placed) {
+      const clip = placedClip.clip;
+      const effective = getClipTimelineDuration(clip);
+      if (Math.abs(clip.duration - effective) > TIMELINE_EPSILON) {
+        findings.push({
+          level: "warning",
+          code: "stale-clip-duration",
+          layer: track.layer,
+          clipIds: [clip.id],
+          message: `clip ${clip.id}: stored duration ${secs(clip.duration)} \u2260 effective duration (${secs(effective)})`
+        });
+      }
+      if (clip.MediaRef && !clip.expand?.MediaRef) {
+        findings.push({
+          level: "error",
+          code: "dangling-media",
+          layer: track.layer,
+          clipIds: [clip.id],
+          message: `clip ${clip.id} references missing media ${clip.MediaRef} \u2014 rendering will fail`
+        });
+      }
+      if (clip.MediaClipRef && !clip.expand?.MediaClipRef) {
+        findings.push({
+          level: "warning",
+          code: "dangling-media-clip",
+          layer: track.layer,
+          clipIds: [clip.id],
+          message: `clip ${clip.id} references missing MediaClip ${clip.MediaClipRef} (provenance only \u2014 playback and rendering are unaffected)`
+        });
+      }
+      if (clip.CaptionRef && !clip.expand?.CaptionRef) {
+        findings.push({
+          level: "error",
+          code: "dangling-caption",
+          layer: track.layer,
+          clipIds: [clip.id],
+          message: `clip ${clip.id} references missing caption ${clip.CaptionRef} \u2014 rendering will fail`
+        });
+      }
+    }
+  }
+  if (input.storedDuration !== void 0) {
+    const computed = computeTimelineDuration(input.clips, input.tracks);
+    if (Math.abs(input.storedDuration - computed) > TIMELINE_EPSILON) {
+      findings.push({
+        level: "warning",
+        code: "stale-timeline-duration",
+        clipIds: [],
+        message: `stored duration ${secs(input.storedDuration)} \u2260 computed ${secs(computed)} \u2014 self-heals on the next clip mutation`
+      });
+    }
+  }
+  return findings;
+}
+function sortDoctorFindings(findings) {
+  return [...findings].sort(
+    (a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]
+  );
+}
+function summarizeDoctorFindings(findings) {
+  const errors = findings.filter((f) => f.level === "error").length;
+  const warnings = findings.filter((f) => f.level === "warning").length;
+  return {
+    errors,
+    warnings,
+    infos: findings.length - errors - warnings,
+    ok: errors === 0
+  };
+}
+var REFLOW_EPSILON = 0.01;
+var MIN_NESTED_WINDOW = 0.5;
+function makeExtentLookup(nested) {
+  const cache = /* @__PURE__ */ new Map();
+  return (childId) => {
+    const cached2 = cache.get(childId);
+    if (cached2 !== void 0) return cached2;
+    const data = nested[childId];
+    const extent = data ? computeNestedTimelineDuration(data) : null;
+    cache.set(childId, extent);
+    return extent;
+  };
+}
+function resolveClipTarget(clip, getExtent, promoteLegacyFullSpan) {
+  const unchanged = {
+    clip,
+    start: clip.start,
+    end: clip.end,
+    duration: getClipTimelineDuration(clip),
+    windowChanged: false,
+    durationChanged: false,
+    stampFollow: false,
+    stampOutOfRange: false
+  };
+  const childId = clip.SourceTimelineRef;
+  if (!childId) return unchanged;
+  const extent = getExtent(childId);
+  if (extent === null) return unchanged;
+  if (extent <= REFLOW_EPSILON) return unchanged;
+  const follow = clip.meta?.followSource === true || promoteLegacyFullSpan && clip.meta?.followSource === void 0 && clip.start <= REFLOW_EPSILON && clip.end >= extent - REFLOW_EPSILON;
+  let desiredStart = clip.start;
+  let desiredEnd = clip.end;
+  let stampOutOfRange = false;
+  if (follow) {
+    desiredStart = 0;
+    desiredEnd = extent;
+  } else if (clip.end > extent + REFLOW_EPSILON) {
+    if (extent - clip.start >= MIN_NESTED_WINDOW - REFLOW_EPSILON) {
+      desiredEnd = extent;
+    } else {
+      desiredEnd = extent;
+      desiredStart = Math.max(0, extent - Math.min(MIN_NESTED_WINDOW, extent));
+      stampOutOfRange = clip.meta?.sourceOutOfRange !== true;
+    }
+  }
+  const startChanged = Math.abs(desiredStart - clip.start) > REFLOW_EPSILON;
+  const endChanged = Math.abs(desiredEnd - clip.end) > REFLOW_EPSILON;
+  const start = startChanged ? roundToMs(desiredStart) : clip.start;
+  const end = endChanged ? roundToMs(desiredEnd) : clip.end;
+  const duration3 = roundToMs(end - start);
+  return {
+    clip,
+    start,
+    end,
+    duration: duration3,
+    windowChanged: startChanged || endChanged,
+    durationChanged: Math.abs(duration3 - clip.duration) > REFLOW_EPSILON,
+    stampFollow: follow && clip.meta?.followSource !== true,
+    stampOutOfRange
+  };
+}
+function mergeMetaStamps(clip, target) {
+  if (!target.stampFollow && !target.stampOutOfRange) return void 0;
+  const meta3 = { ...clip.meta };
+  if (target.stampFollow) meta3.followSource = true;
+  if (target.stampOutOfRange) meta3.sourceOutOfRange = true;
+  return meta3;
+}
+function planTrackReflow(trackClips, getExtent, promoteLegacyFullSpan) {
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+  const targets = sorted.map(
+    (clip) => resolveClipTarget(clip, getExtent, promoteLegacyFullSpan)
+  );
+  const positions = [];
+  for (let i2 = 0; i2 < sorted.length; i2++) {
+    if (i2 === 0) {
+      positions.push(ranges[0].start);
+      continue;
+    }
+    const gap = ranges[i2].start - ranges[i2 - 1].end;
+    positions.push(
+      Math.max(0, positions[i2 - 1] + targets[i2 - 1].duration + gap)
+    );
+  }
+  let firstChanged = -1;
+  for (let i2 = 0; i2 < sorted.length; i2++) {
+    const moved = Math.abs(positions[i2] - ranges[i2].start) > REFLOW_EPSILON;
+    if (moved || targets[i2].windowChanged || targets[i2].durationChanged) {
+      firstChanged = i2;
+      break;
+    }
+  }
+  const changes = [];
+  for (let i2 = 0; i2 < sorted.length; i2++) {
+    const target = targets[i2];
+    const meta3 = mergeMetaStamps(sorted[i2], target);
+    if (firstChanged === -1 || i2 < firstChanged) {
+      if (meta3) changes.push({ clipId: sorted[i2].id, meta: meta3 });
+      continue;
+    }
+    const change = {
+      clipId: sorted[i2].id,
+      timelineStart: roundToMs(positions[i2])
+    };
+    if (target.windowChanged) {
+      change.start = target.start;
+      change.end = target.end;
+    }
+    if (target.windowChanged || target.durationChanged) {
+      change.duration = target.duration;
+    }
+    if (meta3) change.meta = meta3;
+    changes.push(change);
+  }
+  return changes;
+}
+function planTimelineReflow(clips, tracks, nested, options) {
+  const promote = options?.promoteLegacyFullSpan ?? true;
+  const clipsByTrack = groupClipsByTrack(clips, tracks);
+  const getExtent = makeExtentLookup(nested);
+  const changes = [];
+  for (const trackClips of clipsByTrack.values()) {
+    changes.push(...planTrackReflow(trackClips, getExtent, promote));
+  }
+  return { changes };
+}
+function applyReflowPlanToClips(clips, plan) {
+  if (plan.changes.length === 0) return clips;
+  const byId = new Map(plan.changes.map((c) => [c.clipId, c]));
+  return clips.map((clip) => {
+    const change = byId.get(clip.id);
+    if (!change) return clip;
+    return {
+      ...clip,
+      ...change.timelineStart !== void 0 && {
+        timelineStart: change.timelineStart
+      },
+      ...change.start !== void 0 && { start: change.start },
+      ...change.end !== void 0 && { end: change.end },
+      ...change.duration !== void 0 && { duration: change.duration },
+      ...change.meta !== void 0 && { meta: change.meta }
+    };
+  });
+}
+function planTimelineTreeReflow(args) {
+  const { rootTimelineId, clips, tracks, nestedTimelines, options } = args;
+  const order = [];
+  const visited = /* @__PURE__ */ new Set([rootTimelineId]);
+  const visit = (id) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const data = nestedTimelines[id];
+    if (!data) return;
+    for (const childId of collectNestedTimelineIds(data.clips)) {
+      visit(childId);
+    }
+    order.push(id);
+  };
+  for (const childId of collectNestedTimelineIds(clips)) visit(childId);
+  for (const id of Object.keys(nestedTimelines)) visit(id);
+  const updatedNested = { ...nestedTimelines };
+  const nestedPlans = {};
+  for (const id of order) {
+    const data = updatedNested[id];
+    if (!data) continue;
+    const plan = planTimelineReflow(
+      data.clips,
+      data.tracks,
+      updatedNested,
+      options
+    );
+    if (plan.changes.length > 0) {
+      nestedPlans[id] = plan;
+      updatedNested[id] = {
+        ...data,
+        clips: applyReflowPlanToClips(data.clips, plan)
+      };
+    }
+  }
+  const root = planTimelineReflow(clips, tracks, updatedNested, options);
+  const updatedClips = applyReflowPlanToClips(clips, root);
+  return {
+    root,
+    nested: nestedPlans,
+    updatedClips,
+    updatedNested,
+    hasDrift: root.changes.length > 0 || Object.keys(nestedPlans).length > 0
+  };
+}
 function prettySpeakerId(speakerId) {
   const match = /^speaker_(\d+)$/.exec(speakerId);
   if (match) {
@@ -35373,374 +36174,6 @@ function speakerTranscriptLabel(speakerId, entityName) {
   const name = entityName?.trim();
   return name && name !== pretty ? `${pretty} (${name})` : pretty;
 }
-var BaseMutator = class {
-  pb;
-  // Define a default property that subclasses will override
-  options = {
-    expand: [],
-    filter: [],
-    sort: []
-  };
-  constructor(pb, options) {
-    this.pb = pb;
-    this.initializeOptions();
-    if (options) {
-      this.overrideOptions(options);
-    }
-  }
-  initializeOptions() {
-    this.options = this.setDefaults();
-  }
-  /**
-   * Initialize options with class-specific defaults
-   * Subclasses should override this instead of directly setting options
-   */
-  setDefaults() {
-    return {
-      expand: [],
-      filter: [],
-      sort: []
-    };
-  }
-  /**
-   * Merge provided options with current options
-   */
-  overrideOptions(newOptions) {
-    if (newOptions.expand !== void 0) {
-      this.options.expand = newOptions.expand;
-    }
-    if (newOptions.filter !== void 0) {
-      this.options.filter = newOptions.filter;
-    }
-    if (newOptions.sort !== void 0) {
-      this.options.sort = newOptions.sort;
-    }
-  }
-  toSnakeCase(str) {
-    return str.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-  }
-  /**
-   * Create a new entity
-   */
-  async create(input) {
-    try {
-      const data = await this.validateInput(input);
-      const record2 = await this.entityCreate(data);
-      return await this.processRecord(record2);
-    } catch (error49) {
-      return this.errorWrapper(error49);
-    }
-  }
-  /**
-   * Update an existing entity
-   */
-  async update(id, input) {
-    try {
-      const record2 = await this.entityUpdate(id, input);
-      return await this.processRecord(record2);
-    } catch (error49) {
-      return this.errorWrapper(error49);
-    }
-  }
-  /**
-   * Create or update entity (upsert)
-   */
-  async upsert(input) {
-    if (input?.id) {
-      return await this.update(input.id, input);
-    }
-    return await this.create(input);
-  }
-  /**
-   * Get entity by ID
-   */
-  async getById(id, expand) {
-    try {
-      const record2 = await this.entityGetById(id, expand);
-      return await this.processRecord(record2);
-    } catch (error49) {
-      return this.handleError(error49, { allowNotFound: true });
-    }
-  }
-  /**
-   * Get first entity by filter
-   */
-  async getFirstByFilter(filter, expand, sort) {
-    try {
-      const record2 = await this.entityGetFirstByFilter(
-        filter,
-        expand,
-        sort
-      );
-      return await this.processRecord(record2);
-    } catch (error49) {
-      return this.handleError(error49, { allowNotFound: true });
-    }
-  }
-  /**
-   * Get list of entities
-   */
-  async getList(page = 1, perPage = 100, filter, sort, expand) {
-    try {
-      const result = await this.entityGetList(
-        page,
-        perPage,
-        filter,
-        sort,
-        expand
-      );
-      return await this.processListResult(result);
-    } catch (error49) {
-      return this.errorWrapper(error49);
-    }
-  }
-  /**
-   * Delete entity by ID
-   */
-  async delete(id) {
-    try {
-      return await this.entityDelete(id);
-    } catch (error49) {
-      return this.handleError(error49, { returnValue: false });
-    }
-  }
-  /**
-   * Process a single record before returning it
-   * Can be overridden to handle special cases like mapped entities
-   */
-  async processRecord(record2) {
-    return record2;
-  }
-  /**
-   * Process a list result before returning it
-   * Can be overridden to handle special cases like mapped entities
-   */
-  async processListResult(result) {
-    const processedItems = await Promise.all(
-      result.items.map((item) => this.processRecord(item))
-    );
-    return {
-      ...result,
-      items: processedItems
-    };
-  }
-  /**
-   * Prepare expand parameter
-   * Combines default expands with provided expands
-   */
-  prepareExpand(expand) {
-    if (!this.options.expand.length && !expand) {
-      return void 0;
-    }
-    let expandArray = [...this.options.expand];
-    if (expand) {
-      if (typeof expand === "string") {
-        expandArray = expandArray.concat(
-          expand.split(",").map((e2) => e2.trim())
-        );
-      } else {
-        expandArray = expandArray.concat(expand);
-      }
-    }
-    const uniqueExpands = [...new Set(expandArray)].filter(
-      (e2) => e2 !== "" && e2 !== void 0
-    );
-    if (!uniqueExpands.length) {
-      return void 0;
-    }
-    return uniqueExpands.join(",");
-  }
-  /**
-   * Prepare filter parameter
-   * Combines default filters with provided filters
-   */
-  prepareFilter(filter) {
-    if (!this.options.filter.length && !filter) {
-      return void 0;
-    }
-    let filterArray = [...this.options.filter];
-    if (filter) {
-      if (typeof filter === "string") {
-        if (filter) filterArray.push(filter);
-      } else {
-        filterArray = filterArray.concat(filter);
-      }
-    }
-    const validFilters = filterArray.filter((f) => f !== "" && f !== void 0);
-    if (!validFilters.length) {
-      return void 0;
-    }
-    return validFilters.join("&&");
-  }
-  /**
-   * Prepare sort parameter
-   * Uses provided sort or falls back to default sort
-   */
-  prepareSort(sort) {
-    if (sort && sort !== "") {
-      return sort;
-    }
-    if (this.options.sort.length) {
-      const validSorts = this.options.sort.filter(
-        (s2) => s2 !== "" && s2 !== void 0
-      );
-      if (validSorts.length) {
-        return validSorts.join(",");
-      }
-    }
-    return void 0;
-  }
-  /**
-   * Perform the actual create operation
-   */
-  async entityCreate(data) {
-    const finalExpand = this.prepareExpand();
-    const options = finalExpand ? { expand: finalExpand } : {};
-    return await this.getCollection().create(
-      data,
-      options
-    );
-  }
-  /**
-   * Perform the actual update operation
-   */
-  async entityUpdate(id, data) {
-    const finalExpand = this.prepareExpand();
-    const options = finalExpand ? { expand: finalExpand } : {};
-    return await this.getCollection().update(id, data, options);
-  }
-  /**
-   * Perform the actual getById operation
-   */
-  async entityGetById(id, expand) {
-    const finalExpand = this.prepareExpand(expand);
-    const options = finalExpand ? { expand: finalExpand } : {};
-    return await this.getCollection().getOne(id, options);
-  }
-  /**
-   * Perform the actual getFirstByFilter operation
-   */
-  async entityGetFirstByFilter(filter, expand, sort) {
-    const finalFilter = this.prepareFilter(filter);
-    const finalExpand = this.prepareExpand(expand);
-    const finalSort = this.prepareSort(sort);
-    const options = {};
-    if (finalExpand) options.expand = finalExpand;
-    if (finalSort) options.sort = finalSort;
-    return await this.getCollection().getFirstListItem(
-      finalFilter || "",
-      options
-    );
-  }
-  /**
-   * Perform the actual getList operation
-   * Returns a list result with items of type T
-   */
-  async entityGetList(page, perPage, filter, sort, expand) {
-    const finalFilter = this.prepareFilter(filter);
-    const finalExpand = this.prepareExpand(expand);
-    const finalSort = this.prepareSort(sort);
-    const options = {};
-    if (finalFilter) options.filter = finalFilter;
-    if (finalExpand) options.expand = finalExpand;
-    if (finalSort) options.sort = finalSort;
-    return await this.getCollection().getList(page, perPage, options);
-  }
-  /**
-   * Perform the actual delete operation
-   */
-  async entityDelete(id) {
-    await this.getCollection().delete(id);
-    return true;
-  }
-  /**
-   * Error handler for common errors
-   * @param error The error to handle
-   * @param options Handler options
-   * @returns The value to return if the error is handled, or throws if not handled
-   */
-  handleError(error49, options = { logError: true }) {
-    const { allowNotFound = false, returnValue, logError = true } = options;
-    const isSilencedNotFound = allowNotFound && this.isNotFoundError(error49);
-    if (logError && !isSilencedNotFound) {
-      console.error(`Error in ${this.constructor.name}:`, error49);
-    }
-    if (isSilencedNotFound) {
-      return null;
-    }
-    if (returnValue !== void 0) {
-      return returnValue;
-    }
-    throw error49;
-  }
-  /**
-   * Check if an error is a "not found" error
-   */
-  isNotFoundError(error49) {
-    if (!error49) return false;
-    if (typeof error49 === "object" && "status" in error49 && error49.status === 404) {
-      return true;
-    }
-    return error49 instanceof Error && (error49.message.includes("404") || error49.message.toLowerCase().includes("not found"));
-  }
-  /**
-   * Standard error handling wrapper (legacy method, consider using handleError instead)
-   */
-  errorWrapper(error49) {
-    console.error(`Error in ${this.constructor.name}:`, error49);
-    throw error49;
-  }
-  /**
-   * Subscribe to changes on a specific record
-   * @param id The ID of the record to subscribe to
-   * @param callback Function to call when changes occur
-   * @param expand Optional expand parameters
-   * @returns Promise that resolves to an unsubscribe function
-   */
-  async subscribeToRecord(id, callback, expand) {
-    const finalExpand = this.prepareExpand(expand);
-    const options = finalExpand ? { expand: finalExpand } : {};
-    return this.getCollection().subscribe(
-      id,
-      callback,
-      options
-    );
-  }
-  /**
-   * Subscribe to changes on the entire collection
-   * @param callback Function to call when changes occur
-   * @param expand Optional expand parameters
-   * @returns Promise that resolves to an unsubscribe function
-   */
-  async subscribeToCollection(callback, expand) {
-    const finalExpand = this.prepareExpand(expand);
-    const options = finalExpand ? { expand: finalExpand } : {};
-    return this.getCollection().subscribe(
-      "*",
-      callback,
-      options
-    );
-  }
-  /**
-   * Unsubscribe from a specific record's changes
-   * @param id The ID of the record to unsubscribe from
-   */
-  unsubscribeFromRecord(id) {
-    this.getCollection().unsubscribe(id);
-  }
-  /**
-   * Unsubscribe from collection-wide changes
-   */
-  unsubscribeFromCollection() {
-    this.getCollection().unsubscribe("*");
-  }
-  /**
-   * Unsubscribe from all subscriptions in this collection
-   */
-  unsubscribeAll() {
-    this.getCollection().unsubscribe();
-  }
-};
 var WorkspaceMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
@@ -35765,6 +36198,150 @@ var WorkspaceMutator = class extends BaseMutator {
    */
   async getBySlug(slug) {
     return this.getFirstByFilter(`slug = "${slug}"`);
+  }
+};
+var UploadMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("Uploads");
+  }
+  setDefaults() {
+    return {
+      expand: ["WorkspaceRef", "UserRef"],
+      filter: [],
+      sort: ["-created"]
+    };
+  }
+  async validateInput(input) {
+    return UploadInputSchema.parse(input);
+  }
+  /**
+   * Override create method to automatically set the UserRef field from authenticated user
+   */
+  async create(input) {
+    try {
+      const userId = input.UserRef || this.pb.authStore.record?.id || this.pb.authStore.model?.id;
+      if (!userId) {
+        throw new Error("User must be authenticated to create uploads");
+      }
+      const validatedInput = await this.validateInput({
+        ...input,
+        UserRef: userId
+      });
+      const record2 = await this.entityCreate(validatedInput);
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Create an upload with a file
+   * @param input Upload input data
+   * @param file The file to upload
+   * @returns The created upload record
+   */
+  async createWithFile(input, file2) {
+    try {
+      const userId = input.UserRef || this.pb.authStore.record?.id || this.pb.authStore.model?.id;
+      if (!userId) {
+        throw new Error("User must be authenticated to create uploads");
+      }
+      const validatedInput = await this.validateInput({
+        ...input,
+        UserRef: userId
+      });
+      const formData = new FormData();
+      formData.append("name", validatedInput.name);
+      formData.append("size", String(validatedInput.size));
+      formData.append("status", validatedInput.status);
+      formData.append("WorkspaceRef", validatedInput.WorkspaceRef);
+      formData.append("UserRef", validatedInput.UserRef);
+      if (validatedInput.errorMessage) {
+        formData.append("errorMessage", validatedInput.errorMessage);
+      }
+      formData.append("originalFile", file2);
+      const record2 = await this.getCollection().create(formData);
+      return await this.processRecord(record2);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Get uploads by workspace
+   * @param workspaceId The workspace ID
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 50)
+   * @returns List of uploads for the workspace
+   */
+  async getByWorkspace(workspaceId, page = 1, perPage = 50) {
+    return this.getList(page, perPage, `WorkspaceRef = "${workspaceId}"`);
+  }
+  /**
+   * Update upload status
+   * @param id The upload ID
+   * @param status The new status
+   * @param errorMessage Optional error message for failed uploads
+   * @returns The updated upload
+   */
+  async updateStatus(id, status, errorMessage) {
+    const updateData = { status };
+    if (errorMessage) {
+      updateData.errorMessage = errorMessage;
+    }
+    return this.update(id, updateData);
+  }
+};
+var DirectoryMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("Directories");
+  }
+  setDefaults() {
+    return {
+      expand: ["WorkspaceRef"],
+      filter: [],
+      sort: ["name"]
+    };
+  }
+  async validateInput(input) {
+    return DirectoryInputSchema.parse(input);
+  }
+  /**
+   * Get all directories in a workspace
+   */
+  async getByWorkspace(workspaceId, page = 1, perPage = 50, expand) {
+    return this.getList(
+      page,
+      perPage,
+      `WorkspaceRef = "${workspaceId}"`,
+      void 0,
+      expand
+    );
+  }
+  /**
+   * Rename a directory (the new name is validated against the shared
+   * path-safe name rule; update() alone would skip it)
+   */
+  async rename(id, name) {
+    const parsed = DirectoryNameSchema.parse(name);
+    return this.update(id, { name: parsed });
+  }
+  /**
+   * Delete a directory only if no media is filed in it
+   * Throws if the directory is non-empty
+   */
+  async deleteIfEmpty(id) {
+    const media = await this.pb.collection("Media").getList(1, 1, {
+      filter: this.pb.filter("DirectoryRef = {:id}", { id })
+    });
+    if (media.totalItems > 0) {
+      throw new Error("Cannot delete directory: it contains media");
+    }
+    return this.delete(id);
   }
 };
 var MediaMutator = class extends BaseMutator {
@@ -36602,170 +37179,165 @@ var LabelPersonMutator = class extends BaseMutator {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
   }
 };
-var TimelineMutator = class extends BaseMutator {
+var TaskMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
   }
   getCollection() {
-    return this.pb.collection("Timelines");
+    return this.pb.collection("Tasks");
   }
   setDefaults() {
     return {
       expand: ["WorkspaceRef", "UserRef"],
       filter: [],
       sort: ["-created"]
-      // Sort by created date descending by default
     };
   }
   async validateInput(input) {
-    return TimelineInputSchema.parse(input);
+    return TaskInputSchema.parse(input);
   }
   /**
-   * Get timelines by workspace
+   * Create a process upload task
    * @param workspaceId The workspace ID
-   * @param page Page number (default: 1)
-   * @param perPage Items per page (default: 50)
-   * @returns List of timelines for the workspace
+   * @param userId The user ID
+   * @param uploadId The upload ID
+   * @param payload The task payload
+   * @returns The created task
    */
-  async getByWorkspace(workspaceId, page = 1, perPage = 50) {
-    return this.getList(page, perPage, `WorkspaceRef = "${workspaceId}"`);
+  async createProcessUploadTask(workspaceId, userId, uploadId, payload) {
+    return this.create({
+      sourceType: "upload",
+      sourceId: uploadId,
+      type: "process_upload",
+      status: "queued",
+      progress: 1,
+      attempts: 1,
+      payload,
+      WorkspaceRef: workspaceId,
+      UserRef: userId
+    });
   }
   /**
-   * Increment the version number of a timeline
-   * @param id The timeline ID
-   * @returns Updated timeline with incremented version
-   */
-  async incrementVersion(id) {
-    const timeline = await this.getById(id);
-    if (!timeline) {
-      throw new Error(`Timeline not found: ${id}`);
-    }
-    return this.update(id, { version: (timeline.version ?? 1) + 1 });
-  }
-};
-var TimelineClipMutator = class extends BaseMutator {
-  constructor(pb, options) {
-    super(pb, options);
-  }
-  getCollection() {
-    return this.pb.collection("TimelineClips");
-  }
-  setDefaults() {
-    return {
-      expand: [
-        "TimelineRef",
-        "MediaRef",
-        "MediaRef.UploadRef",
-        "MediaRef.thumbnailFileRef",
-        "MediaRef.spriteFileRef",
-        "MediaRef.filmstripFileRefs",
-        "MediaClipRef",
-        "CaptionRef",
-        "SourceTimelineRef"
-      ],
-      filter: [],
-      sort: ["order"]
-      // Sort by order position by default
-    };
-  }
-  async validateInput(input) {
-    return TimelineClipInputSchema.parse(input);
-  }
-  /**
-   * Get timeline clips by timeline
+   * Create a render timeline task
+   * @param workspaceId The workspace ID
+   * @param userId The user ID
    * @param timelineId The timeline ID
-   * @returns List of timeline clips sorted by order
+   * @param payload The task payload
+   * @returns The created task
    */
-  async getByTimeline(timelineId) {
-    const result = await this.getList(
-      1,
-      500,
-      // Get all clips (reasonable max)
-      `TimelineRef = "${timelineId}"`,
-      "order"
-      // Explicit sort by order
-    );
-    return result.items;
+  async createRenderTimelineTask(workspaceId, userId, timelineId, payload) {
+    return this.create({
+      sourceType: "Timeline",
+      sourceId: timelineId,
+      type: "render_timeline",
+      status: "queued",
+      progress: 1,
+      attempts: 1,
+      payload,
+      WorkspaceRef: workspaceId,
+      UserRef: userId
+    });
   }
   /**
-   * Get the maximum order value for a timeline
-   * @param timelineId The timeline ID
-   * @returns Maximum order value, or -1 if no clips exist
-   */
-  async getMaxOrder(timelineId) {
-    const clips = await this.getByTimeline(timelineId);
-    if (clips.length === 0) {
-      return -1;
-    }
-    return Math.max(...clips.map((c) => c.order));
-  }
-  /**
-   * Get timeline clips by media
+   * Create a detect labels task
+   * @param workspaceId The workspace ID
+   * @param userId The user ID
    * @param mediaId The media ID
+   * @param payload The task payload
+   * @returns The created task
+   */
+  async createDetectLabelsTask(workspaceId, userId, mediaId, payload) {
+    return this.create({
+      sourceType: "Media",
+      sourceId: mediaId,
+      type: "detect_labels",
+      status: "queued",
+      progress: 1,
+      attempts: 1,
+      payload,
+      WorkspaceRef: workspaceId,
+      UserRef: userId
+    });
+  }
+  /**
+   * Get tasks by source ID (media ID, upload ID, or timeline ID)
+   * @param sourceId The source entity ID
    * @param page Page number (default: 1)
-   * @param perPage Items per page (default: 500)
-   * @returns List of timeline clips referencing this media
+   * @param perPage Items per page (default: 100)
+   * @returns List of tasks for the source
    */
-  async getByMedia(mediaId, page = 1, perPage = 500) {
-    return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
+  async getBySourceId(sourceId, page = 1, perPage = 100) {
+    return this.getList(page, perPage, `sourceId = "${sourceId}"`);
   }
   /**
-   * Reorder clips in a timeline
-   * @param timelineId The timeline ID (for validation)
-   * @param clipOrders Array of clip IDs with their new order positions
-   * @returns Array of updated timeline clips
+   * Update task progress
+   * @param id The task ID
+   * @param progress The progress percentage (0-100)
+   * @returns The updated task
    */
-  async reorderClips(timelineId, clipOrders) {
-    const updates = clipOrders.map(
-      ({ id, order }) => this.update(id, { order })
-    );
-    return Promise.all(updates);
-  }
-};
-var TimelineTrackMutator = class extends BaseMutator {
-  constructor(pb, options) {
-    super(pb, options);
-  }
-  getCollection() {
-    return this.pb.collection("TimelineTracks");
-  }
-  setDefaults() {
-    return {
-      expand: [],
-      filter: [],
-      sort: ["layer"]
-      // Sort by layer ascending (0 is bottom)
-    };
-  }
-  async validateInput(input) {
-    return TimelineTrackInputSchema.parse(input);
+  async updateProgress(id, progress) {
+    return this.update(id, { progress });
   }
   /**
-   * Get tracks by timeline
-   * @param timelineId The timeline ID
+   * Mark task as successful
+   * @param id The task ID
+   * @param result The task result
+   * @returns The updated task
+   */
+  async markSuccess(id, result) {
+    return this.update(id, {
+      status: "success",
+      progress: 100,
+      result
+    });
+  }
+  /**
+   * Mark task as failed
+   * @param id The task ID
+   * @param errorLog The error message
+   * @returns The updated task
+   */
+  async markFailed(id, errorLog) {
+    const task = await this.getById(id);
+    const truncatedErrorLog = errorLog.length > 500 ? errorLog.substring(0, 497) + "..." : errorLog;
+    return this.update(id, {
+      status: "failed",
+      errorLog: truncatedErrorLog,
+      attempts: (task?.attempts || 0) + 1
+    });
+  }
+  /**
+   * Get queued tasks
+   * @param type Optional task type filter
    * @param page Page number (default: 1)
-   * @param perPage Items per page (default: 50)
-   * @returns List of tracks for the timeline
+   * @param perPage Items per page (default: 100)
+   * @returns List of queued tasks
    */
-  async getByTimeline(timelineId, page = 1, perPage = 50) {
-    return this.getList(page, perPage, `TimelineRef = "${timelineId}"`);
+  async getQueuedTasks(type, page = 1, perPage = 100) {
+    const filter = type ? this.pb.filter("status = {:status} && type = {:type}", {
+      status: "queued",
+      type
+    }) : this.pb.filter("status = {:status}", {
+      status: "queued"
+      /* QUEUED */
+    });
+    return this.getList(page, perPage, filter, "created");
   }
   /**
-   * Get the maximum layer number for a timeline
-   * @param timelineId The timeline ID
-   * @returns The maximum layer number, or -1 if no tracks exist
+   * Retry a task
+   * @param id The task ID
+   * @returns The updated task
    */
-  async getMaxLayer(timelineId) {
-    const result = await this.getList(
-      1,
-      1,
-      `TimelineRef = "${timelineId}"`,
-      "-layer"
-    );
-    if (result.items.length === 0) {
-      return -1;
-    }
-    return result.items[0].layer;
+  async retry(id) {
+    return this.update(id, {
+      status: "queued",
+      progress: 1,
+      // Avoid 0 as it might be interpreted as blank by PocketBase
+      attempts: 1,
+      // Reset to 1 (first attempt of the retry)
+      errorLog: "",
+      result: {}
+    });
   }
 };
 var TimelineRenderMutator = class extends BaseMutator {
@@ -37423,14 +37995,18 @@ var insertOptions = {
     flags: "--caption <id>",
     description: "Caption id to insert as a text/title clip"
   },
+  sourceTimeline: {
+    flags: "--source-timeline <id>",
+    description: "timeline id to insert as a nested clip (plays that timeline)"
+  },
   start: {
     flags: "-s, --start <seconds>",
-    description: "trim start in the source (caption cue timeline for --caption)",
+    description: "trim start in the source (the caption's or nested timeline's own time axis)",
     parse: parseSeconds
   },
   end: {
     flags: "-e, --end <seconds>",
-    description: "trim end in the source (caption cue timeline for --caption)",
+    description: "trim end in the source (the caption's or nested timeline's own time axis)",
     parse: parseSeconds
   },
   track: {
@@ -37461,14 +38037,21 @@ var insertOptions = {
   }
 };
 async function insertClip(pb, opts) {
-  const sources = [opts.media, opts.clip, opts.caption].filter(Boolean);
+  const sources = [
+    opts.media,
+    opts.clip,
+    opts.caption,
+    opts.sourceTimeline
+  ].filter(Boolean);
   if (sources.length === 0) {
     throw new Error(
-      "Pass --media <id>, --clip <mediaClipId>, or --caption <captionId>."
+      "Pass --media <id>, --clip <mediaClipId>, --caption <captionId>, or --source-timeline <timelineId>."
     );
   }
   if (sources.length > 1) {
-    throw new Error("--media, --clip, and --caption are mutually exclusive.");
+    throw new Error(
+      "--media, --clip, --caption, and --source-timeline are mutually exclusive."
+    );
   }
   if (opts.at !== void 0 && opts.after) {
     throw new Error("--at and --after are mutually exclusive.");
@@ -37479,11 +38062,55 @@ async function insertClip(pb, opts) {
   let mediaId;
   let mediaClip;
   let caption;
+  let sourceTimeline;
+  let followSource = false;
   let start;
   let end;
   let defaultLabel;
   let defaultDescription;
-  if (opts.caption) {
+  if (opts.sourceTimeline) {
+    sourceTimeline = await new TimelineMutator(pb).getById(opts.sourceTimeline) ?? void 0;
+    if (!sourceTimeline) {
+      throw new Error(`Timeline not found: ${opts.sourceTimeline}`);
+    }
+    const [sourceClips, sourceTracks] = await Promise.all([
+      new TimelineClipMutator(pb).getByTimeline(sourceTimeline.id),
+      new TimelineTrackMutator(pb).getByTimeline(sourceTimeline.id)
+    ]);
+    const nested = await fetchNestedTimelineMap(
+      pb,
+      sourceClips,
+      /* @__PURE__ */ new Set([sourceTimeline.id])
+    );
+    nested[sourceTimeline.id] = {
+      timeline: sourceTimeline,
+      clips: sourceClips,
+      tracks: sourceTracks.items
+    };
+    if (wouldCreateTimelineCycle(opts.timelineId, sourceTimeline.id, nested)) {
+      throw new Error(
+        "Cannot insert this timeline: it would contain itself (circular reference)."
+      );
+    }
+    const sourceDuration = computeNestedTimelineDuration(
+      nested[sourceTimeline.id]
+    );
+    if (sourceDuration <= 0) {
+      throw new Error(
+        `Timeline ${sourceTimeline.id} has no placed clips \u2014 nothing to insert.`
+      );
+    }
+    start = opts.start ?? 0;
+    end = opts.end ?? sourceDuration;
+    if (!(start >= 0 && start < end) || end > sourceDuration + REFLOW_EPSILON) {
+      throw new Error(
+        `Invalid time range: start=${start}, end=${end}, timeline duration=${sourceDuration}`
+      );
+    }
+    followSource = start <= REFLOW_EPSILON && end >= sourceDuration - REFLOW_EPSILON;
+    defaultLabel = opts.label;
+    defaultDescription = opts.description;
+  } else if (opts.caption) {
     caption = await new CaptionMutator(pb).getById(opts.caption);
     if (!caption) {
       throw new Error(`Caption not found: ${opts.caption}`);
@@ -37640,6 +38267,10 @@ async function insertClip(pb, opts) {
   }
   const meta3 = {};
   if (caption) meta3.title = caption.name || caption.text;
+  if (sourceTimeline) {
+    meta3.title = sourceTimeline.label || sourceTimeline.name;
+    meta3.followSource = followSource;
+  }
   if (opts.gain !== void 0) meta3.gain = opts.gain;
   const input = {
     TimelineRef: opts.timelineId,
@@ -37647,6 +38278,7 @@ async function insertClip(pb, opts) {
     ...mediaId ? { MediaRef: mediaId } : {},
     ...mediaClip ? { MediaClipRef: mediaClip.id } : {},
     ...caption ? { CaptionRef: caption.id } : {},
+    ...sourceTimeline ? { SourceTimelineRef: sourceTimeline.id } : {},
     ...defaultLabel !== void 0 ? { label: defaultLabel } : {},
     ...defaultDescription !== void 0 ? { description: defaultDescription } : {},
     order,
@@ -37697,8 +38329,10 @@ async function assertRenderable(pb, timelineId) {
   }
   const mediaMutator = new MediaMutator(pb);
   for (const clip of clips) {
-    if (!clip.MediaRef && !clip.CaptionRef) {
-      throw new Error(`Clip ${clip.id} has neither media nor caption.`);
+    if (!clip.MediaRef && !clip.CaptionRef && !clip.SourceTimelineRef) {
+      throw new Error(
+        `Clip ${clip.id} has no media, caption, or source timeline.`
+      );
     }
     if (!clip.MediaRef) continue;
     const media = await mediaMutator.getById(clip.MediaRef);
@@ -37721,13 +38355,34 @@ async function createRender(pb, opts) {
   if (!timeline) {
     throw new Error(`Timeline not found: ${opts.timelineId}`);
   }
-  const clips = await new TimelineClipMutator(pb).getByTimeline(
+  const rawClips = await new TimelineClipMutator(pb).getByTimeline(
     opts.timelineId
   );
   const tracks = await new TimelineTrackMutator(pb).getByTimeline(
     opts.timelineId
   );
-  const trackList = generateTracks(clips, tracks.items);
+  const nestedTimelines = await fetchNestedTimelineMap(
+    pb,
+    rawClips,
+    /* @__PURE__ */ new Set([opts.timelineId])
+  );
+  for (const clip of rawClips) {
+    if (clip.SourceTimelineRef && !nestedTimelines[clip.SourceTimelineRef]) {
+      throw new Error(
+        `Clip ${clip.id} references missing timeline ${clip.SourceTimelineRef}.`
+      );
+    }
+  }
+  const reflow = planTimelineTreeReflow({
+    rootTimelineId: opts.timelineId,
+    clips: rawClips,
+    tracks: tracks.items,
+    nestedTimelines
+  });
+  const trackList = generateTracks(reflow.updatedClips, tracks.items, {
+    nestedTimelines: reflow.updatedNested,
+    rootTimelineId: opts.timelineId
+  });
   const userId = opts.userId ?? pb.authStore.record?.id;
   return new TimelineRenderMutator(pb).create({
     TimelineRef: opts.timelineId,
@@ -37855,6 +38510,27 @@ async function updateTimelineClip(pb, clipId, opts) {
         patch.end = end;
         patch.duration = end - start;
       }
+    } else if (clip.SourceTimelineRef) {
+      const [sourceClips, sourceTracks] = await Promise.all([
+        clipMutator.getByTimeline(clip.SourceTimelineRef),
+        new TimelineTrackMutator(pb).getByTimeline(clip.SourceTimelineRef)
+      ]);
+      const sourceDuration = computeNestedTimelineDuration({
+        clips: sourceClips,
+        tracks: sourceTracks.items
+      });
+      if (!(start >= 0 && start < end) || end > sourceDuration + REFLOW_EPSILON) {
+        throw new Error(
+          `Invalid time range: start=${start}, end=${end}, timeline duration=${sourceDuration}`
+        );
+      }
+      patch.start = start;
+      patch.end = end;
+      patch.duration = end - start;
+      const meta3 = { ...clip.meta ?? {} };
+      meta3.followSource = start <= REFLOW_EPSILON && end >= sourceDuration - REFLOW_EPSILON;
+      delete meta3.sourceOutOfRange;
+      patch.meta = meta3;
     } else if (!(start >= 0 && start < end)) {
       throw new Error(`Invalid time range: start=${start}, end=${end}`);
     } else {
@@ -37866,6 +38542,7 @@ async function updateTimelineClip(pb, clipId, opts) {
   if (opts.gain !== void 0) {
     patch.meta = {
       ...clip.meta ?? {},
+      ...patch.meta ?? {},
       gain: opts.gain
     };
   }
@@ -38170,46 +38847,17 @@ async function getTimelineOverview(pb, timelineId) {
     timeline,
     computedDuration: computeTimelineDuration(clips, trackRecords),
     clipCount: clips.length,
-    tracks
+    tracks,
+    clips,
+    trackRecords
   };
 }
-var OVERLAP_EPSILON2 = 1e-6;
+var inspectRange = (clip) => ({
+  start: clip.timelineStart,
+  end: clip.timelineEnd
+});
 function overlapClusters(clips) {
-  const sorted = [...clips].sort((a, b) => a.timelineStart - b.timelineStart);
-  const clusters = [];
-  let current = [];
-  let currentEnd = -Infinity;
-  for (const clip of sorted) {
-    if (current.length > 0 && clip.timelineStart < currentEnd - OVERLAP_EPSILON2) {
-      current.push(clip);
-      currentEnd = Math.max(currentEnd, clip.timelineEnd);
-    } else {
-      if (current.length > 1) clusters.push(current);
-      current = [clip];
-      currentEnd = clip.timelineEnd;
-    }
-  }
-  if (current.length > 1) clusters.push(current);
-  return clusters;
-}
-function trackGaps(clips) {
-  const sorted = [...clips].sort((a, b) => a.timelineStart - b.timelineStart);
-  const gaps = [];
-  let prev = null;
-  for (const clip of sorted) {
-    if (prev && clip.timelineStart > prev.timelineEnd + OVERLAP_EPSILON2) {
-      gaps.push({
-        start: prev.timelineEnd,
-        end: clip.timelineStart,
-        beforeClipId: prev.clip.id,
-        afterClipId: clip.clip.id
-      });
-    }
-    if (!prev || clip.timelineEnd > prev.timelineEnd) {
-      prev = clip;
-    }
-  }
-  return gaps;
+  return clusterOverlappingRanges(clips, inspectRange);
 }
 async function inspectAtTime(pb, opts) {
   const timeline = await new TimelineMutator(pb).getById(opts.timelineId);
@@ -38378,7 +39026,9 @@ async function exportWorkspace(pb, opts, report = () => {
     throw new Error(`Workspace not found: ${opts.workspaceId}`);
   }
   prepareExportDir(opts.dir, opts.force);
-  const mediaMutator = new MediaMutator(pb, { expand: ["UploadRef"] });
+  const mediaMutator = new MediaMutator(pb, {
+    expand: ["UploadRef", "DirectoryRef"]
+  });
   const media = await fetchAll(
     (page) => mediaMutator.getByWorkspace(opts.workspaceId, page, PER_PAGE)
   );
@@ -38438,7 +39088,10 @@ async function exportWorkspace(pb, opts, report = () => {
   for (const m of media) {
     const dir = join2(mediaDir, m.id);
     mkdirSync2(dir, { recursive: true });
-    writeJson(join2(dir, "media.json"), stripExpand(m, ["UploadRef"]));
+    writeJson(
+      join2(dir, "media.json"),
+      stripExpand(m, ["UploadRef", "DirectoryRef"])
+    );
     const mediaClips = clipsByMedia.get(m.id) ?? [];
     if (mediaClips.length > 0) {
       const clipsDir = join2(dir, "clips");
@@ -38473,7 +39126,8 @@ async function exportWorkspace(pb, opts, report = () => {
       width: m.width,
       height: m.height,
       clipCount: mediaClips.length,
-      labelCounts
+      labelCounts,
+      ...m.DirectoryRef ? { directory: m.expand?.DirectoryRef?.name ?? m.DirectoryRef } : {}
     });
   }
   writeJson(join2(mediaDir, "index.json"), listDoc(mediaIndex));
@@ -38630,7 +39284,8 @@ manifest.json           what was exported, when, and how much
 workspace.json          the Workspace record
 media/
   index.json            one row per media: name, type, duration, clipCount,
-                        labelCounts \u2014 scan this first
+                        labelCounts, directory (only when the media is filed
+                        in one) \u2014 scan this first
   <mediaId>/
     media.json          the Media record (expand.UploadRef.name is the
                         original filename)
@@ -38819,16 +39474,586 @@ function registerWorkspaceCommands(program3) {
   });
 }
 
+// src/lib/directory.ts
+function directoryMutator(pb) {
+  return new DirectoryMutator(pb, { expand: [] });
+}
+function isRootDirRef(ref) {
+  const normalized = ref.trim().toLowerCase();
+  return normalized === "" || normalized === "root" || normalized === "none" || /^\/+$/.test(normalized);
+}
+async function listDirectories(pb, workspaceId) {
+  return directoryMutator(pb).getList(
+    1,
+    500,
+    pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId })
+  );
+}
+function resolveDirectoryIn(dirs, ref) {
+  const trimmed = ref.trim();
+  const byId = dirs.find((d) => d.id === trimmed);
+  if (byId) return byId;
+  const name = trimmed.replace(/^\/+|\/+$/g, "").trim();
+  if (name.includes("/")) {
+    throw new Error(
+      `Directories are flat \u2014 "${ref}" is not a nested path. Use a single name like "${name.split("/").filter(Boolean).pop()}".`
+    );
+  }
+  if (name) {
+    const want = name.toLowerCase();
+    const exact = dirs.find((d) => d.name.toLowerCase() === want);
+    if (exact) return exact;
+    const fuzzy = dirs.filter((d) => d.name.toLowerCase().includes(want));
+    if (fuzzy.length === 1) return fuzzy[0];
+    if (fuzzy.length > 1) {
+      const candidates = fuzzy.map((d) => `${d.name} (${d.id})`).join(", ");
+      throw new Error(
+        `Directory "${ref}" is ambiguous \u2014 matches: ${candidates}. Use the exact name or the id.`
+      );
+    }
+  }
+  throw new Error(
+    `No directory matching "${ref}" \u2014 vw dir list shows this workspace's directories (name or id both work)`
+  );
+}
+async function resolveDirectory(pb, workspaceId, ref) {
+  return resolveDirectoryIn(
+    (await listDirectories(pb, workspaceId)).items,
+    ref
+  );
+}
+function assertValidDirectoryName(raw) {
+  const name = raw.trim().replace(/^\/+|\/+$/g, "").trim();
+  if (name.includes("/")) {
+    throw new Error(
+      `Directories are flat \u2014 "${raw}" is not a nested path. Create a single folder like "${name.split("/").filter(Boolean).pop()}".`
+    );
+  }
+  const error49 = directoryNameError(name);
+  if (error49) {
+    throw new Error(`Invalid directory name "${raw}" \u2014 ${error49}.`);
+  }
+  return name;
+}
+async function createDirectory(pb, workspaceId, rawName) {
+  const name = assertValidDirectoryName(rawName);
+  const existing = (await listDirectories(pb, workspaceId)).items.find(
+    (d) => d.name.toLowerCase() === name.toLowerCase()
+  );
+  if (existing) return { directory: existing, existed: true };
+  const directory = await directoryMutator(pb).create({
+    WorkspaceRef: workspaceId,
+    name
+  });
+  return { directory, existed: false };
+}
+async function renameDirectory(pb, workspaceId, ref, newName) {
+  const name = assertValidDirectoryName(newName);
+  const dirs = (await listDirectories(pb, workspaceId)).items;
+  const dir = resolveDirectoryIn(dirs, ref);
+  const clash = dirs.find(
+    (d) => d.id !== dir.id && d.name.toLowerCase() === name.toLowerCase()
+  );
+  if (clash) {
+    throw new Error(
+      `A directory named "${clash.name}" already exists (${clash.id}) \u2014 names are unique per workspace.`
+    );
+  }
+  const directory = await directoryMutator(pb).rename(dir.id, name);
+  return { directory, previousName: dir.name };
+}
+async function deleteDirectory(pb, workspaceId, ref, opts = {}) {
+  const dirs = (await listDirectories(pb, workspaceId)).items;
+  const dir = resolveDirectoryIn(dirs, ref);
+  const mediaRows = await pb.collection("Media").getFullList({
+    filter: pb.filter("DirectoryRef = {:id}", { id: dir.id }),
+    fields: "id",
+    batch: 500
+  });
+  if (mediaRows.length > 0 && !opts.force) {
+    throw new Error(
+      `Directory "${dir.name}" still contains ${mediaRows.length} media. --force unfiles them back to the workspace root (media are never deleted).`
+    );
+  }
+  const mediaMutator = new MediaMutator(pb);
+  for (const row of mediaRows) {
+    await mediaMutator.update(row.id, { DirectoryRef: "" });
+  }
+  await directoryMutator(pb).delete(dir.id);
+  return { directory: dir, unfiledMediaIds: mediaRows.map((m) => m.id) };
+}
+async function mediaCountsByDirectory(pb, workspaceId) {
+  const rows = await pb.collection("Media").getFullList({
+    filter: pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId }),
+    fields: "id,DirectoryRef",
+    batch: 500
+  });
+  const byDirectory = /* @__PURE__ */ new Map();
+  let root = 0;
+  for (const row of rows) {
+    if (row.DirectoryRef) {
+      byDirectory.set(
+        row.DirectoryRef,
+        (byDirectory.get(row.DirectoryRef) ?? 0) + 1
+      );
+    } else {
+      root += 1;
+    }
+  }
+  return { byDirectory, root, total: rows.length };
+}
+
+// src/lib/upload.ts
+import { open, stat } from "fs/promises";
+import { basename, extname } from "path";
+var DEFAULT_CHUNK_SIZE = 100 * 1024 * 1024;
+var MAX_UPLOAD_SIZE = 24 * 1024 * 1024 * 1024;
+var UPLOAD_ROUTE_PATH = "/api-next/uploads/upload";
+var ALLOWED_UPLOAD_EXTENSIONS = /* @__PURE__ */ new Set([
+  // video
+  "mp4",
+  "webm",
+  "mov",
+  "avi",
+  "mkv",
+  // audio
+  "mp3",
+  "wav",
+  "m4a",
+  "aac",
+  "ogg",
+  "flac",
+  // image
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp"
+]);
+function resolveAppUrl(override) {
+  const strip = (url2) => url2.replace(/\/+$/, "");
+  if (override) return strip(override);
+  const cfg = loadConfig();
+  if (cfg.appUrl) return strip(cfg.appUrl);
+  if (process.env.VW_APP_URL) return strip(process.env.VW_APP_URL);
+  const pbUrl = strip(resolveUrl());
+  try {
+    const url2 = new URL(pbUrl);
+    if ((url2.hostname === "localhost" || url2.hostname === "127.0.0.1") && url2.port === "8090") {
+      url2.port = "3000";
+      return strip(url2.toString());
+    }
+  } catch {
+  }
+  return pbUrl;
+}
+function chunkPlan(fileSize, chunkSize) {
+  const totalChunks = Math.ceil(fileSize / chunkSize);
+  const chunks = [];
+  for (let index = 0; index < totalChunks; index++) {
+    const start = index * chunkSize;
+    chunks.push({
+      index,
+      start,
+      length: Math.min(chunkSize, fileSize - start)
+    });
+  }
+  return chunks;
+}
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const rounded = unit === 0 || value >= 10 ? String(Math.round(value)) : value.toFixed(1);
+  return `${rounded} ${units[unit]}`;
+}
+async function validateUploadFile(filePath) {
+  let stats;
+  try {
+    stats = await stat(filePath);
+  } catch {
+    throw new Error(`File not found: ${filePath}`);
+  }
+  if (!stats.isFile()) {
+    throw new Error(`Not a file: ${filePath}`);
+  }
+  if (stats.size === 0) {
+    throw new Error(`File is empty: ${filePath}`);
+  }
+  if (stats.size > MAX_UPLOAD_SIZE) {
+    throw new Error(
+      `File exceeds the ${formatBytes(MAX_UPLOAD_SIZE)} upload limit: ${filePath} (${formatBytes(stats.size)})`
+    );
+  }
+  const name = basename(filePath);
+  const extension = extname(name).slice(1).toLowerCase();
+  if (!extension || !ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+    throw new Error(
+      `Unsupported file type "${name}" \u2014 supported extensions: ` + [...ALLOWED_UPLOAD_EXTENSIONS].join(", ")
+    );
+  }
+  return { name, size: stats.size };
+}
+var ChunkRequestError = class extends Error {
+  retryable;
+  constructor(message, retryable) {
+    super(message);
+    this.name = "ChunkRequestError";
+    this.retryable = retryable;
+  }
+};
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function readChunk(fh, spec) {
+  const buffer = new Uint8Array(spec.length);
+  let offset = 0;
+  while (offset < spec.length) {
+    const { bytesRead } = await fh.read(
+      buffer,
+      offset,
+      spec.length - offset,
+      spec.start + offset
+    );
+    if (bytesRead === 0) {
+      throw new Error("Unexpected end of file \u2014 did the file change?");
+    }
+    offset += bytesRead;
+  }
+  return buffer;
+}
+async function putChunk(pb, url2, params) {
+  const token = pb.authStore.token;
+  if (!token) {
+    throw new ChunkRequestError(
+      "User must be authenticated to upload files",
+      false
+    );
+  }
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "x-upload-id": params.uploadId,
+    "x-workspace-id": params.workspaceId,
+    "x-user-id": params.userId,
+    "x-file-name": params.fileName,
+    "x-chunk-index": String(params.chunk.index),
+    "x-total-chunks": String(params.totalChunks),
+    "x-chunk-size": String(params.buffer.length)
+  };
+  if (params.directoryId) {
+    headers["x-directory-id"] = params.directoryId;
+  }
+  let res;
+  try {
+    res = await fetch(url2, {
+      method: "PUT",
+      headers,
+      body: params.buffer,
+      signal: AbortSignal.timeout(params.timeoutMs)
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new ChunkRequestError(
+      timedOut ? `chunk ${params.chunk.index + 1} timed out` : `network error (${err instanceof Error ? err.message : String(err)}) \u2014 is the webapp reachable at ${url2}?`,
+      true
+    );
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ChunkRequestError(
+      body.error ?? `HTTP ${res.status}`,
+      res.status >= 500
+    );
+  }
+  return { complete: body.complete === true, upload: body.upload };
+}
+async function uploadFile(pb, opts) {
+  const {
+    filePath,
+    workspaceId,
+    appUrl,
+    directoryId,
+    chunkSize = DEFAULT_CHUNK_SIZE,
+    maxRetries = 3,
+    backoffBaseMs = 1e3,
+    timeoutMs = 10 * 60 * 1e3,
+    onCreated,
+    onProgress
+  } = opts;
+  const { name, size } = await validateUploadFile(filePath);
+  const chunks = chunkPlan(size, chunkSize);
+  const userId = pb.authStore.record?.id;
+  if (!userId) {
+    throw new Error("User must be authenticated to upload files");
+  }
+  const mutator = new UploadMutator(pb);
+  const url2 = `${appUrl}${UPLOAD_ROUTE_PATH}`;
+  const fh = await open(filePath, "r");
+  try {
+    const created = await mutator.create({
+      name,
+      size,
+      status: UploadStatus.QUEUED,
+      bytesUploaded: 0,
+      WorkspaceRef: workspaceId,
+      UserRef: userId,
+      ...directoryId ? { DirectoryRef: directoryId } : {}
+    });
+    onCreated?.(created);
+    try {
+      let bytesUploaded = 0;
+      for (const chunk of chunks) {
+        const buffer = await readChunk(fh, chunk);
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const result = await putChunk(pb, url2, {
+              uploadId: created.id,
+              workspaceId,
+              userId,
+              fileName: name,
+              chunk,
+              totalChunks: chunks.length,
+              buffer,
+              directoryId,
+              timeoutMs
+            });
+            bytesUploaded += chunk.length;
+            onProgress?.({
+              chunkIndex: chunk.index,
+              totalChunks: chunks.length,
+              bytesUploaded,
+              totalBytes: size
+            });
+            if (result.complete) {
+              return result.upload ?? created;
+            }
+            break;
+          } catch (err) {
+            const retryable = !(err instanceof ChunkRequestError) || err.retryable;
+            if (!retryable || attempt >= maxRetries) {
+              throw new Error(
+                `Failed to upload chunk ${chunk.index + 1}/${chunks.length}: ` + (err instanceof Error ? err.message : String(err))
+              );
+            }
+            await sleep(2 ** (attempt + 1) * backoffBaseMs);
+          }
+        }
+      }
+      throw new Error(
+        "Upload finished but the server never confirmed completion."
+      );
+    } catch (err) {
+      try {
+        await mutator.updateStatus(
+          created.id,
+          UploadStatus.FAILED,
+          `Upload failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      } catch {
+      }
+      throw err;
+    }
+  } finally {
+    await fh.close();
+  }
+}
+var DEFAULT_INGEST_MAX_WAIT_MS = 10 * 60 * 1e3;
+async function pollUploadIngest(pb, uploadId, opts = {}) {
+  const intervalMs = opts.intervalMs ?? 2e3;
+  const maxWaitMs = opts.maxWaitMs ?? DEFAULT_INGEST_MAX_WAIT_MS;
+  const uploadMutator = new UploadMutator(pb);
+  const mediaMutator = new MediaMutator(pb);
+  const taskMutator = new TaskMutator(pb);
+  const deadline = Date.now() + maxWaitMs;
+  let lastStage = "";
+  while (true) {
+    const upload = await uploadMutator.getById(uploadId);
+    if (!upload) {
+      throw new Error(`Upload ${uploadId} not found.`);
+    }
+    if (upload.status === UploadStatus.FAILED) {
+      throw new Error(upload.errorMessage || "Upload failed during ingest.");
+    }
+    const tasks = await taskMutator.getBySourceId(uploadId);
+    const failedTask = tasks.items.find(
+      (task) => task.status === TaskStatus.FAILED
+    );
+    if (failedTask) {
+      throw new Error(
+        `Ingest task ${failedTask.type} failed` + (failedTask.errorLog ? `: ${failedTask.errorLog}` : ".")
+      );
+    }
+    const media = await mediaMutator.getByUpload(uploadId);
+    if (media?.isActive) {
+      return media;
+    }
+    const stage = media ? `processing \u2014 media ${media.id}, proxy pending` : "uploaded \u2014 waiting for ingest";
+    if (stage !== lastStage) {
+      opts.onUpdate?.(stage);
+      lastStage = stage;
+    }
+    if (Date.now() + intervalMs > deadline) {
+      throw new Error(
+        `Timed out after ${Math.round(maxWaitMs / 1e3)}s waiting for ingest of upload ${uploadId} (last stage: ${lastStage}). The worker may still be processing \u2014 check \`vw media list\`.`
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
+// src/commands/upload.ts
+async function uploadOne(pb, filePath, validated, ctx) {
+  const { name, size } = validated;
+  const totalChunks = chunkPlan(size, DEFAULT_CHUNK_SIZE).length;
+  const quiet = ctx.json === true;
+  if (!quiet) {
+    info(
+      totalChunks > 1 ? `Uploading ${name} (${formatBytes(size)}, ${totalChunks} chunks of ${formatBytes(DEFAULT_CHUNK_SIZE)})` : `Uploading ${name} (${formatBytes(size)})`
+    );
+  }
+  let upload;
+  try {
+    upload = await uploadFile(pb, {
+      filePath,
+      workspaceId: ctx.workspaceId,
+      appUrl: ctx.appUrl,
+      directoryId: ctx.directoryId,
+      onCreated: (created) => ctx.setCurrentUploadId(created.id),
+      onProgress: ({ chunkIndex, bytesUploaded, totalBytes }) => {
+        if (quiet || totalChunks === 1) return;
+        const percent = Math.round(bytesUploaded / totalBytes * 100);
+        info(`  chunk ${chunkIndex + 1}/${totalChunks} (${percent}%)`);
+      }
+    });
+  } finally {
+    ctx.setCurrentUploadId(null);
+  }
+  if (!quiet) success(`Uploaded ${name} \u2192 upload ${upload.id}`);
+  if (!ctx.wait) {
+    return { file: filePath, upload };
+  }
+  const media = await pollUploadIngest(pb, upload.id, {
+    onUpdate: (stage) => {
+      if (!quiet) info(`  ${stage}`);
+    }
+  });
+  if (!quiet) success(`Media ${media.id} ready`);
+  return { file: filePath, upload, media };
+}
+function registerUploadCommands(program3) {
+  withJsonOption(
+    program3.command("upload <files...>").description(
+      "Upload local video/audio/image files into the active workspace"
+    ).option("-w, --workspace <id>", "workspace id override").option(
+      "--directory <dir>",
+      'file the new media into a directory (name or id; omit or "/" = workspace root)'
+    ).option(
+      "--app-url <url>",
+      "webapp origin serving /api-next (default: derived from the PocketBase URL)"
+    ).option(
+      "--wait",
+      "poll until the media is ingested and its proxy is ready"
+    )
+  ).action(async (files, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const directoryId = opts.directory && !isRootDirRef(opts.directory) ? (await resolveDirectory(pb, workspaceId, opts.directory)).id : void 0;
+      const appUrl = resolveAppUrl(opts.appUrl);
+      const validated = /* @__PURE__ */ new Map();
+      for (const file2 of files) {
+        validated.set(file2, await validateUploadFile(file2));
+      }
+      let currentUploadId = null;
+      const onSigint = () => {
+        const id = currentUploadId;
+        if (!id) process.exit(130);
+        void new UploadMutator(pb).updateStatus(id, UploadStatus.FAILED, "Upload cancelled by user").catch(() => void 0).finally(() => process.exit(130));
+      };
+      process.once("SIGINT", onSigint);
+      const results = [];
+      let failures = 0;
+      try {
+        for (const [i2, file2] of files.entries()) {
+          if (i2 > 0) {
+            await pb.collection("Users").authRefresh();
+          }
+          try {
+            results.push(
+              await uploadOne(pb, file2, validated.get(file2), {
+                workspaceId,
+                appUrl,
+                directoryId,
+                wait: opts.wait,
+                json: opts.json,
+                setCurrentUploadId: (id) => {
+                  currentUploadId = id;
+                }
+              })
+            );
+          } catch (err) {
+            failures++;
+            const message = err instanceof Error ? err.message : String(err);
+            if (!opts.json) error(`${file2}: ${message}`);
+            results.push({ file: file2, error: message });
+          }
+        }
+      } finally {
+        process.removeListener("SIGINT", onSigint);
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+      }
+      if (failures > 0) {
+        process.exit(1);
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+
 // src/lib/media.ts
 function mediaClipMediaLabel(clip) {
   return clip.expand?.MediaRef?.expand?.UploadRef?.name ?? clip.MediaRef;
 }
-async function searchMedia(pb, workspaceId, query, perPage = 50) {
-  const filter = pb.filter(
-    "WorkspaceRef = {:ws} && (label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})",
-    { ws: workspaceId, q: query }
-  );
-  return new MediaMutator(pb).getList(1, perPage, filter);
+function mediaColumns(items) {
+  const columns = [
+    { header: "ID", value: (m) => m.id },
+    { header: "NAME", value: (m) => mediaLabel(m) },
+    { header: "LABEL", value: (m) => m.label ?? "" },
+    { header: "TYPE", value: (m) => String(m.mediaType) },
+    { header: "DURATION", value: (m) => formatDuration(m.duration) },
+    { header: "SIZE", value: (m) => `${m.width}x${m.height}` }
+  ];
+  if (items.some((m) => m.DirectoryRef)) {
+    columns.push({
+      header: "DIRECTORY",
+      value: (m) => m.expand?.DirectoryRef?.name ?? m.DirectoryRef ?? ""
+    });
+  }
+  return columns;
+}
+async function searchMedia(pb, workspaceId, query, perPage = 50, directoryId) {
+  const search = "(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})";
+  const filter = directoryId === null ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = "" && ${search}`, {
+    ws: workspaceId,
+    q: query
+  }) : directoryId ? pb.filter(
+    `WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`,
+    { ws: workspaceId, dir: directoryId, q: query }
+  ) : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
+    ws: workspaceId,
+    q: query
+  });
+  return new MediaMutator(pb).getList(1, perPage, filter, void 0, [
+    "DirectoryRef"
+  ]);
 }
 function parseClipType(value) {
   const types = Object.values(ClipType);
@@ -38980,6 +40205,32 @@ async function deleteMediaClip(pb, clipId) {
   await mutator.delete(clipId);
   return { clip, referencingClipIds };
 }
+async function moveMedia(pb, workspaceId, directoryRef, mediaIds) {
+  const directory = isRootDirRef(directoryRef) ? null : await resolveDirectory(pb, workspaceId, directoryRef);
+  const mutator = new MediaMutator(pb);
+  const targets = [];
+  for (const id of mediaIds) {
+    const media = await mutator.getById(id);
+    if (!media) {
+      throw new Error(`Media not found: ${id} \u2014 nothing was moved.`);
+    }
+    if (media.WorkspaceRef !== workspaceId) {
+      throw new Error(
+        `Media ${id} belongs to another workspace \u2014 nothing was moved.`
+      );
+    }
+    targets.push(media);
+  }
+  const moved = [];
+  for (const media of targets) {
+    moved.push(
+      await mutator.update(media.id, {
+        DirectoryRef: directory?.id ?? ""
+      })
+    );
+  }
+  return { directory, moved };
+}
 var mediaFieldOptions = {
   label: {
     flags: "--label <text>",
@@ -38988,6 +40239,10 @@ var mediaFieldOptions = {
   description: {
     flags: "--description <text>",
     description: "media notes shown in the editor (searchable)"
+  },
+  directory: {
+    flags: "--directory <dir>",
+    description: "move the media into a directory (name or id; '/' or 'none' clears it)"
   }
 };
 async function updateMedia(pb, mediaId, opts) {
@@ -39000,6 +40255,9 @@ async function updateMedia(pb, mediaId, opts) {
     ...opts.label !== void 0 ? { label: opts.label } : {},
     ...opts.description !== void 0 ? { description: opts.description } : {}
   };
+  if (opts.directory !== void 0) {
+    patch.DirectoryRef = isRootDirRef(opts.directory) ? "" : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
+  }
   return mutator.update(mediaId, patch);
 }
 
@@ -39205,7 +40463,7 @@ async function inspectTimelineClipSegments(pb, clipId, timelineId) {
 }
 
 // src/commands/clip-segments.ts
-var secs = (v) => `${v.toFixed(2)}s`;
+var secs2 = (v) => `${v.toFixed(2)}s`;
 var range = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 var signed = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
 var workspaceOption = (cmd) => cmd.option(
@@ -39216,7 +40474,7 @@ var effectiveOf = (segments) => segments.reduce((total, s2) => total + Math.max(
 function describeOp(op) {
   switch (op.kind) {
     case "split":
-      return `Split at ${op.at.map(secs).join(", ")}:`;
+      return `Split at ${op.at.map(secs2).join(", ")}:`;
     case "cut":
       return `Cut ${range(op.from, op.to)} from`;
     case "trim":
@@ -39236,7 +40494,7 @@ function reportEdit(clipId, op, result, json2) {
     );
     return;
   }
-  const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs(effectiveOf(result.before))} \u2192 ${secs(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
+  const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs2(effectiveOf(result.before))} \u2192 ${secs2(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
   if (result.dryRun) {
     info(`Dry run \u2014 nothing written. Would have: ${summary}`);
   } else {
@@ -39259,7 +40517,7 @@ function reportEdit(clipId, op, result, json2) {
   if ("rippled" in result) {
     for (const shift of result.rippled) {
       info(
-        `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
+        `  rippled: ${shift.clipId} ${secs2(shift.from)} \u2192 ${secs2(shift.to)}`
       );
     }
   }
@@ -39271,10 +40529,10 @@ function reportInspection(clipId, inspection, json2) {
   }
   const sourceHint = inspection.source === "trim" ? "trim window \u2014 not composite yet; the first edit converts it" : inspection.source;
   info(
-    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs(inspection.times.duration)}, span ${range(inspection.times.start, inspection.times.end)}`
+    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs2(inspection.times.duration)}, span ${range(inspection.times.start, inspection.times.end)}`
   );
   info(
-    `  media ${inspection.mediaId} (${secs(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
+    `  media ${inspection.mediaId} (${secs2(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
   );
   const gapAfter = new Map(
     inspection.gaps.map((g) => [g.afterIndex, g.seconds])
@@ -39283,14 +40541,14 @@ function reportInspection(clipId, inspection, json2) {
     inspection.segments.map((seg, index) => ({ seg, index })),
     [
       { header: "IDX", value: (r2) => String(r2.index) },
-      { header: "START", value: (r2) => secs(r2.seg.start) },
-      { header: "END", value: (r2) => secs(r2.seg.end) },
-      { header: "DUR", value: (r2) => secs(r2.seg.end - r2.seg.start) },
+      { header: "START", value: (r2) => secs2(r2.seg.start) },
+      { header: "END", value: (r2) => secs2(r2.seg.end) },
+      { header: "DUR", value: (r2) => secs2(r2.seg.end - r2.seg.start) },
       {
         header: "GAP-AFTER",
         value: (r2) => {
           const gap = gapAfter.get(r2.index);
-          return gap !== void 0 ? secs(gap) : "";
+          return gap !== void 0 ? secs2(gap) : "";
         }
       }
     ]
@@ -39579,31 +40837,33 @@ function registerTimelineClipSegmentCommands(clips) {
 }
 
 // src/commands/media.ts
-var mediaColumns = [
-  { header: "ID", value: (m) => m.id },
-  { header: "NAME", value: (m) => mediaLabel(m) },
-  { header: "LABEL", value: (m) => m.label ?? "" },
-  { header: "TYPE", value: (m) => String(m.mediaType) },
-  {
-    header: "DURATION",
-    value: (m) => formatDuration(m.duration)
-  },
-  { header: "SIZE", value: (m) => `${m.width}x${m.height}` }
-];
 function registerMediaCommands(program3) {
   const media = program3.command("media").description("Browse workspace media");
   withJsonOption(
-    media.command("list").alias("ls").description("List media in the active workspace").option("-w, --workspace <id>", "workspace id override")
+    media.command("list").alias("ls").description(
+      "List media in the active workspace (all of it unless -d filters to one directory)"
+    ).option("-w, --workspace <id>", "workspace id override").option(
+      "-d, --directory <dir>",
+      'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
+    )
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const result = await new MediaMutator(pb).getByWorkspace(
+      const mutator = new MediaMutator(pb);
+      const result = opts.directory === void 0 ? await mutator.getByWorkspace(workspaceId, 1, 200, "DirectoryRef") : isRootDirRef(opts.directory) ? await mutator.getByWorkspaceRoot(
         workspaceId,
         1,
-        200
+        200,
+        "DirectoryRef"
+      ) : await mutator.getByDirectory(
+        (await resolveDirectory(pb, workspaceId, opts.directory)).id,
+        1,
+        200,
+        "DirectoryRef"
       );
-      printList(result.items, mediaColumns, {
+      const items = result.items;
+      printList(items, mediaColumns(items), {
         json: opts.json,
         totalItems: result.totalItems
       });
@@ -39613,6 +40873,9 @@ function registerMediaCommands(program3) {
   });
   withJsonOption(
     media.command("search <query>").alias("find").description("Search workspace media by filename, label, or description").option("-w, --workspace <id>", "workspace id override").option(
+      "-d, --directory <dir>",
+      'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
+    ).option(
       "-n, --limit <count>",
       "max results (default: 50)",
       (v) => parseInt(v, 10)
@@ -39621,13 +40884,16 @@ function registerMediaCommands(program3) {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const directoryId = opts.directory === void 0 ? void 0 : isRootDirRef(opts.directory) ? null : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
       const result = await searchMedia(
         pb,
         workspaceId,
         query,
-        opts.limit ?? 50
+        opts.limit ?? 50,
+        directoryId
       );
-      printList(result.items, mediaColumns, {
+      const items = result.items;
+      printList(items, mediaColumns(items), {
         json: opts.json,
         totalItems: result.totalItems
       });
@@ -39635,7 +40901,9 @@ function registerMediaCommands(program3) {
       handleError(err);
     }
   });
-  const mediaUpdate = media.command("update <mediaId>").alias("set").description("Set a media item\u2019s editor-facing label and description");
+  const mediaUpdate = media.command("update <mediaId>").alias("set").description(
+    "Set a media item\u2019s editor-facing label/description, or move it into a directory"
+  );
   applyOptions(withJsonOption(mediaUpdate), mediaFieldOptions).action(
     async (mediaId, opts) => {
       try {
@@ -39657,7 +40925,7 @@ function registerMediaCommands(program3) {
     }
   );
   const clip = media.command("clip").description(
-    "Create and browse media clips (reusable sub-ranges of media)"
+    "Create and browse media clips (reusable sub-ranges of media) \u2014 clips have no directory of their own; they follow their parent media"
   );
   const clipCreate = clip.command("create").description("Create a media clip from a media sub-range").option("-w, --workspace <id>", "workspace id override").option("-m, --media <id>", "source media id");
   applyOptions(clipCreate, clipFieldOptions).action(async (opts) => {
@@ -39685,15 +40953,25 @@ function registerMediaCommands(program3) {
     clip.command("list").alias("ls").description("List media clips in the active workspace").option("-w, --workspace <id>", "workspace id override").option("-m, --media <id>", "filter to a single source media").option("--type <type>", "filter by clip type").option(
       "--search <query>",
       "filter by clip label, description, type, or media filename"
+    ).option(
+      "-d, --directory <dir>",
+      'optional filter: only clips whose source media is in this directory (name or id; "/" = unfiled media)'
     )
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       const mutator = new MediaClipMutator(pb);
+      if (opts.media && opts.directory !== void 0) {
+        throw new Error(
+          "-m already pins one media (and its directory) \u2014 drop -d or -m."
+        );
+      }
+      const directoryId = opts.directory === void 0 ? void 0 : isRootDirRef(opts.directory) ? "root" : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
       const result = opts.media ? await mutator.getByMedia(opts.media, 1, 200) : await mutator.getByWorkspace(workspaceId, 1, 200, {
         type: opts.type ? parseClipType(opts.type) : void 0,
-        searchQuery: opts.search
+        searchQuery: opts.search,
+        directoryId
       });
       printList(
         result.items,
@@ -39756,6 +41034,183 @@ function registerMediaCommands(program3) {
     }
   });
   registerMediaClipSegmentCommands(clip);
+}
+
+// src/commands/directory.ts
+function registerDirectoryCommands(program3) {
+  const directory = program3.command("directory").alias("dir").description(
+    'Optional, flat media folders (e.g. per shoot or location) \u2014 purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media\u2019s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
+  );
+  withJsonOption(
+    directory.command("list").alias("ls").description("List directories in the active workspace with media counts").option("-w, --workspace <id>", "workspace id override")
+  ).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const [result, counts] = await Promise.all([
+        listDirectories(pb, workspaceId),
+        mediaCountsByDirectory(pb, workspaceId)
+      ]);
+      const rows = result.items.map((d) => ({
+        ...d,
+        mediaCount: counts.byDirectory.get(d.id) ?? 0
+      }));
+      if (opts.json) {
+        printRecord(
+          {
+            items: rows,
+            totalItems: result.totalItems,
+            unfiledMedia: counts.root,
+            totalMedia: counts.total
+          },
+          [],
+          true
+        );
+        return;
+      }
+      const columns = [
+        { header: "ID", value: (d) => d.id },
+        { header: "NAME", value: (d) => d.name },
+        { header: "MEDIA", value: (d) => String(d.mediaCount) }
+      ];
+      printList(rows, columns, {
+        totalItems: result.totalItems,
+        hint: "vw media list -d <dir> filters, vw dir move <dir> <mediaId\u2026> files media"
+      });
+      info(
+        rows.length === 0 ? `Directories are optional \u2014 all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.` : `${counts.root} of ${counts.total} media are unfiled (workspace root) \u2014 vw media list -d / lists them.`
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    directory.command("show <dir>").description("Show one directory (name or id) and the media filed in it").option("-w, --workspace <id>", "workspace id override")
+  ).action(async (ref, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const dir = resolveDirectoryIn(
+        (await listDirectories(pb, workspaceId)).items,
+        ref
+      );
+      const media = await new MediaMutator(pb).getByDirectory(dir.id, 1, 200);
+      const items = media.items;
+      if (opts.json) {
+        printRecord(
+          { ...dir, media: items, totalMedia: media.totalItems },
+          [],
+          true
+        );
+        return;
+      }
+      info(`Directory "${dir.name}" (${dir.id}) \u2014 ${media.totalItems} media`);
+      printList(items, mediaColumns(items), {
+        totalItems: media.totalItems,
+        hint: `vw dir move ${dir.name} <mediaId\u2026> files more media here`
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    directory.command("create <name>").description(
+      "Create a directory \u2014 flat, unique per workspace; names allow letters, digits, dashes, and underscores (idempotent)"
+    ).option("-w, --workspace <id>", "workspace id override")
+  ).action(async (name, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await createDirectory(pb, workspaceId, name);
+      if (opts.json) {
+        printRecord({ ...result.directory, existed: result.existed }, [], true);
+        return;
+      }
+      if (result.existed) {
+        info(
+          `Directory "${result.directory.name}" already exists (${result.directory.id})`
+        );
+      } else {
+        success(
+          `Created directory "${result.directory.name}" (${result.directory.id})`
+        );
+      }
+      info(
+        `  vw dir move ${result.directory.name} <mediaId\u2026> files media into it`
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    directory.command("rename <dir> <newName>").description(
+      "Rename a directory (name or id; new name must be path-safe and unique)"
+    ).option("-w, --workspace <id>", "workspace id override")
+  ).action(async (ref, newName, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await renameDirectory(pb, workspaceId, ref, newName);
+      if (opts.json) {
+        printRecord(result.directory, [], true);
+        return;
+      }
+      success(
+        `Renamed directory "${result.previousName}" \u2192 "${result.directory.name}" (${result.directory.id})`
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    directory.command("move <dir> <mediaIds...>").alias("mv").description(
+      'Move media into a directory (name or id) \u2014 "/" or "none" re-files them at the workspace root'
+    ).option("-w, --workspace <id>", "workspace id override")
+  ).action(async (ref, mediaIds, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await moveMedia(pb, workspaceId, ref, mediaIds);
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      const target = result.directory ? `directory "${result.directory.name}" (${result.directory.id})` : "the workspace root";
+      success(`Moved ${result.moved.length} media into ${target}`);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    directory.command("delete <dir>").alias("rm").description(
+      "Delete a directory (name or id). Refuses while media is filed in it; --force unfiles the media first \u2014 media are never deleted"
+    ).option("-w, --workspace <id>", "workspace id override").option(
+      "-f, --force",
+      "unfile any contained media back to the workspace root, then delete"
+    )
+  ).action(async (ref, opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const result = await deleteDirectory(pb, workspaceId, ref, {
+        force: opts.force
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      success(
+        `Deleted directory "${result.directory.name}" (${result.directory.id})`
+      );
+      if (result.unfiledMediaIds.length > 0) {
+        info(
+          `  ${result.unfiledMediaIds.length} media unfiled back to the workspace root`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
 }
 
 // src/lib/entity.ts
@@ -40676,13 +42131,13 @@ async function deleteCaption(pb, captionId, opts = {}) {
 }
 
 // src/commands/caption.ts
-var secs2 = (v) => `${v.toFixed(2)}s`;
+var secs3 = (v) => `${v.toFixed(2)}s`;
 var captionColumns = [
   { header: "ID", value: (c) => c.id },
   { header: "TYPE", value: (c) => captionTypeOf(c) },
   { header: "NAME", value: (c) => truncate(c.name ?? "", 24) },
   { header: "TEXT", value: (c) => truncate(c.text ?? "", 40) },
-  { header: "DUR", value: (c) => secs2(c.duration) },
+  { header: "DUR", value: (c) => secs3(c.duration) },
   {
     header: "CUES",
     value: (c) => String((c.cues ?? []).length || "\u2014")
@@ -40717,7 +42172,7 @@ function registerCaptionCommands(program3) {
         `Created ${captionTypeOf(created)} ${created.id} "${truncate(
           captionLabel(created),
           40
-        )}" (${secs2(created.duration)}${cueCount ? `, ${cueCount} cues` : ""})`
+        )}" (${secs3(created.duration)}${cueCount ? `, ${cueCount} cues` : ""})`
       );
       info(
         `  place it with \`vw timeline insert -t <timelineId> --caption ${created.id} --track <layer>\``
@@ -40765,7 +42220,7 @@ function registerCaptionCommands(program3) {
       }
       const cues = record2.cues ?? [];
       info(
-        `Caption ${record2.id} \u2014 ${captionTypeOf(record2)}, ${secs2(record2.duration)}`
+        `Caption ${record2.id} \u2014 ${captionTypeOf(record2)}, ${secs3(record2.duration)}`
       );
       if (record2.name) info(`  name: ${record2.name}`);
       info(`  text: ${truncate(record2.text, 80)}`);
@@ -40774,7 +42229,7 @@ function registerCaptionCommands(program3) {
         info(`  cues (${cues.length}):`);
         for (const cue of cues) {
           info(
-            `    ${secs2(cue.start)}\u2013${secs2(cue.end)}  ${truncate(cue.text, 60)}`
+            `    ${secs3(cue.start)}\u2013${secs3(cue.end)}  ${truncate(cue.text, 60)}`
           );
         }
       }
@@ -40835,101 +42290,132 @@ function registerCaptionCommands(program3) {
   });
 }
 
+// src/lib/timeline-reflow.ts
+async function planTimelineReflow2(pb, timelineId, clips, tracks) {
+  const nestedTimelines = await fetchNestedTimelineMap(
+    pb,
+    clips,
+    /* @__PURE__ */ new Set([timelineId])
+  );
+  const result = planTimelineTreeReflow({
+    rootTimelineId: timelineId,
+    clips,
+    tracks,
+    nestedTimelines
+  });
+  const plans = [
+    ...Object.entries(result.nested).map(([id, plan]) => ({
+      timelineId: id,
+      changes: plan.changes
+    })),
+    ...result.root.changes.length > 0 ? [{ timelineId, changes: result.root.changes }] : []
+  ];
+  const changeCount = plans.reduce((sum, p) => sum + p.changes.length, 0);
+  return { plans, changeCount };
+}
+async function reflowTimelineClips(pb, timelineId, opts) {
+  const clipMutator = new TimelineClipMutator(pb);
+  const trackMutator = new TimelineTrackMutator(pb);
+  const timeline = await new TimelineMutator(pb).getById(timelineId);
+  if (!timeline) {
+    throw new Error(`Timeline not found: ${timelineId}`);
+  }
+  const clips = await clipMutator.getByTimeline(timelineId);
+  const tracks = await trackMutator.getByTimeline(timelineId);
+  const { plans, changeCount } = await planTimelineReflow2(
+    pb,
+    timelineId,
+    clips,
+    tracks.items
+  );
+  if (opts?.dryRun || changeCount === 0) {
+    return { timelineId, plans, changeCount, applied: false };
+  }
+  for (const plan of plans) {
+    for (const { clipId, ...fields } of plan.changes) {
+      await clipMutator.update(clipId, fields);
+    }
+    await syncTimelineDuration(pb, plan.timelineId);
+  }
+  return { timelineId, plans, changeCount, applied: true };
+}
+
 // src/lib/timeline-doctor.ts
-var secs3 = (v) => `${v.toFixed(2)}s`;
-var EPSILON = 1e-6;
-var LEVEL_ORDER = {
-  error: 0,
-  warning: 1,
-  info: 2
-};
+function withCliHint(finding) {
+  const width = (finding.end ?? 0) - (finding.start ?? 0);
+  switch (finding.code) {
+    case "track-overlap":
+      return {
+        ...finding,
+        message: `${finding.message}; reposition with \`vw timeline clips move <id> --at <s>\``
+      };
+    case "micro-gap":
+      return {
+        ...finding,
+        message: `${finding.message} (close it with \`vw timeline clips ripple ${finding.clipIds[1]} --by=-${width.toFixed(3)}\`)`
+      };
+    case "track-gap":
+      return {
+        ...finding,
+        message: `${finding.message} (if unintended, close it with \`vw timeline clips ripple ${finding.clipIds[1]} --by=-${width.toFixed(2)}\`)`
+      };
+    case "stale-clip-duration":
+      return {
+        ...finding,
+        message: `${finding.message} \u2014 refresh with \`vw timeline clips update\` re-trimming the clip`
+      };
+    case "dangling-media":
+      return {
+        ...finding,
+        message: `${finding.message}; remove the clip or restore the media`
+      };
+    case "dangling-caption":
+      return {
+        ...finding,
+        message: `${finding.message}; remove the clip or restore the caption`
+      };
+    default:
+      return finding;
+  }
+}
 async function doctorTimeline(pb, timelineId) {
   const overview = await getTimelineOverview(pb, timelineId);
-  const findings = [];
-  for (const track of overview.tracks) {
-    for (const cluster of overlapClusters(track.clips)) {
-      const start = cluster[0].timelineStart;
-      const end = Math.max(...cluster.map((c) => c.timelineEnd));
-      findings.push({
-        level: "error",
-        code: "track-overlap",
-        layer: track.layer,
-        clipIds: cluster.map((c) => c.clip.id),
-        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs3(start)} and ${secs3(end)} \u2014 same-track overlaps are invalid; reposition with \`vw timeline clips move <id> --at <s>\``
-      });
-    }
-    for (const gap of trackGaps(track.clips)) {
-      const width = gap.end - gap.start;
-      findings.push({
-        level: "info",
-        code: "track-gap",
-        layer: track.layer,
-        clipIds: [gap.beforeClipId, gap.afterClipId],
-        message: `track ${track.layer}: ${secs3(width)} gap at ${secs3(gap.start)}\u2013${secs3(gap.end)} (if unintended, close it with \`vw timeline clips ripple ${gap.afterClipId} --by=-${width.toFixed(2)}\`)`
-      });
-    }
-    for (const placed of track.clips) {
-      const clip = placed.clip;
-      const span = clip.end - clip.start;
-      if (Math.abs(clip.duration - span) > EPSILON) {
-        findings.push({
-          level: "warning",
-          code: "stale-clip-duration",
-          layer: track.layer,
-          clipIds: [clip.id],
-          message: `clip ${clip.id}: stored duration ${secs3(clip.duration)} \u2260 end \u2212 start (${secs3(span)}) \u2014 refresh with \`vw timeline clips update\` re-trimming the clip`
-        });
-      }
-      if (clip.MediaRef && !clip.expand?.MediaRef) {
-        findings.push({
-          level: "error",
-          code: "dangling-media",
-          layer: track.layer,
-          clipIds: [clip.id],
-          message: `clip ${clip.id} references missing media ${clip.MediaRef} \u2014 rendering will fail; remove the clip or restore the media`
-        });
-      }
-      if (clip.MediaClipRef && !clip.expand?.MediaClipRef) {
-        findings.push({
-          level: "warning",
-          code: "dangling-media-clip",
-          layer: track.layer,
-          clipIds: [clip.id],
-          message: `clip ${clip.id} references missing MediaClip ${clip.MediaClipRef} (provenance only \u2014 playback and rendering are unaffected)`
-        });
-      }
-      if (clip.CaptionRef && !clip.expand?.CaptionRef) {
-        findings.push({
-          level: "error",
-          code: "dangling-caption",
-          layer: track.layer,
-          clipIds: [clip.id],
-          message: `clip ${clip.id} references missing caption ${clip.CaptionRef} \u2014 rendering will fail; remove the clip or restore the caption`
-        });
-      }
-    }
-  }
-  if (Math.abs(overview.timeline.duration - overview.computedDuration) > EPSILON) {
+  const findings = collectTimelineDoctorFindings({
+    clips: overview.clips,
+    tracks: overview.trackRecords,
+    storedDuration: overview.timeline.duration
+  }).map(withCliHint);
+  const reflow = await planTimelineReflow2(
+    pb,
+    timelineId,
+    overview.clips,
+    overview.trackRecords
+  );
+  for (const plan of reflow.plans) {
+    const drifted = plan.changes.filter(
+      (c) => c.start !== void 0 || c.end !== void 0 || c.duration !== void 0
+    );
+    if (drifted.length === 0) continue;
+    const scope = plan.timelineId === timelineId ? "timeline" : `nested timeline ${plan.timelineId}`;
     findings.push({
       level: "warning",
-      code: "stale-timeline-duration",
-      clipIds: [],
-      message: `stored duration ${secs3(overview.timeline.duration)} \u2260 computed ${secs3(overview.computedDuration)} \u2014 self-heals on the next clip mutation`
+      code: "nested-window-drift",
+      clipIds: drifted.map((c) => c.clipId),
+      message: `${scope}: ${drifted.length} clip(s) drifted from their source timeline durations \u2014 healed in memory on webapp load/render; persist with \`vw timeline reflow ${timelineId}\``
     });
   }
-  findings.sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
-  const errors = findings.filter((f) => f.level === "error").length;
-  const warnings = findings.filter((f) => f.level === "warning").length;
+  const sorted = sortDoctorFindings(findings);
+  const { errors, warnings, ok } = summarizeDoctorFindings(sorted);
   return {
     timelineId: overview.timeline.id,
     timelineName: overview.timeline.name,
     computedDuration: overview.computedDuration,
     clipCount: overview.clipCount,
     trackCount: overview.tracks.length,
-    findings,
+    findings: sorted,
     errors,
     warnings,
-    ok: errors === 0
+    ok
   };
 }
 
@@ -40956,7 +42442,7 @@ var TERMINAL = /* @__PURE__ */ new Set([
   TaskStatus.FAILED,
   TaskStatus.CANCELED
 ]);
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var DEFAULT_RENDER_MAX_WAIT_MS = 10 * 60 * 1e3;
@@ -40993,7 +42479,7 @@ async function pollRender(pb, renderId, opts = {}) {
         `Timed out after ${Math.round(maxWaitMs / 1e3)}s waiting for render ${renderId} (last status: ${lastStatus} at ${lastProgress}%). The render may still be processing \u2014 re-run to resume polling.`
       );
     }
-    await sleep(intervalMs);
+    await sleep2(intervalMs);
   }
 }
 function renderFileUrl(pb, render) {
@@ -41376,7 +42862,7 @@ function registerTimelineClipCommands(timeline) {
         return;
       }
       const hint = timelineClipLabelHint(clip);
-      const kind = clip.CaptionRef ? "caption" : "media";
+      const kind = clip.CaptionRef ? "caption" : clip.SourceTimelineRef ? "timeline" : "media";
       info(`Clip ${clip.id} \u2014 "${truncate(hint, 40)}" (${kind})`);
       if (placement) {
         const trackName = placement.layer;
@@ -41385,7 +42871,7 @@ function registerTimelineClipCommands(timeline) {
         );
       }
       info(
-        `  source: ${range2(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef}`
+        `  source: ${range2(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef}`
       );
       const gain = clip.meta?.gain;
       const stored = clip.timelineStart !== void 0 && clip.timelineStart !== null ? `   timelineStart: ${secs4(clip.timelineStart)}` : "   (no stored position \u2014 legacy clip; `clips move` pins it)";
@@ -41901,7 +43387,7 @@ function registerTimelineCommands(program3) {
     }
   });
   const insert = timeline.command("insert").description(
-    "Insert media, a MediaClip, or a caption into a timeline track (appends to the end of the track unless --at/--after)"
+    "Insert media, a MediaClip, a caption, or another timeline (nested) into a timeline track (appends to the end of the track unless --at/--after)"
   ).option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option(
     "--clips <ids>",
     "comma-separated MediaClip ids to append in order (batch mode)",
@@ -41921,13 +43407,14 @@ function registerTimelineCommands(program3) {
           "media",
           "clip",
           "caption",
+          "sourceTimeline",
           "at",
           "after",
           "start",
           "end",
           "label",
           "description"
-        ].filter((key) => picked[key] !== void 0);
+        ].filter((key) => picked[key] !== void 0).map((key) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
         if (opts.overwrite) incompatible.push("overwrite");
         if (opts.dryRun) incompatible.push("dry-run");
         if (incompatible.length > 0) {
@@ -41952,7 +43439,7 @@ function registerTimelineCommands(program3) {
         }
         return;
       }
-      if (!picked.media && !picked.clip && !picked.caption) {
+      if (!picked.media && !picked.clip && !picked.caption && !picked.sourceTimeline) {
         picked.media = (await pickMedia(pb, workspaceId)).id;
       }
       const result = await insertClip(pb, {
@@ -42027,6 +43514,58 @@ function registerTimelineCommands(program3) {
       handleError(err);
     }
   });
+  withJsonOption(
+    timeline.command("reflow [timelineId]").description(
+      "Heal nested-timeline clip drift (gap-preserving reflow of each track)"
+    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override").option("--dry-run", "compute and report the plan without writing")
+  ).action(async (timelineIdArg, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+      const result = await reflowTimelineClips(pb, timelineId, {
+        dryRun: opts.dryRun
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      if (result.changeCount === 0) {
+        success("No drift \u2014 nothing to reflow.");
+        return;
+      }
+      for (const plan of result.plans) {
+        const scope = plan.timelineId === timelineId ? "timeline" : `nested timeline ${plan.timelineId}`;
+        info(`${scope}: ${plan.changes.length} clip change(s)`);
+        for (const change of plan.changes) {
+          const parts = [
+            change.timelineStart !== void 0 ? `at ${secs5(change.timelineStart)}` : "",
+            change.start !== void 0 && change.end !== void 0 ? `window ${range3(change.start, change.end)}` : "",
+            change.duration !== void 0 ? `duration ${secs5(change.duration)}` : "",
+            change.meta ? "meta" : ""
+          ];
+          info(`  ${change.clipId}  ${parts.filter(Boolean).join("  ")}`);
+        }
+      }
+      if (result.applied) {
+        success(`Applied ${result.changeCount} clip change(s).`);
+      } else {
+        info(
+          `Dry run \u2014 ${result.changeCount} clip change(s) pending; re-run without --dry-run to apply.`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
   timeline.command("render").description("Render a timeline").option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option("--format <fmt>", "output container format (default: mp4)").option("--codec <codec>", "video codec (default: h264)").option("--resolution <WxH>", "output resolution, e.g. 1920x1080").option("--width <px>", "output width (use with --height)").option("--height <px>", "output height (use with --width)").option("--no-wait", "enqueue and exit without polling for completion").option(
     "--timeout <seconds>",
     "max seconds to wait for completion before giving up (default: 1800)"
@@ -42090,7 +43629,7 @@ function registerTimelineCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.8.10";
+    return "0.9.4";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");
@@ -42108,7 +43647,9 @@ program2.name("vw").description(
 ).version(resolveVersion());
 registerAuthCommands(program2);
 registerWorkspaceCommands(program2);
+registerUploadCommands(program2);
 registerMediaCommands(program2);
+registerDirectoryCommands(program2);
 registerLabelCommands(program2);
 registerEntityCommands(program2);
 registerCaptionCommands(program2);

@@ -19,10 +19,9 @@ interface MediaWithPreviews extends Media {
 }
 
 /**
- * Directory filter for media:
- * - null: show all media in workspace
- * - 'root': show only media with no directory assigned
- * - string: show media in specific directory
+ * Directory filter for media (flat, single-layer directories):
+ * - null: show all media in the workspace
+ * - string: show media filed in that directory (Media.DirectoryRef)
  */
 type DirectoryFilter = string | null;
 
@@ -101,14 +100,10 @@ export function MediaProvider({
     clearError();
 
     try {
-      let result;
-      if (directoryFilter === null) {
-        result = await mediaService.getMediaByWorkspace(workspaceId);
-      } else if (directoryFilter === 'root') {
-        result = await mediaService.getMediaByWorkspaceRoot(workspaceId);
-      } else {
-        result = await mediaService.getMediaByDirectory(directoryFilter);
-      }
+      const result =
+        directoryFilter === null
+          ? await mediaService.getMediaByWorkspace(workspaceId)
+          : await mediaService.getMediaByDirectory(directoryFilter);
       setMedia(result);
     } catch (error) {
       handleError(error, 'load');
@@ -188,7 +183,6 @@ export function MediaProvider({
               const matchesFilter = (record: Media) => {
                 const filter = directoryFilterRef.current;
                 if (filter === null) return true;
-                if (filter === 'root') return !record.DirectoryRef;
                 return record.DirectoryRef === filter;
               };
 

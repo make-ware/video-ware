@@ -3,8 +3,10 @@ import {
   MediaMutator,
   TimelineClipMutator,
   TimelineTrackMutator,
+  REFLOW_EPSILON,
   calculateEffectiveDuration,
   clampSegmentsToWindow,
+  computeNestedTimelineDuration,
   deriveClipTimes,
   findNonOverlappingTimelineStart,
   getClipRanges,
@@ -231,6 +233,37 @@ export async function updateTimelineClip(
         patch.end = end;
         patch.duration = end - start;
       }
+    } else if (clip.SourceTimelineRef) {
+      // Nested-timeline clips trim against the source timeline's live
+      // content duration (webapp updateClipTrim semantics).
+      const [sourceClips, sourceTracks] = await Promise.all([
+        clipMutator.getByTimeline(clip.SourceTimelineRef),
+        new TimelineTrackMutator(pb).getByTimeline(clip.SourceTimelineRef),
+      ]);
+      const sourceDuration = computeNestedTimelineDuration({
+        clips: sourceClips,
+        tracks: sourceTracks.items,
+      });
+      if (
+        !(start >= 0 && start < end) ||
+        end > sourceDuration + REFLOW_EPSILON
+      ) {
+        throw new Error(
+          `Invalid time range: start=${start}, end=${end}, ` +
+            `timeline duration=${sourceDuration}`
+        );
+      }
+      patch.start = start;
+      patch.end = end;
+      patch.duration = end - start;
+      // A full-span window (untrim) follows the source's live duration from
+      // here on; any narrower trim stops following. Either way the clip is
+      // back in a user-chosen state, so an out-of-range clamp is cleared.
+      const meta: NonNullable<TimelineClip['meta']> = { ...(clip.meta ?? {}) };
+      meta.followSource =
+        start <= REFLOW_EPSILON && end >= sourceDuration - REFLOW_EPSILON;
+      delete meta.sourceOutOfRange;
+      patch.meta = meta;
     } else if (!(start >= 0 && start < end)) {
       // caption clips have no source media; only ordering is enforced
       throw new Error(`Invalid time range: start=${start}, end=${end}`);
@@ -244,6 +277,7 @@ export async function updateTimelineClip(
   if (opts.gain !== undefined) {
     patch.meta = {
       ...(clip.meta ?? {}),
+      ...(patch.meta ?? {}),
       gain: opts.gain,
     };
   }

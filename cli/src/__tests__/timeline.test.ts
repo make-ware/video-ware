@@ -312,10 +312,10 @@ describe('insertClip', () => {
     ).rejects.toThrow(/explicit --end/i);
   });
 
-  it('requires exactly one of media, clip, and caption', async () => {
+  it('requires exactly one of media, clip, caption, and source timeline', async () => {
     const pb = fakePb(timelineStubs());
     await expect(insertClip(pb, { timelineId: 'tl1' })).rejects.toThrow(
-      /--media <id>, --clip <mediaClipId>, or --caption/i
+      /--media <id>, --clip <mediaClipId>, --caption <captionId>, or --source-timeline/i
     );
     await expect(
       insertClip(pb, { timelineId: 'tl1', media: 'm1', clip: 'mc1' })
@@ -998,6 +998,292 @@ describe('createRender', () => {
     expect(Array.isArray(arg.timelineData)).toBe(true);
     expect(arg.timelineData[0].segments).toHaveLength(1);
     expect(render.id).toBe('render1');
+  });
+});
+
+/**
+ * Stubs routed by timeline for nested-timeline tests: TimelineClips /
+ * TimelineTracks lists answer per the filter's timeline id, Timelines
+ * getOne per record id.
+ */
+function nestedTimelineStubs(args: {
+  timelines: Record<string, Record<string, unknown>>;
+  clipsByTimeline: Record<string, Record<string, unknown>[]>;
+  tracksByTimeline: Record<string, Record<string, unknown>[]>;
+}): Record<string, Stub> {
+  const idFromFilter = (filter?: string): string => {
+    const match = /"([^"]+)"/.exec(filter ?? '');
+    if (!match) throw new Error(`unexpected filter: ${filter}`);
+    return match[1];
+  };
+  return {
+    Media: {
+      getOne: vi.fn(async () => ({
+        id: 'm1',
+        duration: 60,
+        mediaType: 'video',
+      })),
+    },
+    Timelines: {
+      getOne: vi.fn(async (id: string) => {
+        const timeline = args.timelines[id];
+        if (!timeline) throw notFound();
+        return timeline;
+      }),
+      update: vi.fn(async (id: string, data: object) => ({
+        ...args.timelines[id],
+        ...data,
+      })),
+    },
+    TimelineClips: {
+      getList: vi.fn(
+        async (_p: number, _pp: number, options: { filter?: string }) =>
+          listResult(args.clipsByTimeline[idFromFilter(options?.filter)] ?? [])
+      ),
+      create: vi.fn(async (data) => ({ ...data, id: 'newclip' })),
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    },
+    TimelineTracks: {
+      getList: vi.fn(
+        async (_p: number, _pp: number, options: { filter?: string }) =>
+          listResult(args.tracksByTimeline[idFromFilter(options?.filter)] ?? [])
+      ),
+      create: vi.fn(async (data) => ({ ...data, id: 'newtrack' })),
+    },
+    TimelineRenders: {
+      create: vi.fn(async (data) => ({ ...data, id: 'render1' })),
+    },
+  };
+}
+
+const nestedTrack = (id: string, timelineId: string) => ({
+  id,
+  layer: 0,
+  name: 'Main',
+  TimelineRef: timelineId,
+  volume: 1,
+  opacity: 1,
+  isMuted: false,
+  isLocked: false,
+});
+
+describe('insertClip with a nested timeline', () => {
+  // Child tl2: one 8s media clip → live extent 8s. Its stored duration (6)
+  // is stale on purpose: inserts must trust the live extent, never the field.
+  const baseArgs = () => ({
+    timelines: {
+      tl1: {
+        id: 'tl1',
+        name: 'Main',
+        WorkspaceRef: 'ws1',
+        duration: 0,
+        version: 1,
+      },
+      tl2: {
+        id: 'tl2',
+        name: 'Intro',
+        label: 'Intro sequence',
+        WorkspaceRef: 'ws1',
+        duration: 6,
+      },
+    },
+    clipsByTimeline: {
+      tl1: [] as Record<string, unknown>[],
+      tl2: [
+        {
+          id: 'c1',
+          TimelineRef: 'tl2',
+          TimelineTrackRef: 'trk2',
+          MediaRef: 'm1',
+          order: 0,
+          start: 0,
+          end: 8,
+          duration: 8,
+          timelineStart: 0,
+        },
+      ] as Record<string, unknown>[],
+    },
+    tracksByTimeline: {
+      tl1: [nestedTrack('trk1', 'tl1')],
+      tl2: [nestedTrack('trk2', 'tl2')],
+    },
+  });
+
+  it('inserts a full-span clip that follows the live source duration', async () => {
+    const stubs = nestedTimelineStubs(baseArgs());
+    const pb = fakePb(stubs);
+
+    const result = await insertClip(pb, {
+      timelineId: 'tl1',
+      sourceTimeline: 'tl2',
+    });
+
+    expect(stubs.TimelineClips.create).toHaveBeenCalledOnce();
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk1',
+      SourceTimelineRef: 'tl2',
+      order: 0,
+      start: 0,
+      end: 8,
+      duration: 8,
+      timelineStart: 0,
+      meta: { title: 'Intro sequence', followSource: true },
+    });
+    expect(result.placedEnd).toBe(8);
+    expect(result.mode).toBe('append');
+  });
+
+  it('trims the source time axis with start/end and stops following', async () => {
+    const stubs = nestedTimelineStubs(baseArgs());
+    const pb = fakePb(stubs);
+
+    await insertClip(pb, {
+      timelineId: 'tl1',
+      sourceTimeline: 'tl2',
+      start: 2,
+      end: 6,
+    });
+
+    expect(stubs.TimelineClips.create.mock.calls[0][0]).toMatchObject({
+      SourceTimelineRef: 'tl2',
+      start: 2,
+      end: 6,
+      duration: 4,
+      meta: { followSource: false },
+    });
+  });
+
+  it('rejects a trim beyond the live source duration', async () => {
+    const pb = fakePb(nestedTimelineStubs(baseArgs()));
+
+    await expect(
+      insertClip(pb, {
+        timelineId: 'tl1',
+        sourceTimeline: 'tl2',
+        end: 9,
+      })
+    ).rejects.toThrow(/invalid time range/i);
+  });
+
+  it('rejects inserting a timeline into itself', async () => {
+    const pb = fakePb(nestedTimelineStubs(baseArgs()));
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl2', sourceTimeline: 'tl2' })
+    ).rejects.toThrow(/contain itself/i);
+  });
+
+  it('rejects a transitive cycle (child already contains the parent)', async () => {
+    const args = baseArgs();
+    // tl2 nests tl1, so inserting tl2 into tl1 closes the loop.
+    args.clipsByTimeline.tl2 = [
+      {
+        id: 'n1',
+        TimelineRef: 'tl2',
+        TimelineTrackRef: 'trk2',
+        SourceTimelineRef: 'tl1',
+        order: 0,
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 0,
+      },
+    ];
+    const pb = fakePb(nestedTimelineStubs(args));
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', sourceTimeline: 'tl2' })
+    ).rejects.toThrow(/contain itself/i);
+  });
+
+  it('rejects an empty source timeline', async () => {
+    const args = baseArgs();
+    args.clipsByTimeline.tl2 = [];
+    const pb = fakePb(nestedTimelineStubs(args));
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', sourceTimeline: 'tl2' })
+    ).rejects.toThrow(/no placed clips/i);
+  });
+
+  it('rejects combining sourceTimeline with media', async () => {
+    const pb = fakePb(nestedTimelineStubs(baseArgs()));
+
+    await expect(
+      insertClip(pb, { timelineId: 'tl1', media: 'm1', sourceTimeline: 'tl2' })
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+});
+
+describe('createRender with nested timelines', () => {
+  const renderArgs = () => ({
+    timelines: {
+      tl1: { id: 'tl1', name: 'Main', WorkspaceRef: 'ws1', version: 3 },
+      tl2: { id: 'tl2', name: 'Intro', WorkspaceRef: 'ws1', duration: 8 },
+    },
+    clipsByTimeline: {
+      tl1: [
+        {
+          id: 'n1',
+          TimelineRef: 'tl1',
+          TimelineTrackRef: 'trk1',
+          SourceTimelineRef: 'tl2',
+          order: 0,
+          start: 0,
+          end: 8,
+          duration: 8,
+          timelineStart: 0,
+          meta: { title: 'Intro', followSource: true },
+        },
+      ] as Record<string, unknown>[],
+      tl2: [
+        {
+          id: 'c1',
+          TimelineRef: 'tl2',
+          TimelineTrackRef: 'trk2',
+          MediaRef: 'm1',
+          order: 0,
+          start: 0,
+          end: 8,
+          duration: 8,
+          timelineStart: 0,
+        },
+      ] as Record<string, unknown>[],
+    },
+    tracksByTimeline: {
+      tl1: [nestedTrack('trk1', 'tl1')],
+      tl2: [nestedTrack('trk2', 'tl2')],
+    },
+  });
+
+  it("flattens a nested clip's media into the render snapshot", async () => {
+    const stubs = nestedTimelineStubs(renderArgs());
+    const pb = fakePb(stubs);
+
+    const render = await createRender(pb, {
+      timelineId: 'tl1',
+      outputSettings: OUTPUT,
+    });
+
+    expect(render.id).toBe('render1');
+    const arg = stubs.TimelineRenders.create.mock.calls[0][0];
+    const segments = arg.timelineData.flatMap(
+      (t: { segments: { assetId?: string }[] }) => t.segments
+    );
+    expect(segments.some((s: { assetId?: string }) => s.assetId === 'm1')).toBe(
+      true
+    );
+  });
+
+  it('rejects a nested clip whose source timeline is gone', async () => {
+    const args = renderArgs();
+    delete (args.timelines as Record<string, unknown>).tl2;
+    const pb = fakePb(nestedTimelineStubs(args));
+
+    await expect(
+      createRender(pb, { timelineId: 'tl1', outputSettings: OUTPUT })
+    ).rejects.toThrow(/missing timeline tl2/);
   });
 });
 

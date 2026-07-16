@@ -137,28 +137,6 @@ export class MediaService {
   }
 
   /**
-   * Get media at the workspace root (no directory assigned)
-   */
-  async getMediaByWorkspaceRoot(
-    workspaceId: string,
-    page = 1,
-    perPage = 50
-  ): Promise<
-    MediaWithPreviews<'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'>[]
-  > {
-    const result = await this.mediaMutator.getByWorkspaceRoot(
-      workspaceId,
-      page,
-      perPage,
-      ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
-    );
-
-    return Promise.all(
-      result.items.map((media) => this.enrichMediaWithPreviews(media))
-    );
-  }
-
-  /**
    * Get media by upload ID
    * @param uploadId The upload ID
    * @returns Media with preview URLs or null if not found

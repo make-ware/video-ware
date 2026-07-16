@@ -44,4 +44,21 @@ export class LabelJobMutator extends BaseMutator<
       return this.getFirstByFilter(filter, undefined, '-created');
     }
   }
+
+  /**
+   * Point the media's LabelJob record for a job type at the given task,
+   * creating the record if it doesn't exist yet. Keeps LabelJobs an index of
+   * "the last task that ran this type" regardless of who created the task.
+   */
+  async upsertForTask(
+    mediaId: string,
+    jobType: string,
+    taskId: string
+  ): Promise<LabelJob> {
+    const existing = await this.getByType(mediaId, jobType);
+    if (existing) {
+      return this.update(existing.id, { TaskRef: taskId });
+    }
+    return this.create({ MediaRef: mediaId, jobType, TaskRef: taskId });
+  }
 }

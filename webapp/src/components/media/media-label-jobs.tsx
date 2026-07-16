@@ -1,7 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Media, Expanded, LabelJob, Task } from '@project/shared';
+import {
+  Media,
+  Expanded,
+  LabelJob,
+  Task,
+  DetectLabelsConfig,
+  LabelJobType,
+  LABEL_JOB_TYPE_TO_STEP,
+  LABEL_JOB_TYPE_TO_CONFIG_KEY,
+  isLabelTypeRequested,
+} from '@project/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +32,7 @@ interface MediaLabelJobsProps {
   onUpdate: () => void;
 }
 
-const JOB_TYPES = [
+const JOB_TYPES: { id: LabelJobType; label: string }[] = [
   { id: 'object', label: 'Object Detection' },
   { id: 'shot', label: 'Shot & Label Detection' },
   { id: 'face', label: 'Face Detection' },
@@ -30,26 +40,6 @@ const JOB_TYPES = [
   { id: 'speech', label: 'Speech Transcription' },
   { id: 'speaker', label: 'Speaker Transcription' },
 ];
-
-// Map job type IDs to detect labels step types
-const JOB_TYPE_TO_STEP: Record<string, string> = {
-  object: 'labels:object_tracking',
-  shot: 'labels:label_detection',
-  face: 'labels:face_detection',
-  person: 'labels:person_detection',
-  speech: 'labels:speech_transcription',
-  speaker: 'labels:speaker_transcription',
-};
-
-// Map job type IDs to payload config keys
-const JOB_TYPE_TO_CONFIG: Record<string, string> = {
-  object: 'detectObjects',
-  shot: 'detectLabels',
-  face: 'detectFaces',
-  person: 'detectPersons',
-  speech: 'detectSpeech',
-  speaker: 'detectSpeakers',
-};
 
 function getCountFromStepOutput(
   typeId: string,
@@ -121,12 +111,82 @@ function mapStepStatus(stepStatus: string): string {
   }
 }
 
+type StepResultRecord = Record<string, unknown> & {
+  status?: string;
+  output?: Record<string, unknown>;
+};
+
+function getTaskSteps(
+  task: Task
+): Record<string, StepResultRecord> | undefined {
+  const result = task.result as Record<string, unknown> | undefined;
+  return result?.steps as Record<string, StepResultRecord> | undefined;
+}
+
+function getTaskConfig(task: Task): DetectLabelsConfig | undefined {
+  const payload = task.payload as Record<string, unknown> | undefined;
+  return payload?.config as DetectLabelsConfig | undefined;
+}
+
+function getTaskStatus(task: Task): string {
+  return Array.isArray(task.status) ? task.status[0] : task.status;
+}
+
+/**
+ * Whether a task ran (or, if still active, will run) the given job type.
+ * Completed modern tasks record per-step results; active tasks are judged by
+ * their payload config; legacy tasks (no result.steps) keep the historical
+ * defaults where GCVI detections ran unless explicitly disabled and speaker
+ * transcription was opt-in.
+ */
+function taskInvolvesType(task: Task, typeId: LabelJobType): boolean {
+  const stepKey = LABEL_JOB_TYPE_TO_STEP[typeId];
+  const steps = getTaskSteps(task);
+  if (steps?.[stepKey]) return true;
+
+  const status = getTaskStatus(task);
+  const config = getTaskConfig(task);
+  if (status === 'queued' || status === 'running') {
+    return isLabelTypeRequested(config, typeId);
+  }
+  if (!steps && (status === 'success' || status === 'failed')) {
+    return typeId === 'speaker'
+      ? config?.detectSpeakers === true
+      : !config || config[LABEL_JOB_TYPE_TO_CONFIG_KEY[typeId]] !== false;
+  }
+  return false;
+}
+
+/**
+ * The most recent task that involves a job type. Candidates are the task the
+ * LabelJob record points at plus the recent detect_labels tasks, so a
+ * single-type regenerate never hides the other types' last results, and a
+ * newer full run wins over a stale LabelJob pointer.
+ */
+function resolveTaskForType(
+  typeId: LabelJobType,
+  jobTask: Task | undefined,
+  recentTasks: Task[]
+): Task | null {
+  let newest: Task | null = null;
+  const seen = new Set<string>();
+  for (const task of jobTask ? [jobTask, ...recentTasks] : recentTasks) {
+    if (seen.has(task.id)) continue;
+    seen.add(task.id);
+    if (!taskInvolvesType(task, typeId)) continue;
+    if (!newest || String(task.created) > String(newest.created)) {
+      newest = task;
+    }
+  }
+  return newest;
+}
+
 export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
   const [regenerating, setRegenerating] = useState<Record<string, boolean>>({});
   const [jobs, setJobs] = useState<
     Record<string, Expanded<LabelJob, { TaskRef?: Task }, 'TaskRef'>>
   >({});
-  const [latestTask, setLatestTask] = useState<Task | null>(null);
+  const [recentTasks, setRecentTasks] = useState<Task[]>([]);
 
   const fetchJobs = async () => {
     try {
@@ -144,12 +204,14 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
       });
       setJobs(jobsMap);
 
-      // Also fetch the latest detect_labels task for this media
-      const tasks = await pb.collection('Tasks').getList<Task>(1, 1, {
+      // Also fetch recent detect_labels tasks: each job type resolves against
+      // the newest task that actually ran it, so a single-type regenerate
+      // (whose task has only one step) can't make the others look missing.
+      const tasks = await pb.collection('Tasks').getList<Task>(1, 30, {
         filter: `sourceId = "${media.id}" && type = "detect_labels"`,
         sort: '-created',
       });
-      setLatestTask(tasks.items[0] || null);
+      setRecentTasks(tasks.items);
     } catch (error) {
       console.error('Failed to fetch label jobs:', error);
     }
@@ -178,117 +240,37 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
     }
   };
 
-  const renderJobRow = (typeId: string, label: string) => {
-    const job = jobs[typeId];
-    const task = job?.expand?.TaskRef as Task | undefined;
+  const renderJobRow = (typeId: LabelJobType, label: string) => {
+    const jobTask = jobs[typeId]?.expand?.TaskRef as Task | undefined;
+    const task = resolveTaskForType(typeId, jobTask, recentTasks);
 
     let status = 'Not Run';
     let countDisplay = '-';
 
     if (task) {
-      // LabelJob record exists with a linked Task
-      status = Array.isArray(task.status) ? task.status[0] : task.status;
+      const stepResult = getTaskSteps(task)?.[LABEL_JOB_TYPE_TO_STEP[typeId]];
 
-      const taskResult = task.result as Record<string, unknown> | undefined;
-
-      // Check for step-based result format
-      if (taskResult?.steps) {
-        const steps = taskResult.steps as Record<
-          string,
-          Record<string, unknown>
-        >;
-        const stepKey = JOB_TYPE_TO_STEP[typeId];
-        const stepResult = steps[stepKey];
-        if (stepResult?.output) {
-          countDisplay = getCountFromStepOutput(
-            typeId,
-            stepResult.output as Record<string, unknown>
-          );
+      if (stepResult) {
+        // The step's own status/output, so one type's failure (or a
+        // single-type rerun) never masquerades as the others' status.
+        status = mapStepStatus(stepResult.status as string);
+        if (stepResult.output) {
+          countDisplay = getCountFromStepOutput(typeId, stepResult.output);
         }
-      }
-
-      // Check for legacy summary format
-      if (countDisplay === '-' && taskResult?.summary) {
-        const summary = taskResult.summary as Record<string, number>;
-        if (typeId === 'object' && typeof summary.objectCount === 'number') {
-          countDisplay = `${summary.objectCount} objects`;
-        } else if (
-          typeId === 'shot' &&
-          typeof summary.labelCount === 'number'
-        ) {
-          countDisplay = `${summary.labelCount} labels`;
-        }
-      }
-    } else if (latestTask) {
-      // No LabelJob record — fall back to the latest detect_labels Task
-      const taskResult = latestTask.result as
-        | Record<string, unknown>
-        | undefined;
-      const stepKey = JOB_TYPE_TO_STEP[typeId];
-
-      if (taskResult?.steps) {
-        const steps = taskResult.steps as Record<
-          string,
-          Record<string, unknown>
-        >;
-        const stepResult = steps[stepKey];
-
-        if (stepResult) {
-          status = mapStepStatus(stepResult.status as string);
-          if (stepResult.output) {
-            countDisplay = getCountFromStepOutput(
-              typeId,
-              stepResult.output as Record<string, unknown>
-            );
-          }
-        }
-      }
-
-      // If no step result yet, check if the task is still running
-      // and this job type was enabled in the payload
-      if (
-        status === 'Not Run' &&
-        (latestTask.status === 'queued' || latestTask.status === 'running')
-      ) {
-        const payload = latestTask.payload as Record<string, unknown>;
-        const config = payload?.config as Record<string, unknown> | undefined;
-        const configKey = JOB_TYPE_TO_CONFIG[typeId];
-        if (config && config[configKey] === true) {
-          status = Array.isArray(latestTask.status)
-            ? latestTask.status[0]
-            : latestTask.status;
-        }
-      }
-
-      // If task succeeded but no specific step result (legacy format)
-      if (status === 'Not Run' && latestTask.status === 'success') {
-        const payload = latestTask.payload as Record<string, unknown>;
-        const config = payload?.config as Record<string, unknown> | undefined;
-        const configKey = JOB_TYPE_TO_CONFIG[typeId];
-        // Speaker transcription is opt-in (legacy tasks never ran it), so it
-        // only counts as run when explicitly enabled; the GCVI steps default
-        // to enabled unless explicitly disabled.
-        const impliedEnabled =
-          typeId === 'speaker'
-            ? config?.[configKey] === true
-            : !config || config[configKey] !== false;
-        if (impliedEnabled) {
-          status = 'success';
-
-          // Try legacy summary format
-          if (taskResult?.summary) {
-            const summary = taskResult.summary as Record<string, number>;
-            if (
-              typeId === 'object' &&
-              typeof summary.objectCount === 'number'
-            ) {
-              countDisplay = `${summary.objectCount} objects`;
-            } else if (
-              typeId === 'shot' &&
-              typeof summary.labelCount === 'number'
-            ) {
-              countDisplay = `${summary.labelCount} labels`;
-            }
+      } else {
+        // Step not recorded yet (task still queued/running) or legacy
+        // result format without per-step results.
+        status = getTaskStatus(task);
+        const taskResult = task.result as Record<string, unknown> | undefined;
+        if (status === 'success' && taskResult?.summary) {
+          const summary = taskResult.summary as Record<string, number>;
+          if (typeId === 'object' && typeof summary.objectCount === 'number') {
+            countDisplay = `${summary.objectCount} objects`;
+          } else if (
+            typeId === 'shot' &&
+            typeof summary.labelCount === 'number'
+          ) {
+            countDisplay = `${summary.labelCount} labels`;
           }
         }
       }

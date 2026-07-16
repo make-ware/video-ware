@@ -3,6 +3,8 @@
  * Defines step types, input types, and output types for label detection jobs
  */
 
+import type { DetectLabelsConfig } from '../../types/task-contracts.js';
+
 /**
  * Detect labels step type enum
  */
@@ -14,6 +16,76 @@ export enum DetectLabelsStepType {
   PERSON_DETECTION = 'labels:person_detection',
   SPEECH_TRANSCRIPTION = 'labels:speech_transcription',
   SPEAKER_TRANSCRIPTION = 'labels:speaker_transcription',
+}
+
+/**
+ * The user-facing label job types tracked in the LabelJobs collection
+ * (one record per media × type, pointing at the last Task that ran it).
+ */
+export const LABEL_JOB_TYPES = [
+  'object',
+  'shot',
+  'face',
+  'person',
+  'speech',
+  'speaker',
+] as const;
+
+export type LabelJobType = (typeof LABEL_JOB_TYPES)[number];
+
+/**
+ * LabelJobs.jobType → the detect_labels step that produces it. `Record` over
+ * LabelJobType so adding a new job type breaks the build until it is mapped.
+ */
+export const LABEL_JOB_TYPE_TO_STEP: Record<
+  LabelJobType,
+  DetectLabelsStepType
+> = {
+  object: DetectLabelsStepType.OBJECT_TRACKING,
+  shot: DetectLabelsStepType.LABEL_DETECTION,
+  face: DetectLabelsStepType.FACE_DETECTION,
+  person: DetectLabelsStepType.PERSON_DETECTION,
+  speech: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
+  speaker: DetectLabelsStepType.SPEAKER_TRANSCRIPTION,
+};
+
+/** Reverse of LABEL_JOB_TYPE_TO_STEP (detection steps only). */
+export const STEP_TO_LABEL_JOB_TYPE: Partial<Record<string, LabelJobType>> =
+  Object.fromEntries(
+    Object.entries(LABEL_JOB_TYPE_TO_STEP).map(([jobType, step]) => [
+      step,
+      jobType as LabelJobType,
+    ])
+  );
+
+/** LabelJobs.jobType → the DetectLabelsConfig toggle that requests it. */
+export const LABEL_JOB_TYPE_TO_CONFIG_KEY: Record<
+  LabelJobType,
+  keyof DetectLabelsConfig
+> = {
+  object: 'detectObjects',
+  shot: 'detectLabels',
+  face: 'detectFaces',
+  person: 'detectPersons',
+  speech: 'detectSpeech',
+  speaker: 'detectSpeakers',
+};
+
+/**
+ * Whether a task payload config requests a label job type, mirroring the
+ * payload half of LabelsFlowBuilder's gating (env ENABLE_* flags are the
+ * other half): labels/objects default on when the config is silent,
+ * faces/persons/speech/speakers are opt-in.
+ */
+export function isLabelTypeRequested(
+  config: DetectLabelsConfig | undefined,
+  jobType: LabelJobType
+): boolean {
+  const key = LABEL_JOB_TYPE_TO_CONFIG_KEY[jobType];
+  if (jobType === 'object' || jobType === 'shot') {
+    return config?.[key] !== false;
+  }
+  return config?.[key] === true;
 }
 
 /**

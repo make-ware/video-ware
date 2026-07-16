@@ -3,6 +3,7 @@ import { expect, vi, describe, it, beforeEach } from 'vitest';
 import { JobService } from './job.service';
 import { FlowService } from './flow.service';
 import { ProcessorsConfigService } from '../config/processors.config';
+import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { TaskType } from '@project/shared';
 import { DetectLabelsStepType } from './types/step.types';
 import type { LabelsChildJobDefinition, LabelsFlowDefinition } from './flows';
@@ -23,9 +24,19 @@ describe('JobService', () => {
     enableSpeechTranscription: false,
   };
 
+  const mockLabelJobMutator = {
+    upsertForTask: vi.fn(),
+  };
+
+  const mockPocketBaseService = {
+    labelJobMutator: mockLabelJobMutator,
+  };
+
   beforeEach(async () => {
     mockFlowService.addFlow.mockReset();
     mockFlowService.addFlow.mockResolvedValue('mock-job-id');
+    mockLabelJobMutator.upsertForTask.mockReset();
+    mockLabelJobMutator.upsertForTask.mockResolvedValue({});
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -37,6 +48,10 @@ describe('JobService', () => {
         {
           provide: ProcessorsConfigService,
           useValue: mockProcessorsConfigService,
+        },
+        {
+          provide: PocketBaseService,
+          useValue: mockPocketBaseService,
         },
       ],
     }).compile();
@@ -94,6 +109,42 @@ describe('JobService', () => {
         DetectLabelsStepType.OBJECT_TRACKING,
       ]);
       expect(flow.data.expectedSteps).toEqual(stepTypes);
+    });
+
+    it('should upsert a LabelJob for each enqueued detection step', async () => {
+      const task = {
+        id: 'l-2',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        payload: {
+          mediaId: 'm-1',
+          fileRef: 'f-1',
+          config: {
+            detectLabels: true,
+            detectObjects: true,
+            detectFaces: true, // requested but disabled by env → no upsert
+          },
+        },
+      } as any;
+
+      await service.submitLabelsJob(task);
+
+      expect(mockLabelJobMutator.upsertForTask.mock.calls).toEqual([
+        ['m-1', 'shot', 'l-2'],
+        ['m-1', 'object', 'l-2'],
+      ]);
+    });
+
+    it('should not fail the enqueue when the LabelJob sync fails', async () => {
+      mockLabelJobMutator.upsertForTask.mockRejectedValue(new Error('pb down'));
+      const task = {
+        id: 'l-3',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },
+      } as any;
+
+      await expect(service.submitLabelsJob(task)).resolves.toBe('mock-job-id');
     });
   });
 });

@@ -54,7 +54,8 @@ vw workspace list              # list workspaces (active marked with *)
 vw workspace use [id]          # set the active workspace (interactive when omitted)
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
-vw upload <file...>            # upload video/audio/image files (--directory files them; --wait polls ingest)
+vw upload create <file...>     # upload video/audio/image files as new media (default: `vw upload <file...>` works too)
+vw upload replace <id> <file>  # overwrite an existing media's stored original with an updated source (--force)
 
 vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
@@ -113,6 +114,9 @@ vw timeline clips split <id>   # split the edit list at source time(s) (--at)
 vw timeline clips cut <id>     # remove a source range (--from/--to, --ripple)
 vw timeline clips trim <id>    # re-edge one edit-list segment (--segment -s -e)
 vw timeline clips slip <id>    # slip source content ±seconds (--by, --segment)
+
+vw job label                   # (dev) queue label detection for a media (-t limits types)
+vw job transcode               # (dev) queue transcode/preview regeneration (-a limits assets)
 ```
 
 Any id omitted on the command line is chosen interactively. `--workspace <id>`
@@ -538,17 +542,22 @@ can be reused by future commands (e.g. `clip update`).
 
 ## Uploading media
 
-`vw upload <file...>` sends local video/audio/image files through the same
-Next.js route the webapp uses (`/api-next/uploads/upload`), in sequential
-100 MB chunks so Cloudflare-fronted deployments work. Finishing the upload
-triggers ingest automatically: the worker creates the Media record and
-generates the proxy/thumbnails.
+`vw upload` has two intents: `create` (new media) and `replace` (overwrite an
+existing media's source). Replace is deliberately its own subcommand because
+it is destructive.
+
+`vw upload create <file...>` sends local video/audio/image files through the
+same Next.js route the webapp uses (`/api-next/uploads/upload`), in
+sequential 100 MB chunks so Cloudflare-fronted deployments work. Finishing
+the upload triggers ingest automatically: the worker creates the Media
+record and generates the proxy/thumbnails. `create` is the default intent,
+so plain `vw upload <file...>` still works.
 
 ```bash
-vw upload beach.mp4                        # upload into the active workspace
-vw upload *.mp4 --directory hawaii         # several files, filed into a directory
-vw upload interview.mov --wait             # block until the media is ingested
-vw upload clip.mp4 --json                  # machine-readable result (agents)
+vw upload create beach.mp4                 # upload into the active workspace
+vw upload create *.mp4 --directory hawaii  # several files, filed into a directory
+vw upload create interview.mov --wait      # block until the media is ingested
+vw upload create clip.mp4 --json           # machine-readable result (agents)
 ```
 
 The route lives on the **webapp** origin. In the monolith deployment one
@@ -558,6 +567,40 @@ set the webapp origin explicitly — precedence: `--app-url` flag →
 `appUrl` in the config file (written by `vw login --app-url`) →
 `$VW_APP_URL` → derived from the PocketBase URL (a PB URL on
 `localhost:8090` maps to `http://localhost:3000`).
+
+### Replacing an existing media's file
+
+`vw upload replace <mediaId> <file>` overwrites the stored **original** of an
+already-ingested media with an updated source (e.g. a re-graded or re-mixed
+version), through the same `/api-next/uploads/replace` route the webapp's
+replace page uses. The Media and Upload records are untouched, so nothing is
+re-ingested: previews (thumbnail, proxy, sprite, filmstrip) and detected
+labels keep reflecting the old file until regenerated from the media details
+page. The replacement must be the same kind of media (video for video, etc.);
+ideally its duration and dimensions match the original.
+
+The overwrite is destructive and cannot be undone, so the command refuses to
+run without `--force` — without it, it only reports what would be replaced.
+
+```bash
+vw upload replace m9x2xkq31bkfrq1 final_v2.mp4          # dry report, refuses
+vw upload replace m9x2xkq31bkfrq1 final_v2.mp4 --force  # actually overwrite
+```
+
+### Dev job triggers
+
+`vw job …` is a developer/admin escape hatch that queues the same worker
+tasks the webapp and the ingest pipeline create — useful after a
+`vw upload replace`, a worker bug fix, or a new detector rollout. A running
+worker is required; the CLI only creates the Task record.
+
+- `vw job label -m <mediaId>` queues a `detect_labels` task. `-t/--types`
+  restricts it (e.g. `-t speech,speaker`); the requested types are intent
+  only — the worker's `ENABLE_*` env flags gate what actually runs.
+- `vw job transcode -m <mediaId>` queues a `process_upload` task that
+  regenerates derived assets from the stored original. `-a/--assets`
+  restricts it (e.g. `-a proxy,sprite`); by default it regenerates everything
+  that applies to the media type, with the same settings a fresh ingest uses.
 
 ## Configuration
 

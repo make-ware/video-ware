@@ -11,6 +11,7 @@ import { registerLabelCommands } from './commands/label.js';
 import { registerEntityCommands } from './commands/entity.js';
 import { registerCaptionCommands } from './commands/caption.js';
 import { registerTimelineCommands } from './commands/timeline.js';
+import { registerJobCommands } from './commands/job.js';
 
 /**
  * The CLI version is the repo version from the root package.json — the single
@@ -56,6 +57,7 @@ registerLabelCommands(program);
 registerEntityCommands(program);
 registerCaptionCommands(program);
 registerTimelineCommands(program);
+registerJobCommands(program);
 
 program.parseAsync(process.argv).catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : err);

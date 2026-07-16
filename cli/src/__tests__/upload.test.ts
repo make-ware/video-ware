@@ -2,12 +2,17 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Media, Upload } from '@project/shared';
 import {
   chunkPlan,
   formatBytes,
+  mediaTypeForFile,
   pollUploadIngest,
+  replaceUploadFile,
   resolveAppUrl,
+  resolveReplaceTarget,
   uploadFile,
+  validateReplacementFile,
   validateUploadFile,
 } from '../lib/upload.js';
 import { fakePb, listResult } from './fake-pb.js';
@@ -286,6 +291,174 @@ describe('uploadFile', () => {
         chunkSize: 10,
       })
     ).resolves.toEqual({ id: 'up1', status: 'uploaded' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mediaTypeForFile', () => {
+  it('maps extensions to the media type ingest would assign', () => {
+    expect(mediaTypeForFile('clip.MP4')).toBe('video');
+    expect(mediaTypeForFile('song.flac')).toBe('audio');
+    expect(mediaTypeForFile('photo.jpeg')).toBe('image');
+    expect(mediaTypeForFile('data.xyz')).toBeUndefined();
+    expect(mediaTypeForFile('noext')).toBeUndefined();
+  });
+});
+
+describe('resolveReplaceTarget', () => {
+  const notFound = Object.assign(new Error('not found'), { status: 404 });
+
+  it('returns the media and its expanded source upload', async () => {
+    const upload = {
+      id: 'up1',
+      name: 'old.mp4',
+      WorkspaceRef: 'ws1',
+      externalPath: 'uploads/ws1/up1/original.mp4',
+    };
+    const getOne = vi.fn(async () => ({
+      id: 'm1',
+      UploadRef: 'up1',
+      mediaType: 'video',
+      expand: { UploadRef: upload },
+    }));
+    const pb = fakePb({ Media: { getOne } });
+
+    await expect(resolveReplaceTarget(pb, 'm1')).resolves.toMatchObject({
+      media: { id: 'm1' },
+      upload: { id: 'up1', externalPath: 'uploads/ws1/up1/original.mp4' },
+    });
+  });
+
+  it('rejects when the media does not exist', async () => {
+    const pb = fakePb({
+      Media: { getOne: vi.fn().mockRejectedValue(notFound) },
+    });
+    await expect(resolveReplaceTarget(pb, 'm1')).rejects.toThrow(
+      /media not found/i
+    );
+  });
+
+  it('rejects when the upload has no stored original', async () => {
+    const getOne = vi.fn(async () => ({
+      id: 'm1',
+      UploadRef: 'up1',
+      mediaType: 'video',
+      expand: { UploadRef: { id: 'up1', WorkspaceRef: 'ws1' } },
+    }));
+    const pb = fakePb({ Media: { getOne } });
+    await expect(resolveReplaceTarget(pb, 'm1')).rejects.toThrow(
+      /no stored original/i
+    );
+  });
+});
+
+describe('validateReplacementFile', () => {
+  it('accepts a file of the same media type (extension may differ)', async () => {
+    const file = join(tmpDir, 'regrade.webm');
+    await writeFile(file, 'x'.repeat(10));
+    await expect(
+      validateReplacementFile(file, { mediaType: 'video' } as Media)
+    ).resolves.toEqual({ name: 'regrade.webm', size: 10 });
+  });
+
+  it('rejects a replacement of a different media type', async () => {
+    const file = join(tmpDir, 'photo.png');
+    await writeFile(file, 'x');
+    await expect(
+      validateReplacementFile(file, { mediaType: 'video' } as Media)
+    ).rejects.toThrow(/must be a video file/i);
+  });
+});
+
+describe('replaceUploadFile', () => {
+  const upload = {
+    id: 'up1',
+    name: 'old.mp4',
+    WorkspaceRef: 'ws1',
+    externalPath: 'uploads/ws1/up1/original.mp4',
+  } as unknown as Upload;
+
+  async function makeFile(bytes = 25): Promise<string> {
+    const file = join(tmpDir, 'clip.mp4');
+    await writeFile(file, 'x'.repeat(bytes));
+    return file;
+  }
+
+  it('PUTs every chunk to the replace route without touching any record', async () => {
+    const file = await makeFile(25);
+    // No collections stubbed: any record read/write would throw.
+    const pb = fakePb({});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { complete: false }))
+      .mockResolvedValueOnce(jsonResponse(200, { complete: false }))
+      .mockResolvedValueOnce(jsonResponse(200, { complete: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const progress: number[] = [];
+    await replaceUploadFile(pb, {
+      filePath: file,
+      upload,
+      appUrl: 'http://app.test',
+      chunkSize: 10,
+      onProgress: (p) => progress.push(p.bytesUploaded),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://app.test/api-next/uploads/replace');
+    expect(init.method).toBe('PUT');
+    expect(init.headers).toMatchObject({
+      Authorization: 'Bearer tok',
+      'x-upload-id': 'up1',
+      'x-workspace-id': 'ws1',
+      'x-user-id': 'user1',
+      'x-file-name': 'clip.mp4',
+      'x-chunk-index': '0',
+      'x-total-chunks': '3',
+    });
+    expect(init.headers).not.toHaveProperty('x-directory-id');
+    expect(progress).toEqual([10, 20, 25]);
+  });
+
+  it('throws without marking anything when retries are exhausted', async () => {
+    const file = await makeFile(25);
+    const pb = fakePb({});
+    const fetchMock = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      replaceUploadFile(pb, {
+        filePath: file,
+        upload,
+        appUrl: 'http://app.test',
+        chunkSize: 10,
+        maxRetries: 2,
+        backoffBaseMs: 0,
+      })
+    ).rejects.toThrow(/chunk 1\/3/i);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails fast on 4xx responses without retrying', async () => {
+    const file = await makeFile(25);
+    const pb = fakePb({});
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(400, {
+        error: 'This media has no stored original file to replace.',
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      replaceUploadFile(pb, {
+        filePath: file,
+        upload,
+        appUrl: 'http://app.test',
+        chunkSize: 10,
+        backoffBaseMs: 0,
+      })
+    ).rejects.toThrow(/no stored original/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

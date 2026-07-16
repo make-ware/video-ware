@@ -16,8 +16,11 @@ import {
   chunkPlan,
   formatBytes,
   pollUploadIngest,
+  replaceUploadFile,
   resolveAppUrl,
+  resolveReplaceTarget,
   uploadFile,
+  validateReplacementFile,
   validateUploadFile,
   type ValidatedUploadFile,
 } from '../lib/upload.js';
@@ -96,11 +99,20 @@ async function uploadOne(
 }
 
 export function registerUploadCommands(program: Command): void {
+  const upload = program
+    .command('upload')
+    .description(
+      'Upload media files: create new media, or replace the source of an existing one'
+    );
+
+  // `create` is the default intent, so the historical `vw upload <files...>`
+  // spelling keeps working. `replace` is deliberately a separate, explicit
+  // subcommand because it is destructive.
   withJsonOption(
-    program
-      .command('upload <files...>')
+    upload
+      .command('create <files...>', { isDefault: true })
       .description(
-        'Upload local video/audio/image files into the active workspace'
+        'Upload local video/audio/image files into the active workspace as new media (default intent)'
       )
       .option('-w, --workspace <id>', 'workspace id override')
       .option(
@@ -189,4 +201,93 @@ export function registerUploadCommands(program: Command): void {
       handleError(err);
     }
   });
+
+  withJsonOption(
+    upload
+      .command('replace <mediaId> <file>')
+      .description(
+        'Overwrite the stored original of an existing media with an updated source file (destructive — requires --force)'
+      )
+      .option(
+        '--force',
+        'actually overwrite; without it the command only reports what would be replaced'
+      )
+      .option(
+        '--app-url <url>',
+        'webapp origin serving /api-next (default: derived from the PocketBase URL)'
+      )
+  ).action(
+    async (
+      mediaId: string,
+      file: string,
+      opts: { force?: boolean; appUrl?: string; json?: boolean }
+    ) => {
+      try {
+        const pb = await requireClient();
+        const { media: target, upload: targetUpload } =
+          await resolveReplaceTarget(pb, mediaId);
+        const validated = await validateReplacementFile(file, target);
+
+        if (!opts.force) {
+          throw new Error(
+            `Replacing the original of media ${target.id} ` +
+              `("${targetUpload.name}", ${formatBytes(targetUpload.size)}) with ` +
+              `${validated.name} (${formatBytes(validated.size)}) overwrites ` +
+              'the stored file and cannot be undone. Previews and labels are ' +
+              'not regenerated. Re-run with --force to proceed.'
+          );
+        }
+
+        const quiet = opts.json === true;
+        const totalChunks = chunkPlan(
+          validated.size,
+          DEFAULT_CHUNK_SIZE
+        ).length;
+        if (!quiet) {
+          info(
+            totalChunks > 1
+              ? `Uploading replacement ${validated.name} (${formatBytes(validated.size)}, ${totalChunks} chunks of ${formatBytes(DEFAULT_CHUNK_SIZE)})`
+              : `Uploading replacement ${validated.name} (${formatBytes(validated.size)})`
+          );
+        }
+
+        await replaceUploadFile(pb, {
+          filePath: file,
+          upload: targetUpload,
+          appUrl: resolveAppUrl(opts.appUrl),
+          onProgress: ({ chunkIndex, bytesUploaded, totalBytes }) => {
+            if (quiet || totalChunks === 1) return;
+            const percent = Math.round((bytesUploaded / totalBytes) * 100);
+            info(`  chunk ${chunkIndex + 1}/${totalChunks} (${percent}%)`);
+          },
+        });
+
+        if (opts.json) {
+          console.log(
+            JSON.stringify(
+              {
+                media: target.id,
+                upload: targetUpload.id,
+                file: validated.name,
+                size: validated.size,
+                replaced: true,
+              },
+              null,
+              2
+            )
+          );
+          return;
+        }
+        success(
+          `Replaced original of media ${target.id} with ${validated.name}`
+        );
+        info(
+          '  previews and labels still reflect the previous file — ' +
+            'regenerate them from the media details page if needed.'
+        );
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
 }

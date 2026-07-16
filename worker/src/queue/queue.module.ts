@@ -5,9 +5,13 @@ import { FlowService } from './flow.service';
 import { JobService } from './job.service';
 import { ProcessorsConfigService } from '../config/processors.config';
 import { QUEUE_NAMES } from './queue.constants';
+import { SharedModule } from '../shared/shared.module';
 
 @Module({
   imports: [
+    // SharedModule gives JobService the PocketBaseService it uses to keep
+    // LabelJobs in sync with submitted detect_labels flows.
+    SharedModule,
     BullModule.registerQueue(
       { name: QUEUE_NAMES.TRANSCODE },
       { name: QUEUE_NAMES.INTELLIGENCE },

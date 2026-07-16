@@ -178,12 +178,15 @@ export class MediaService {
   }
 
   /**
-   * Regenerate a specific label job
+   * Regenerate a specific label job by creating a detect_labels task with
+   * only that type enabled. The worker points the LabelJob record at the
+   * task when it enqueues the flow (JobService.syncLabelJobs), so all
+   * creation paths (webapp, ingest, CLI) stay consistent.
    * @param mediaId The media ID
    * @param type The label job type
-   * @returns The updated or created label job
+   * @returns The created task
    */
-  async regenerateLabel(mediaId: string, type: string): Promise<LabelJob> {
+  async regenerateLabel(mediaId: string, type: string): Promise<Task> {
     const config: LabelsFlowConfig = {
       confidenceThreshold: 0.5,
       detectObjects: type === 'object',
@@ -194,20 +197,7 @@ export class MediaService {
       detectSpeakers: type === 'speaker',
     };
 
-    const task = await this.createTaskForLabel(mediaId, undefined, config);
-
-    const existing = await this.labelJobMutator.getByType(mediaId, type);
-    if (existing) {
-      return this.labelJobMutator.update(existing.id, {
-        TaskRef: task.id,
-      });
-    } else {
-      return this.labelJobMutator.create({
-        MediaRef: mediaId,
-        jobType: type,
-        TaskRef: task.id,
-      });
-    }
+    return this.createTaskForLabel(mediaId, undefined, config);
   }
 
   /**

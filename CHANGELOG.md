@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.6...video-ware-v0.9.7) (2026-07-17)
+
+
+### Bug Fixes
+
+* add timeline strict flag ([3a9db64](https://github.com/make-ware/video-ware/commit/3a9db643d438ceddcc5c4e5e713353c3fe7ad3a7))
+* cli bundle ([7c237ab](https://github.com/make-ware/video-ware/commit/7c237ab4df6ce8d5a6da20b860ea97ff7651f171))
+
 ## [0.9.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.5...video-ware-v0.9.6) (2026-07-16)
 
 

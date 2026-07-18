@@ -13,11 +13,47 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Calendar as CalendarIcon, Save } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Calendar as CalendarIcon, Save, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
+
+const ROTATION_OPTIONS = [0, 90, 180, 270] as const;
+
+function formatBitrate(bps?: number): string {
+  if (!bps || bps <= 0) return 'N/A';
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(2)} Mbps`;
+  return `${Math.round(bps / 1000)} kbps`;
+}
+
+function formatSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return 'N/A';
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1000)} KB`;
+}
+
+function ReadonlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Input value={value} disabled />
+    </div>
+  );
+}
 
 interface MediaDetailsEditorProps {
   media: Media;
@@ -33,7 +69,9 @@ export function MediaDetailsEditor({
   );
   const [label, setLabel] = useState(media.label ?? '');
   const [description, setDescription] = useState(media.description ?? '');
+  const [rotation, setRotation] = useState<number>(media.rotation ?? 0);
   const [isSaving, setIsSaving] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -42,6 +80,7 @@ export function MediaDetailsEditor({
         mediaDate: date,
         label: label.trim(),
         description: description.trim(),
+        rotation,
       });
       toast.success('Media details updated');
       onUpdate();
@@ -124,10 +163,107 @@ export function MediaDetailsEditor({
           </div>
 
           <div className="space-y-2">
-            <Label>Created At</Label>
-            <Input value={new Date(media.created).toLocaleString()} disabled />
+            <Label htmlFor="media-details-rotation">Rotation</Label>
+            <Select
+              value={String(rotation)}
+              onValueChange={(v) => setRotation(Number(v))}
+            >
+              <SelectTrigger id="media-details-rotation" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROTATION_OPTIONS.map((deg) => (
+                  <SelectItem key={deg} value={String(deg)}>
+                    {deg}°
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
+          <ReadonlyField
+            label="Has Audio"
+            value={media.hasAudio ? 'Yes' : 'No'}
+          />
+
+          <ReadonlyField
+            label="Created At"
+            value={new Date(media.created).toLocaleString()}
+          />
         </div>
+
+        <Collapsible open={showTechnical} onOpenChange={setShowTechnical}>
+          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ChevronRight
+              className={cn(
+                'h-4 w-4 transition-transform',
+                showTechnical && 'rotate-90'
+              )}
+            />
+            Technical Info
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <ReadonlyField label="Container" value={media.mediaData.format} />
+              <ReadonlyField
+                label="File Size"
+                value={formatSize(media.mediaData.size)}
+              />
+              <ReadonlyField
+                label="Frame Rate"
+                value={`${media.mediaData.fps} fps`}
+              />
+              <ReadonlyField
+                label="Overall Bitrate"
+                value={formatBitrate(media.mediaData.bitrate)}
+              />
+              <ReadonlyField
+                label="Video Codec"
+                value={media.mediaData.video.codec || 'N/A'}
+              />
+              <ReadonlyField
+                label="Video Profile"
+                value={
+                  [media.mediaData.video.profile, media.mediaData.video.level]
+                    .filter(Boolean)
+                    .join(' / ') || 'N/A'
+                }
+              />
+              <ReadonlyField
+                label="Pixel Format"
+                value={media.mediaData.video.pixFmt || 'N/A'}
+              />
+              <ReadonlyField
+                label="Color Space"
+                value={media.mediaData.video.colorSpace || 'N/A'}
+              />
+              <ReadonlyField
+                label="Audio Codec"
+                value={media.mediaData.audio.codec || 'N/A'}
+              />
+              <ReadonlyField
+                label="Audio Bitrate"
+                value={formatBitrate(media.mediaData.audio.bitrate)}
+              />
+              <ReadonlyField
+                label="Audio Channels"
+                value={
+                  media.mediaData.audio.channels
+                    ? String(media.mediaData.audio.channels)
+                    : 'N/A'
+                }
+              />
+              <ReadonlyField
+                label="Sample Rate"
+                value={
+                  media.mediaData.audio.sampleRate
+                    ? `${media.mediaData.audio.sampleRate} Hz`
+                    : 'N/A'
+                }
+              />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         <div className="flex justify-end pt-4">
           <Button onClick={handleSave} disabled={isSaving}>

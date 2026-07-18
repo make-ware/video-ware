@@ -38,29 +38,24 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
     queryKey: qk.media.detail(mediaId),
     enabled: !!mediaId && isAuthenticated,
     queryFn: async () => {
-      // Fetch media details using mutator with expand
       const mediaMutator = new MediaMutator(pb);
-      const media = await mediaMutator.getById(mediaId, [
-        'thumbnailFileRef',
-        'spriteFileRef',
-        'proxyFileRef',
-        'audioFileRef',
-        'filmstripFileRefs',
-        'UploadRef',
-      ]);
-
-      // Fetch associated clips
-      const clipsList = await pb
-        .collection('MediaClips')
-        .getList<MediaClip>(1, 200, {
+      const [media, clipsList, activeTasks] = await Promise.all([
+        mediaMutator.getById(mediaId, [
+          'thumbnailFileRef',
+          'spriteFileRef',
+          'proxyFileRef',
+          'audioFileRef',
+          'filmstripFileRefs',
+          'UploadRef',
+        ]),
+        pb.collection('MediaClips').getList<MediaClip>(1, 200, {
           filter: `MediaRef = "${mediaId}"`,
           sort: 'start',
-        });
-
-      // Fetch active label detection tasks
-      const activeTasks = await pb.collection('Tasks').getList(1, 1, {
-        filter: `sourceId = "${mediaId}" && type = "detect_labels" && (status = "queued" || status = "running")`,
-      });
+        }),
+        pb.collection('Tasks').getList(1, 1, {
+          filter: `sourceId = "${mediaId}" && type = "detect_labels" && (status = "queued" || status = "running")`,
+        }),
+      ]);
 
       return {
         media,
@@ -74,7 +69,10 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
     media: query.data?.media ?? null,
     clips: query.data?.clips ?? [],
     hasActiveLabelTask: query.data?.hasActiveLabelTask ?? false,
-    isLoading: query.isLoading,
+    // isPending, not isLoading: a disabled query (auth still hydrating) must
+    // read as "loading", or consumers flash their not-found state before the
+    // first fetch ever starts.
+    isLoading: query.isPending,
     error: query.error,
     refresh: async () => {
       await queryClient.invalidateQueries({

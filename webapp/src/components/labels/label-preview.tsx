@@ -3,6 +3,7 @@
 import { TracksAnimator } from '@/components/labels/tracks-animator';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { useTimeAnimation } from '@/hooks/use-time-animation';
+import { cn } from '@/lib/utils';
 import type { LabelTrack, Media } from '@project/shared';
 
 /**
@@ -16,26 +17,38 @@ export function LabelPreview({
   track,
   start,
   end,
+  className,
 }: {
   media?: Media | null;
   track?: LabelTrack | null;
   start: number;
   end: number;
+  className?: string;
 }) {
   if (!media || !media.filmstripFileRefs?.length) {
     return (
-      <div className="flex items-center justify-center aspect-video bg-muted/30 rounded-lg text-sm text-muted-foreground">
+      <div
+        className={cn(
+          'flex items-center justify-center aspect-video bg-muted/30 rounded-lg text-sm text-muted-foreground',
+          className
+        )}
+      >
         No media preview available.
       </div>
     );
   }
 
   if (track) {
-    return <TracksAnimator media={media} track={track} />;
+    return <TracksAnimator media={media} track={track} className={className} />;
   }
 
   return (
-    <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+    <div
+      className={cn(
+        'relative aspect-video bg-black rounded-lg overflow-hidden',
+        className
+      )}
+    >
       <LabelRangeFilmstrip media={media} start={start} end={end} />
     </div>
   );

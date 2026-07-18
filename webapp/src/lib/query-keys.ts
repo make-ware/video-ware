@@ -63,8 +63,15 @@ export const qk = {
       ['entities', 'kind-counts', workspaceId] as const,
     stats: (id: string) => ['entities', 'stats', id] as const,
     labelCounts: (id: string) => ['entities', 'label-counts', id] as const,
-    labels: (id: string, labelType: string, page: number, perPage: number) =>
-      ['entities', 'labels', id, labelType, page, perPage] as const,
+    labelMedia: (id: string, labelType: string) =>
+      ['entities', 'label-media', id, labelType] as const,
+    labels: (
+      id: string,
+      labelType: string,
+      mediaId: string,
+      page: number,
+      perPage: number
+    ) => ['entities', 'labels', id, labelType, mediaId, page, perPage] as const,
     transcripts: (id: string, query: string, page: number, perPage: number) =>
       ['entities', 'transcripts', id, query, page, perPage] as const,
   },

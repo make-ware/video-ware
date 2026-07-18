@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
+import type PocketBase from 'pocketbase';
 import type { ListResult } from 'pocketbase';
 import { LabelType } from '@project/shared';
 import {
+  LABEL_TYPE_META,
   LabelFaceMutator,
   LabelObjectMutator,
   LabelPersonMutator,
@@ -23,6 +25,7 @@ import type {
 } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
+import { mediaDisplayName } from './use-entities';
 import { useAuth } from './use-auth';
 
 /**
@@ -100,31 +103,105 @@ export function useEntityLabelCounts(entityId: string) {
   return { counts: query.data, isLoading: query.isLoading };
 }
 
+/** One media an entity's labels of one type appear in, with the row count. */
+export interface EntityLabelMediaGroup {
+  mediaId: string;
+  name: string;
+  count: number;
+}
+
 /**
- * One page of the labels of one type attributed to an entity (directly via
- * their track, or via their provider cluster), ordered by media and start.
- * A request past the last page (e.g. after an unlink emptied it) falls back
- * to the real last page inside the fetch; `page` in the result is the
- * effective page actually served.
+ * The media an entity's labels of one type are spread across, with per-media
+ * counts (most labels first). Two bounded queries: a MediaRef-only sweep of
+ * the label collection, then one Media fetch for display names.
+ */
+export function useEntityLabelMedia(entityId: string, labelType: LabelType) {
+  const { isAuthenticated } = useAuth();
+  const query = useQuery({
+    queryKey: qk.entities.labelMedia(entityId, labelType),
+    enabled: !!entityId && isAuthenticated,
+    queryFn: async (): Promise<EntityLabelMediaGroup[]> => {
+      // The typed collection() only accepts literal names; the base client
+      // signature takes the dynamic one.
+      const basePb: PocketBase = pb;
+      const rows = await basePb
+        .collection(LABEL_TYPE_META[labelType].collection)
+        .getFullList<{ MediaRef: string }>({
+          filter: labelAttributionFilter(labelType, entityId),
+          fields: 'MediaRef',
+        });
+      const countByMedia = new Map<string, number>();
+      for (const row of rows) {
+        countByMedia.set(
+          row.MediaRef,
+          (countByMedia.get(row.MediaRef) ?? 0) + 1
+        );
+      }
+      const mediaIds = [...countByMedia.keys()];
+      if (mediaIds.length === 0) return [];
+
+      const mediaRecords = await pb.collection('Media').getFullList({
+        filter: mediaIds.map((id) => `id = "${id}"`).join(' || '),
+        expand: 'UploadRef',
+      });
+      const nameById = new Map(
+        mediaRecords.map((media) => [
+          media.id,
+          mediaDisplayName(
+            media as Media & { expand?: { UploadRef?: Upload } }
+          ),
+        ])
+      );
+      return mediaIds
+        .map((mediaId) => ({
+          mediaId,
+          name: nameById.get(mediaId) || mediaId,
+          count: countByMedia.get(mediaId) ?? 0,
+        }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    },
+  });
+  return {
+    mediaGroups: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+/**
+ * One page of the labels of one type attributed to an entity within one
+ * media, ordered by start. A request past the last page (e.g. after an
+ * unlink emptied it) falls back to the real last page inside the fetch;
+ * `page` in the result is the effective page actually served.
  */
 export function useEntityLabels(
   entityId: string,
   labelType: LabelType,
+  mediaId: string | null,
   page: number,
   perPage: number
 ) {
   const { isAuthenticated } = useAuth();
   const query = useQuery({
-    queryKey: qk.entities.labels(entityId, labelType, page, perPage),
-    enabled: !!entityId && isAuthenticated,
+    queryKey: qk.entities.labels(
+      entityId,
+      labelType,
+      mediaId ?? '',
+      page,
+      perPage
+    ),
+    enabled: !!entityId && !!mediaId && isAuthenticated,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       const fetchPage = (p: number) =>
         labelMutatorFor(labelType).getList(
           p,
           perPage,
-          labelAttributionFilter(labelType, entityId),
-          'MediaRef,start',
+          [
+            labelAttributionFilter(labelType, entityId),
+            pb.filter('MediaRef = {:media}', { media: mediaId }),
+          ],
+          'start',
           ['MediaRef.UploadRef', ...attributionExpands(labelType)]
         );
       let result = await fetchPage(page);

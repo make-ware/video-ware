@@ -35,8 +35,8 @@ export function LabelDetailPanel({
   isCreating,
 }: LabelDetailPanelProps) {
   return (
-    <Card className="md:col-span-2 flex flex-col h-full">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+    <Card className="md:col-span-2 flex flex-col h-full min-h-0 overflow-hidden">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 shrink-0">
         <div className="flex flex-col space-y-1.5 min-w-0">
           <CardTitle className="capitalize truncate">
             {record ? config.listTitle(record) : `Select a label`}
@@ -63,7 +63,7 @@ export function LabelDetailPanel({
           </Button>
         )}
       </CardHeader>
-      <CardContent className="flex-1 overflow-auto pt-6">
+      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-6">
         {record ? (
           <div className="space-y-4">
             <LabelPreview

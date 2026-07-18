@@ -46,10 +46,12 @@ export default function EntityDetailPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    // 2.5625rem = NavigationBar's fixed h-10 content + its border-b. The
+    // page itself never scrolls — each browser panel scrolls internally.
+    <div className="container mx-auto px-6 py-3 h-[calc(100vh-2.5625rem)] flex flex-col gap-3">
       <Link
         href={`/ws/${workspaceId}/entities?kind=${entity.kind}`}
-        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+        className="shrink-0 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4 mr-1" />
         All entities
@@ -66,13 +68,15 @@ export default function EntityDetailPage() {
         }}
       />
 
-      <EntityLabelsBrowser
-        workspaceId={workspaceId}
-        entityId={entityId}
-        entityName={entity.name}
-        counts={counts}
-        countsLoading={countsLoading}
-      />
+      <div className="flex-1 min-h-0">
+        <EntityLabelsBrowser
+          workspaceId={workspaceId}
+          entityId={entityId}
+          entityName={entity.name}
+          counts={counts}
+          countsLoading={countsLoading}
+        />
+      </div>
     </div>
   );
 }

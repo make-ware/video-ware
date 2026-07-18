@@ -50,12 +50,12 @@ export function EntityHeaderCard({
   ];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
-            <CardTitle>{entity.name}</CardTitle>
+    <Card className="shrink-0 py-3 gap-2">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 px-4">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+            <CardTitle className="text-base">{entity.name}</CardTitle>
             <Badge variant="outline" className="capitalize">
               {String(entity.kind)}
             </Badge>
@@ -65,9 +65,11 @@ export function EntityHeaderCard({
               </Badge>
             ))}
           </div>
-          <CardDescription>
-            {entity.description || 'No description'}
-          </CardDescription>
+          {entity.description && (
+            <CardDescription className="truncate">
+              {entity.description}
+            </CardDescription>
+          )}
         </div>
         <Button asChild variant="outline" size="sm" className="shrink-0">
           <Link href={`/ws/${workspaceId}/entities/${entity.id}/transcripts`}>
@@ -77,11 +79,14 @@ export function EntityHeaderCard({
           </Link>
         </Button>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <CardContent className="px-4">
+        <div className="flex gap-2 overflow-x-auto">
           {tiles.map((tile) => (
-            <div key={tile.label} className="p-3 border rounded bg-muted/20">
-              <h4 className="text-xs font-medium uppercase text-muted-foreground mb-1">
+            <div
+              key={tile.label}
+              className="flex-1 min-w-28 shrink-0 px-2.5 py-1.5 border rounded bg-muted/20"
+            >
+              <h4 className="text-[10px] font-medium uppercase text-muted-foreground">
                 {tile.label}
               </h4>
               <p className="text-sm font-mono">{tile.value}</p>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useDeferredValue } from 'react';
 import { useParams } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   Card,
   CardContent,
@@ -10,8 +11,11 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { ListChecks, Loader2, X } from 'lucide-react';
 import { useMultiSelect } from '@/hooks/use-multi-select';
+import { useRegisterPageMenu } from '@/hooks/use-page-menu';
+import type { PageMenuItem } from '@/contexts/page-menu-context';
 import {
   useAssignTracksEntity,
   useWorkspaceEntities,
@@ -86,7 +90,35 @@ export function LabelInspectorPage({
     items: recordIds,
     enableKeyboard: supportsBulkEntity,
   });
-  const { selectedIds } = multi;
+  const { selectedIds, selectAll, clearSelection, selectionCount } = multi;
+
+  // Selection actions in the nav bar's Edit menu, mirroring the media page.
+  const editMenuItems = useMemo<PageMenuItem[]>(() => {
+    if (!supportsBulkEntity) return [];
+    return [
+      {
+        id: 'select-all',
+        label: 'Select All',
+        icon: ListChecks,
+        disabled: recordIds.length === 0,
+        onSelect: selectAll,
+      },
+      {
+        id: 'clear-selection',
+        label: 'Clear Selection',
+        icon: X,
+        disabled: selectionCount === 0,
+        onSelect: clearSelection,
+      },
+    ];
+  }, [
+    supportsBulkEntity,
+    recordIds.length,
+    selectionCount,
+    selectAll,
+    clearSelection,
+  ]);
+  useRegisterPageMenu('edit', editMenuItems);
 
   const entityGroups = useMemo<EntitySummaryGroup[]>(() => {
     if (!supportsBulkEntity) return [];
@@ -150,7 +182,10 @@ export function LabelInspectorPage({
   }, [selectedRecords]);
 
   const handleBulkAssign = (entityId: string | null) => {
-    if (selectedTrackIds.length === 0) return;
+    if (selectedTrackIds.length === 0) {
+      toast.error('None of the selected labels have a track to link');
+      return;
+    }
     assignTracks.mutate(
       { trackIds: selectedTrackIds, entityId },
       { onSuccess: () => multi.clearSelection() }
@@ -171,9 +206,12 @@ export function LabelInspectorPage({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
-      <Card className="md:col-span-1 flex flex-col h-full">
-        <CardHeader className="space-y-3">
+    // minmax(0,1fr) row: the cards get exactly the viewport-fitted height
+    // from the labels layout, so overflow scrolls inside the cards instead
+    // of growing the page.
+    <div className="grid grid-cols-1 md:grid-cols-3 md:grid-rows-[minmax(0,1fr)] gap-6 h-full min-h-0">
+      <Card className="md:col-span-1 flex flex-col h-full min-h-0 overflow-hidden">
+        <CardHeader className="space-y-3 shrink-0">
           <div>
             <CardTitle>{config.title}</CardTitle>
             <CardDescription>{config.subtitle}</CardDescription>
@@ -185,13 +223,28 @@ export function LabelInspectorPage({
             searchPlaceholder={`Search ${config.title.toLowerCase()}…`}
           />
           {entityGroups.length > 0 && (
-            <LabelEntitySummary
-              groups={entityGroups}
-              onGroupClick={handleGroupClick}
-            />
+            <>
+              <Separator />
+              <LabelEntitySummary
+                groups={entityGroups}
+                onGroupClick={handleGroupClick}
+              />
+            </>
           )}
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
+          {supportsBulkEntity && records.length > 0 && (
+            <LabelSelectionBar
+              count={selectionCount}
+              total={records.length}
+              sharedEntityId={sharedEntityId}
+              workspaceId={workspaceId}
+              isAssigning={assignTracks.isPending}
+              onAssign={handleBulkAssign}
+              onSelectAll={selectAll}
+              onClear={clearSelection}
+            />
+          )}
           <ScrollArea className="flex-1 min-h-0">
             <LabelList
               config={config}
@@ -210,25 +263,19 @@ export function LabelInspectorPage({
                       isSelected: multi.isSelected,
                       onToggle: multi.toggleItem,
                       onRowClick: (id, event) => {
+                        // Plain click selects just that row; cmd/shift
+                        // toggle and range-extend via useMultiSelect. The
+                        // clicked row always becomes the detail record.
                         if (multi.handleClick(id, event) === 'single') {
-                          setSelectedId(id);
+                          multi.setSelectedIds(new Set([id]));
                         }
+                        setSelectedId(id);
                       },
                     }
                   : undefined
               }
             />
           </ScrollArea>
-          {supportsBulkEntity && multi.selectionCount > 0 && (
-            <LabelSelectionBar
-              count={multi.selectionCount}
-              sharedEntityId={sharedEntityId}
-              workspaceId={workspaceId}
-              isAssigning={assignTracks.isPending}
-              onAssign={handleBulkAssign}
-              onClear={multi.clearSelection}
-            />
-          )}
         </CardContent>
       </Card>
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.7...video-ware-v0.9.8) (2026-07-18)
+
+
+### Bug Fixes
+
+* add bundle to yarn precommit ([c8caea3](https://github.com/make-ware/video-ware/commit/c8caea374c3be44879dac5250245afc32d33b179))
+* add concurrent label jobs ([a81a30c](https://github.com/make-ware/video-ware/commit/a81a30cdc13f28a3079f3bb654c41601953f001a))
+* add entity explore page ([6021401](https://github.com/make-ware/video-ware/commit/60214012baae3017a992b8dc8465a3cee396eb11))
+* add label inspector upgrade ([54c1721](https://github.com/make-ware/video-ware/commit/54c17216ce9a7e89f07bee49a39bc0b5c65427bf))
+
 ## [0.9.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.6...video-ware-v0.9.7) (2026-07-17)
 
 

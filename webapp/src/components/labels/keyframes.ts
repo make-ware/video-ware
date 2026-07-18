@@ -94,15 +94,16 @@ export interface CropRegion {
 }
 
 /**
- * Expand a bbox into a padded crop region that is square in *display* space
- * (frameAspect = displayed width/height), so the crop fills a square
- * thumbnail without distorting the subject. Clamped inside the frame; when
- * the padded square exceeds a frame dimension that axis covers the whole
- * frame instead.
+ * Expand a bbox into a padded crop region whose *display* aspect
+ * (frameAspect = displayed frame width/height) matches `displayAspect` —
+ * square by default — so the crop fills a thumbnail of that shape without
+ * distorting the subject. Clamped inside the frame; when the padded region
+ * exceeds a frame dimension that axis covers the whole frame instead.
  */
-export function squareCropRegion(
+export function bboxCropRegion(
   bbox: Bbox,
   frameAspect: number,
+  displayAspect = 1,
   padFraction = 0.25
 ): CropRegion | null {
   const w = bbox.right - bbox.left;
@@ -111,8 +112,12 @@ export function squareCropRegion(
 
   const aspect =
     frameAspect > 0 && isFinite(frameAspect) ? frameAspect : 16 / 9;
-  const side = Math.max(w * aspect, h) * (1 + 2 * padFraction);
-  const width = Math.min(side / aspect, 1);
+  const target =
+    displayAspect > 0 && isFinite(displayAspect) ? displayAspect : 1;
+  // Display height (fraction of frame height) covering the bbox on both
+  // display axes, padded; width follows from the target display aspect.
+  const side = Math.max((w * aspect) / target, h) * (1 + 2 * padFraction);
+  const width = Math.min((side * target) / aspect, 1);
   const height = Math.min(side, 1);
   const cx = (bbox.left + bbox.right) / 2;
   const cy = (bbox.top + bbox.bottom) / 2;

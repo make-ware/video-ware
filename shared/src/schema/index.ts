@@ -3,6 +3,7 @@ export * from './caption.js';
 export * from './clip-label-search.js';
 export * from './directory.js';
 export * from './entity.js';
+export * from './entity-stats.js';
 export * from './file.js';
 export * from './label-entity.js';
 export * from './label-face.js';

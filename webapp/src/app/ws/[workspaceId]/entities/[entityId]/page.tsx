@@ -50,7 +50,7 @@ export default function EntityDetailPage() {
     // page itself never scrolls — each browser panel scrolls internally.
     <div className="container mx-auto px-6 py-3 h-[calc(100vh-2.5625rem)] flex flex-col gap-3">
       <Link
-        href={`/ws/${workspaceId}/entities?kind=${entity.kind}`}
+        href={`/ws/${workspaceId}/entities`}
         className="shrink-0 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4 mr-1" />

@@ -29,6 +29,7 @@ export {
   entityAttributionFilter,
   trackEntityAttributionFilter,
 } from './entity';
+export { EntityStatsMutator } from './entity-stats';
 export {
   LABEL_TYPE_META,
   attributionExpands,

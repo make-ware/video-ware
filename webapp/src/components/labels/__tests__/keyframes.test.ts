@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { LabelTrack } from '@project/shared';
 import {
+  bboxCropRegion,
   cropBackground,
   interpolateBbox,
   normalizeKeyframes,
-  squareCropRegion,
   tileFrameTime,
   tileIndexFor,
   type Keyframe,
@@ -87,11 +87,12 @@ describe('interpolateBbox', () => {
   });
 });
 
-describe('squareCropRegion', () => {
+describe('bboxCropRegion', () => {
   it('produces a display-square region around the bbox center', () => {
-    const region = squareCropRegion(
+    const region = bboxCropRegion(
       { left: 0.4, top: 0.3, right: 0.5, bottom: 0.6 },
       16 / 9,
+      1,
       0
     );
     expect(region).not.toBeNull();
@@ -103,14 +104,31 @@ describe('squareCropRegion', () => {
     expect(region!.left + region!.width / 2).toBeCloseTo(0.45, 10);
   });
 
+  it('matches a non-square display aspect without distortion', () => {
+    const region = bboxCropRegion(
+      { left: 0.4, top: 0.3, right: 0.5, bottom: 0.6 },
+      16 / 9,
+      16 / 9,
+      0
+    );
+    expect(region).not.toBeNull();
+    // Display aspect: (width * frameAspect) / height === target.
+    expect((region!.width * (16 / 9)) / region!.height).toBeCloseTo(16 / 9, 10);
+    // Height still dominated by the bbox and centered on it.
+    expect(region!.height).toBeCloseTo(0.3, 10);
+    expect(region!.left + region!.width / 2).toBeCloseTo(0.45, 10);
+  });
+
   it('pads the region by the given fraction', () => {
-    const noPad = squareCropRegion(
+    const noPad = bboxCropRegion(
       { left: 0.4, top: 0.4, right: 0.6, bottom: 0.6 },
+      1,
       1,
       0
     );
-    const padded = squareCropRegion(
+    const padded = bboxCropRegion(
       { left: 0.4, top: 0.4, right: 0.6, bottom: 0.6 },
+      1,
       1,
       0.25
     );
@@ -118,9 +136,10 @@ describe('squareCropRegion', () => {
   });
 
   it('clamps to the frame at edges', () => {
-    const region = squareCropRegion(
+    const region = bboxCropRegion(
       { left: 0.0, top: 0.0, right: 0.1, bottom: 0.4 },
       16 / 9,
+      1,
       0
     );
     expect(region!.left).toBeGreaterThanOrEqual(0);
@@ -130,9 +149,10 @@ describe('squareCropRegion', () => {
   });
 
   it('caps oversized regions at the full frame', () => {
-    const region = squareCropRegion(
+    const region = bboxCropRegion(
       { left: 0, top: 0, right: 1, bottom: 1 },
       16 / 9,
+      1,
       0.25
     );
     expect(region!.width).toBe(1);
@@ -143,10 +163,10 @@ describe('squareCropRegion', () => {
 
   it('returns null for degenerate boxes', () => {
     expect(
-      squareCropRegion({ left: 0.5, top: 0.2, right: 0.5, bottom: 0.4 }, 1)
+      bboxCropRegion({ left: 0.5, top: 0.2, right: 0.5, bottom: 0.4 }, 1)
     ).toBeNull();
     expect(
-      squareCropRegion({ left: 0.6, top: 0.2, right: 0.4, bottom: 0.4 }, 1)
+      bboxCropRegion({ left: 0.6, top: 0.2, right: 0.4, bottom: 0.4 }, 1)
     ).toBeNull();
   });
 });

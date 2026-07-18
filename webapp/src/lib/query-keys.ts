@@ -62,6 +62,8 @@ export const qk = {
     kindCounts: (workspaceId: string) =>
       ['entities', 'kind-counts', workspaceId] as const,
     stats: (id: string) => ['entities', 'stats', id] as const,
+    cardThumbs: (idsKey: string) =>
+      ['entities', 'card-thumbs', idsKey] as const,
     labelCounts: (id: string) => ['entities', 'label-counts', id] as const,
     labelMedia: (id: string, labelType: string) =>
       ['entities', 'label-media', id, labelType] as const,

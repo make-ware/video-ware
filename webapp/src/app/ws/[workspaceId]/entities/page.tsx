@@ -1,15 +1,11 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { useParams, usePathname, useSearchParams } from 'next/navigation';
+import { useDeferredValue, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { EntityKind } from '@project/shared';
 import { useCreateEntity, useEntityKindCounts } from '@/hooks/use-entities';
-import {
-  ENTITY_KIND_META,
-  ENTITY_KIND_ORDER,
-  parseEntityKind,
-} from '@/components/entities/entity-kind';
-import { EntityList } from '@/components/entities/entity-list';
+import { ENTITY_KIND_ORDER } from '@/components/entities/entity-kind';
+import { EntityKindSection } from '@/components/entities/entity-list';
 import {
   Dialog,
   DialogContent,
@@ -25,55 +21,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus, Search } from 'lucide-react';
 
 /**
- * Workspace entities: the real-world people, places, products, and things
- * that label tracks/clusters are linked to across media — one paginated,
- * searchable list per kind.
+ * Entities home: the real-world people, places, products, and things that
+ * label tracks/clusters are linked to across media — one card-grid section
+ * per kind, searchable across all of them.
  */
 export default function EntitiesPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
 
-  // The URL is the single source of truth for the active tab: replaceState
-  // below feeds back into useSearchParams (no Next.js soft navigation), so
-  // no state mirror is needed.
-  const activeKind = parseEntityKind(searchParams.get('kind'));
-  const { counts } = useEntityKindCounts(workspaceId);
+  const { counts, isLoading: countsLoading } = useEntityKindCounts(workspaceId);
   const createEntity = useCreateEntity(workspaceId);
+
+  const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<EntityKind>(EntityKind.PERSON);
   const [description, setDescription] = useState('');
 
-  const handleKindChange = useCallback(
-    (value: string) => {
-      const nextKind = parseEntityKind(value);
-      const query = new URLSearchParams(window.location.search);
-      if (nextKind === EntityKind.PERSON) query.delete('kind');
-      else query.set('kind', nextKind);
-      const qs = query.toString();
-      window.history.replaceState(
-        null,
-        '',
-        qs ? `${pathname}?${qs}` : pathname
-      );
-    },
-    [pathname]
-  );
-
-  const openCreate = () => {
-    setKind(activeKind);
-    setCreateOpen(true);
-  };
+  // Only kinds that have entities get a section; the per-section empty
+  // states then only ever mean "your search excluded this kind".
+  const visibleKinds = ENTITY_KIND_ORDER.filter((k) => (counts?.[k] ?? 0) > 0);
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,35 +79,43 @@ export default function EntitiesPage() {
             to them to identify who or what appears across your media.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate}>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1.5" />
           New Entity
         </Button>
       </div>
 
-      <Tabs value={activeKind} onValueChange={handleKindChange}>
-        <TabsList>
-          {ENTITY_KIND_ORDER.map((k) => {
-            const meta = ENTITY_KIND_META[k];
-            return (
-              <TabsTrigger key={k} value={k}>
-                <meta.icon className="h-4 w-4 mr-1.5" />
-                {meta.label}
-                {counts && counts[k] > 0 && (
-                  <Badge variant="secondary" className="ml-1.5">
-                    {counts[k]}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-        {ENTITY_KIND_ORDER.map((k) => (
-          <TabsContent key={k} value={k} className="mt-4">
-            <EntityList workspaceId={workspaceId} kind={k} />
-          </TabsContent>
-        ))}
-      </Tabs>
+      <div className="relative max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search entities…"
+          className="pl-8"
+        />
+      </div>
+
+      {countsLoading ? (
+        <div className="flex justify-center p-8">
+          <Loader2 className="animate-spin h-8 w-8 text-primary" />
+        </div>
+      ) : visibleKinds.length === 0 ? (
+        <p className="text-muted-foreground text-center py-12">
+          No entities yet. Create one, then link speakers from a media&apos;s
+          Speakers → Identify tab, or faces from the label inspector.
+        </p>
+      ) : (
+        <div className="space-y-8">
+          {visibleKinds.map((k) => (
+            <EntityKindSection
+              key={k}
+              workspaceId={workspaceId}
+              kind={k}
+              search={deferredSearch}
+            />
+          ))}
+        </div>
+      )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

@@ -19,6 +19,7 @@ import type { TimelineClip } from '../schema/timeline-clip';
 import type { TimelineRender } from '../schema/timeline-render';
 import type { LabelEntity } from '../schema/label-entity';
 import type { Entity } from '../schema/entity';
+import type { EntityStats } from '../schema/entity-stats';
 import type { Artifact } from '../schema/artifact';
 import { LabelTrack } from '../schema/label-track';
 import { LabelSpeaker } from '../schema/label-speaker';
@@ -49,6 +50,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'ClipLabelSearch'): RecordService<ClipLabelSearch>;
   collection(idOrName: 'Directories'): RecordService<Directory>;
   collection(idOrName: 'Entities'): RecordService<Entity>;
+  collection(idOrName: 'EntityStats'): RecordService<EntityStats>;
   collection(idOrName: 'Files'): RecordService<File>;
   collection(idOrName: 'LabelEntity'): RecordService<LabelEntity>;
   collection(idOrName: 'LabelFaces'): RecordService<LabelFace>;

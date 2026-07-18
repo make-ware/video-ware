@@ -6,10 +6,10 @@ import pb from '@/lib/pocketbase-client';
 import { cn } from '@/lib/utils';
 import { useFilmstripData } from '@/components/filmstrip/use-filmstrip-data';
 import {
+  bboxCropRegion,
   cropBackground,
   interpolateBbox,
   normalizeKeyframes,
-  squareCropRegion,
   tileFrameTime,
 } from './keyframes';
 
@@ -18,18 +18,25 @@ interface TrackCropThumbProps {
   track: LabelTrack;
   /** Sizing/rounding; the component fills it with the cropped frame. */
   className?: string;
+  /**
+   * Displayed width/height of the container the crop fills (default 1,
+   * a square avatar). Pass e.g. 16/9 for a banner-shaped thumbnail.
+   */
+  displayAspect?: number;
 }
 
 /**
  * Static thumbnail of a label track's subject: the filmstrip frame nearest
  * the track's midpoint, cropped to the track's bounding box (padded to a
- * display-square region). Gives face/person/object rows a recognizable
- * image without playing the animated preview.
+ * region matching the container's display aspect — square by default).
+ * Gives face/person/object rows a recognizable image without playing the
+ * animated preview.
  */
 export function TrackCropThumb({
   media,
   track,
   className,
+  displayAspect = 1,
 }: TrackCropThumbProps) {
   const { getFilmstripForTime, isLoading } = useFilmstripData(media);
 
@@ -54,10 +61,10 @@ export function TrackCropThumb({
     const aspect =
       media.aspectRatio ||
       (media.width && media.height ? media.width / media.height : 16 / 9);
-    const region = squareCropRegion(bbox, aspect);
+    const region = bboxCropRegion(bbox, aspect, displayAspect);
     if (!region) return null;
     return cropBackground(strip.config, midTime, region);
-  }, [strip, sorted, midTime, track.start, track.end, media]);
+  }, [strip, sorted, midTime, track.start, track.end, media, displayAspect]);
 
   if (!crop || !strip) {
     return (

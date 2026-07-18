@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   EntityMutator,
+  EntityStatsMutator,
   LabelSpeakerMutator,
   LabelTrackMutator,
   entityAttributionFilter,
@@ -241,6 +242,47 @@ export function useEntitiesByKind(
     isFetching: query.isFetching,
     error: query.error,
   };
+}
+
+/** An entity card's representative track, with its media for the preview. */
+export type EntityCardThumb = LabelTrack & { expand?: { MediaRef?: Media } };
+
+/**
+ * Thumbnail tracks for one page of entities in two requests: the EntityStats
+ * view rows (whose thumbTrack picks each entity's representative track), then
+ * those tracks with their media expanded (relation expand doesn't cross the
+ * view). Keyed by the id set, so pages and kinds cache independently;
+ * invalidated with the rest of qk.entities.
+ */
+export function useEntityCardThumbs(entityIds: string[]) {
+  const { isAuthenticated } = useAuth();
+  const idsKey = [...entityIds].sort().join(',');
+  const query = useQuery({
+    queryKey: qk.entities.cardThumbs(idsKey),
+    enabled: entityIds.length > 0 && isAuthenticated,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const stats = await new EntityStatsMutator(pb).getByEntityIds(entityIds);
+      const trackIds = stats
+        .map((row) => row.thumbTrack)
+        .filter((id): id is string => !!id);
+      const tracks =
+        trackIds.length === 0
+          ? []
+          : await pb.collection('LabelTrack').getFullList<EntityCardThumb>({
+              filter: trackIds.map((id) => `id = "${id}"`).join(' || '),
+              expand: 'MediaRef',
+            });
+      const trackById = new Map(tracks.map((track) => [track.id, track]));
+      return Object.fromEntries(
+        stats.map((row) => [
+          row.id,
+          (row.thumbTrack && trackById.get(row.thumbTrack)) || null,
+        ])
+      ) as Record<string, EntityCardThumb | null>;
+    },
+  });
+  return { thumbsById: query.data, isLoading: query.isLoading };
 }
 
 /** Per-kind entity counts for the list page's tab badges. */

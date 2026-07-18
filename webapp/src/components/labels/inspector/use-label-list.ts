@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { usePocketBase } from '@/contexts/pocketbase-context';
 import { qk } from '@/lib/query-keys';
-import type { LabelTrack, Media } from '@project/shared';
+import type { LabelEntity, LabelTrack, Media } from '@project/shared';
 import type { ActualizableLabel } from '@project/shared/mutator';
 import type { ExpandedMedia } from '@/types/expanded-types';
 import type { InspectorTypeConfig } from './config';
@@ -11,9 +11,23 @@ import type { InspectorTypeConfig } from './config';
 export type InspectorLabelRecord = ActualizableLabel & {
   expand?: {
     LabelTrackRef?: LabelTrack;
+    LabelEntityRef?: LabelEntity;
     MediaRef?: Media | ExpandedMedia;
   };
 };
+
+/**
+ * Entity attributed to a label row, mirroring the precedence encoded in
+ * entityAttributionFilter: the track's manual link wins, the provider
+ * cluster's link is the fallback. '' when unattributed.
+ */
+export function effectiveEntityId(record: InspectorLabelRecord): string {
+  return (
+    record.expand?.LabelTrackRef?.EntityRef ||
+    record.expand?.LabelEntityRef?.EntityRef ||
+    ''
+  );
+}
 
 export interface LabelListFilters {
   minConfidence: number;
@@ -61,7 +75,9 @@ export function useLabelList(
 
       // LabelTrackRef is always expanded: the entity-link control reads the
       // track's EntityRef even for types whose preview doesn't animate it.
-      const expand = 'LabelTrackRef,MediaRef,MediaRef.filmstripFileRefs';
+      // LabelEntityRef supplies the cluster-level entity fallback.
+      const expand =
+        'LabelTrackRef,LabelEntityRef,MediaRef,MediaRef.filmstripFileRefs';
 
       // TypedPocketBase's collection() overloads reject a union of names;
       // the explicit getList generic restores the record type.

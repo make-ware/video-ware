@@ -28,11 +28,17 @@ const CREATE = '__create__';
 
 interface EntityPickerProps {
   workspaceId: string;
-  /** Currently linked entity id ('' or undefined when unlinked). */
+  /**
+   * Currently linked entity id. '' means explicitly unlinked ("No entity");
+   * undefined means unknown/mixed (e.g. a multi-selection spanning several
+   * entities) and shows the placeholder instead.
+   */
   value?: string;
   onChange: (entityId: string | null) => void;
   disabled?: boolean;
   className?: string;
+  /** Trigger text when value is undefined. */
+  placeholder?: string;
 }
 
 /**
@@ -46,6 +52,7 @@ export function EntityPicker({
   onChange,
   disabled,
   className,
+  placeholder = 'Link entity…',
 }: EntityPickerProps) {
   const { entities, isLoading } = useWorkspaceEntities(workspaceId);
   const createEntity = useCreateEntity(workspaceId);
@@ -81,13 +88,13 @@ export function EntityPicker({
   return (
     <>
       <Select
-        value={value || NONE}
+        value={value === undefined ? '' : value || NONE}
         onValueChange={handleSelect}
         disabled={disabled || isLoading}
       >
         <SelectTrigger size="sm" className={className}>
           <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <SelectValue placeholder="Link entity…" />
+          <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>

@@ -11,9 +11,13 @@ import {
 } from '@/components/ui/card';
 import { Loader2, Scissors } from 'lucide-react';
 import { TracksAnimator } from '@/components/labels/tracks-animator';
+import { TrackCropThumb } from '@/components/labels/track-crop-thumb';
 import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
-import { useAssignTrackEntity } from '@/hooks/use-entities';
+import {
+  useAssignTrackEntity,
+  useWorkspaceEntities,
+} from '@/hooks/use-entities';
 import { useTimeAnimation } from '@/hooks/use-time-animation';
 import type { Media } from '@project/shared';
 import { formatClipTime } from '@/utils/format-clip-time';
@@ -146,24 +150,50 @@ function EntityLinkSection({ record }: { record: InspectorLabelRecord }) {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
   const assign = useAssignTrackEntity();
+  const { entities } = useWorkspaceEntities(workspaceId);
 
   const trackId = (record as { LabelTrackRef?: string }).LabelTrackRef;
   const track = record.expand?.LabelTrackRef;
+  const media = record.expand?.MediaRef;
   if (!trackId || !workspaceId) return null;
+
+  // With no manual track link, attribution falls back to the provider
+  // cluster's entity — worth surfacing so an "unlinked" picker isn't
+  // mistaken for "unattributed".
+  const clusterEntityId = record.expand?.LabelEntityRef?.EntityRef;
+  const inherited =
+    !track?.EntityRef && clusterEntityId
+      ? entities.find((e) => e.id === clusterEntityId)
+      : undefined;
 
   return (
     <div className="p-3 border rounded bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
-      <div>
-        <h4 className="text-xs font-medium uppercase text-muted-foreground mb-1">
-          Entity
-        </h4>
-        <p className="text-sm text-muted-foreground">
-          Identify this track across media
-        </p>
+      <div className="flex items-center gap-3 min-w-0">
+        {media && track && (
+          <TrackCropThumb
+            media={media}
+            track={track}
+            className="h-14 w-14 rounded-md"
+          />
+        )}
+        <div className="min-w-0">
+          <h4 className="text-xs font-medium uppercase text-muted-foreground mb-1">
+            Entity
+          </h4>
+          <p className="text-sm text-muted-foreground">
+            Identify this track across media
+          </p>
+          {inherited && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Inherited from provider cluster:{' '}
+              <span className="font-medium">{inherited.name}</span>
+            </p>
+          )}
+        </div>
       </div>
       <EntityPicker
         workspaceId={workspaceId}
-        value={track?.EntityRef}
+        value={track?.EntityRef ?? ''}
         onChange={(entityId) => assign.mutate({ trackId, entityId })}
         disabled={assign.isPending}
       />

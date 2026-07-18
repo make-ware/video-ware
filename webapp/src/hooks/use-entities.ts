@@ -109,6 +109,55 @@ export function useAssignTrackEntity() {
   });
 }
 
+/**
+ * Bulk variant of useAssignTrackEntity for the label inspectors'
+ * multi-select: link (or, with null, unlink) many tracks to one entity in a
+ * single action. Partial failures are tolerated — successful links land and
+ * the toast reports the failure count.
+ */
+export function useAssignTracksEntity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      trackIds: string[];
+      entityId: string | null;
+    }): Promise<{ total: number; failed: number }> => {
+      const mutator = new LabelTrackMutator(pb);
+      const results = await Promise.allSettled(
+        input.trackIds.map((trackId) =>
+          mutator.setEntity(trackId, input.entityId)
+        )
+      );
+      return {
+        total: results.length,
+        failed: results.filter((r) => r.status === 'rejected').length,
+      };
+    },
+    onSuccess: ({ total, failed }, { entityId }) => {
+      const linked = total - failed;
+      const noun = `track${linked === 1 ? '' : 's'}`;
+      if (failed > 0) {
+        toast.warning(`Updated ${linked} of ${total} tracks — ${failed} failed`);
+      } else {
+        toast.success(
+          entityId
+            ? `Linked ${linked} ${noun} to entity`
+            : `Removed entity link from ${linked} ${noun}`
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: qk.entities.all });
+      void queryClient.invalidateQueries({ queryKey: ['label-tracks'] });
+      void queryClient.invalidateQueries({ queryKey: ['labels'] });
+      void queryClient.invalidateQueries({ queryKey: ['speakers'] });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update entity links'
+      );
+    },
+  });
+}
+
 /** A track attributed to an entity, with media + provider cluster expands. */
 export type EntityTrack = LabelTrack & {
   expand?: {

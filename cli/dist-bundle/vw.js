@@ -57628,6 +57628,7 @@ var LabelsDetectionConfigSchema = external_exports.object({
   detectLabels: external_exports.boolean().optional(),
   detectFaces: external_exports.boolean().optional(),
   detectPersons: external_exports.boolean().optional(),
+  detectText: external_exports.boolean().optional(),
   detectSpeech: external_exports.boolean().optional(),
   detectSpeakers: external_exports.boolean().optional()
 }).passthrough();
@@ -58625,6 +58626,7 @@ var ALL_LABEL_DETECTIONS = {
   detectLabels: true,
   detectFaces: true,
   detectPersons: true,
+  detectText: true,
   detectSpeech: true,
   detectSpeakers: true
 };
@@ -61703,11 +61705,12 @@ var EntityMutator = class extends BaseMutator {
    * @param query Free-text query
    * @param page Page number (default: 1)
    * @param perPage Items per page (default: 50)
+   * @param kind Optional entity kind filter
    */
-  async search(workspaceId, query, page = 1, perPage = 50) {
+  async search(workspaceId, query, page = 1, perPage = 50, kind) {
     const filter = this.pb.filter(
-      "WorkspaceRef = {:ws} && (name ~ {:q} || aliases ~ {:q} || description ~ {:q})",
-      { ws: workspaceId, q: query }
+      "WorkspaceRef = {:ws} && (name ~ {:q} || aliases ~ {:q} || description ~ {:q})" + (kind ? " && kind = {:kind}" : ""),
+      { ws: workspaceId, q: query, ...kind ? { kind } : {} }
     );
     return this.getList(page, perPage, filter, "name");
   }
@@ -62298,6 +62301,86 @@ var LabelEntityMutator = class extends BaseMutator {
     );
   }
 };
+var LABEL_TYPE_META = {
+  [
+    "object"
+    /* OBJECT */
+  ]: {
+    collection: "LabelObjects",
+    hasTrack: true,
+    confidenceField: "confidence",
+    title: "Objects"
+  },
+  [
+    "shot"
+    /* SHOT */
+  ]: {
+    collection: "LabelShots",
+    hasTrack: false,
+    confidenceField: "confidence",
+    title: "Shots"
+  },
+  [
+    "person"
+    /* PERSON */
+  ]: {
+    collection: "LabelPerson",
+    hasTrack: true,
+    confidenceField: "confidence",
+    title: "People"
+  },
+  [
+    "speech"
+    /* SPEECH */
+  ]: {
+    collection: "LabelSpeech",
+    hasTrack: true,
+    confidenceField: "confidence",
+    title: "Speech"
+  },
+  [
+    "speaker"
+    /* SPEAKER */
+  ]: {
+    collection: "LabelSpeaker",
+    hasTrack: true,
+    confidenceField: "confidence",
+    title: "Speakers"
+  },
+  [
+    "face"
+    /* FACE */
+  ]: {
+    collection: "LabelFaces",
+    hasTrack: true,
+    confidenceField: "avgConfidence",
+    title: "Faces"
+  },
+  [
+    "segment"
+    /* SEGMENT */
+  ]: {
+    collection: "LabelSegments",
+    hasTrack: false,
+    confidenceField: "confidence",
+    title: "Segments"
+  },
+  [
+    "text"
+    /* TEXT */
+  ]: {
+    collection: "LabelText",
+    hasTrack: true,
+    confidenceField: "confidence",
+    title: "Text"
+  }
+};
+function labelAttributionFilter(type, entityId) {
+  return LABEL_TYPE_META[type].hasTrack ? entityAttributionFilter(entityId) : clusterEntityAttributionFilter(entityId);
+}
+function attributionExpands(type) {
+  return LABEL_TYPE_META[type].hasTrack ? ["LabelTrackRef.EntityRef", "LabelEntityRef.EntityRef"] : ["LabelEntityRef.EntityRef"];
+}
 var LabelSegmentMutator = class extends BaseMutator {
   constructor(pb) {
     super(pb);
@@ -62576,6 +62659,7 @@ var LABEL_JOB_TYPES = [
   "shot",
   "face",
   "person",
+  "text",
   "speech",
   "speaker"
 ];
@@ -62584,6 +62668,7 @@ var LABEL_JOB_TYPE_TO_STEP = {
   shot: "labels:label_detection",
   face: "labels:face_detection",
   person: "labels:person_detection",
+  text: "labels:text_detection",
   speech: "labels:speech_transcription",
   speaker: "labels:speaker_transcription"
   /* SPEAKER_TRANSCRIPTION */
@@ -62599,6 +62684,7 @@ var LABEL_JOB_TYPE_TO_CONFIG_KEY = {
   shot: "detectLabels",
   face: "detectFaces",
   person: "detectPersons",
+  text: "detectText",
   speech: "detectSpeech",
   speaker: "detectSpeakers"
 };
@@ -62839,20 +62925,14 @@ function toLabelHit(type, record2) {
 var LABEL_TYPE_CONFIG = {
   [LabelType.OBJECT]: {
     queryFields: ["entity"],
-    confidenceField: "confidence",
-    hasTrack: true,
     snippet: (r2) => textField(r2, "entity")
   },
   [LabelType.SHOT]: {
     queryFields: ["entity"],
-    confidenceField: "confidence",
-    hasTrack: false,
     snippet: (r2) => textField(r2, "entity")
   },
   [LabelType.PERSON]: {
     queryFields: ["upperBodyColor", "lowerBodyColor"],
-    confidenceField: "confidence",
-    hasTrack: true,
     snippet: (r2) => [
       textField(r2, "personId"),
       textField(r2, "upperBodyColor"),
@@ -62861,14 +62941,10 @@ var LABEL_TYPE_CONFIG = {
   },
   [LabelType.SPEECH]: {
     queryFields: ["transcript"],
-    confidenceField: "confidence",
-    hasTrack: true,
     snippet: (r2) => textField(r2, "transcript")
   },
   [LabelType.SPEAKER]: {
     queryFields: ["transcript", "speakerId"],
-    confidenceField: "confidence",
-    hasTrack: true,
     snippet: (r2) => [
       speakerTranscriptLabel(
         textField(r2, "speakerId"),
@@ -62879,29 +62955,17 @@ var LABEL_TYPE_CONFIG = {
   },
   [LabelType.FACE]: {
     queryFields: ["faceId"],
-    confidenceField: "avgConfidence",
-    hasTrack: true,
     snippet: (r2) => textField(r2, "faceId") || textField(r2, "faceHash")
   },
   [LabelType.SEGMENT]: {
     queryFields: ["entity"],
-    confidenceField: "confidence",
-    hasTrack: false,
     snippet: (r2) => textField(r2, "entity")
   },
   [LabelType.TEXT]: {
     queryFields: ["text"],
-    confidenceField: "confidence",
-    hasTrack: true,
     snippet: (r2) => textField(r2, "text")
   }
 };
-function labelAttributionFilter(type, entityId) {
-  return LABEL_TYPE_CONFIG[type].hasTrack ? entityAttributionFilter(entityId) : clusterEntityAttributionFilter(entityId);
-}
-function attributionExpands(type) {
-  return LABEL_TYPE_CONFIG[type].hasTrack ? ["LabelTrackRef.EntityRef", "LabelEntityRef.EntityRef"] : ["LabelEntityRef.EntityRef"];
-}
 var ID_FLAGS = {
   faceId: { type: LabelType.FACE, field: "faceId", flag: "--face-id" },
   personId: { type: LabelType.PERSON, field: "personId", flag: "--person-id" },
@@ -62932,7 +62996,7 @@ function labelMutator(pb, type) {
   }
 }
 function confidenceOf(hit) {
-  const field = LABEL_TYPE_CONFIG[hit.type].confidenceField;
+  const field = LABEL_TYPE_META[hit.type].confidenceField;
   const value = hit.record[field];
   return typeof value === "number" ? value : 0;
 }
@@ -63012,6 +63076,7 @@ async function searchLabels(pb, opts) {
   const results = await Promise.all(
     types.map(async (type) => {
       const config2 = LABEL_TYPE_CONFIG[type];
+      const meta3 = LABEL_TYPE_META[type];
       const clauses = ["WorkspaceRef = {:ws}"];
       const params = {
         ws: opts.workspaceId
@@ -63033,7 +63098,7 @@ async function searchLabels(pb, opts) {
         }
       }
       if (opts.minConfidence !== void 0) {
-        clauses.push(`${config2.confidenceField} >= {:minConfidence}`);
+        clauses.push(`${meta3.confidenceField} >= {:minConfidence}`);
         params.minConfidence = opts.minConfidence;
       }
       if (opts.entityId) {
@@ -63044,7 +63109,7 @@ async function searchLabels(pb, opts) {
         1,
         limit,
         filter,
-        `-${config2.confidenceField}`,
+        `-${meta3.confidenceField}`,
         ["MediaRef.UploadRef", ...attributionExpands(type)]
       );
       return { type, result };
@@ -64540,7 +64605,7 @@ function provenanceExpands() {
     return [
       ref,
       `${ref}.LabelEntityRef.EntityRef`,
-      ...LABEL_TYPE_CONFIG[type].hasTrack ? [`${ref}.LabelTrackRef.EntityRef`] : []
+      ...LABEL_TYPE_META[type].hasTrack ? [`${ref}.LabelTrackRef.EntityRef`] : []
     ];
   });
 }
@@ -69764,7 +69829,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.9.6";
+    return "0.9.7";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

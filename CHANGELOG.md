@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.8...video-ware-v0.9.9) (2026-07-18)
+
+
+### Bug Fixes
+
+* add upload cli commands ([50b64c5](https://github.com/make-ware/video-ware/commit/50b64c54f28967859429bebd178886e7c2dacbf2))
+* improve entity and label page ([2b35328](https://github.com/make-ware/video-ware/commit/2b35328fdae8b192c247875311f88da88d15c2e4))
+* improve entity page layout ([5116d96](https://github.com/make-ware/video-ware/commit/5116d9625bf7559e0f216821a469d325d277a44c))
+
 ## [0.9.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.7...video-ware-v0.9.8) (2026-07-18)
 
 

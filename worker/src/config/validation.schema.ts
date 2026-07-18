@@ -77,6 +77,7 @@ export const validationSchema = Joi.object({
   GOOGLE_PROJECT_ID: Joi.string().optional(),
   GOOGLE_CLOUD_KEY_FILE: Joi.string().optional(),
   GOOGLE_CLOUD_CREDENTIALS: Joi.string().optional(),
+  VIDEO_INTELLIGENCE_MIN_REQUEST_INTERVAL_MS: Joi.string().optional(),
 
   // Logging configuration
   LOG_LEVEL: Joi.string()

@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
 import { GoogleCloudService } from '../../shared/services/google-cloud.service';
 import { StorageService } from '../../shared/services/storage.service';
+import { AsyncMutex } from '../../shared/utils/concurrency';
 import type { StepJobData } from '../../queue/types/job.types';
 
 /**
@@ -32,6 +33,12 @@ export interface UploadToGcsStepOutput {
  * in-flight map below collapses them onto a single download/upload/cleanup
  * pass; across workers the deterministic path + existence check (and GCS's
  * atomic object visibility) keep duplicate uploads safe, merely redundant.
+ *
+ * Across DIFFERENT media, the transfer mutex serializes the actual
+ * download/upload so only one transfer uses bandwidth at a time even when the
+ * labels queue runs several jobs concurrently. Already-uploaded media skip
+ * the mutex via the existence check, so a queued upload never delays a job
+ * whose file is already in GCS.
  */
 @Injectable()
 export class UploadToGcsStepProcessor extends BaseStepProcessor<
@@ -41,6 +48,9 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
   protected readonly logger = new Logger(UploadToGcsStepProcessor.name);
 
   private readonly inFlight = new Map<string, Promise<UploadToGcsStepOutput>>();
+
+  /** One media transfer to GCS at a time, process-wide. */
+  private readonly transferMutex = new AsyncMutex();
 
   constructor(
     private readonly googleCloudService: GoogleCloudService,
@@ -113,28 +123,37 @@ export class UploadToGcsStepProcessor extends BaseStepProcessor<
         };
       }
 
-      // Resolve local file path (downloads from S3 if needed)
-      this.logger.log(`Resolving local file path for: ${input.fileRef}`);
-      const localPath = await this.storageService.resolveFilePath({
-        storagePath: input.fileRef,
-        recordId: input.mediaId,
+      // Serialize the heavy transfer (S3 download + GCS upload) across all
+      // media so concurrent labels jobs don't compete for bandwidth.
+      if (this.transferMutex.locked) {
+        this.logger.debug(
+          `Waiting for the global upload slot for media ${input.mediaId}`
+        );
+      }
+      return await this.transferMutex.run(async () => {
+        // Resolve local file path (downloads from S3 if needed)
+        this.logger.log(`Resolving local file path for: ${input.fileRef}`);
+        const localPath = await this.storageService.resolveFilePath({
+          storagePath: input.fileRef,
+          recordId: input.mediaId,
+        });
+
+        // Upload to GCS with deterministic temp path
+        this.logger.log(`Uploading local file to GCS: ${localPath}`);
+        const gcsUri = await this.googleCloudService.uploadToGcsTempBucket(
+          localPath,
+          input.workspaceRef,
+          input.mediaId
+        );
+
+        this.logger.log(`Successfully uploaded to GCS: ${gcsUri}`);
+
+        return {
+          gcsUri,
+          uploaded: true,
+          alreadyExists: false,
+        };
       });
-
-      // Upload to GCS with deterministic temp path
-      this.logger.log(`Uploading local file to GCS: ${localPath}`);
-      const gcsUri = await this.googleCloudService.uploadToGcsTempBucket(
-        localPath,
-        input.workspaceRef,
-        input.mediaId
-      );
-
-      this.logger.log(`Successfully uploaded to GCS: ${gcsUri}`);
-
-      return {
-        gcsUri,
-        uploaded: true,
-        alreadyExists: false,
-      };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);

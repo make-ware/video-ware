@@ -16,15 +16,38 @@ and [`configuration.ts`](src/config/configuration.ts)).
 | Env var | Default | Notes |
 | --- | --- | --- |
 | `WORKER_CONCURRENCY` | – | Global fallback for every queue |
-| `WORKER_CONCURRENCY_TRANSCODE` | `3` | CPU-bound (ffmpeg) — keep modest |
-| `WORKER_CONCURRENCY_RENDER` | `2` | CPU-bound (ffmpeg) — keep modest |
-| `WORKER_CONCURRENCY_LABELS` | `5` | IO/API-bound (GCS + Video Intelligence) |
-| `WORKER_CONCURRENCY_INTELLIGENCE` | `5` | IO/API-bound |
+| `WORKER_CONCURRENCY_TRANSCODE` | `1` | CPU-bound (ffmpeg) — keep modest |
+| `WORKER_CONCURRENCY_RENDER` | `1` | CPU-bound (ffmpeg) — keep modest |
+| `WORKER_CONCURRENCY_LABELS` | `3` | IO/API-bound (GCS + Video Intelligence); see below |
 | `WORKER_LOCK_DURATION_MS` | `60000` | Lock TTL; long ffmpeg jobs must not be marked "stalled". BullMQ auto-renews while the process is alive. |
 
 Concurrency is safe because services are stateless singletons and all working files
 use deterministic, task-scoped paths (keyed by `uploadId` / `taskId` / `mediaId`), so
 concurrent jobs never collide.
+
+### Labels pipelining (uploads vs. waiting on Google)
+
+A labels detection step holds its queue slot for the whole Video Intelligence
+operation — GCS upload, `AnnotateVideo` submit, then slow status polling — most
+of which is spent waiting on Google. Labels concurrency (default `3`) is what
+lets the next media start while earlier ones wait, and two process-wide rails
+keep that safe:
+
+- **One transfer at a time.** The actual media transfer to GCS (S3 download +
+  GCS upload) is serialized by a global mutex in `UploadToGcsStepProcessor`,
+  so raising concurrency never runs two uploaders against the same bandwidth.
+  Media already present in GCS skip the mutex entirely.
+- **One shared request clock.** Every Video Intelligence API request — the
+  submits *and* every status poll, across all in-flight operations — reserves
+  a slot on a shared minimum-interval gate in `GoogleCloudService`.
+  `VIDEO_INTELLIGENCE_MIN_REQUEST_INTERVAL_MS` (default `5000`, i.e. ≤ ~12
+  requests/min total) bounds the worker's request rate regardless of how many
+  operations are in flight; `0` disables the gate.
+
+Net effect: upload/enqueue is pipelined (media B uploads while media A waits on
+Google) without multiplying bandwidth use or API request rate. If you still see
+`RESOURCE_EXHAUSTED`, raise the interval; if your quota has headroom, lower it
+and/or raise `WORKER_CONCURRENCY_LABELS`.
 
 ### Running multiple pods (horizontal scaling)
 

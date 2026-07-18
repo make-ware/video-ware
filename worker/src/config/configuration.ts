@@ -50,6 +50,13 @@ function parseConcurrency(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** Parse a non-negative integer env var (milliseconds), else the fallback. */
+function parseMs(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export default () => {
   const redisConfig = parseRedisUrl(process.env.REDIS_URL);
 
@@ -60,15 +67,20 @@ export default () => {
     redis: redisConfig,
 
     // Per-queue BullMQ worker concurrency.
-    // Default every queue to single-threaded (1 job at a time). This is the
-    // safe default for CPU-bound ffmpeg work and, more importantly, keeps us
-    // under external API rate limits (e.g. Google Video Intelligence
-    // "Requests per minute" quota). Bump per-queue via WORKER_CONCURRENCY_* if
-    // a deployment has headroom.
+    // CPU-bound ffmpeg queues default to single-threaded. The labels queue is
+    // IO-bound — a detection step spends most of its life waiting on a Google
+    // Video Intelligence operation — so it defaults to a few slots: while one
+    // media's steps wait on Google, the next media can upload and enqueue.
+    // That is safe because the heavy transfer is globally serialized
+    // (UploadToGcsStepProcessor's transfer mutex) and every Video
+    // Intelligence request is rate-gated process-wide (GoogleCloudService's
+    // request gate), so labels concurrency multiplies neither bandwidth use
+    // nor API request rate. Bump per-queue via WORKER_CONCURRENCY_* if a
+    // deployment has headroom.
     concurrency: {
       transcode: parseConcurrency(process.env.WORKER_CONCURRENCY_TRANSCODE, 1),
       render: parseConcurrency(process.env.WORKER_CONCURRENCY_RENDER, 1),
-      labels: parseConcurrency(process.env.WORKER_CONCURRENCY_LABELS, 1),
+      labels: parseConcurrency(process.env.WORKER_CONCURRENCY_LABELS, 3),
       intelligence: parseConcurrency(
         process.env.WORKER_CONCURRENCY_INTELLIGENCE,
         1
@@ -127,6 +139,15 @@ export default () => {
         ? JSON.parse(process.env.GOOGLE_CLOUD_CREDENTIALS)
         : undefined,
       gcsBucket: process.env.GCS_BUCKET,
+      // Minimum spacing between any two Video Intelligence API requests
+      // process-wide (AnnotateVideo submits and GetOperation polls draw from
+      // the same 'Requests per minute' quota). 5000ms caps the worker at
+      // ~12 requests/min no matter how many operations are in flight. Set to
+      // 0 to disable the gate.
+      videoIntelligenceMinRequestIntervalMs: parseMs(
+        process.env.VIDEO_INTELLIGENCE_MIN_REQUEST_INTERVAL_MS,
+        5000
+      ),
     },
 
     tasks: {

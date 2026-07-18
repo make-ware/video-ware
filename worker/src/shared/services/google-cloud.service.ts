@@ -14,6 +14,8 @@ import { SpeechClient } from '@google-cloud/speech';
 // Google Cloud Transcoder
 import { TranscoderServiceClient } from '@google-cloud/video-transcoder';
 
+import { MinIntervalGate } from '../utils/concurrency';
+
 export interface TranscoderJobResult {
   jobId: string;
   state: string;
@@ -44,6 +46,14 @@ interface VideoIntelligencePollingSettings {
  * own backoff instead of failing the step. These are operational tuning
  * constants, not user-facing config, so they are hardcoded rather than
  * read from the environment.
+ *
+ * The per-operation schedule above is complemented by a process-wide request
+ * gate (see `requestGate`): AnnotateVideo submits and GetOperation polls of
+ * ALL concurrent operations share one minimum-interval clock, so raising the
+ * labels queue concurrency multiplies how many operations wait on Google, not
+ * how many requests per minute we send. That total rate depends on the
+ * deployment's quota, so unlike the constants above it IS configurable, via
+ * VIDEO_INTELLIGENCE_MIN_REQUEST_INTERVAL_MS.
  */
 const VIDEO_INTELLIGENCE_POLLING: VideoIntelligencePollingSettings = {
   pollInitialDelayMs: 20_000,
@@ -73,6 +83,7 @@ export class GoogleCloudService implements OnModuleInit {
   private readonly credentials?: Record<string, unknown>;
   private readonly gcsBucket?: string;
   private readonly polling: VideoIntelligencePollingSettings;
+  private readonly requestGate: MinIntervalGate;
   private readonly enabled: {
     videoIntelligence: boolean;
     speech: boolean;
@@ -89,6 +100,15 @@ export class GoogleCloudService implements OnModuleInit {
     this.gcsBucket = this.configService.get<string>('google.gcsBucket');
 
     this.polling = VIDEO_INTELLIGENCE_POLLING;
+    this.requestGate = new MinIntervalGate(
+      this.configService.get<number>(
+        'google.videoIntelligenceMinRequestIntervalMs',
+        5000
+      ),
+      // Route through this.sleep so tests that stub the service's sleep also
+      // cover the gate's waits.
+      { sleep: (ms) => this.sleep(ms) }
+    );
 
     this.enabled = {
       videoIntelligence: this.configService.get<boolean>(
@@ -435,6 +455,10 @@ export class GoogleCloudService implements OnModuleInit {
    *   AnnotateVideo calls need).
    * - A quota error *during* polling never re-issues the annotate request;
    *   the operation keeps running server-side and we simply poll again later.
+   * - On top of the per-operation schedule, EVERY request (submit and poll)
+   *   first reserves a slot on the shared `requestGate`, so concurrent
+   *   operations collectively stay under the per-minute quota instead of
+   *   each polling on its own clock.
    */
   async annotateVideoAndWait(
     request: AnnotateVideoRequest
@@ -444,6 +468,7 @@ export class GoogleCloudService implements OnModuleInit {
     const operation = await this.retryOnQuotaExceeded(
       `AnnotateVideo(${request.inputUri})`,
       async () => {
+        await this.requestGate.wait();
         const [op] = await client.annotateVideo(request);
         return op;
       }
@@ -464,6 +489,7 @@ export class GoogleCloudService implements OnModuleInit {
       }
 
       await this.sleep(this.withJitter(pollDelayMs));
+      await this.requestGate.wait();
 
       try {
         // Single GetOperation call; updates operation.done/result in place

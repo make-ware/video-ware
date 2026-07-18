@@ -71,6 +71,28 @@ describe('GoogleCloudService.annotateVideoAndWait', () => {
     ).videoIntelligenceClient = { annotateVideo };
   });
 
+  it('reserves a shared request-gate slot for the submit and every poll', async () => {
+    // The gate is what keeps CONCURRENT operations under the per-minute
+    // quota: submits and polls of all in-flight operations share one
+    // minimum-interval clock. Here we assert every request goes through it.
+    const gate = (
+      service as unknown as { requestGate: { wait: () => Promise<void> } }
+    ).requestGate;
+    const waitSpy = vi.spyOn(gate, 'wait');
+
+    operation.getOperation
+      .mockResolvedValueOnce([null, {}, {}]) // still running
+      .mockImplementationOnce(() => {
+        operation.done = true;
+        operation.result = response;
+        return Promise.resolve([response, {}, {}]);
+      });
+
+    await expect(service.annotateVideoAndWait(request)).resolves.toBe(response);
+    // 1 AnnotateVideo submit + 2 GetOperation polls
+    expect(waitSpy).toHaveBeenCalledTimes(3);
+  });
+
   it('starts the operation and polls until done', async () => {
     operation.getOperation
       .mockResolvedValueOnce([null, {}, {}]) // still running

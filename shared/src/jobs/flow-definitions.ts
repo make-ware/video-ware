@@ -143,6 +143,12 @@ export type LabelsFlowSteps = {
     required: true;
     dependsOn: ['uploadToGcs'];
   };
+  /** TEXT_DETECTION step - OCRs on-screen text */
+  textDetection: {
+    type: 'text_detection';
+    required: true;
+    dependsOn: ['uploadToGcs'];
+  };
   /** SPEECH_TRANSCRIPTION step - transcribes speech to text */
   speechTranscription: {
     type: 'speech_transcription';
@@ -169,6 +175,7 @@ export const LABELS_FLOW_STEPS = {
   OBJECT_TRACKING: 'labels:object_tracking' as const,
   FACE_DETECTION: 'labels:face_detection' as const,
   PERSON_DETECTION: 'labels:person_detection' as const,
+  TEXT_DETECTION: 'labels:text_detection' as const,
   SPEECH_TRANSCRIPTION: 'labels:speech_transcription' as const,
   SPEAKER_TRANSCRIPTION: 'labels:speaker_transcription' as const,
 } as const;

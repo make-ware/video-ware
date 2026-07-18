@@ -1,17 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useCallback, useState } from 'react';
+import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import { EntityKind } from '@project/shared';
-import { useCreateEntity, useWorkspaceEntities } from '@/hooks/use-entities';
+import { useCreateEntity, useEntityKindCounts } from '@/hooks/use-entities';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+  ENTITY_KIND_META,
+  ENTITY_KIND_ORDER,
+  parseEntityKind,
+} from '@/components/entities/entity-kind';
+import { EntityList } from '@/components/entities/entity-list';
 import {
   Dialog,
   DialogContent,
@@ -30,22 +28,52 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Plus, UserRound } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus } from 'lucide-react';
 
 /**
- * Workspace entities: the real-world people, products, places, and things
- * that label tracks/clusters are linked to across media.
+ * Workspace entities: the real-world people, places, products, and things
+ * that label tracks/clusters are linked to across media — one paginated,
+ * searchable list per kind.
  */
 export default function EntitiesPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
-  const { entities, isLoading } = useWorkspaceEntities(workspaceId);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // The URL is the single source of truth for the active tab: replaceState
+  // below feeds back into useSearchParams (no Next.js soft navigation), so
+  // no state mirror is needed.
+  const activeKind = parseEntityKind(searchParams.get('kind'));
+  const { counts } = useEntityKindCounts(workspaceId);
   const createEntity = useCreateEntity(workspaceId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<EntityKind>(EntityKind.PERSON);
   const [description, setDescription] = useState('');
+
+  const handleKindChange = useCallback(
+    (value: string) => {
+      const nextKind = parseEntityKind(value);
+      const query = new URLSearchParams(window.location.search);
+      if (nextKind === EntityKind.PERSON) query.delete('kind');
+      else query.set('kind', nextKind);
+      const qs = query.toString();
+      window.history.replaceState(
+        null,
+        '',
+        qs ? `${pathname}?${qs}` : pathname
+      );
+    },
+    [pathname]
+  );
+
+  const openCreate = () => {
+    setKind(activeKind);
+    setCreateOpen(true);
+  };
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,60 +96,44 @@ export default function EntitiesPage() {
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Entities</CardTitle>
-            <CardDescription>
-              People, products, places, and things — link speaker and face
-              tracks to them to identify who or what appears across your media.
-            </CardDescription>
-          </div>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            New Entity
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center p-8">
-              <Loader2 className="animate-spin h-8 w-8 text-primary" />
-            </div>
-          ) : entities.length === 0 ? (
-            <p className="text-muted-foreground text-center py-12">
-              No entities yet. Create one, then link speakers from a
-              media&apos;s Speakers → Identify tab, or faces from the label
-              inspector.
-            </p>
-          ) : (
-            <div className="divide-y">
-              {entities.map((entity) => (
-                <Link
-                  key={entity.id}
-                  href={`/ws/${workspaceId}/entities/${entity.id}`}
-                  className="flex items-center justify-between gap-3 py-3 px-2 hover:bg-muted/50 rounded transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{entity.name}</div>
-                      {entity.description && (
-                        <div className="text-sm text-muted-foreground truncate">
-                          {entity.description}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="capitalize shrink-0">
-                    {String(entity.kind)}
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Entities</h1>
+          <p className="text-muted-foreground">
+            People, places, products, and things — link speaker and face tracks
+            to them to identify who or what appears across your media.
+          </p>
+        </div>
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-1.5" />
+          New Entity
+        </Button>
+      </div>
+
+      <Tabs value={activeKind} onValueChange={handleKindChange}>
+        <TabsList>
+          {ENTITY_KIND_ORDER.map((k) => {
+            const meta = ENTITY_KIND_META[k];
+            return (
+              <TabsTrigger key={k} value={k}>
+                <meta.icon className="h-4 w-4 mr-1.5" />
+                {meta.label}
+                {counts && counts[k] > 0 && (
+                  <Badge variant="secondary" className="ml-1.5">
+                    {counts[k]}
                   </Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                )}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+        {ENTITY_KIND_ORDER.map((k) => (
+          <TabsContent key={k} value={k} className="mt-4">
+            <EntityList workspaceId={workspaceId} kind={k} />
+          </TabsContent>
+        ))}
+      </Tabs>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

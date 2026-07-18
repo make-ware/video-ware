@@ -172,7 +172,8 @@ export class GoogleCloudService implements OnModuleInit {
       this.configService.get<boolean>(
         'processors.enablePersonDetection',
         false
-      );
+      ) ||
+      this.configService.get<boolean>('processors.enableTextDetection', false);
 
     // Check if Speech Transcription is enabled (needs Speech client)
     const hasSpeechProcessor =

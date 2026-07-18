@@ -29,6 +29,7 @@ import {
   LabelShotMutator,
   LabelObjectMutator,
   LabelPersonMutator,
+  LabelTextMutator,
   MediaClipMutator,
   MediaMutator,
   TaskMutator,
@@ -70,6 +71,7 @@ export class PocketBaseService implements OnModuleInit {
   public labelShotMutator!: LabelShotMutator;
   public labelObjectMutator!: LabelObjectMutator;
   public labelPersonMutator!: LabelPersonMutator;
+  public labelTextMutator!: LabelTextMutator;
 
   constructor(
     private readonly configService: ConfigService,
@@ -132,6 +134,7 @@ export class PocketBaseService implements OnModuleInit {
     this.labelShotMutator = new LabelShotMutator(this.pb);
     this.labelObjectMutator = new LabelObjectMutator(this.pb);
     this.labelPersonMutator = new LabelPersonMutator(this.pb);
+    this.labelTextMutator = new LabelTextMutator(this.pb);
     this.mediaClipMutator = new MediaClipMutator(this.pb);
     this.mediaMutator = new MediaMutator(this.pb);
     this.taskMutator = new TaskMutator(this.pb);

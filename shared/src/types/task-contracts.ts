@@ -177,6 +177,8 @@ export interface DetectLabelsConfig {
   detectFaces?: boolean;
   /** Whether to detect persons */
   detectPersons?: boolean;
+  /** Whether to detect on-screen text (OCR) */
+  detectText?: boolean;
   /** Whether to detect speech */
   detectSpeech?: boolean;
   /** Whether to transcribe speech with speaker diarization (ElevenLabs) */
@@ -201,6 +203,7 @@ export const ALL_LABEL_DETECTIONS: Required<
   detectLabels: true,
   detectFaces: true,
   detectPersons: true,
+  detectText: true,
   detectSpeech: true,
   detectSpeakers: true,
 };

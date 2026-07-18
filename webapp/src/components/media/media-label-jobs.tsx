@@ -37,6 +37,7 @@ const JOB_TYPES: { id: LabelJobType; label: string }[] = [
   { id: 'shot', label: 'Shot & Label Detection' },
   { id: 'face', label: 'Face Detection' },
   { id: 'person', label: 'Person Detection' },
+  { id: 'text', label: 'Text Detection' },
   { id: 'speech', label: 'Speech Transcription' },
   { id: 'speaker', label: 'Speaker Transcription' },
 ];
@@ -75,6 +76,12 @@ function getCountFromStepOutput(
         return `${counts.personCount} persons`;
       if (typeof counts.labelPersonCount === 'number')
         return `${counts.labelPersonCount} persons`;
+      return '-';
+    case 'text':
+      if (typeof counts.textCount === 'number')
+        return `${counts.textCount} texts`;
+      if (typeof counts.labelTextCount === 'number')
+        return `${counts.labelTextCount} texts`;
       return '-';
     case 'speech':
       if (typeof counts.wordCount === 'number')

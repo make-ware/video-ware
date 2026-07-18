@@ -135,6 +135,7 @@ const LabelsDetectionConfigSchema = z
     detectLabels: z.boolean().optional(),
     detectFaces: z.boolean().optional(),
     detectPersons: z.boolean().optional(),
+    detectText: z.boolean().optional(),
     detectSpeech: z.boolean().optional(),
     detectSpeakers: z.boolean().optional(),
   })

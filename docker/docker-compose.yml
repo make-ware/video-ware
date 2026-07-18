@@ -68,6 +68,18 @@ services:
       - GCS_BUCKET=${GCS_BUCKET}
       # Processor Config
       - ENABLE_FFMPEG=${ENABLE_FFMPEG:-true}
+      # Label detection processors. Compose only forwards variables listed
+      # here — a flag set in the host .env but missing from this block never
+      # reaches the worker, which silently skips that detection step.
+      - ENABLE_LABEL_DETECTION=${ENABLE_LABEL_DETECTION:-false}
+      - ENABLE_OBJECT_TRACKING=${ENABLE_OBJECT_TRACKING:-false}
+      - ENABLE_FACE_DETECTION=${ENABLE_FACE_DETECTION:-false}
+      - ENABLE_PERSON_DETECTION=${ENABLE_PERSON_DETECTION:-false}
+      - ENABLE_TEXT_DETECTION=${ENABLE_TEXT_DETECTION:-false}
+      - ENABLE_SPEECH_TRANSCRIPTION=${ENABLE_SPEECH_TRANSCRIPTION:-false}
+      # Speaker-diarized STT (ElevenLabs) needs its API key alongside the flag
+      - ENABLE_SPEAKER_TRANSCRIPTION=${ENABLE_SPEAKER_TRANSCRIPTION:-false}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
     volumes:
       # Mount the same volume as PocketBase to access local files
       - ./data:/data

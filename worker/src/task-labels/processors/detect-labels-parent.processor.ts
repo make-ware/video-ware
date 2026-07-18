@@ -30,6 +30,10 @@ import {
   type PersonDetectionStepInput,
 } from './person-detection-step.processor';
 import {
+  TextDetectionStepProcessor,
+  type TextDetectionStepInput,
+} from './text-detection-step.processor';
+import {
   SpeechTranscriptionStepProcessor,
   type SpeechTranscriptionStepInput,
 } from './speech-transcription-step.processor';
@@ -55,11 +59,12 @@ import { queueWorkerOptions } from '../../queue/worker-options';
  * - Each detection step owns an UPLOAD_TO_GCS child job (BullMQ flows are
  *   trees, so siblings can't share a dependency); the upload is idempotent
  *   and deduplicated, and guarantees the file is in GCS before detection runs
- * - Up to five GCVI processors run in parallel (if enabled):
+ * - Up to six GCVI processors run in parallel (if enabled):
  *   - LABEL_DETECTION (labels + shot changes)
  *   - OBJECT_TRACKING (tracked objects with keyframes)
  *   - FACE_DETECTION (tracked faces with attributes)
  *   - PERSON_DETECTION (tracked persons with landmarks)
+ *   - TEXT_DETECTION (on-screen text OCR with per-frame boxes)
  *   - SPEECH_TRANSCRIPTION (speech-to-text)
  * - SPEAKER_TRANSCRIPTION (ElevenLabs diarized STT) runs alongside them but
  *   reads the media from app storage directly (no UPLOAD_TO_GCS child)
@@ -84,6 +89,7 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     private readonly objectTrackingStepProcessor: ObjectTrackingStepProcessor,
     private readonly faceDetectionStepProcessor: FaceDetectionStepProcessor,
     private readonly personDetectionStepProcessor: PersonDetectionStepProcessor,
+    private readonly textDetectionStepProcessor: TextDetectionStepProcessor,
     private readonly speechTranscriptionStepProcessor: SpeechTranscriptionStepProcessor,
     private readonly speakerTranscriptionStepProcessor: SpeakerTranscriptionStepProcessor
   ) {
@@ -360,6 +366,13 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
           );
           break;
 
+        case DetectLabelsStepType.TEXT_DETECTION:
+          output = await this.textDetectionStepProcessor.process(
+            input as TextDetectionStepInput,
+            job
+          );
+          break;
+
         case DetectLabelsStepType.SPEECH_TRANSCRIPTION:
           output = await this.speechTranscriptionStepProcessor.process(
             input as SpeechTranscriptionStepInput,
@@ -410,6 +423,7 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
         stepType === DetectLabelsStepType.OBJECT_TRACKING ||
         stepType === DetectLabelsStepType.FACE_DETECTION ||
         stepType === DetectLabelsStepType.PERSON_DETECTION ||
+        stepType === DetectLabelsStepType.TEXT_DETECTION ||
         stepType === DetectLabelsStepType.SPEECH_TRANSCRIPTION ||
         stepType === DetectLabelsStepType.SPEAKER_TRANSCRIPTION
       ) {
@@ -444,6 +458,9 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
     if (cfg.enablePersonDetection) {
       steps.push(DetectLabelsStepType.PERSON_DETECTION);
     }
+    if (cfg.enableTextDetection) {
+      steps.push(DetectLabelsStepType.TEXT_DETECTION);
+    }
     if (cfg.enableSpeechTranscription) {
       steps.push(DetectLabelsStepType.SPEECH_TRANSCRIPTION);
     }
@@ -472,6 +489,8 @@ export class DetectLabelsParentProcessor extends BaseFlowProcessor {
         return cfg.enableFaceDetection;
       case DetectLabelsStepType.PERSON_DETECTION:
         return cfg.enablePersonDetection;
+      case DetectLabelsStepType.TEXT_DETECTION:
+        return cfg.enableTextDetection;
       case DetectLabelsStepType.SPEECH_TRANSCRIPTION:
         return cfg.enableSpeechTranscription;
       case DetectLabelsStepType.SPEAKER_TRANSCRIPTION:

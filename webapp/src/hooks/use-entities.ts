@@ -8,13 +8,12 @@ import {
 } from '@project/shared/mutator';
 import type {
   Entity,
-  EntityKind,
-  LabelEntity,
   LabelSpeaker,
   LabelTrack,
   Media,
   Upload,
 } from '@project/shared';
+import { EntityKind } from '@project/shared';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
@@ -137,7 +136,9 @@ export function useAssignTracksEntity() {
       const linked = total - failed;
       const noun = `track${linked === 1 ? '' : 's'}`;
       if (failed > 0) {
-        toast.warning(`Updated ${linked} of ${total} tracks — ${failed} failed`);
+        toast.warning(
+          `Updated ${linked} of ${total} tracks — ${failed} failed`
+        );
       } else {
         toast.success(
           entityId
@@ -158,68 +159,9 @@ export function useAssignTracksEntity() {
   });
 }
 
-/** A track attributed to an entity, with media + provider cluster expands. */
-export type EntityTrack = LabelTrack & {
-  expand?: {
-    MediaRef?: Media & { expand?: { UploadRef?: Upload } };
-    LabelEntityRef?: LabelEntity;
-  };
-};
-
-/**
- * Where an entity appears across media: every LabelTrack attributed to it
- * (directly, or via its provider cluster), one appearance range each.
- */
-export function useEntityAppearances(entityId: string) {
-  const { isAuthenticated } = useAuth();
-  const query = useQuery({
-    queryKey: qk.entities.appearances(entityId),
-    enabled: !!entityId && isAuthenticated,
-    queryFn: async () => {
-      const result = await new LabelTrackMutator(pb).getList(
-        1,
-        500,
-        trackEntityAttributionFilter(entityId),
-        'MediaRef,start',
-        ['MediaRef.UploadRef', 'LabelEntityRef']
-      );
-      return result.items as EntityTrack[];
-    },
-  });
-  return {
-    tracks: query.data ?? [],
-    isLoading: query.isLoading,
-    error: query.error,
-  };
-}
-
 export type EntitySpeakerRow = LabelSpeaker & {
   expand?: { MediaRef?: Media & { expand?: { UploadRef?: Upload } } };
 };
-
-/** Everything an entity said, across media (diarized speaker labels). */
-export function useEntityWords(entityId: string) {
-  const { isAuthenticated } = useAuth();
-  const query = useQuery({
-    queryKey: qk.entities.words(entityId),
-    enabled: !!entityId && isAuthenticated,
-    queryFn: async () => {
-      const result = await new LabelSpeakerMutator(pb).getList(
-        1,
-        500,
-        entityAttributionFilter(entityId),
-        'MediaRef,start',
-        ['MediaRef.UploadRef']
-      );
-      return result.items as EntitySpeakerRow[];
-    },
-  });
-  return {
-    utterances: query.data ?? [],
-    isLoading: query.isLoading,
-    error: query.error,
-  };
-}
 
 /** Display name for a media row expanded with its upload. */
 export function mediaDisplayName(
@@ -227,4 +169,132 @@ export function mediaDisplayName(
 ): string {
   if (!media) return '';
   return media.expand?.UploadRef?.name ?? media.label ?? media.id;
+}
+
+/** Rows grouped per media (by MediaRef), in first-row order. */
+export function groupByMedia<
+  T extends {
+    MediaRef: string;
+    expand?: { MediaRef?: Media & { expand?: { UploadRef?: Upload } } };
+  },
+>(rows: T[]): Array<{ mediaId: string; name: string; rows: T[] }> {
+  const groups = new Map<string, { name: string; rows: T[] }>();
+  for (const row of rows) {
+    const group = groups.get(row.MediaRef);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(row.MediaRef, {
+        name: mediaDisplayName(row.expand?.MediaRef) || row.MediaRef,
+        rows: [row],
+      });
+    }
+  }
+  return [...groups.entries()].map(([mediaId, group]) => ({
+    mediaId,
+    ...group,
+  }));
+}
+
+/**
+ * One page of a workspace's entities of one kind, optionally searched.
+ * A request past the last page (e.g. after deletes narrowed the set) falls
+ * back to the real last page inside the fetch; `page` in the result is the
+ * effective page actually served.
+ */
+export function useEntitiesByKind(
+  workspaceId: string,
+  kind: EntityKind,
+  page: number,
+  perPage: number,
+  search: string
+) {
+  const { isAuthenticated } = useAuth();
+  const trimmed = search.trim();
+  const query = useQuery({
+    queryKey: qk.entities.byKind(workspaceId, kind, page, perPage, trimmed),
+    enabled: !!workspaceId && isAuthenticated,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const mutator = new EntityMutator(pb);
+      const fetchPage = (p: number) =>
+        trimmed
+          ? mutator.search(workspaceId, trimmed, p, perPage, kind)
+          : mutator.getByWorkspace(workspaceId, kind, p, perPage);
+      let result = await fetchPage(page);
+      if (
+        result.items.length === 0 &&
+        result.totalPages > 0 &&
+        page > result.totalPages
+      ) {
+        result = await fetchPage(result.totalPages);
+      }
+      return result;
+    },
+  });
+  return {
+    entities: query.data?.items ?? [],
+    page: query.data?.page ?? page,
+    totalPages: query.data?.totalPages ?? 0,
+    totalItems: query.data?.totalItems ?? 0,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+  };
+}
+
+/** Per-kind entity counts for the list page's tab badges. */
+export function useEntityKindCounts(workspaceId: string) {
+  const { isAuthenticated } = useAuth();
+  const query = useQuery({
+    queryKey: qk.entities.kindCounts(workspaceId),
+    enabled: !!workspaceId && isAuthenticated,
+    queryFn: async () => {
+      const mutator = new EntityMutator(pb);
+      const kinds = Object.values(EntityKind);
+      const results = await Promise.all(
+        kinds.map((kind) => mutator.getByWorkspace(workspaceId, kind, 1, 1))
+      );
+      return Object.fromEntries(
+        kinds.map((kind, i) => [kind, results[i].totalItems])
+      ) as Record<EntityKind, number>;
+    },
+  });
+  return { counts: query.data, isLoading: query.isLoading };
+}
+
+/**
+ * Cross-media stats for one entity's header card: how many media it appears
+ * in, via how many attributed tracks, and how many utterances it spoke.
+ */
+export function useEntityStats(entityId: string) {
+  const { isAuthenticated } = useAuth();
+  const query = useQuery({
+    queryKey: qk.entities.stats(entityId),
+    enabled: !!entityId && isAuthenticated,
+    queryFn: async () => {
+      const [tracks, speakers] = await Promise.all([
+        pb.collection('LabelTrack').getFullList({
+          filter: trackEntityAttributionFilter(entityId),
+          fields: 'MediaRef',
+        }),
+        new LabelSpeakerMutator(pb).getList(
+          1,
+          1,
+          entityAttributionFilter(entityId)
+        ),
+      ]);
+      return {
+        trackCount: tracks.length,
+        mediaCount: new Set(tracks.map((t) => t.MediaRef)).size,
+        utteranceCount: speakers.totalItems,
+      };
+    },
+  });
+  return {
+    trackCount: query.data?.trackCount ?? 0,
+    mediaCount: query.data?.mediaCount ?? 0,
+    utteranceCount: query.data?.utteranceCount ?? 0,
+    isLoading: query.isLoading,
+  };
 }

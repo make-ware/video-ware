@@ -105,16 +105,19 @@ export class EntityMutator extends BaseMutator<Entity, EntityInput> {
    * @param query Free-text query
    * @param page Page number (default: 1)
    * @param perPage Items per page (default: 50)
+   * @param kind Optional entity kind filter
    */
   async search(
     workspaceId: string,
     query: string,
     page = 1,
-    perPage = 50
+    perPage = 50,
+    kind?: EntityKind
   ): Promise<ListResult<Entity>> {
     const filter = this.pb.filter(
-      'WorkspaceRef = {:ws} && (name ~ {:q} || aliases ~ {:q} || description ~ {:q})',
-      { ws: workspaceId, q: query }
+      'WorkspaceRef = {:ws} && (name ~ {:q} || aliases ~ {:q} || description ~ {:q})' +
+        (kind ? ' && kind = {:kind}' : ''),
+      { ws: workspaceId, q: query, ...(kind ? { kind } : {}) }
     );
     return this.getList(page, perPage, filter, 'name');
   }

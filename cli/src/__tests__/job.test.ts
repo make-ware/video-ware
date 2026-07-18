@@ -78,6 +78,7 @@ describe('labelDetectionConfig', () => {
       detectLabels: true,
       detectFaces: true,
       detectPersons: true,
+      detectText: true,
       detectSpeech: true,
       detectSpeakers: true,
     });
@@ -90,6 +91,7 @@ describe('labelDetectionConfig', () => {
       detectLabels: false,
       detectFaces: false,
       detectPersons: false,
+      detectText: false,
       detectSpeech: true,
       detectSpeakers: false,
     });
@@ -160,6 +162,7 @@ describe('createLabelJobTask', () => {
       'shot',
       'face',
       'person',
+      'text',
       'speech',
       'speaker',
     ]);

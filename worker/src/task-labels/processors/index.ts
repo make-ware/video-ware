@@ -4,5 +4,6 @@ export { LabelDetectionStepProcessor } from './label-detection-step.processor';
 export { ObjectTrackingStepProcessor } from './object-tracking-step.processor';
 export { FaceDetectionStepProcessor } from './face-detection-step.processor';
 export { PersonDetectionStepProcessor } from './person-detection-step.processor';
+export { TextDetectionStepProcessor } from './text-detection-step.processor';
 export { SpeechTranscriptionStepProcessor } from './speech-transcription-step.processor';
 export { SpeakerTranscriptionStepProcessor } from './speaker-transcription-step.processor';

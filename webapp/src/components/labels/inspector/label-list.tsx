@@ -124,8 +124,8 @@ export function LabelList({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground font-mono truncate">
-                  {formatClipTime(record.start)} –{' '}
-                  {formatClipTime(record.end)} · {record.duration.toFixed(1)}s
+                  {formatClipTime(record.start)} – {formatClipTime(record.end)}{' '}
+                  · {record.duration.toFixed(1)}s
                 </span>
                 {entity && (
                   <EntityBadge

@@ -67,6 +67,7 @@ export const validationSchema = Joi.object({
   ENABLE_OBJECT_TRACKING: Joi.string().optional(),
   ENABLE_FACE_DETECTION: Joi.string().optional(),
   ENABLE_PERSON_DETECTION: Joi.string().optional(),
+  ENABLE_TEXT_DETECTION: Joi.string().optional(),
   ENABLE_SPEECH_TRANSCRIPTION: Joi.string().optional(),
 
   // ElevenLabs speaker transcription (STT + diarization)

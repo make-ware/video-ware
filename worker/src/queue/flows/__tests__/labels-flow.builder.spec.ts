@@ -15,6 +15,7 @@ const ALL_ENABLED: EnabledLabelProcessors = {
   objectTracking: true,
   faceDetection: true,
   personDetection: true,
+  textDetection: true,
   speechTranscription: true,
   speakerTranscription: true,
 };
@@ -24,6 +25,7 @@ const NONE_ENABLED: EnabledLabelProcessors = {
   objectTracking: false,
   faceDetection: false,
   personDetection: false,
+  textDetection: false,
   speechTranscription: false,
   speakerTranscription: false,
 };
@@ -34,6 +36,7 @@ const ALL_REQUESTED: DetectLabelsConfig = {
   detectLabels: true,
   detectFaces: true,
   detectPersons: true,
+  detectText: true,
   detectSpeech: true,
   detectSpeakers: true,
 };
@@ -87,8 +90,8 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
       ).toContain(expectedStep);
     }
 
-    // 6 detection steps at the top level
-    expect(flow.children).toHaveLength(6);
+    // 7 detection steps at the top level
+    expect(flow.children).toHaveLength(7);
   });
 
   it('should give every GCVI detection step its own real UPLOAD_TO_GCS child', () => {
@@ -100,7 +103,7 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
     const gcviSteps = detectionChildren(flow).filter(
       (step) => step.data.stepType !== LABELS_FLOW_STEPS.SPEAKER_TRANSCRIPTION
     );
-    expect(gcviSteps).toHaveLength(5);
+    expect(gcviSteps).toHaveLength(6);
 
     for (const step of gcviSteps) {
       expect(step.children).toHaveLength(1);
@@ -183,6 +186,7 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
       LABELS_FLOW_STEPS.OBJECT_TRACKING,
       LABELS_FLOW_STEPS.FACE_DETECTION,
       LABELS_FLOW_STEPS.PERSON_DETECTION,
+      LABELS_FLOW_STEPS.TEXT_DETECTION,
       LABELS_FLOW_STEPS.SPEECH_TRANSCRIPTION,
       LABELS_FLOW_STEPS.SPEAKER_TRANSCRIPTION,
     ]);
@@ -213,7 +217,7 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
     expect(flow.data.expectedSteps).toEqual(stepTypes);
   });
 
-  it('should default labels/objects on and faces/persons/speech off when payload is silent', () => {
+  it('should default labels/objects on and faces/persons/text/speech off when payload is silent', () => {
     const flow = LabelsFlowBuilder.buildFlow(makeTask({}), ALL_ENABLED);
 
     const stepTypes = detectionChildren(flow).map((c) => c.data.stepType);
@@ -244,6 +248,7 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
     expect(stepTypes.OBJECT_TRACKING).toBeDefined();
     expect(stepTypes.FACE_DETECTION).toBeDefined();
     expect(stepTypes.PERSON_DETECTION).toBeDefined();
+    expect(stepTypes.TEXT_DETECTION).toBeDefined();
     expect(stepTypes.SPEECH_TRANSCRIPTION).toBeDefined();
     expect(stepTypes.SPEAKER_TRANSCRIPTION).toBeDefined();
   });

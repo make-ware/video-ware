@@ -13,6 +13,7 @@ export type {
   ObjectTrackingStepInput,
   FaceDetectionStepInput,
   PersonDetectionStepInput,
+  TextDetectionStepInput,
   SpeechTranscriptionStepInput,
   SpeakerTranscriptionStepInput,
 } from './step-inputs';
@@ -25,6 +26,7 @@ export type {
   ObjectTrackingStepOutput,
   FaceDetectionStepOutput,
   PersonDetectionStepOutput,
+  TextDetectionStepOutput,
   SpeechTranscriptionStepOutput,
   SpeakerTranscriptionStepOutput,
   StepOutput,
@@ -44,6 +46,9 @@ export type {
   PoseLandmark,
   PersonFrame,
   PersonDetectionResponse,
+  TextFrame,
+  DetectedTextSegment,
+  TextDetectionResponse,
   TranscribedWord,
   SpeechTranscriptionResponse,
   SpeakerTranscribedWord,
@@ -67,6 +72,7 @@ export type {
   LabelSegmentData,
   LabelShotData,
   LabelPersonData,
+  LabelTextData,
   LabelMediaData,
   NormalizerOutput,
 } from './normalizer-outputs';

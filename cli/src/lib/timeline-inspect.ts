@@ -1,4 +1,5 @@
 import {
+  LABEL_TYPE_META,
   LABEL_TYPE_TO_REF_FIELD,
   LabelType,
   MediaClipLabelMutator,
@@ -279,7 +280,7 @@ function provenanceExpands(): string[] {
     return [
       ref,
       `${ref}.LabelEntityRef.EntityRef`,
-      ...(LABEL_TYPE_CONFIG[type].hasTrack
+      ...(LABEL_TYPE_META[type].hasTrack
         ? [`${ref}.LabelTrackRef.EntityRef`]
         : []),
     ];

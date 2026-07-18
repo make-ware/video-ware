@@ -4,6 +4,7 @@ import {
   TaskDetectLabelsObjectTrackingStep,
   TaskDetectLabelsFaceDetectionStep,
   TaskDetectLabelsPersonDetectionStep,
+  TaskDetectLabelsTextDetectionStep,
   TaskDetectLabelsSpeechTranscriptionStep,
   TaskDetectLabelsSpeakerTranscriptionStep,
 } from '@project/shared/jobs';
@@ -44,6 +45,14 @@ export type FaceDetectionStepInput = TaskDetectLabelsFaceDetectionStep;
  * Features: PERSON_DETECTION
  */
 export type PersonDetectionStepInput = TaskDetectLabelsPersonDetectionStep;
+
+/**
+ * Text Detection Step Input
+ *
+ * Processes video for on-screen text (OCR) with per-frame boxes.
+ * Features: TEXT_DETECTION
+ */
+export type TextDetectionStepInput = TaskDetectLabelsTextDetectionStep;
 
 /**
  * Speech Transcription Step Input

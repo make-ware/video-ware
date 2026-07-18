@@ -153,6 +153,36 @@ export interface PersonDetectionResponse {
 }
 
 /**
+ * On-screen text frame with an axis-aligned bounding box (derived from the
+ * API's rotated quad by taking the vertices' extremes).
+ */
+export interface TextFrame {
+  timeOffset: number; // seconds (float)
+  boundingBox: BoundingBox;
+}
+
+/**
+ * One appearance of a text string on screen: the OCR'd text plus the
+ * appearance's timing, confidence, and per-frame boxes.
+ */
+export interface DetectedTextSegment {
+  text: string;
+  confidence: number;
+  startTime: number; // seconds (float)
+  endTime: number; // seconds (float)
+  frames: TextFrame[];
+}
+
+/**
+ * Text Detection Response
+ *
+ * Response from TEXT_DETECTION feature (on-screen text OCR).
+ */
+export interface TextDetectionResponse {
+  texts: DetectedTextSegment[];
+}
+
+/**
  * Transcribed word with timing information
  */
 export interface TranscribedWord {
@@ -210,5 +240,6 @@ export type ExecutorResponse =
   | ObjectTrackingResponse
   | FaceDetectionResponse
   | PersonDetectionResponse
+  | TextDetectionResponse
   | SpeechTranscriptionResponse
   | SpeakerTranscriptionResponse;

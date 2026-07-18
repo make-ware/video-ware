@@ -73,6 +73,17 @@ export class ProcessorsConfigService implements OnModuleInit {
   }
 
   /**
+   * Check if Text Detection (on-screen text OCR) processor is enabled
+   * @returns true if ENABLE_TEXT_DETECTION === 'true' (default: false / disabled)
+   */
+  get enableTextDetection(): boolean {
+    return (
+      this.configService.get<string>('ENABLE_TEXT_DETECTION', 'false') ===
+      'true'
+    );
+  }
+
+  /**
    * Check if Speech Transcription processor is enabled
    * @returns true if ENABLE_SPEECH_TRANSCRIPTION === 'true' (default: false / disabled)
    */
@@ -124,6 +135,9 @@ export class ProcessorsConfigService implements OnModuleInit {
     }
     if (this.enablePersonDetection) {
       enabled.push('PERSON_DETECTION');
+    }
+    if (this.enableTextDetection) {
+      enabled.push('TEXT_DETECTION');
     }
     if (this.enableSpeechTranscription) {
       enabled.push('SPEECH_TRANSCRIPTION');

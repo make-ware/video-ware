@@ -6,15 +6,16 @@ Video Ware integrates with Google Cloud Video Intelligence API to provide AI-pow
 
 ## Processor Architecture
 
-### Five Independent Processors
+### Six Independent Processors
 
-The GCVI integration is split into five separate processors, each handling a specific type of video analysis:
+The GCVI integration is split into six separate processors, each handling a specific type of video analysis:
 
 1. **Label Detection** - Detects objects, activities, locations, and shot changes
 2. **Object Tracking** - Tracks objects across frames with bounding boxes
 3. **Face Detection** - Detects and tracks faces with attributes
 4. **Person Detection** - Detects and tracks persons with pose landmarks
-5. **Speech Transcription** - Transcribes speech to text with timestamps
+5. **Text Detection** - OCRs on-screen text with per-frame bounding boxes
+6. **Speech Transcription** - Transcribes speech to text with timestamps
 
 Each processor can be independently enabled or disabled via environment variables, allowing you to control costs and only run the analyses you need.
 
@@ -70,6 +71,7 @@ ENABLE_LABEL_DETECTION=true          # Default: true
 ENABLE_OBJECT_TRACKING=false         # Default: false
 ENABLE_FACE_DETECTION=false          # Default: false
 ENABLE_PERSON_DETECTION=false        # Default: false
+ENABLE_TEXT_DETECTION=false          # Default: false
 ENABLE_SPEECH_TRANSCRIPTION=true     # Default: true
 
 # Google Cloud Credentials
@@ -233,7 +235,34 @@ PERSON_DETECTION_INCLUDE_ATTRIBUTES=true
 - 3D position coordinates
 - Confidence scores per landmark
 
-### 5. Speech Transcription
+### 5. Text Detection
+
+**API Features:** `TEXT_DETECTION`
+
+**Use Cases:**
+- Signs, titles, and captions burned into the video
+- Product names and brand mentions
+- Slide/whiteboard content in recorded presentations
+
+**Cost:** ~$0.15 per minute of video (see GCVI pricing)
+
+**Configuration:**
+```bash
+ENABLE_TEXT_DETECTION=true
+```
+
+**Output:**
+- **LabelEntity**: Unique text strings (labelType: `text`)
+- **LabelTrack**: One track per on-screen appearance, keyframed with
+  axis-aligned boxes derived from the API's rotated quads
+- **LabelText**: One row per appearance (text, timing, confidence)
+
+**Features:**
+- Per-frame bounding boxes
+- Language hints (`languageHints` in the step config)
+- Handles repeated appearances of the same string as separate tracks
+
+### 6. Speech Transcription
 
 **API Features:** `SPEECH_TRANSCRIPTION`
 

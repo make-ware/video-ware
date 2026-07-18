@@ -14,6 +14,7 @@ export enum DetectLabelsStepType {
   OBJECT_TRACKING = 'labels:object_tracking',
   FACE_DETECTION = 'labels:face_detection',
   PERSON_DETECTION = 'labels:person_detection',
+  TEXT_DETECTION = 'labels:text_detection',
   SPEECH_TRANSCRIPTION = 'labels:speech_transcription',
   SPEAKER_TRANSCRIPTION = 'labels:speaker_transcription',
 }
@@ -27,6 +28,7 @@ export const LABEL_JOB_TYPES = [
   'shot',
   'face',
   'person',
+  'text',
   'speech',
   'speaker',
 ] as const;
@@ -45,6 +47,7 @@ export const LABEL_JOB_TYPE_TO_STEP: Record<
   shot: DetectLabelsStepType.LABEL_DETECTION,
   face: DetectLabelsStepType.FACE_DETECTION,
   person: DetectLabelsStepType.PERSON_DETECTION,
+  text: DetectLabelsStepType.TEXT_DETECTION,
   speech: DetectLabelsStepType.SPEECH_TRANSCRIPTION,
   speaker: DetectLabelsStepType.SPEAKER_TRANSCRIPTION,
 };
@@ -67,6 +70,7 @@ export const LABEL_JOB_TYPE_TO_CONFIG_KEY: Record<
   shot: 'detectLabels',
   face: 'detectFaces',
   person: 'detectPersons',
+  text: 'detectText',
   speech: 'detectSpeech',
   speaker: 'detectSpeakers',
 };
@@ -151,6 +155,18 @@ export interface TaskDetectLabelsPersonDetectionStep extends TaskDetectLabelsBas
 }
 
 /**
+ * Input for TEXT_DETECTION step (on-screen text OCR)
+ */
+export interface TaskDetectLabelsTextDetectionStep extends TaskDetectLabelsBaseStep {
+  type: 'text_detection';
+  config?: {
+    /** BCP-47 language hints for OCR (e.g. ['en-US']) */
+    languageHints?: string[];
+    confidenceThreshold?: number;
+  };
+}
+
+/**
  * Input for SPEECH_TRANSCRIPTION step
  */
 export interface TaskDetectLabelsSpeechTranscriptionStep extends TaskDetectLabelsBaseStep {
@@ -188,6 +204,7 @@ export type TaskDetectLabelsInput =
   | TaskDetectLabelsObjectTrackingStep
   | TaskDetectLabelsFaceDetectionStep
   | TaskDetectLabelsPersonDetectionStep
+  | TaskDetectLabelsTextDetectionStep
   | TaskDetectLabelsSpeechTranscriptionStep
   | TaskDetectLabelsSpeakerTranscriptionStep;
 
@@ -218,6 +235,8 @@ export interface TaskDetectLabelsEntityCounts {
   // Optional: only produced by the SPEAKER_TRANSCRIPTION step; the GCVI step
   // outputs predate it and are left untouched.
   labelSpeakerCount?: number;
+  // Optional: only produced by the TEXT_DETECTION step (same reasoning).
+  labelTextCount?: number;
 }
 
 /**
@@ -271,6 +290,16 @@ export interface TaskDetectLabelsPersonDetectionStepOutput extends TaskDetectLab
 }
 
 /**
+ * Output for TEXT_DETECTION step
+ */
+export interface TaskDetectLabelsTextDetectionStepOutput extends TaskDetectLabelsBaseStepOutput {
+  counts: {
+    textCount: number;
+    textTrackCount: number;
+  } & TaskDetectLabelsEntityCounts;
+}
+
+/**
  * Output for SPEECH_TRANSCRIPTION step
  */
 export interface TaskDetectLabelsSpeechTranscriptionStepOutput extends TaskDetectLabelsBaseStepOutput {
@@ -300,5 +329,6 @@ export type TaskDetectLabelsResult =
   | TaskDetectLabelsObjectTrackingStepOutput
   | TaskDetectLabelsFaceDetectionStepOutput
   | TaskDetectLabelsPersonDetectionStepOutput
+  | TaskDetectLabelsTextDetectionStepOutput
   | TaskDetectLabelsSpeechTranscriptionStepOutput
   | TaskDetectLabelsSpeakerTranscriptionStepOutput;

@@ -120,6 +120,7 @@ export default () => {
       enableObjectTracking: process.env.ENABLE_OBJECT_TRACKING === 'true',
       enableFaceDetection: process.env.ENABLE_FACE_DETECTION === 'true',
       enablePersonDetection: process.env.ENABLE_PERSON_DETECTION === 'true',
+      enableTextDetection: process.env.ENABLE_TEXT_DETECTION === 'true',
       enableSpeechTranscription:
         process.env.ENABLE_SPEECH_TRANSCRIPTION === 'true',
 

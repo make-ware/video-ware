@@ -193,6 +193,7 @@ export class MediaService {
       detectLabels: type === 'shot',
       detectFaces: type === 'face',
       detectPersons: type === 'person',
+      detectText: type === 'text',
       detectSpeech: type === 'speech',
       detectSpeakers: type === 'speaker',
     };

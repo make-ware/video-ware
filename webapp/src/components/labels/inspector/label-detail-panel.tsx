@@ -10,16 +10,13 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { Loader2, Scissors } from 'lucide-react';
-import { TracksAnimator } from '@/components/labels/tracks-animator';
+import { LabelPreview } from '@/components/labels/label-preview';
 import { TrackCropThumb } from '@/components/labels/track-crop-thumb';
-import { FilmstripViewer } from '@/components/filmstrip/filmstrip-viewer';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import {
   useAssignTrackEntity,
   useWorkspaceEntities,
 } from '@/hooks/use-entities';
-import { useTimeAnimation } from '@/hooks/use-time-animation';
-import type { Media } from '@project/shared';
 import { formatClipTime } from '@/utils/format-clip-time';
 import { confidenceOf, type InspectorTypeConfig } from './config';
 import type { InspectorLabelRecord } from './use-label-list';
@@ -69,7 +66,16 @@ export function LabelDetailPanel({
       <CardContent className="flex-1 overflow-auto pt-6">
         {record ? (
           <div className="space-y-4">
-            <LabelPreview config={config} record={record} />
+            <LabelPreview
+              media={record.expand?.MediaRef}
+              track={
+                config.preview === 'track'
+                  ? record.expand?.LabelTrackRef
+                  : undefined
+              }
+              start={record.start}
+              end={record.end}
+            />
             <EntityLinkSection record={record} />
             <StatTiles config={config} record={record} />
           </div>
@@ -80,64 +86,6 @@ export function LabelDetailPanel({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function LabelPreview({
-  config,
-  record,
-}: {
-  config: InspectorTypeConfig;
-  record: InspectorLabelRecord;
-}) {
-  const media = record.expand?.MediaRef;
-  const track = record.expand?.LabelTrackRef;
-
-  if (!media) {
-    return (
-      <div className="flex items-center justify-center aspect-video bg-muted/30 rounded-lg text-sm text-muted-foreground">
-        No media preview available.
-      </div>
-    );
-  }
-
-  if (config.preview === 'track' && track) {
-    return <TracksAnimator media={media} track={track} />;
-  }
-
-  return (
-    <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-      <LabelRangeFilmstrip
-        media={media}
-        start={record.start}
-        end={record.end}
-      />
-    </div>
-  );
-}
-
-function LabelRangeFilmstrip({
-  media,
-  start,
-  end,
-}: {
-  media: Media;
-  start: number;
-  end: number;
-}) {
-  const currentTime = useTimeAnimation({
-    start,
-    end,
-    enabled: true,
-    loop: true,
-  });
-
-  return (
-    <FilmstripViewer
-      media={media}
-      currentTime={currentTime}
-      className="w-full h-full"
-    />
   );
 }
 

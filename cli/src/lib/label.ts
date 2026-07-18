@@ -1,5 +1,6 @@
 import type { ListResult } from 'pocketbase';
 import {
+  LABEL_TYPE_META,
   LabelType,
   LabelFaceMutator,
   LabelObjectMutator,
@@ -10,14 +11,17 @@ import {
   LabelSpeechMutator,
   LabelTextMutator,
   MediaClipMutator,
-  clusterEntityAttributionFilter,
-  entityAttributionFilter,
   speakerTranscriptLabel,
   type ActualizableLabel,
   type Entity,
   type MediaClip,
   type TypedPocketBase,
 } from '@project/shared';
+
+// Attribution helpers now live in shared (webapp uses them too); re-exported
+// so CLI callers keep importing them from this module.
+import { attributionExpands, labelAttributionFilter } from '@project/shared';
+export { attributionExpands, labelAttributionFilter };
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import type { OptionGroupOf } from './options.js';
 import { truncate, type Column } from './output.js';
@@ -123,37 +127,26 @@ export function toLabelHit(type: LabelType, record: LabelRecord): LabelHit {
 export interface LabelTypeConfig {
   /** Fields matched (`~`) by the free-text search query. */
   queryFields: string[];
-  /** Confidence field name — LabelFaces uses avgConfidence. */
-  confidenceField: 'confidence' | 'avgConfidence';
   /** Short text for the MATCH/TEXT column. */
   snippet: (record: LabelRecord) => string;
-  /**
-   * Whether rows carry a LabelTrackRef link point. Shots and segments are
-   * classifications, not tracked instances, so their only entity link is
-   * the provider cluster — filters referencing LabelTrackRef would be a
-   * PocketBase unknown-field error there.
-   */
-  hasTrack: boolean;
 }
 
-/** Per-type search contract: which fields a query matches, per collection. */
+/**
+ * Per-type search contract: which fields a query matches, per collection.
+ * Structural facts (collection, hasTrack, confidenceField) live in the
+ * shared LABEL_TYPE_META; this holds only the CLI's display concerns.
+ */
 export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
   [LabelType.OBJECT]: {
     queryFields: ['entity'],
-    confidenceField: 'confidence',
-    hasTrack: true,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.SHOT]: {
     queryFields: ['entity'],
-    confidenceField: 'confidence',
-    hasTrack: false,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.PERSON]: {
     queryFields: ['upperBodyColor', 'lowerBodyColor'],
-    confidenceField: 'confidence',
-    hasTrack: true,
     snippet: (r) =>
       [
         textField(r, 'personId'),
@@ -165,14 +158,10 @@ export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
   },
   [LabelType.SPEECH]: {
     queryFields: ['transcript'],
-    confidenceField: 'confidence',
-    hasTrack: true,
     snippet: (r) => textField(r, 'transcript'),
   },
   [LabelType.SPEAKER]: {
     queryFields: ['transcript', 'speakerId'],
-    confidenceField: 'confidence',
-    hasTrack: true,
     snippet: (r) =>
       [
         speakerTranscriptLabel(
@@ -186,47 +175,17 @@ export const LABEL_TYPE_CONFIG: Record<LabelType, LabelTypeConfig> = {
   },
   [LabelType.FACE]: {
     queryFields: ['faceId'],
-    confidenceField: 'avgConfidence',
-    hasTrack: true,
     snippet: (r) => textField(r, 'faceId') || textField(r, 'faceHash'),
   },
   [LabelType.SEGMENT]: {
     queryFields: ['entity'],
-    confidenceField: 'confidence',
-    hasTrack: false,
     snippet: (r) => textField(r, 'entity'),
   },
   [LabelType.TEXT]: {
     queryFields: ['text'],
-    confidenceField: 'confidence',
-    hasTrack: true,
     snippet: (r) => textField(r, 'text'),
   },
 };
-
-/**
- * PB filter matching one label type's rows attributed to an entity, using
- * the link points that type actually has (track > cluster, or cluster only).
- */
-export function labelAttributionFilter(
-  type: LabelType,
-  entityId: string
-): string {
-  return LABEL_TYPE_CONFIG[type].hasTrack
-    ? entityAttributionFilter(entityId)
-    : clusterEntityAttributionFilter(entityId);
-}
-
-/**
- * Expand paths that resolve a label row's attributed Entity (for the ENTITY
- * column and speaker snippets): the row's track link and its provider
- * cluster's link, skipping LabelTrackRef where the collection lacks it.
- */
-export function attributionExpands(type: LabelType): string[] {
-  return LABEL_TYPE_CONFIG[type].hasTrack
-    ? ['LabelTrackRef.EntityRef', 'LabelEntityRef.EntityRef']
-    : ['LabelEntityRef.EntityRef'];
-}
 
 /** Exact-id flags: each implies a label type and matches one field exactly. */
 const ID_FLAGS = {
@@ -280,7 +239,7 @@ export function labelMutator(
 
 /** A hit's confidence, normalized across the per-type field names. */
 export function confidenceOf(hit: LabelHit): number {
-  const field = LABEL_TYPE_CONFIG[hit.type].confidenceField;
+  const field = LABEL_TYPE_META[hit.type].confidenceField;
   const value = (hit.record as Record<string, unknown>)[field];
   return typeof value === 'number' ? value : 0;
 }
@@ -414,6 +373,7 @@ export async function searchLabels(
   const results = await Promise.all(
     types.map(async (type) => {
       const config = LABEL_TYPE_CONFIG[type];
+      const meta = LABEL_TYPE_META[type];
       const clauses: string[] = ['WorkspaceRef = {:ws}'];
       const params: Record<string, string | number> = {
         ws: opts.workspaceId,
@@ -436,7 +396,7 @@ export async function searchLabels(
         }
       }
       if (opts.minConfidence !== undefined) {
-        clauses.push(`${config.confidenceField} >= {:minConfidence}`);
+        clauses.push(`${meta.confidenceField} >= {:minConfidence}`);
         params.minConfidence = opts.minConfidence;
       }
       if (opts.entityId) {
@@ -450,7 +410,7 @@ export async function searchLabels(
         1,
         limit,
         filter,
-        `-${config.confidenceField}`,
+        `-${meta.confidenceField}`,
         ['MediaRef.UploadRef', ...attributionExpands(type)]
       );
       return { type, result };

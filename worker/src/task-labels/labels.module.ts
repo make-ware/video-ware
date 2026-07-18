@@ -10,6 +10,7 @@ import {
   ObjectTrackingStepProcessor,
   FaceDetectionStepProcessor,
   PersonDetectionStepProcessor,
+  TextDetectionStepProcessor,
   SpeechTranscriptionStepProcessor,
   SpeakerTranscriptionStepProcessor,
 } from './processors/index';
@@ -18,6 +19,7 @@ import {
   ObjectTrackingExecutor,
   FaceDetectionExecutor,
   PersonDetectionExecutor,
+  TextDetectionExecutor,
   SpeechTranscriptionExecutor,
   SpeakerTranscriptionExecutor,
 } from './executors/index';
@@ -29,6 +31,7 @@ import {
   ObjectTrackingNormalizer,
   FaceDetectionNormalizer,
   PersonDetectionNormalizer,
+  TextDetectionNormalizer,
   SpeechTranscriptionNormalizer,
   SpeakerTranscriptionNormalizer,
 } from './normalizers/index';
@@ -47,6 +50,7 @@ import {
     ObjectTrackingExecutor,
     FaceDetectionExecutor,
     PersonDetectionExecutor,
+    TextDetectionExecutor,
     SpeechTranscriptionExecutor,
     SpeakerTranscriptionExecutor,
 
@@ -59,6 +63,7 @@ import {
     ObjectTrackingNormalizer,
     FaceDetectionNormalizer,
     PersonDetectionNormalizer,
+    TextDetectionNormalizer,
     SpeechTranscriptionNormalizer,
     SpeakerTranscriptionNormalizer,
 
@@ -69,6 +74,7 @@ import {
     ObjectTrackingStepProcessor,
     FaceDetectionStepProcessor,
     PersonDetectionStepProcessor,
+    TextDetectionStepProcessor,
     SpeechTranscriptionStepProcessor,
     SpeakerTranscriptionStepProcessor,
   ],

@@ -29,6 +29,13 @@ export {
   entityAttributionFilter,
   trackEntityAttributionFilter,
 } from './entity';
+export {
+  LABEL_TYPE_META,
+  attributionExpands,
+  labelAttributionFilter,
+  type LabelCollectionName,
+  type LabelTypeMeta,
+} from './label-types';
 export { LabelSegmentMutator } from './label-segment';
 export { LabelShotMutator } from './label-shot';
 export { LabelTextMutator } from './label-text';

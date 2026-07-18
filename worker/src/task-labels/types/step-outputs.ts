@@ -5,6 +5,7 @@ import {
   TaskDetectLabelsObjectTrackingStepOutput,
   TaskDetectLabelsFaceDetectionStepOutput,
   TaskDetectLabelsPersonDetectionStepOutput,
+  TaskDetectLabelsTextDetectionStepOutput,
   TaskDetectLabelsSpeechTranscriptionStepOutput,
   TaskDetectLabelsSpeakerTranscriptionStepOutput,
 } from '@project/shared/jobs';
@@ -49,6 +50,13 @@ export type PersonDetectionStepOutput =
   TaskDetectLabelsPersonDetectionStepOutput;
 
 /**
+ * Text Detection Step Output
+ *
+ * Results from on-screen text (OCR) processing.
+ */
+export type TextDetectionStepOutput = TaskDetectLabelsTextDetectionStepOutput;
+
+/**
  * Speech Transcription Step Output
  *
  * Results from speech transcription processing.
@@ -72,5 +80,6 @@ export type StepOutput =
   | ObjectTrackingStepOutput
   | FaceDetectionStepOutput
   | PersonDetectionStepOutput
+  | TextDetectionStepOutput
   | SpeechTranscriptionStepOutput
   | SpeakerTranscriptionStepOutput;

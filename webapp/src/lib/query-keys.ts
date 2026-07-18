@@ -43,8 +43,30 @@ export const qk = {
     byWorkspace: (workspaceId: string) =>
       ['entities', 'workspace', workspaceId] as const,
     detail: (id: string) => ['entities', 'detail', id] as const,
-    appearances: (id: string) => ['entities', 'appearances', id] as const,
-    words: (id: string) => ['entities', 'words', id] as const,
+    byKind: (
+      workspaceId: string,
+      kind: string,
+      page: number,
+      perPage: number,
+      search: string
+    ) =>
+      [
+        'entities',
+        'by-kind',
+        workspaceId,
+        kind,
+        page,
+        perPage,
+        search,
+      ] as const,
+    kindCounts: (workspaceId: string) =>
+      ['entities', 'kind-counts', workspaceId] as const,
+    stats: (id: string) => ['entities', 'stats', id] as const,
+    labelCounts: (id: string) => ['entities', 'label-counts', id] as const,
+    labels: (id: string, labelType: string, page: number, perPage: number) =>
+      ['entities', 'labels', id, labelType, page, perPage] as const,
+    transcripts: (id: string, query: string, page: number, perPage: number) =>
+      ['entities', 'transcripts', id, query, page, perPage] as const,
   },
   labelTracks: {
     byMedia: (id: string) => ['label-tracks', id] as const,

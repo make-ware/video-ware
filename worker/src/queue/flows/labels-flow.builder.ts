@@ -17,6 +17,7 @@
  *   ├── OBJECT_TRACKING       ── UPLOAD_TO_GCS
  *   ├── FACE_DETECTION        ── UPLOAD_TO_GCS
  *   ├── PERSON_DETECTION      ── UPLOAD_TO_GCS
+ *   ├── TEXT_DETECTION        ── UPLOAD_TO_GCS
  *   ├── SPEECH_TRANSCRIPTION  ── UPLOAD_TO_GCS
  *   └── SPEAKER_TRANSCRIPTION            (ElevenLabs; reads app storage, no GCS)
  *
@@ -42,6 +43,7 @@ export interface EnabledLabelProcessors {
   objectTracking: boolean;
   faceDetection: boolean;
   personDetection: boolean;
+  textDetection: boolean;
   speechTranscription: boolean;
   speakerTranscription: boolean;
 }
@@ -96,8 +98,8 @@ export class LabelsFlowBuilder {
     };
 
     // Effective gating: ENABLE_* env flag AND payload config. Labels/objects
-    // default on when the payload is silent; faces/persons/speech/speakers
-    // default off. GCVI steps need the file in GCS first; speaker
+    // default on when the payload is silent; faces/persons/text/speech/
+    // speakers default off. GCVI steps need the file in GCS first; speaker
     // transcription (ElevenLabs) reads from app storage and skips the upload.
     const detectionSteps: Array<{
       stepType: DetectLabelsStepType;
@@ -137,6 +139,12 @@ export class LabelsFlowBuilder {
           enabled.personDetection && payload.config?.detectPersons === true,
         needsGcsUpload: true,
         input: { type: 'person_detection', ...detectionInputBase },
+      },
+      {
+        stepType: DetectLabelsStepType.TEXT_DETECTION,
+        enabled: enabled.textDetection && payload.config?.detectText === true,
+        needsGcsUpload: true,
+        input: { type: 'text_detection', ...detectionInputBase },
       },
       {
         stepType: DetectLabelsStepType.SPEECH_TRANSCRIPTION,

@@ -267,6 +267,27 @@ export interface LabelPersonData {
 }
 
 /**
+ * One on-screen text appearance destined for the LabelText collection.
+ * LabelEntityRef/LabelTrackRef are set by the step processor after the
+ * entity and track rows are inserted.
+ */
+export interface LabelTextData {
+  WorkspaceRef: string;
+  MediaRef: string;
+  LabelEntityRef?: string;
+  LabelTrackRef?: string;
+  text: string;
+  textHash: string;
+  /** Normalizer-local track id used to link the row to its LabelTrack */
+  originalTrackId: string;
+  start: number;
+  end: number;
+  duration: number;
+  confidence: number;
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * LabelMedia update data (partial update)
  */
 export interface LabelMediaData {
@@ -299,6 +320,12 @@ export interface LabelMediaData {
   personCount?: number;
   personTrackCount?: number;
 
+  // Text Detection results
+  textDetectionProcessedAt?: string;
+  textDetectionProcessor?: string;
+  textCount?: number;
+  textTrackCount?: number;
+
   // Speech Transcription results
   speechTranscriptionProcessedAt?: string;
   speechTranscriptionProcessor?: string;
@@ -326,5 +353,6 @@ export interface NormalizerOutput {
   labelSegments?: LabelSegmentData[];
   labelShots?: LabelShotData[];
   labelPeople?: LabelPersonData[];
+  labelTexts?: LabelTextData[];
   labelMediaUpdate: Partial<LabelMediaData>;
 }

@@ -108,6 +108,7 @@ export class JobService {
       objectTracking: cfg.enableObjectTracking,
       faceDetection: cfg.enableFaceDetection,
       personDetection: cfg.enablePersonDetection,
+      textDetection: cfg.enableTextDetection,
       speechTranscription: cfg.enableSpeechTranscription,
       speakerTranscription: cfg.enableSpeakerTranscription,
     };

@@ -1,6 +1,7 @@
 import { open, stat } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
+import type { ListResult } from 'pocketbase';
 import {
   MediaMutator,
   MediaType,
@@ -54,6 +55,70 @@ export function mediaTypeForFile(fileName: string): MediaType | undefined {
     readonly string[],
   ][];
   return entries.find(([, extensions]) => extensions.includes(extension))?.[0];
+}
+
+/** Validate an upload-status string against the UploadStatus enum. */
+export function parseUploadStatus(value: string): UploadStatus {
+  const statuses = Object.values(UploadStatus) as string[];
+  if (!statuses.includes(value)) {
+    throw new Error(
+      `Invalid upload status "${value}". Valid statuses: ${statuses.join(', ')}`
+    );
+  }
+  return value as UploadStatus;
+}
+
+export interface ListUploadsOptions {
+  /** Only uploads in this status. */
+  status?: UploadStatus;
+  /** Max rows (default 200). */
+  limit?: number;
+}
+
+/**
+ * List a workspace's uploads, newest first (the mutator's default sort),
+ * optionally filtered by status. Each row carries the original file name in
+ * `name` — the whole point of the listing, since the derived Media's own name
+ * can be relabelled while the upload keeps the name the file was uploaded as.
+ */
+export async function listUploads(
+  pb: TypedPocketBase,
+  workspaceId: string,
+  opts: ListUploadsOptions = {}
+): Promise<ListResult<Upload>> {
+  const perPage = opts.limit ?? 200;
+  const filter = opts.status
+    ? pb.filter('WorkspaceRef = {:ws} && status = {:status}', {
+        ws: workspaceId,
+        status: opts.status,
+      })
+    : pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId });
+  return new UploadMutator(pb).getList(1, perPage, filter);
+}
+
+/**
+ * Map each source-Upload id in a workspace to the Media ingested from it, when
+ * one exists. Media are 1:1 with their source upload, so a single query lets
+ * the upload listing show whether an upload finished ingesting without an N+1
+ * lookup. Bounded by `perPage`: uploads whose media falls outside that page
+ * read as not-yet-ingested, so keep the bound comfortably above the workspace's
+ * media count.
+ */
+export async function mediaByUpload(
+  pb: TypedPocketBase,
+  workspaceId: string,
+  perPage = 500
+): Promise<Map<string, Media>> {
+  const result = await new MediaMutator(pb).getByWorkspace(
+    workspaceId,
+    1,
+    perPage
+  );
+  const map = new Map<string, Media>();
+  for (const media of result.items) {
+    if (media.UploadRef) map.set(media.UploadRef, media);
+  }
+  return map;
 }
 
 /**
@@ -473,60 +538,91 @@ export async function uploadFile(
   }
 }
 
-/** A media whose stored original is being replaced, with its source upload. */
+/** An upload whose stored original is being replaced, and any media from it. */
 export interface ReplaceTarget {
-  media: Media;
+  /**
+   * The media ingested from `upload`, when one exists. Null when the target
+   * was given as an upload id and nothing has ingested from it yet (still
+   * processing, ingest failed, or the media was deleted).
+   */
+  media: Media | null;
+  /** The upload whose stored original the replace route overwrites. */
   upload: Upload;
+  /** Which collection the caller's id resolved to (for the dry-run report). */
+  resolvedBy: 'media' | 'upload';
+}
+
+/** The replace route overwrites `externalPath`, so there must be one. */
+function assertHasStoredOriginal(upload: Upload): void {
+  if (!upload.externalPath) {
+    throw new Error(
+      `Upload ${upload.id} ("${upload.name}") has no stored original file to ` +
+        'replace — upload the file as new media instead.'
+    );
+  }
 }
 
 /**
- * Resolve the media whose original is being replaced, along with its source
- * upload. Fails when the media doesn't exist or was never ingested into
- * storage — the replace route overwrites the upload's existing
- * `externalPath`, so without one there is nothing to replace.
+ * Resolve the replace target from an id that may be EITHER a media id or an
+ * upload id, so a bulk script can pass whichever it has for each file. A media
+ * id is tried first (it's the id the webapp surfaces most prominently, and the
+ * ids of the two collections don't collide in practice); an id that isn't a
+ * media falls back to an upload lookup. Either way the returned `upload` is the
+ * record the replace route overwrites, and it must have an `externalPath` (a
+ * file actually in storage) or there is nothing to replace.
  */
 export async function resolveReplaceTarget(
   pb: TypedPocketBase,
-  mediaId: string
+  id: string
 ): Promise<ReplaceTarget> {
-  const media = await new MediaMutator(pb).getById(mediaId, 'UploadRef');
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
+  const mediaMutator = new MediaMutator(pb);
+  const uploadMutator = new UploadMutator(pb);
+
+  const media = await mediaMutator.getById(id, 'UploadRef');
+  if (media) {
+    const upload =
+      media.expand?.UploadRef ??
+      (media.UploadRef ? await uploadMutator.getById(media.UploadRef) : null);
+    if (!upload) {
+      throw new Error(`Media ${id} has no source upload record.`);
+    }
+    assertHasStoredOriginal(upload);
+    return { media, upload, resolvedBy: 'media' };
   }
-  const upload =
-    media.expand?.UploadRef ??
-    (media.UploadRef
-      ? await new UploadMutator(pb).getById(media.UploadRef)
-      : null);
+
+  const upload = await uploadMutator.getById(id);
   if (!upload) {
-    throw new Error(`Media ${mediaId} has no source upload record.`);
+    throw new Error(`No media or upload found with id "${id}".`);
   }
-  if (!upload.externalPath) {
-    throw new Error(
-      `Media ${mediaId} has no stored original file to replace — ` +
-        'upload the file as new media instead.'
-    );
-  }
-  return { media, upload };
+  assertHasStoredOriginal(upload);
+  // Best-effort: the media ingested from this upload gives the same-type rule
+  // something to check and lets the report name the media too.
+  const mediaFromUpload = await mediaMutator.getByUpload(upload.id);
+  return { media: mediaFromUpload, upload, resolvedBy: 'upload' };
 }
 
 /**
  * Validate a replacement file: everything `validateUploadFile` checks, plus
- * the rule the webapp replace page enforces — the replacement must be the
- * same kind of media (video for video, etc.), so the media's duration/
- * dimension metadata and derived artifacts stay meaningful.
+ * the rule the webapp replace page enforces — the replacement must be the same
+ * kind of media (video for video, etc.), so the media's duration/dimension
+ * metadata and derived artifacts stay meaningful. `expectedType` is the media
+ * type to enforce (the target media's type, or — when replacing an upload with
+ * no ingested media — the type derived from the upload's own filename); when it
+ * can't be determined the type check is skipped but the file is still validated.
  */
 export async function validateReplacementFile(
   filePath: string,
-  media: Media
+  expectedType: MediaType | undefined
 ): Promise<ValidatedUploadFile> {
   const validated = await validateUploadFile(filePath);
-  const type = mediaTypeForFile(validated.name);
-  if (type !== media.mediaType) {
-    throw new Error(
-      `Replacement must be a ${media.mediaType} file — ` +
-        `"${validated.name}" is ${type ?? 'unknown'}.`
-    );
+  if (expectedType !== undefined) {
+    const type = mediaTypeForFile(validated.name);
+    if (type !== expectedType) {
+      throw new Error(
+        `Replacement must be a ${expectedType} file — ` +
+          `"${validated.name}" is ${type ?? 'unknown'}.`
+      );
+    }
   }
   return validated;
 }

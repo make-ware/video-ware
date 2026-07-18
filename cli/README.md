@@ -55,7 +55,8 @@ vw workspace use [id]          # set the active workspace (interactive when omit
 vw workspace export [dir]      # dump the workspace as JSON files (AI agent context)
 
 vw upload create <file...>     # upload video/audio/image files as new media (default: `vw upload <file...>` works too)
-vw upload replace <id> <file>  # overwrite an existing media's stored original with an updated source (--force)
+vw upload list                 # list uploads by original file name (--status filters; --json for scripts)
+vw upload replace <id> <file>  # overwrite the stored original of a media OR upload id with an updated source (--force)
 
 vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
@@ -580,9 +581,9 @@ can be reused by future commands (e.g. `clip update`).
 
 ## Uploading media
 
-`vw upload` has two intents: `create` (new media) and `replace` (overwrite an
-existing media's source). Replace is deliberately its own subcommand because
-it is destructive.
+`vw upload` has three subcommands: `create` (new media), `list` (browse
+existing uploads), and `replace` (overwrite an existing source). Replace is
+deliberately its own subcommand because it is destructive.
 
 `vw upload create <file...>` sends local video/audio/image files through the
 same Next.js route the webapp uses (`/api-next/uploads/upload`), in
@@ -609,23 +610,49 @@ set the webapp origin explicitly — precedence: `--app-url` flag →
 `$VW_APP_URL` → derived from the PocketBase URL (a PB URL on
 `localhost:8090` maps to `http://localhost:3000`).
 
+### Listing uploads
+
+`vw upload list` (alias `ls`) shows the workspace's uploads by their **original
+file name** — the name the file was uploaded as, which the Media it produced
+can be relabelled away from. Each row carries the upload id, status, size, and
+the id of the Media ingested from it (`—` when none has been, so it doubles as
+an "did this finish ingesting?" check). Newest first.
+
+```bash
+vw upload list                     # all uploads in the active workspace
+vw upload list --status failed     # only failed uploads
+vw upload list -n 20               # cap the rows
+vw upload list --json              # {items,totalItems}; media column omitted
+```
+
+The upload id in each row is exactly what `vw upload replace` accepts, so a
+bulk-replace script is a `--json` list piped through `jq` to map local
+filenames to ids.
+
 ### Replacing an existing media's file
 
-`vw upload replace <mediaId> <file>` overwrites the stored **original** of an
-already-ingested media with an updated source (e.g. a re-graded or re-mixed
-version), through the same `/api-next/uploads/replace` route the webapp's
-replace page uses. The Media and Upload records are untouched, so nothing is
-re-ingested: previews (thumbnail, proxy, sprite, filmstrip) and detected
-labels keep reflecting the old file until regenerated from the media details
-page. The replacement must be the same kind of media (video for video, etc.);
-ideally its duration and dimensions match the original.
+`vw upload replace <mediaOrUploadId> <file>` overwrites the stored **original**
+of an already-ingested source with an updated file (e.g. a re-graded or
+re-mixed version), through the same `/api-next/uploads/replace` route the
+webapp's replace page uses. The Media and Upload records are untouched, so
+nothing is re-ingested: previews (thumbnail, proxy, sprite, filmstrip) and
+detected labels keep reflecting the old file until regenerated from the media
+details page. The replacement must be the same kind of media (video for video,
+etc.); ideally its duration and dimensions match the original.
+
+The id may be **either a media id or an upload id** — whichever a script has on
+hand. A media id is tried first, then an upload id; the dry report (below)
+names which was resolved and the exact upload that will be overwritten, so you
+can confirm before committing. This makes bulk replaces from a mixed list of
+ids safe to script.
 
 The overwrite is destructive and cannot be undone, so the command refuses to
 run without `--force` — without it, it only reports what would be replaced.
 
 ```bash
-vw upload replace m9x2xkq31bkfrq1 final_v2.mp4          # dry report, refuses
+vw upload replace m9x2xkq31bkfrq1 final_v2.mp4          # media id, dry report, refuses
 vw upload replace m9x2xkq31bkfrq1 final_v2.mp4 --force  # actually overwrite
+vw upload replace u1a2b3c4d5e6f7g final_v2.mp4 --force  # an upload id works too
 ```
 
 ### Dev job triggers

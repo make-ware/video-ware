@@ -57530,6 +57530,24 @@ var EntityCollection = defineCollection({
     "CREATE INDEX idx_entities_workspace_kind ON Entities (WorkspaceRef, kind)"
   ]
 });
+var EntityStatsSchema = external_exports.object({
+  /** Owning workspace (stored as the workspace id; used for filtering). */
+  WorkspaceRef: external_exports.string(),
+  /** Attributed LabelTrack rows — the entity's tracked appearances. */
+  trackCount: external_exports.number(),
+  /** Distinct media those tracks appear in. */
+  mediaCount: external_exports.number(),
+  /** Attributed LabelSpeaker rows — what the entity spoke. */
+  utteranceCount: external_exports.number(),
+  /** Attributed label rows summed across all eight label types. */
+  labelCount: external_exports.number(),
+  /**
+   * Representative track for the card thumbnail: the longest attributed
+   * track with keyframes, else the longest attributed track, else null.
+   * Hydrate via the LabelTrack collection (expand doesn't cross the view).
+   */
+  thumbTrack: external_exports.string().nullable()
+}).extend(baseSchema);
 var RenderTimelineConfigSchema = external_exports.object({
   resolution: external_exports.string(),
   codec: external_exports.string(),
@@ -65321,6 +65339,35 @@ function mediaTypeForFile(fileName) {
   const entries = Object.entries(UPLOAD_EXTENSIONS_BY_TYPE);
   return entries.find(([, extensions]) => extensions.includes(extension))?.[0];
 }
+function parseUploadStatus(value) {
+  const statuses = Object.values(UploadStatus);
+  if (!statuses.includes(value)) {
+    throw new Error(
+      `Invalid upload status "${value}". Valid statuses: ${statuses.join(", ")}`
+    );
+  }
+  return value;
+}
+async function listUploads(pb, workspaceId, opts = {}) {
+  const perPage = opts.limit ?? 200;
+  const filter = opts.status ? pb.filter("WorkspaceRef = {:ws} && status = {:status}", {
+    ws: workspaceId,
+    status: opts.status
+  }) : pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId });
+  return new UploadMutator(pb).getList(1, perPage, filter);
+}
+async function mediaByUpload(pb, workspaceId, perPage = 500) {
+  const result = await new MediaMutator(pb).getByWorkspace(
+    workspaceId,
+    1,
+    perPage
+  );
+  const map2 = /* @__PURE__ */ new Map();
+  for (const media of result.items) {
+    if (media.UploadRef) map2.set(media.UploadRef, media);
+  }
+  return map2;
+}
 function resolveAppUrl(override) {
   const strip = (url2) => url2.replace(/\/+$/, "");
   if (override) return strip(override);
@@ -65581,29 +65628,42 @@ async function uploadFile(pb, opts) {
     await fh.close();
   }
 }
-async function resolveReplaceTarget(pb, mediaId) {
-  const media = await new MediaMutator(pb).getById(mediaId, "UploadRef");
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
-  }
-  const upload = media.expand?.UploadRef ?? (media.UploadRef ? await new UploadMutator(pb).getById(media.UploadRef) : null);
-  if (!upload) {
-    throw new Error(`Media ${mediaId} has no source upload record.`);
-  }
+function assertHasStoredOriginal(upload) {
   if (!upload.externalPath) {
     throw new Error(
-      `Media ${mediaId} has no stored original file to replace \u2014 upload the file as new media instead.`
+      `Upload ${upload.id} ("${upload.name}") has no stored original file to replace \u2014 upload the file as new media instead.`
     );
   }
-  return { media, upload };
 }
-async function validateReplacementFile(filePath, media) {
+async function resolveReplaceTarget(pb, id) {
+  const mediaMutator = new MediaMutator(pb);
+  const uploadMutator = new UploadMutator(pb);
+  const media = await mediaMutator.getById(id, "UploadRef");
+  if (media) {
+    const upload2 = media.expand?.UploadRef ?? (media.UploadRef ? await uploadMutator.getById(media.UploadRef) : null);
+    if (!upload2) {
+      throw new Error(`Media ${id} has no source upload record.`);
+    }
+    assertHasStoredOriginal(upload2);
+    return { media, upload: upload2, resolvedBy: "media" };
+  }
+  const upload = await uploadMutator.getById(id);
+  if (!upload) {
+    throw new Error(`No media or upload found with id "${id}".`);
+  }
+  assertHasStoredOriginal(upload);
+  const mediaFromUpload = await mediaMutator.getByUpload(upload.id);
+  return { media: mediaFromUpload, upload, resolvedBy: "upload" };
+}
+async function validateReplacementFile(filePath, expectedType) {
   const validated = await validateUploadFile(filePath);
-  const type = mediaTypeForFile(validated.name);
-  if (type !== media.mediaType) {
-    throw new Error(
-      `Replacement must be a ${media.mediaType} file \u2014 "${validated.name}" is ${type ?? "unknown"}.`
-    );
+  if (expectedType !== void 0) {
+    const type = mediaTypeForFile(validated.name);
+    if (type !== expectedType) {
+      throw new Error(
+        `Replacement must be a ${expectedType} file \u2014 "${validated.name}" is ${type ?? "unknown"}.`
+      );
+    }
   }
   return validated;
 }
@@ -65745,8 +65805,48 @@ function registerUploadCommands(program3) {
     }
   });
   withJsonOption(
-    upload.command("replace <mediaId> <file>").description(
-      "Overwrite the stored original of an existing media with an updated source file (destructive \u2014 requires --force)"
+    upload.command("list").alias("ls").description(
+      "List uploads in the active workspace by original file name, with the media ingested from each"
+    ).option("-w, --workspace <id>", "workspace id override").option(
+      "--status <status>",
+      "filter by upload status (queued, uploading, uploaded, processing, ready, failed)"
+    ).option(
+      "-n, --limit <count>",
+      "max results (default: 200)",
+      (v) => parseInt(v, 10)
+    )
+  ).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const status = opts.status ? parseUploadStatus(opts.status) : void 0;
+      const result = await listUploads(pb, workspaceId, {
+        status,
+        limit: opts.limit
+      });
+      const media = opts.json ? /* @__PURE__ */ new Map() : await mediaByUpload(pb, workspaceId);
+      printList(
+        result.items,
+        [
+          { header: "ID", value: (u) => u.id },
+          { header: "NAME", value: (u) => u.name },
+          { header: "STATUS", value: (u) => String(u.status) },
+          { header: "SIZE", value: (u) => formatBytes(u.size) },
+          { header: "MEDIA", value: (u) => media.get(u.id)?.id ?? "\u2014" }
+        ],
+        {
+          json: opts.json,
+          totalItems: result.totalItems,
+          hint: "pass an id to `vw upload replace`"
+        }
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    upload.command("replace <mediaOrUploadId> <file>").description(
+      "Overwrite the stored original of an existing media/upload with an updated source file (destructive \u2014 requires --force). The id may be a media id or an upload id."
     ).option(
       "--force",
       "actually overwrite; without it the command only reports what would be replaced"
@@ -65755,14 +65855,20 @@ function registerUploadCommands(program3) {
       "webapp origin serving /api-next (default: derived from the PocketBase URL)"
     )
   ).action(
-    async (mediaId, file2, opts) => {
+    async (ref, file2, opts) => {
       try {
         const pb = await requireClient();
-        const { media: target, upload: targetUpload } = await resolveReplaceTarget(pb, mediaId);
-        const validated = await validateReplacementFile(file2, target);
+        const { media, upload: upload2, resolvedBy } = await resolveReplaceTarget(
+          pb,
+          ref
+        );
+        const mediaType = media ? Array.isArray(media.mediaType) ? media.mediaType[0] : media.mediaType : void 0;
+        const expectedType = mediaType ?? mediaTypeForFile(upload2.name);
+        const validated = await validateReplacementFile(file2, expectedType);
+        const targetDesc = media ? `media ${media.id} (upload ${upload2.id}, "${upload2.name}")` : `upload ${upload2.id} ("${upload2.name}")`;
         if (!opts.force) {
           throw new Error(
-            `Replacing the original of media ${target.id} ("${targetUpload.name}", ${formatBytes(targetUpload.size)}) with ${validated.name} (${formatBytes(validated.size)}) overwrites the stored file and cannot be undone. Previews and labels are not regenerated. Re-run with --force to proceed.`
+            `Replacing the original of ${targetDesc}, ${formatBytes(upload2.size)}, with ${validated.name} (${formatBytes(validated.size)}) overwrites the stored file and cannot be undone. Previews and labels are not regenerated. Re-run with --force to proceed.`
           );
         }
         const quiet = opts.json === true;
@@ -65777,7 +65883,7 @@ function registerUploadCommands(program3) {
         }
         await replaceUploadFile(pb, {
           filePath: file2,
-          upload: targetUpload,
+          upload: upload2,
           appUrl: resolveAppUrl(opts.appUrl),
           onProgress: ({ chunkIndex, bytesUploaded, totalBytes }) => {
             if (quiet || totalChunks === 1) return;
@@ -65789,8 +65895,9 @@ function registerUploadCommands(program3) {
           console.log(
             JSON.stringify(
               {
-                media: target.id,
-                upload: targetUpload.id,
+                media: media?.id ?? null,
+                upload: upload2.id,
+                resolvedBy,
                 file: validated.name,
                 size: validated.size,
                 replaced: true
@@ -65801,11 +65908,9 @@ function registerUploadCommands(program3) {
           );
           return;
         }
-        success(
-          `Replaced original of media ${target.id} with ${validated.name}`
-        );
+        success(`Replaced original of ${targetDesc} with ${validated.name}`);
         info(
-          "  previews and labels still reflect the previous file \u2014 regenerate them from the media details page if needed."
+          media ? "  previews and labels still reflect the previous file \u2014 regenerate them from the media details page if needed." : "  no ingested media is linked to this upload \u2014 only the stored original file was replaced."
         );
       } catch (err) {
         handleError(err);
@@ -69829,7 +69934,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.9.7";
+    return "0.9.8";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

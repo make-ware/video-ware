@@ -2,12 +2,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Media, Upload } from '@project/shared';
+import { MediaType, UploadStatus, type Upload } from '@project/shared';
 import {
   chunkPlan,
   describeNetworkError,
   formatBytes,
+  listUploads,
+  mediaByUpload,
   mediaTypeForFile,
+  parseUploadStatus,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
@@ -15,7 +18,7 @@ import {
   validateReplacementFile,
   validateUploadFile,
 } from '../lib/upload.js';
-import { fakePb } from './fake-pb.js';
+import { fakePb, listResult } from './fake-pb.js';
 
 // The real module pins undici agents to HTTP/1.1; in tests, chunk PUTs
 // delegate to the stubbed global fetch so assertions stay on fetchMock,
@@ -376,43 +379,81 @@ describe('mediaTypeForFile', () => {
 
 describe('resolveReplaceTarget', () => {
   const notFound = Object.assign(new Error('not found'), { status: 404 });
+  const storedUpload = {
+    id: 'up1',
+    name: 'old.mp4',
+    size: 1000,
+    WorkspaceRef: 'ws1',
+    externalPath: 'uploads/ws1/up1/original.mp4',
+  };
 
-  it('returns the media and its expanded source upload', async () => {
-    const upload = {
-      id: 'up1',
-      name: 'old.mp4',
-      WorkspaceRef: 'ws1',
-      externalPath: 'uploads/ws1/up1/original.mp4',
-    };
+  it('resolves a media id to the media and its expanded source upload', async () => {
     const getOne = vi.fn(async () => ({
       id: 'm1',
       UploadRef: 'up1',
       mediaType: 'video',
-      expand: { UploadRef: upload },
+      expand: { UploadRef: storedUpload },
     }));
     const pb = fakePb({ Media: { getOne } });
 
     await expect(resolveReplaceTarget(pb, 'm1')).resolves.toMatchObject({
       media: { id: 'm1' },
       upload: { id: 'up1', externalPath: 'uploads/ws1/up1/original.mp4' },
+      resolvedBy: 'media',
     });
   });
 
-  it('rejects when the media does not exist', async () => {
+  it('resolves an upload id when no media has that id', async () => {
+    // Not a media id → falls back to an upload lookup; the media ingested
+    // from that upload is found for the type-match rule and the report.
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn().mockRejectedValue(notFound),
+        getFirstListItem: vi.fn(async () => ({ id: 'm1', mediaType: 'video' })),
+      },
+      Uploads: { getOne: vi.fn(async () => storedUpload) },
+    });
+
+    await expect(resolveReplaceTarget(pb, 'up1')).resolves.toMatchObject({
+      media: { id: 'm1' },
+      upload: { id: 'up1' },
+      resolvedBy: 'upload',
+    });
+  });
+
+  it('resolves an upload id even when nothing has ingested from it yet', async () => {
+    const pb = fakePb({
+      Media: {
+        getOne: vi.fn().mockRejectedValue(notFound),
+        getFirstListItem: vi.fn().mockRejectedValue(notFound),
+      },
+      Uploads: { getOne: vi.fn(async () => storedUpload) },
+    });
+    await expect(resolveReplaceTarget(pb, 'up1')).resolves.toMatchObject({
+      media: null,
+      upload: { id: 'up1' },
+      resolvedBy: 'upload',
+    });
+  });
+
+  it('rejects when the id is neither a media nor an upload', async () => {
     const pb = fakePb({
       Media: { getOne: vi.fn().mockRejectedValue(notFound) },
+      Uploads: { getOne: vi.fn().mockRejectedValue(notFound) },
     });
-    await expect(resolveReplaceTarget(pb, 'm1')).rejects.toThrow(
-      /media not found/i
+    await expect(resolveReplaceTarget(pb, 'nope')).rejects.toThrow(
+      /no media or upload found/i
     );
   });
 
-  it('rejects when the upload has no stored original', async () => {
+  it('rejects when the resolved upload has no stored original', async () => {
     const getOne = vi.fn(async () => ({
       id: 'm1',
       UploadRef: 'up1',
       mediaType: 'video',
-      expand: { UploadRef: { id: 'up1', WorkspaceRef: 'ws1' } },
+      expand: {
+        UploadRef: { id: 'up1', name: 'old.mp4', WorkspaceRef: 'ws1' },
+      },
     }));
     const pb = fakePb({ Media: { getOne } });
     await expect(resolveReplaceTarget(pb, 'm1')).rejects.toThrow(
@@ -426,7 +467,7 @@ describe('validateReplacementFile', () => {
     const file = join(tmpDir, 'regrade.webm');
     await writeFile(file, 'x'.repeat(10));
     await expect(
-      validateReplacementFile(file, { mediaType: 'video' } as Media)
+      validateReplacementFile(file, MediaType.VIDEO)
     ).resolves.toEqual({ name: 'regrade.webm', size: 10 });
   });
 
@@ -434,8 +475,19 @@ describe('validateReplacementFile', () => {
     const file = join(tmpDir, 'photo.png');
     await writeFile(file, 'x');
     await expect(
-      validateReplacementFile(file, { mediaType: 'video' } as Media)
+      validateReplacementFile(file, MediaType.VIDEO)
     ).rejects.toThrow(/must be a video file/i);
+  });
+
+  it('skips the type check when the expected type is unknown', async () => {
+    // Replacing an upload with no ingested media and an unrecognised original
+    // extension: the file itself is still validated, but no type is enforced.
+    const file = join(tmpDir, 'photo.png');
+    await writeFile(file, 'x');
+    await expect(validateReplacementFile(file, undefined)).resolves.toEqual({
+      name: 'photo.png',
+      size: 1,
+    });
   });
 });
 
@@ -552,5 +604,66 @@ describe('describeNetworkError', () => {
       'socket hang up'
     );
     expect(describeNetworkError('boom')).toBe('boom');
+  });
+});
+
+describe('parseUploadStatus', () => {
+  it('accepts a valid status', () => {
+    expect(parseUploadStatus('uploaded')).toBe(UploadStatus.UPLOADED);
+  });
+
+  it('rejects an unknown status', () => {
+    expect(() => parseUploadStatus('done')).toThrow(/invalid upload status/i);
+  });
+});
+
+describe('listUploads', () => {
+  it('lists a workspace newest-first with no status filter', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([{ id: 'up1', name: 'a.mp4' }])
+    );
+    const pb = fakePb({ Uploads: { getList } });
+
+    const result = await listUploads(pb, 'ws1');
+
+    expect(result.items).toEqual([{ id: 'up1', name: 'a.mp4' }]);
+    const [page, perPage, options] = getList.mock.calls[0];
+    expect(page).toBe(1);
+    expect(perPage).toBe(200);
+    expect(options.filter).toBe('WorkspaceRef = ws1');
+  });
+
+  it('narrows to a status and honours the limit', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([])
+    );
+    const pb = fakePb({ Uploads: { getList } });
+
+    await listUploads(pb, 'ws1', { status: UploadStatus.FAILED, limit: 5 });
+
+    const [, perPage, options] = getList.mock.calls[0];
+    expect(perPage).toBe(5);
+    expect(options.filter).toBe('WorkspaceRef = ws1 && status = failed');
+  });
+});
+
+describe('mediaByUpload', () => {
+  it('maps each upload id to the media ingested from it', async () => {
+    const getList = vi.fn(async () =>
+      listResult([
+        { id: 'm1', UploadRef: 'up1' },
+        { id: 'm2', UploadRef: 'up2' },
+        { id: 'm3' }, // no source upload — skipped
+      ])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    const map = await mediaByUpload(pb, 'ws1');
+
+    expect(map.get('up1')?.id).toBe('m1');
+    expect(map.get('up2')?.id).toBe('m2');
+    expect(map.size).toBe(2);
   });
 });

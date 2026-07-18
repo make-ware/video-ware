@@ -2,18 +2,23 @@ import type { Command } from 'commander';
 import {
   UploadMutator,
   UploadStatus,
+  type Media,
   type TypedPocketBase,
   type Upload,
 } from '@project/shared';
 import { isRootDirRef, resolveDirectory } from '../lib/directory.js';
 import { withJsonOption } from '../lib/options.js';
-import { error, info, success } from '../lib/output.js';
+import { error, info, printList, success } from '../lib/output.js';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
   DEFAULT_CHUNK_SIZE,
   chunkPlan,
   formatBytes,
+  listUploads,
+  mediaByUpload,
+  mediaTypeForFile,
+  parseUploadStatus,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
@@ -27,6 +32,13 @@ interface UploadCommandOptions {
   workspace?: string;
   directory?: string;
   appUrl?: string;
+  json?: boolean;
+}
+
+interface UploadListOptions {
+  workspace?: string;
+  status?: string;
+  limit?: number;
   json?: boolean;
 }
 
@@ -192,9 +204,59 @@ export function registerUploadCommands(program: Command): void {
 
   withJsonOption(
     upload
-      .command('replace <mediaId> <file>')
+      .command('list')
+      .alias('ls')
       .description(
-        'Overwrite the stored original of an existing media with an updated source file (destructive — requires --force)'
+        'List uploads in the active workspace by original file name, with the media ingested from each'
+      )
+      .option('-w, --workspace <id>', 'workspace id override')
+      .option(
+        '--status <status>',
+        'filter by upload status (queued, uploading, uploaded, processing, ready, failed)'
+      )
+      .option('-n, --limit <count>', 'max results (default: 200)', (v) =>
+        parseInt(v, 10)
+      )
+  ).action(async (opts: UploadListOptions) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const status = opts.status ? parseUploadStatus(opts.status) : undefined;
+      const result = await listUploads(pb, workspaceId, {
+        status,
+        limit: opts.limit,
+      });
+      // The MEDIA column is a display-only convenience; skip the extra query
+      // in --json mode, where scripts key off the upload id directly (which
+      // `vw upload replace` now accepts).
+      const media = opts.json
+        ? new Map<string, Media>()
+        : await mediaByUpload(pb, workspaceId);
+      printList(
+        result.items,
+        [
+          { header: 'ID', value: (u) => u.id },
+          { header: 'NAME', value: (u) => u.name },
+          { header: 'STATUS', value: (u) => String(u.status) },
+          { header: 'SIZE', value: (u) => formatBytes(u.size) },
+          { header: 'MEDIA', value: (u) => media.get(u.id)?.id ?? '—' },
+        ],
+        {
+          json: opts.json,
+          totalItems: result.totalItems,
+          hint: 'pass an id to `vw upload replace`',
+        }
+      );
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  withJsonOption(
+    upload
+      .command('replace <mediaOrUploadId> <file>')
+      .description(
+        'Overwrite the stored original of an existing media/upload with an updated source file (destructive — requires --force). The id may be a media id or an upload id.'
       )
       .option(
         '--force',
@@ -206,21 +268,36 @@ export function registerUploadCommands(program: Command): void {
       )
   ).action(
     async (
-      mediaId: string,
+      ref: string,
       file: string,
       opts: { force?: boolean; appUrl?: string; json?: boolean }
     ) => {
       try {
         const pb = await requireClient();
-        const { media: target, upload: targetUpload } =
-          await resolveReplaceTarget(pb, mediaId);
-        const validated = await validateReplacementFile(file, target);
+        const { media, upload, resolvedBy } = await resolveReplaceTarget(
+          pb,
+          ref
+        );
+        // Enforce the same media type as the target: its media's type, or —
+        // when replacing an upload that never produced media — the type its own
+        // filename implies. mediaType is a SelectField (MediaType | MediaType[]),
+        // so narrow it to a single value first.
+        const mediaType = media
+          ? Array.isArray(media.mediaType)
+            ? media.mediaType[0]
+            : media.mediaType
+          : undefined;
+        const expectedType = mediaType ?? mediaTypeForFile(upload.name);
+        const validated = await validateReplacementFile(file, expectedType);
+
+        const targetDesc = media
+          ? `media ${media.id} (upload ${upload.id}, "${upload.name}")`
+          : `upload ${upload.id} ("${upload.name}")`;
 
         if (!opts.force) {
           throw new Error(
-            `Replacing the original of media ${target.id} ` +
-              `("${targetUpload.name}", ${formatBytes(targetUpload.size)}) with ` +
-              `${validated.name} (${formatBytes(validated.size)}) overwrites ` +
+            `Replacing the original of ${targetDesc}, ${formatBytes(upload.size)}, ` +
+              `with ${validated.name} (${formatBytes(validated.size)}) overwrites ` +
               'the stored file and cannot be undone. Previews and labels are ' +
               'not regenerated. Re-run with --force to proceed.'
           );
@@ -241,7 +318,7 @@ export function registerUploadCommands(program: Command): void {
 
         await replaceUploadFile(pb, {
           filePath: file,
-          upload: targetUpload,
+          upload,
           appUrl: resolveAppUrl(opts.appUrl),
           onProgress: ({ chunkIndex, bytesUploaded, totalBytes }) => {
             if (quiet || totalChunks === 1) return;
@@ -254,8 +331,9 @@ export function registerUploadCommands(program: Command): void {
           console.log(
             JSON.stringify(
               {
-                media: target.id,
-                upload: targetUpload.id,
+                media: media?.id ?? null,
+                upload: upload.id,
+                resolvedBy,
                 file: validated.name,
                 size: validated.size,
                 replaced: true,
@@ -266,12 +344,13 @@ export function registerUploadCommands(program: Command): void {
           );
           return;
         }
-        success(
-          `Replaced original of media ${target.id} with ${validated.name}`
-        );
+        success(`Replaced original of ${targetDesc} with ${validated.name}`);
         info(
-          '  previews and labels still reflect the previous file — ' +
-            'regenerate them from the media details page if needed.'
+          media
+            ? '  previews and labels still reflect the previous file — ' +
+                'regenerate them from the media details page if needed.'
+            : '  no ingested media is linked to this upload — ' +
+                'only the stored original file was replaced.'
         );
       } catch (err) {
         handleError(err);

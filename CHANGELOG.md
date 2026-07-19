@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.9...video-ware-v0.9.10) (2026-07-19)
+
+
+### Bug Fixes
+
+* add realtime timeline sync ([7ac9710](https://github.com/make-ware/video-ware/commit/7ac971002e568dd8e961da89c05d9ee5448fb6ea))
+* long running tasks being reaped ([dc7502a](https://github.com/make-ware/video-ware/commit/dc7502aeed8132589ca82abf94cbd7c106f12394))
+* update readme ([4f29a9c](https://github.com/make-ware/video-ware/commit/4f29a9cc4badd728aaea8e8b28d72548ed7c4e74))
+
 ## [0.9.9](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.8...video-ware-v0.9.9) (2026-07-18)
 
 

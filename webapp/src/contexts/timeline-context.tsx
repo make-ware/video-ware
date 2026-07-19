@@ -8,8 +8,15 @@ import React, {
   useMemo,
   useRef,
 } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TimelineService, type TimelineWithClips } from '@/services/timeline';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
+import {
+  applyClipEvent,
+  applyTimelineEvent,
+  applyTrackEvent,
+} from '@/utils/timeline-realtime';
 import { useAuth } from '@/hooks/use-auth';
 import {
   RenderFlowConfig,
@@ -23,6 +30,7 @@ import {
   getSortedTrackClips,
   planRippleInsert,
   type LabelSpeech,
+  type Timeline,
   type TimelineClip,
 } from '@project/shared';
 
@@ -163,17 +171,70 @@ export function TimelineProvider({
   timelineId,
 }: TimelineProviderProps) {
   const { user } = useAuth();
-  // State
-  const [timeline, setTimeline] = useState<TimelineWithClips | null>(null);
+  const queryClient = useQueryClient();
+
+  // State. The timeline itself lives in the TanStack Query cache (see
+  // timelineQuery below); originalTimeline is the baseline snapshot from the
+  // last full fetch, backing hasUnsavedChanges and revertChanges. Realtime
+  // merges intentionally never touch the baseline: a remote edit is
+  // persisted but uncommitted (no version bump / editList), so it should
+  // light up Save exactly like a local edit does.
   const [originalTimeline, setOriginalTimeline] =
     useState<TimelineWithClips | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Write-operation-in-flight flag; OR-ed with the query's initial-load
+  // state into the exposed `isLoading`.
+  const [isMutationLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True while the user has an unsaved local rename in flight; realtime
+  // Timelines merges then keep the cached name so a concurrent remote
+  // rename can't clobber the text mid-typing.
+  const nameDirtyRef = useRef(false);
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(
     new Set()
   );
   const lastSelectedClipRef = useRef<string | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+
+  // Create timeline service - memoized to prevent recreation
+  const timelineService = useMemo(() => new TimelineService(pb), []);
+
+  // Fetch a timeline and reset the unsaved-changes baseline. Runs on the
+  // query's own fetches and on every explicit reload (loadTimeline), so the
+  // baseline always matches the last full server read.
+  const fetchTimeline = useCallback(
+    async (id: string): Promise<TimelineWithClips> => {
+      const loadedTimeline = await timelineService.getTimeline(id);
+      if (!loadedTimeline) {
+        throw new Error('Timeline not found');
+      }
+      setOriginalTimeline(structuredClone(loadedTimeline));
+      nameDirtyRef.current = false;
+      return loadedTimeline;
+    },
+    [timelineService]
+  );
+
+  const timelineQuery = useQuery({
+    queryKey: qk.timelines.detail(timelineId ?? ''),
+    queryFn: () => fetchTimeline(timelineId as string),
+    enabled: !!timelineId,
+  });
+  const timeline = timelineQuery.data ?? null;
+
+  // Update the cached timeline in place — local write-through and realtime
+  // merges both funnel here. Updaters must return the SAME reference when
+  // nothing changes so structural sharing skips observer notifications
+  // (this is what keeps SSE echoes of our own writes render-free).
+  const patchTimeline = useCallback(
+    (updater: (prev: TimelineWithClips) => TimelineWithClips) => {
+      if (!timelineId) return;
+      queryClient.setQueryData<TimelineWithClips>(
+        qk.timelines.detail(timelineId),
+        (prev) => (prev ? updater(prev) : prev)
+      );
+    },
+    [queryClient, timelineId]
+  );
 
   // Backward-compatible derived single selection
   const selectedClipId = useMemo(() => {
@@ -212,9 +273,6 @@ export function TimelineProvider({
   const tracks = useMemo(() => {
     return timeline?.tracks || [];
   }, [timeline]);
-
-  // Create timeline service - memoized to prevent recreation
-  const timelineService = useMemo(() => new TimelineService(pb), []);
 
   // Media ids on the timeline (own tracks + nested timelines), used to load
   // the transcripts that back the subtitle preview overlay.
@@ -282,6 +340,22 @@ export function TimelineProvider({
     return false;
   }, [timeline, originalTimeline]);
 
+  // Initial load state comes from the query (gated on timelineId so a
+  // disabled query's perpetual isPending can't flag loading); write
+  // operations flip the local flag.
+  const isLoading =
+    isMutationLoading || (!!timelineId && timelineQuery.isPending);
+
+  // Surface query load failures through the same error channel as ops
+  const queryError = timelineQuery.error;
+  const combinedError = useMemo(() => {
+    if (error) return error;
+    if (!queryError) return null;
+    return queryError instanceof Error
+      ? queryError.message
+      : 'Failed to load timeline';
+  }, [error, queryError]);
+
   // Clear error helper
   const clearError = useCallback(() => {
     setError(null);
@@ -297,29 +371,24 @@ export function TimelineProvider({
     setError(message);
   }, []);
 
-  // Load timeline by ID
+  // Load timeline by ID — forces a fresh fetch into the query cache (and,
+  // via fetchTimeline, resets the unsaved-changes baseline)
   const loadTimeline = useCallback(
     async (id: string) => {
-      setIsLoading(true);
       clearError();
 
       try {
-        const loadedTimeline = await timelineService.getTimeline(id);
-
-        if (!loadedTimeline) {
-          throw new Error('Timeline not found');
-        }
-
-        setTimeline(loadedTimeline);
-        setOriginalTimeline(structuredClone(loadedTimeline)); // Deep clone
+        await queryClient.fetchQuery({
+          queryKey: qk.timelines.detail(id),
+          queryFn: () => fetchTimeline(id),
+          staleTime: 0,
+        });
       } catch (error) {
         handleError(error, 'load');
         throw error;
-      } finally {
-        setIsLoading(false);
       }
     },
-    [timelineService, clearError, handleError]
+    [queryClient, fetchTimeline, clearError, handleError]
   );
 
   // Refresh timeline (reload from server)
@@ -356,16 +425,18 @@ export function TimelineProvider({
     if (!originalTimeline) return;
 
     // Restore from original
-    setTimeline(structuredClone(originalTimeline));
-  }, [originalTimeline]);
+    nameDirtyRef.current = false;
+    patchTimeline(() => structuredClone(originalTimeline));
+  }, [originalTimeline, patchTimeline]);
 
   // Update timeline name (local only until saved)
-  const updateTimelineName = useCallback((name: string) => {
-    setTimeline((prev) => {
-      if (!prev) return prev;
-      return { ...prev, name };
-    });
-  }, []);
+  const updateTimelineName = useCallback(
+    (name: string) => {
+      nameDirtyRef.current = true;
+      patchTimeline((prev) => ({ ...prev, name }));
+    },
+    [patchTimeline]
+  );
 
   // Update timeline orientation (persists immediately — view/export setting,
   // not part of the clip-edit save flow)
@@ -375,7 +446,7 @@ export function TimelineProvider({
         throw new Error('No timeline loaded');
       }
 
-      setTimeline((prev) => (prev ? { ...prev, orientation } : prev));
+      patchTimeline((prev) => ({ ...prev, orientation }));
       setOriginalTimeline((prev) => (prev ? { ...prev, orientation } : prev));
 
       try {
@@ -385,7 +456,7 @@ export function TimelineProvider({
         throw error;
       }
     },
-    [timeline, timelineService, handleError]
+    [timeline, timelineService, patchTimeline, handleError]
   );
 
   // Multi-select methods
@@ -581,13 +652,10 @@ export function TimelineProvider({
           await loadTimeline(timeline.id);
         } else {
           // Update local state
-          setTimeline((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
-            };
-          });
+          patchTimeline((prev) => ({
+            ...prev,
+            clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
+          }));
         }
       } catch (error) {
         handleError(error, 'add clip');
@@ -603,6 +671,7 @@ export function TimelineProvider({
       selectedTrackId,
       currentTime,
       loadTimeline,
+      patchTimeline,
       clearError,
       handleError,
     ]
@@ -680,13 +749,10 @@ export function TimelineProvider({
           // Neighboring clips changed too — reload for a consistent view
           await loadTimeline(timeline.id);
         } else {
-          setTimeline((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
-            };
-          });
+          patchTimeline((prev) => ({
+            ...prev,
+            clips: [...prev.clips, newClip].sort((a, b) => a.order - b.order),
+          }));
         }
       } catch (error) {
         handleError(error, 'add caption');
@@ -702,6 +768,7 @@ export function TimelineProvider({
       selectedTrackId,
       currentTime,
       loadTimeline,
+      patchTimeline,
       clearError,
       handleError,
     ]
@@ -840,9 +907,7 @@ export function TimelineProvider({
         await timelineService.reorderClips(timeline.id, clipOrders);
 
         // Update local state
-        setTimeline((prev) => {
-          if (!prev) return prev;
-
+        patchTimeline((prev) => {
           const updatedClips = prev.clips.map((clip) => {
             const newOrder = clipOrders.find((co) => co.id === clip.id);
             return newOrder ? { ...clip, order: newOrder.order } : clip;
@@ -860,7 +925,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   // Update clip times (trim). Optionally pins timelineStart in the same
@@ -921,8 +986,7 @@ export function TimelineProvider({
         }
 
         // Update local state (merging so expansions survive)
-        setTimeline((prev) => {
-          if (!prev) return prev;
+        patchTimeline((prev) => {
           const movedById = new Map(movedClips.map((c) => [c.id, c]));
           const updatedClips = prev.clips.map((c) => {
             if (c.id === clipId) return { ...c, ...updatedClip };
@@ -942,7 +1006,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   // Update any clip property. Edits that grow the clip's effective length
@@ -1001,8 +1065,7 @@ export function TimelineProvider({
         }
 
         // Update local state
-        setTimeline((prev) => {
-          if (!prev) return prev;
+        patchTimeline((prev) => {
           const movedById = new Map(movedClips.map((c) => [c.id, c]));
           const updatedClips = prev.clips.map((c) => {
             if (c.id === clipId) return { ...c, ...updatedClip };
@@ -1018,7 +1081,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   // Track operations
@@ -1059,9 +1122,7 @@ export function TimelineProvider({
         const updatedTrack = await timelineService.updateTrack(trackId, data);
 
         // Update local state
-        setTimeline((prev) => {
-          if (!prev) return prev;
-
+        patchTimeline((prev) => {
           const updatedTracks = prev.tracks.map((track) =>
             track.id === trackId ? updatedTrack : track
           );
@@ -1078,7 +1139,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   const deleteTrack = useCallback(
@@ -1123,9 +1184,7 @@ export function TimelineProvider({
         );
 
         // Update local state optimistically
-        setTimeline((prev) => {
-          if (!prev) return prev;
-
+        patchTimeline((prev) => {
           const updatedClips = prev.clips.map((clip) =>
             clip.id === clipId ? updatedClip : clip
           );
@@ -1142,7 +1201,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   const updateClipPosition = useCallback(
@@ -1161,9 +1220,7 @@ export function TimelineProvider({
         );
 
         // Update local state optimistically
-        setTimeline((prev) => {
-          if (!prev) return prev;
-
+        patchTimeline((prev) => {
           const updatedClips = prev.clips.map((clip) =>
             clip.id === clipId ? updatedClip : clip
           );
@@ -1180,7 +1237,7 @@ export function TimelineProvider({
         setIsLoading(false);
       }
     },
-    [timeline, timelineService, clearError, handleError]
+    [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
   // Create render task
@@ -1215,19 +1272,98 @@ export function TimelineProvider({
     [timeline, timelineService, loadTimeline, clearError, handleError, user]
   );
 
-  // Auto-load timeline if timelineId is provided
+  // Realtime: fold TimelineClips / TimelineTracks / Timelines SSE events
+  // into the query cache so concurrent editors (webapp, CLI, worker)
+  // converge without manual reloads. Render-loop safety: the effect's deps
+  // are stable identities only, so data changes can never resubscribe; the
+  // handlers touch nothing but the query cache (via same-reference-on-no-op
+  // merges) and setState with functional same-reference guards.
   useEffect(() => {
-    if (timelineId) {
-      loadTimeline(timelineId);
+    if (!timelineId) return;
+
+    const key = qk.timelines.detail(timelineId);
+    let disposed = false;
+    const unsubs: Array<() => Promise<void> | void> = [];
+
+    const merge = (fn: (t: TimelineWithClips) => TimelineWithClips) => {
+      queryClient.setQueryData<TimelineWithClips>(key, (prev) =>
+        prev ? fn(prev) : prev
+      );
+    };
+
+    const subscriptions = [
+      pb.collection('TimelineClips').subscribe<TimelineClip>(
+        '*',
+        (e) => {
+          if (e.action === 'delete') {
+            // Drop remotely deleted clips from the selection (same
+            // reference when absent, so unrelated deletes don't re-render)
+            setSelectedClipIds((prev) =>
+              prev.has(e.record.id)
+                ? new Set([...prev].filter((id) => id !== e.record.id))
+                : prev
+            );
+          }
+          merge((t) => applyClipEvent(t, e.action, e.record));
+        },
+        { filter: `TimelineRef = "${timelineId}"` }
+      ),
+      pb
+        .collection('TimelineTracks')
+        .subscribe<TimelineTrackRecord>(
+          '*',
+          (e) => merge((t) => applyTrackEvent(t, e.action, e.record)),
+          { filter: `TimelineRef = "${timelineId}"` }
+        ),
+      pb.collection('Timelines').subscribe<Timeline>(timelineId, (e) => {
+        if (e.action === 'delete') {
+          setError('This timeline was deleted');
+          return;
+        }
+        merge((t) =>
+          applyTimelineEvent(t, e.action, e.record, {
+            preserveName: nameDirtyRef.current,
+          })
+        );
+      }),
+    ];
+
+    for (const promise of subscriptions) {
+      promise
+        .then((unsubscribe) => {
+          // StrictMode / fast unmount: the effect may be cleaned up before
+          // the subscribe round-trip resolves — release immediately
+          if (disposed) void unsubscribe();
+          else unsubs.push(unsubscribe);
+        })
+        .catch((err) => {
+          console.error('Timeline realtime subscription failed:', err);
+        });
     }
-  }, [timelineId, loadTimeline]);
+
+    // Events landing between the initial fetch's server read and the
+    // subscriptions coming live would otherwise be lost — refetch once now
+    // that we're listening.
+    void Promise.all(subscriptions)
+      .then(() => {
+        if (!disposed) {
+          return queryClient.invalidateQueries({ queryKey: key });
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      for (const unsubscribe of unsubs) void unsubscribe();
+    };
+  }, [timelineId, queryClient]);
 
   const value = useMemo<TimelineContextType>(
     () => ({
       // State
       timeline,
       isLoading,
-      error,
+      error: combinedError,
       hasUnsavedChanges,
 
       // Playback state
@@ -1294,7 +1430,7 @@ export function TimelineProvider({
     [
       timeline,
       isLoading,
-      error,
+      combinedError,
       hasUnsavedChanges,
       currentTime,
       isPlaying,

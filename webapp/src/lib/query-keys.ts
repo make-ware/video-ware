@@ -31,6 +31,7 @@ export const qk = {
     all: ['timelines'] as const,
     overview: (workspaceId: string, page: number, perPage: number) =>
       ['timelines', 'overview', workspaceId, page, perPage] as const,
+    detail: (id: string) => ['timelines', 'detail', id] as const,
   },
   transcripts: {
     byMedia: (id: string) => ['transcripts', id] as const,

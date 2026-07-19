@@ -62469,6 +62469,16 @@ var LabelPersonMutator = class extends BaseMutator {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
   }
 };
+var TASK_RECORD_PROVIDERS = /* @__PURE__ */ new Set([
+  "ffmpeg",
+  "google_transcoder",
+  "google_video_intelligence",
+  "google_speech"
+  /* GOOGLE_SPEECH */
+]);
+function asTaskRecordProvider(provider) {
+  return provider && TASK_RECORD_PROVIDERS.has(provider) ? provider : void 0;
+}
 var TaskMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
@@ -62504,7 +62514,10 @@ var TaskMutator = class extends BaseMutator {
       attempts: 1,
       payload,
       WorkspaceRef: workspaceId,
-      UserRef: userId
+      UserRef: userId,
+      // Transcode flows run ffmpeg steps unless the payload says otherwise.
+      provider: asTaskRecordProvider(payload.provider) ?? "ffmpeg"
+      /* FFMPEG */
     });
   }
   /**
@@ -62525,7 +62538,10 @@ var TaskMutator = class extends BaseMutator {
       attempts: 1,
       payload,
       WorkspaceRef: workspaceId,
-      UserRef: userId
+      UserRef: userId,
+      // Render flows are ffmpeg-backed unless the payload says otherwise.
+      provider: asTaskRecordProvider(payload.provider) ?? "ffmpeg"
+      /* FFMPEG */
     });
   }
   /**
@@ -62546,7 +62562,8 @@ var TaskMutator = class extends BaseMutator {
       attempts: 1,
       payload,
       WorkspaceRef: workspaceId,
-      UserRef: userId
+      UserRef: userId,
+      provider: asTaskRecordProvider(payload.provider)
     });
   }
   /**
@@ -69934,7 +69951,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.9.8";
+    return "0.9.9";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

@@ -4,6 +4,7 @@ import type { ReadableStream as WebReadableStream } from 'stream/web';
 import {
   type TypedPocketBase,
   type TaskStatus,
+  type TaskInput,
   type Media,
   type MediaInput,
   type TimelineRender,
@@ -298,6 +299,7 @@ export class PocketBaseService implements OnModuleInit {
       error?: string;
       bullJobId?: string;
       queueName?: string;
+      provider?: TaskInput['provider'];
     }
   ) {
     try {

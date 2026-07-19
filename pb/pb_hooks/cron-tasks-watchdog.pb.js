@@ -28,6 +28,15 @@
 // positives on legitimate long-running work, adjust the constants below
 // rather than the cron logic.
 //
+// The provider-keyed thresholds only work because tasks carry `provider` on
+// the record itself: TaskMutator stamps it at creation and
+// JobService.stampEnqueueContext (worker) backfills it — plus
+// bullJobId/queueName — at enqueue time. A reap is also not ground truth:
+// tasks can sit "running" in a deep queue backlog with zero PB writes, so if
+// a status-bearing worker event later arrives for a task failed here, the
+// worker takes it back and clears this errorLog (see
+// worker/src/queue/processors/base.processor.ts, updateTask).
+//
 // PocketBase note: this cron handler is serialized and executed in an isolated
 // goja runtime from the pool, so it CANNOT reference functions or constants
 // from the file's top-level scope (that scope only exists during startup
@@ -46,14 +55,14 @@ cronAdd('tasksWatchdog', '0 * * * *', () => {
   // provider set (lightweight orchestration-only steps) and any provider not
   // listed explicitly.
   const RUNNING_STALE_SECONDS_BY_PROVIDER = {
-    // ffmpeg's own stall/hard-timeout watchdog caps a single invocation at 8h.
-    ffmpeg: 2 * 10 * HOUR,
+    // ffmpeg's own stall/hard-timeout watchdog caps a single invocation at 12h.
+    ffmpeg: 2 * 12 * HOUR,
     // No per-step ceiling found for these; treated as conservatively as GCVI.
-    google_transcoder: 2 * 4 * HOUR,
-    google_speech: 2 * 4 * HOUR,
-    // GCVI's operation-polling timeout caps a single step at 2h.
-    google_video_intelligence: 2 * 4 * HOUR,
-    default: 2 * 1 * HOUR,
+    google_transcoder: 2 * 12 * HOUR,
+    google_speech: 2 * 12 * HOUR,
+    // GCVI's operation-polling timeout caps a single step at 12h.
+    google_video_intelligence: 2 * 12 * HOUR,
+    default: 2 * 12 * HOUR,
   };
 
   // Tasks stuck in `queued` — the worker never picked them up at all (down,
@@ -113,7 +122,10 @@ cronAdd('tasksWatchdog', '0 * * * *', () => {
             `tasksWatchdog: failed hung task ${task.id} (type=${task.get('type')}, status=${status}, ageMin=${Math.round(ageSec / 60)}, bullJobId=${bullJobId}, queue=${queueName})`
           );
         } catch (error) {
-          console.error(`tasksWatchdog: failed to reap task ${task.id}:`, error);
+          console.error(
+            `tasksWatchdog: failed to reap task ${task.id}:`,
+            error
+          );
         }
       }
 

@@ -32,6 +32,13 @@ function isTerminalTaskStatus(status: TaskStatus | TaskStatus[]): boolean {
   );
 }
 
+// The hung-task watchdog cron (pb/pb_hooks/cron-tasks-watchdog.pb.js) writes
+// errorLog with this prefix when it fails a task it believes is dead. That
+// verdict is a heuristic — "no worker event will ever come for this task" —
+// so a later status-bearing event from the live job disproves it and is
+// allowed to take the task back (see updateTask).
+const WATCHDOG_ERROR_PREFIX = 'watchdog:';
+
 const UPDATE_RETRY_ATTEMPTS = 3;
 const UPDATE_RETRY_BASE_DELAY_MS = 250;
 
@@ -57,10 +64,18 @@ export abstract class BaseProcessor extends WorkerHost {
    * Update task with multiple fields. Retries transient PocketBase write
    * failures instead of dropping them silently, and refuses to write over a
    * task already in a terminal status (success/failed/canceled) — that
-   * status is sticky once set (e.g. by the hung-task watchdog cron or a
-   * user-initiated cancel), so a late event from a stale/zombie job attempt
-   * must not resurrect it. Still never throws, to avoid destabilizing the
-   * BullMQ event handler that called it.
+   * status is sticky once set (e.g. a user-initiated cancel), so a late
+   * event from a stale/zombie job attempt must not resurrect it.
+   *
+   * One carve-out: a task the watchdog cron failed (errorLog prefixed
+   * "watchdog:") may be taken back by a status-bearing update. The watchdog
+   * only fires on the premise that the worker died and no event will ever
+   * arrive; a live event carrying a status proves that premise false (e.g.
+   * the task was just stuck behind a long queue backlog), so the live status
+   * wins and the stale watchdog note is cleared.
+   *
+   * Still never throws, to avoid destabilizing the BullMQ event handler that
+   * called it.
    */
   protected async updateTask(
     taskId: string,
@@ -114,10 +129,27 @@ export abstract class BaseProcessor extends WorkerHost {
       try {
         const current = await this.pocketbaseService.getTask(taskId);
         if (current && isTerminalTaskStatus(current.status)) {
+          const watchdogFailed =
+            current.status === TaskStatus.FAILED &&
+            typeof current.errorLog === 'string' &&
+            current.errorLog.startsWith(WATCHDOG_ERROR_PREFIX);
+
+          if (!watchdogFailed || updatePayload.status === undefined) {
+            this.logger.warn(
+              `Skipping update for task ${taskId}: already in terminal status "${current.status}" — ignoring stale event from a reassigned or terminally-failed job`
+            );
+            return;
+          }
+
+          // Status-bearing event on a watchdog-failed task: the job is
+          // demonstrably alive, so the reap was a false positive. Clear the
+          // stale watchdog note unless this update carries its own error.
+          if (updatePayload.errorLog === undefined) {
+            updatePayload.errorLog = '';
+          }
           this.logger.warn(
-            `Skipping update for task ${taskId}: already in terminal status "${current.status}" — ignoring stale event from a reassigned or watchdog-failed job`
+            `Task ${taskId} was failed by the watchdog but its job is still alive — applying live status "${updatePayload.status}" and clearing the watchdog error`
           );
-          return;
         }
 
         await this.pocketbaseService.updateTask(taskId, updatePayload);

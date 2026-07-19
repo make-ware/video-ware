@@ -6,9 +6,35 @@ import {
   type RenderTimelinePayload,
   type DetectLabelsPayload,
 } from '../types';
-import { TaskStatus, TaskType } from '../enums';
+import { ProcessingProvider, TaskStatus, TaskType } from '../enums';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
+
+// Providers the Tasks record's `provider` select field accepts. The
+// payload-level ProcessingProvider enum is wider (e.g. `elevenlabs` only ever
+// appears at step level), so unknown values are dropped rather than failing
+// task creation.
+const TASK_RECORD_PROVIDERS: ReadonlySet<string> = new Set([
+  ProcessingProvider.FFMPEG,
+  ProcessingProvider.GOOGLE_TRANSCODER,
+  ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+  ProcessingProvider.GOOGLE_SPEECH,
+]);
+
+/**
+ * Narrow a payload provider to one storable on the Task record. The record's
+ * `provider` field drives the hung-task watchdog cron's provider-keyed
+ * staleness thresholds (pb/pb_hooks/cron-tasks-watchdog.pb.js), so tasks
+ * should carry it from creation — a payload-only provider is invisible to
+ * the cron.
+ */
+export function asTaskRecordProvider(
+  provider: string | undefined
+): TaskInput['provider'] {
+  return provider && TASK_RECORD_PROVIDERS.has(provider)
+    ? (provider as TaskInput['provider'])
+    : undefined;
+}
 
 export class TaskMutator extends BaseMutator<Task, TaskInput> {
   constructor(pb: TypedPocketBase, options?: Partial<MutatorOptions>) {
@@ -55,6 +81,9 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
       payload: payload as unknown as Record<string, unknown>,
       WorkspaceRef: workspaceId,
       UserRef: userId,
+      // Transcode flows run ffmpeg steps unless the payload says otherwise.
+      provider:
+        asTaskRecordProvider(payload.provider) ?? ProcessingProvider.FFMPEG,
     });
   }
 
@@ -82,6 +111,9 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
       payload: payload as unknown as Record<string, unknown>,
       WorkspaceRef: workspaceId,
       UserRef: userId,
+      // Render flows are ffmpeg-backed unless the payload says otherwise.
+      provider:
+        asTaskRecordProvider(payload.provider) ?? ProcessingProvider.FFMPEG,
     });
   }
 
@@ -109,6 +141,7 @@ export class TaskMutator extends BaseMutator<Task, TaskInput> {
       payload: payload as unknown as Record<string, unknown>,
       WorkspaceRef: workspaceId,
       UserRef: userId,
+      provider: asTaskRecordProvider(payload.provider),
     });
   }
 

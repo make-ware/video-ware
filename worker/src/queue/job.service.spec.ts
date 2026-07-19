@@ -4,7 +4,8 @@ import { JobService } from './job.service';
 import { FlowService } from './flow.service';
 import { ProcessorsConfigService } from '../config/processors.config';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
-import { TaskType } from '@project/shared';
+import { TaskType, ProcessingProvider } from '@project/shared';
+import { QUEUE_NAMES } from './queue.constants';
 import { DetectLabelsStepType } from './types/step.types';
 import type { LabelsChildJobDefinition, LabelsFlowDefinition } from './flows';
 
@@ -30,6 +31,7 @@ describe('JobService', () => {
 
   const mockPocketBaseService = {
     labelJobMutator: mockLabelJobMutator,
+    updateTask: vi.fn(),
   };
 
   beforeEach(async () => {
@@ -37,6 +39,8 @@ describe('JobService', () => {
     mockFlowService.addFlow.mockResolvedValue('mock-job-id');
     mockLabelJobMutator.upsertForTask.mockReset();
     mockLabelJobMutator.upsertForTask.mockResolvedValue({});
+    mockPocketBaseService.updateTask.mockReset();
+    mockPocketBaseService.updateTask.mockResolvedValue({});
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -139,6 +143,75 @@ describe('JobService', () => {
       mockLabelJobMutator.upsertForTask.mockRejectedValue(new Error('pb down'));
       const task = {
         id: 'l-3',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },
+      } as any;
+
+      await expect(service.submitLabelsJob(task)).resolves.toBe('mock-job-id');
+    });
+  });
+
+  describe('stampEnqueueContext', () => {
+    it('stamps bullJobId, queueName and the payload provider on the task', async () => {
+      const task = {
+        id: 'l-4',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        payload: {
+          mediaId: 'm-1',
+          fileRef: 'f-1',
+          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+          config: { detectLabels: true },
+        },
+      } as any;
+
+      await service.submitLabelsJob(task);
+
+      expect(mockPocketBaseService.updateTask).toHaveBeenCalledWith('l-4', {
+        bullJobId: 'mock-job-id',
+        queueName: QUEUE_NAMES.LABELS,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+      });
+    });
+
+    it('falls back to the flow provider when the payload has none', async () => {
+      const task = {
+        id: 't-1',
+        type: TaskType.PROCESS_UPLOAD,
+        payload: { uploadId: 'u-1' },
+      } as any;
+
+      await service.submitTranscodeJob(task);
+
+      expect(mockPocketBaseService.updateTask).toHaveBeenCalledWith('t-1', {
+        bullJobId: 'mock-job-id',
+        queueName: QUEUE_NAMES.TRANSCODE,
+        provider: ProcessingProvider.FFMPEG,
+      });
+    });
+
+    it('leaves an already-set record provider untouched', async () => {
+      const task = {
+        id: 'l-5',
+        type: TaskType.DETECT_LABELS,
+        WorkspaceRef: 'w-1',
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },
+      } as any;
+
+      await service.submitLabelsJob(task);
+
+      expect(mockPocketBaseService.updateTask).toHaveBeenCalledWith('l-5', {
+        bullJobId: 'mock-job-id',
+        queueName: QUEUE_NAMES.LABELS,
+      });
+    });
+
+    it('does not fail the enqueue when the stamp write fails', async () => {
+      mockPocketBaseService.updateTask.mockRejectedValue(new Error('pb down'));
+      const task = {
+        id: 'l-6',
         type: TaskType.DETECT_LABELS,
         WorkspaceRef: 'w-1',
         payload: { mediaId: 'm-1', fileRef: 'f-1', config: {} },

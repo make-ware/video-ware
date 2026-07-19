@@ -1,296 +1,121 @@
 # Video Ware
 
-A modern media upload and processing platform built with Next.js, PocketBase, and background workers. Upload media files, get resilient backups to S3-compatible storage, and receive fast previews (thumbnails, sprites) while background workers prepare assets using FFmpeg and Google Cloud APIs.
+**A self-hosted video editor with a command line interface.**
 
-## Product Vision
-
-Video Ware delivers a Next.js web app where users can:
-- **Upload media** with progress tracking and validation
-- **Get resilient backups** to S3-compatible storage
-- **Receive fast previews** (thumbnails, sprites) while processing happens in the background
-- **Process media** using FFmpeg and Google Cloud APIs (Transcoder, Video Intelligence)
-- **Create and edit clips** with timeline composition
-- **Get video analysis** with object detection, object tracking, face detection, person detection, speech transcription, and shot change detection
-- **Render timelines** to final video outputs
-
-## Architecture
-
-- **Frontend**: Next.js 16 with React 19, TypeScript, and Tailwind CSS
-- **Backend**: PocketBase for collections, real-time updates, authentication, and API
-- **Workers**: NestJS background task processor with BullMQ for media processing (FFmpeg, Google Cloud APIs)
-- **Storage**: S3-compatible bucket for originals, derivatives, and metadata
-- **Shared Package**: TypeScript types, Zod schemas, and utilities used across the monorepo
-- **Queue System**: Redis-backed BullMQ for reliable task processing with retries and progress tracking
-
-## Monorepo Structure
-
-This is a Yarn v4 workspace monorepo:
-
-```
-video-ware/
-├── webapp/          # Next.js application (@project/webapp)
-├── worker/          # Background worker for media processing
-├── shared/          # Shared types, schemas, and utilities (@project/shared)
-├── pb/              # PocketBase instance and migrations
-└── docker/          # Docker configuration for deployment
-```
-
-## Quick Start
-
-> **Just want to run it?** Use the prebuilt Docker image `ghcr.io/make-ware/video-ware:latest`, which bundles every service (PocketBase, webapp, worker, and nginx) in a single container. See the **[Docker Deployment Guide](docker/README.md)** for pull-and-run instructions. To develop locally, follow the steps below.
-
-### Prerequisites
-
-- Node.js >= 22.0.0
-- Yarn 4.12.0
-- FFmpeg (for media processing)
-- Redis (required by the worker for the BullMQ task queue; defaults to `localhost:6379`)
-- Google Cloud credentials (for video analysis features - optional)
-
-### Local Development Setup
-
-1. **Clone and install dependencies:**
-   ```bash
-   git clone https://github.com/make-ware/video-ware
-   cd video-ware
-   yarn install
-   ```
-
-2. **Configure environment (recommended):** copy the example file and set your
-   own PocketBase admin credentials.
-   ```bash
-   cp .env.example .env
-   ```
-   ```
-   POCKETBASE_ADMIN_EMAIL=admin@example.com
-   POCKETBASE_ADMIN_PASSWORD=your-secure-password
-   ```
-   You can skip this — `yarn setup` creates `.env` from `.env.example` if it's
-   missing — but you'll get the default credentials above instead of your own.
-
-3. **Set up PocketBase:**
-   ```bash
-   yarn setup
-   ```
-   This creates `.env` from `.env.example` if it doesn't exist, downloads the
-   PocketBase binary, and creates the admin account using the credentials from
-   `.env`. The command is idempotent — if you change the credentials later, just
-   edit `.env` and run `yarn setup` again.
-
-4. **Build the shared package:**
-   ```bash
-   yarn build:shared
-   ```
-
-5. **Start Redis:** the worker connects to Redis on `localhost:6379` and has no
-   in-memory fallback, so it must be running before you start the worker. Use
-   whichever you have:
-   ```bash
-   redis-server                 # native install
-   brew services start redis    # macOS (Homebrew, runs in background)
-   docker run --rm -p 6379:6379 redis:7-alpine   # Docker
-   ```
-   To point at a different instance, set `REDIS_URL` in `.env`.
-
-6. **Start development:**
-   ```bash
-   yarn dev
-   ```
-
-   This starts:
-   - Next.js: http://localhost:3000
-   - PocketBase: http://localhost:8090
-   - Worker: Background task processor
-
-## Documentation
-
-- **[Development Guide](docs/DEVELOPMENT.md)** - Comprehensive development documentation
-- **[GCVI Configuration Guide](docs/GCVI_CONFIGURATION.md)** - Google Cloud Video Intelligence processor configuration and cost optimization
-- **[Deployment Guide](docker/README.md)** - Production Docker deployment instructions
-- **[PocketBase Docs](docs/)** - PocketBase-specific documentation
-
-## Worker Architecture
-
-The worker is a NestJS application that processes background tasks using BullMQ:
-
-### Task Types
-
-1. **Process Upload** (`process_upload`)
-   - Validates uploaded media files
-   - Generates thumbnails, sprites, and proxy videos using FFmpeg
-   - Creates Media records with metadata
-
-2. **Transcode** (`transcode`)
-   - Transcodes media to different formats/resolutions
-   - Supports FFmpeg and Google Cloud Transcoder
-   - Generates optimized proxy files for playback
-
-3. **Detect Labels** (`detect_labels`)
-   - Orchestrates multiple Google Cloud Video Intelligence processors
-   - Uploads media to Google Cloud Storage
-   - Runs five independent analysis processors in parallel:
-     - Label Detection
-     - Object Tracking
-     - Face Detection
-     - Person Detection
-     - Speech Transcription
-   - Normalizes and stores results in structured database entities
-
-4. **Render Timeline** (`render_timeline`)
-   - Renders timelines to final video outputs
-   - Composes clips according to edit lists
-   - Generates rendered video files
-
-### Processing Features
-
-- **Parent-Child Job Orchestration**: Complex workflows split into parallel step jobs
-- **Partial Success Handling**: One processor can fail while others succeed
-- **Response Caching**: API responses cached to avoid duplicate calls
-- **Progress Tracking**: Real-time progress updates to PocketBase
-- **Retry Logic**: Automatic retries with exponential backoff
-- **Error Isolation**: Failures in one step don't block others
-
-## Key Features
-
-### Media Processing Pipeline
-
-1. **Upload** - User uploads file, creates Upload + File records, stores to S3
-2. **Process** - Background worker validates media, generates proxy, thumbnails, sprites
-3. **Transcode** - Optional transcoding to different formats/resolutions using FFmpeg or Google Cloud Transcoder
-4. **Detect Labels** - Google Cloud Video Intelligence API analyzes videos with five independent processors:
-   - **Label Detection**: Detects objects, activities, locations, and shot changes
-   - **Object Tracking**: Tracks objects across frames with bounding boxes and keyframes
-   - **Face Detection**: Detects and tracks faces with attributes (headwear, glasses, looking at camera)
-   - **Person Detection**: Detects and tracks persons with pose landmarks
-   - **Speech Transcription**: Transcribes speech to text with timestamps
-5. **Normalize & Store** - Detection results are normalized into structured database entities:
-   - `LabelEntity`: Canonical entities (e.g., "Face", "Person", "Car")
-   - `LabelTrack`: Tracked detections with keyframes and metadata
-   - `LabelClip`: Significant appearances meeting quality thresholds
-   - `LabelMedia`: Aggregated statistics and processing metadata
-6. **Timeline Editing** - Create and edit timelines with clip composition
-7. **Render** - Export timelines to final video outputs
-
-### Workspace-Scoped Tenancy
-
-All operations occur under a `workspaceRef`:
-- Users participate in workspaces via membership records with roles (owner, admin, member, viewer)
-- Permissions and queries are scoped by workspace
-- Supports multi-user collaboration with role-based access control
-
-### Background Task Processing
-
-- Resilient task queue using BullMQ (Redis-backed)
-- Progress tracking and error handling
-- Retry logic with exponential backoff
-- Parent-child job orchestration for complex workflows
-- Partial success handling (one processor can fail while others succeed)
-- Observability for job states and errors
-- Task status updates in PocketBase for real-time UI updates
-
-### Video Analysis
-
-The platform integrates with Google Cloud Video Intelligence API to provide comprehensive video analysis:
-
-- **Modular Architecture**: Each analysis type (label detection, object tracking, face detection, person detection, speech transcription) runs as an independent processor
-- **Cost Control**: Enable or disable processors individually via environment variables
-- **Response Caching**: API responses are cached to avoid duplicate API calls
-- **Normalized Storage**: Raw API responses plus normalized database entities for fast querying
-- **Versioning**: Processing results are versioned to track model updates and reprocessing
-- **Keyframe Extraction**: Tracks include keyframes with bounding boxes and timestamps
-- **Attribute Detection**: Face detection includes attributes like headwear, glasses, and camera gaze
-
-### Timeline Editing & Composition
-
-- **Clip Management**: Create clips from media with time range selection
-- **Timeline Editor**: Drag-and-drop interface for composing clips into timelines
-- **Edit List Generation**: Automatic generation of edit lists for rendering
-- **Version Control**: Timeline versions track changes and enable rollback
-- **Render Tasks**: Queue video rendering jobs with configurable output settings
-
-## Common Commands
+Video Ware pairs a browser-based timeline editor with a CLI (`vw`) that can do
+everything the editor can: ingest footage, find moments by what's said or
+seen, cut clips, compose multi-track timelines, and render the result. That
+makes video editing scriptable — by you, by a pipeline, or by an AI agent
+editing on your behalf.
 
 ```bash
-# Development
-yarn dev                              # Start all services (Next.js + PocketBase + Worker)
-yarn workspace @project/webapp dev    # Next.js only
-yarn workspace @project/pb dev        # PocketBase only
-yarn workspace @project/worker dev    # Worker only
-
-# Building
-yarn build                           # Build all packages
-yarn workspace @project/shared build # Build shared package
-
-# Code Quality
-yarn lint                            # Lint all workspaces (auto-fix)
-yarn lint:check                      # Lint all workspaces (check only)
-yarn typecheck                       # Type check all workspaces
-yarn format                          # Format all code
-
-# Testing
-yarn test                            # Run all tests
-yarn test:watch                     # Watch mode
-
-# Type Generation
-yarn typegen                        # Generate types from PocketBase
-
-# Database
-yarn db:migrate                     # Generate migration from schema changes
-yarn db:status                      # Check migration status
-yarn db:download                    # Download PocketBase binary
-yarn db:start                       # Start PocketBase in debug mode
-
-# Docker / Staging
-yarn staging:build                  # Build Docker image
-yarn staging:run                    # Run Docker container
-yarn staging:up                     # Build and run
-yarn staging:stop                   # Stop container
-yarn staging:logs                   # View container logs
-yarn staging:clean                  # Clean staging data and images
-
-# Maintenance
-yarn clean                          # Clean all build artifacts
-yarn setup                          # Reinstall PocketBase
-yarn precommit                      # Run lint, typecheck, format, and test
+vw upload create raw/*.mp4                                  # ingest footage
+vw label search "let's get started"                         # find moments by speech or visuals
+vw label clip speech LABEL_ID --label "Cold open"           # turn a moment into a clip
+vw timeline create "Episode 4" --tracks "Music,Interview,B-Roll"
+vw timeline insert -t TIMELINE_ID --clips CLIP_ID --track 1
+vw timeline render -t TIMELINE_ID --download episode-4.mp4
 ```
 
-## Tech Stack
+Humans get the same power visually: the web app has a full drag-and-drop
+timeline editor over the same data, and CLI edits show up there in realtime.
+Everything runs on your own hardware — your media never has to leave your
+server.
 
-- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS v4, shadcn/ui
-- **Backend**: PocketBase (Go-based backend-as-a-service)
-- **Worker**: NestJS with BullMQ for task processing
-- **Queue**: Redis-backed BullMQ for reliable job processing
-- **Validation**: Zod schemas with `pocketbase-zod-schema`
-- **Storage**: S3-compatible (configurable), Google Cloud Storage
-- **Media Processing**: FFmpeg (thumbnails, sprites, proxies, transcoding)
-- **Video Analysis Services**: Google Cloud Video Intelligence API, Google Cloud Transcoder, Google Cloud Speech-to-Text
-- **Package Manager**: Yarn 4.12.0 with workspaces
-- **Testing**: Vitest
-- **Deployment**: Docker with multi-stage builds, nginx, supervisor
+## Features
+
+- **Edit from the command line** — the `vw` CLI covers the entire workflow:
+  upload, search, clip, compose, render. Designed for scripts and AI agents,
+  with `vw workspace export` to dump context and `vw timeline doctor` to
+  verify edits
+- **A real editor in the browser** — multi-track drag-and-drop timeline,
+  nested timelines, captions, and live preview, kept in sync with CLI edits
+- **Searchable footage** — speech-to-text with speaker labels, plus optional
+  visual analysis (objects, faces, people, shot changes) via Google Cloud
+  Video Intelligence, so "find where she says…" is a one-line search
+- **Fast previews** — thumbnails, scrub sprites, and proxy videos generated
+  automatically on upload with FFmpeg
+- **Render to file** — export any timeline to a finished video
+- **Workspaces** — multi-user collaboration with role-based access
+- **Your storage** — local disk or any S3-compatible bucket
+
+## Quick start
+
+The prebuilt Docker image bundles everything — web app, database, and worker —
+in a single container:
+
+```bash
+docker run -d \
+  --name video-ware \
+  -p 8888:80 \
+  -e POCKETBASE_ADMIN_EMAIL=admin@example.com \
+  -e POCKETBASE_ADMIN_PASSWORD=your-secure-password \
+  -v ./data:/data \
+  ghcr.io/make-ware/video-ware:latest
+```
+
+Then open http://localhost:8888 and start uploading. For pinned versions,
+split-service deployment with Docker Compose, and configuration options, see
+the [deployment guide](docker/README.md).
+
+### Get the CLI
+
+```bash
+brew tap make-ware/tap && brew install vw
+vw login
+```
+
+Not on Homebrew? Every [GitHub
+release](https://github.com/make-ware/video-ware/releases) ships a standalone
+`vw` build. See the [CLI guide](cli/README.md) for details, the full command
+reference, and the end-to-end agent editing flow.
+
+## Developing locally
+
+You'll need Node.js >= 22, Yarn 4 (via Corepack), FFmpeg, and Redis running on
+`localhost:6379`.
+
+```bash
+git clone https://github.com/make-ware/video-ware
+cd video-ware
+yarn install
+yarn setup          # downloads PocketBase, creates .env and the admin account
+yarn build:shared   # build the shared package once
+yarn dev            # web app :3000, PocketBase :8090, worker
+```
+
+The [development guide](docs/DEVELOPMENT.md) covers the rest: project layout,
+schemas, migrations, and worker internals.
+
+## How it's built
+
+Video Ware is a Yarn workspaces monorepo:
+
+- **`cli/`** — the `vw` command-line tool
+- **`webapp/`** — the editor UI (Next.js 16, React 19, Tailwind)
+- **`pb/`** — [PocketBase](https://pocketbase.io), providing the database,
+  auth, and realtime updates
+- **`worker/`** — a NestJS background worker that processes, analyzes, and
+  renders media (BullMQ + Redis)
+- **`shared/`** — types, Zod schemas, and utilities used everywhere
+
+More docs: [Google Cloud Video Intelligence
+configuration](docs/GCVI_CONFIGURATION.md) ·
+[PocketBase guides](docs/)
 
 ## Contributing
 
-1. Read the [Development Guide](docs/DEVELOPMENT.md)
-2. Set up your development environment
-3. Create a feature branch
-4. Make your changes
-5. Run tests and linting: `yarn precommit`
-6. Submit a pull request
-
-By contributing, you agree to the [Contributor License Agreement](CLA.md).
+Contributions are welcome! Set up a local environment as above, make your
+changes on a branch, run `yarn precommit` (lint, typecheck, format, test), and
+open a pull request. By contributing, you agree to the
+[Contributor License Agreement](CLA.md).
 
 ## License
 
 Video Ware is licensed under the **[GNU AGPL-3.0-only](LICENSE)**. You are free
 to use, modify, and self-host it, including for commercial purposes. If you
-modify Video Ware and distribute it or run it as a network service, you must make
-your complete source code available to users under the same license.
+modify Video Ware and distribute it or run it as a network service, you must
+make your complete source code available to users under the same license.
 
 The software is provided "as is", without warranty, and the authors are not
 liable for any damages arising from its use.
-
-## Links
-
-- [PocketBase Documentation](https://pocketbase.io/docs/)
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Yarn Workspaces](https://yarnpkg.com/features/workspaces)

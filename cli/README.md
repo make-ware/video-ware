@@ -31,7 +31,7 @@ curl -fsSL -o vw.tar.gz \
 tar -xzf vw.tar.gz
 install -m 755 vw /usr/local/bin/vw
 
-# via Homebrew (requires the tap to be published, see below)
+# via Homebrew
 brew tap make-ware/tap
 brew install vw
 ```

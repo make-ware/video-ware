@@ -6,8 +6,12 @@ import { cn } from '@/lib/utils';
 /** PocketBase select fields are typed as `T | T[]`; collapse to a single value. */
 export type MediaTypeValue = MediaType | MediaType[] | string | undefined;
 
-function normalizeMediaType(mediaType: MediaTypeValue): string | undefined {
-  return Array.isArray(mediaType) ? mediaType[0] : mediaType;
+/** PocketBase select fields are typed as `T | T[]`; collapse to a single value. */
+export function normalizeMediaType(
+  mediaType: MediaTypeValue
+): MediaType | undefined {
+  const value = Array.isArray(mediaType) ? mediaType[0] : mediaType;
+  return value as MediaType | undefined;
 }
 
 interface MediaTypeIconProps {

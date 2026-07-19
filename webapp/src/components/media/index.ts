@@ -9,4 +9,5 @@ export {
   MediaTypeBadge,
   MediaTypeIcon,
   getMediaTypeLabel,
+  normalizeMediaType,
 } from './media-type-icon';

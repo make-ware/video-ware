@@ -8,9 +8,14 @@ import {
   type Expanded,
   type MediaClip,
 } from '@project/shared';
+import Image from 'next/image';
 import { Music } from 'lucide-react';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { VideoPlayerUI } from './video-player-ui';
+import {
+  MediaTypeIcon,
+  normalizeMediaType,
+} from '@/components/media/media-type-icon';
 
 interface MediaVideoPlayerProps<
   E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
@@ -36,7 +41,9 @@ export const MediaVideoPlayer = forwardRef<
       clip
     );
 
-    const isAudio = media.mediaType === MediaType.AUDIO;
+    const normalized = normalizeMediaType(media.mediaType);
+    const isAudio = normalized === MediaType.AUDIO;
+    const isImage = normalized === MediaType.IMAGE;
     const audioPlaceholder = isAudio ? (
       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 via-background to-primary/10">
         <Music className="h-16 w-16 text-primary/60" />
@@ -53,12 +60,46 @@ export const MediaVideoPlayer = forwardRef<
       );
     }
 
+    // Images have no playable source — render the generated thumbnail as a
+    // static, fit-to-container preview (fall back to a type icon if missing).
+    if (isImage) {
+      return poster ? (
+        <div
+          className={`relative bg-black rounded-lg overflow-hidden ${className}`}
+        >
+          <Image
+            src={poster}
+            alt={media.label ?? 'Image preview'}
+            fill
+            unoptimized
+            className="object-contain"
+          />
+        </div>
+      ) : (
+        <div
+          className={`flex flex-col items-center justify-center gap-2 bg-muted rounded-lg aspect-video ${className}`}
+        >
+          <MediaTypeIcon
+            mediaType={media.mediaType}
+            className="h-16 w-16 text-muted-foreground/60"
+          />
+          <p className="text-muted-foreground text-sm">
+            No image preview available
+          </p>
+        </div>
+      );
+    }
+
     if (!src) {
       return (
         <div
           className={`flex items-center justify-center bg-muted rounded-lg aspect-video ${className}`}
         >
-          <p className="text-muted-foreground">No video source available</p>
+          <p className="text-muted-foreground">
+            {isAudio
+              ? 'No audio source available'
+              : 'No video source available'}
+          </p>
         </div>
       );
     }

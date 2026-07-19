@@ -11,7 +11,10 @@ import {
   LABEL_JOB_TYPE_TO_STEP,
   LABEL_JOB_TYPE_TO_CONFIG_KEY,
   isLabelTypeRequested,
+  mediaTypeSupportsLabelJobType,
+  mediaTypeSupportsLabels,
 } from '@project/shared';
+import { normalizeMediaType } from './media-type-icon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -321,6 +324,31 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
     );
   };
 
+  const mediaType = normalizeMediaType(media.mediaType);
+
+  // Images carry no labels at all; audio only supports speech/speaker. Only show
+  // the job rows that can actually run for this media type.
+  if (mediaType && !mediaTypeSupportsLabels(mediaType)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Label Jobs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Label detection isn&apos;t available for images.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const applicableJobTypes = mediaType
+    ? JOB_TYPES.filter((type) =>
+        mediaTypeSupportsLabelJobType(mediaType, type.id)
+      )
+    : JOB_TYPES;
+
   return (
     <Card>
       <CardHeader>
@@ -337,7 +365,9 @@ export function MediaLabelJobs({ media, onUpdate }: MediaLabelJobsProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {JOB_TYPES.map((type) => renderJobRow(type.id, type.label))}
+            {applicableJobTypes.map((type) =>
+              renderJobRow(type.id, type.label)
+            )}
           </TableBody>
         </Table>
       </CardContent>

@@ -52,12 +52,17 @@ export const FileMetaSchema = z.object({
 export type FileMetadata = z.infer<typeof FileMetaSchema>;
 
 export const MediaMetadataSchema = z.object({
-  audio: z.object({
-    bitrate: z.number(),
-    channels: z.number(),
-    codec: z.string(),
-    sampleRate: z.string(),
-  }),
+  // Present only when the media has an audio stream — omitted by the worker's
+  // probe step for images (and video with no audio). Optional so readers must
+  // guard instead of trusting a type-level lie (see media-details-editor.tsx).
+  audio: z
+    .object({
+      bitrate: z.number(),
+      channels: z.number(),
+      codec: z.string(),
+      sampleRate: z.string(),
+    })
+    .optional(),
   bitrate: z.number(),
   codec: z.string(),
   duration: z.number(),
@@ -69,16 +74,19 @@ export const MediaMetadataSchema = z.object({
   rotation: z.number().optional(),
   mediaDate: z.string(),
   size: z.number(),
-  video: z.object({
-    codec: z.string(),
-    colorSpace: z.string(),
-    height: z.number(),
-    level: z.string(),
-    pixFmt: z.string(),
-    profile: z.string(),
-    width: z.number(),
-    rotation: z.number().optional(),
-  }),
+  // Present only for media with a video stream — omitted for audio-only media.
+  video: z
+    .object({
+      codec: z.string(),
+      colorSpace: z.string(),
+      height: z.number(),
+      level: z.string(),
+      pixFmt: z.string(),
+      profile: z.string(),
+      width: z.number(),
+      rotation: z.number().optional(),
+    })
+    .optional(),
   width: z.number(),
 });
 

@@ -4,6 +4,7 @@
  */
 
 import type { DetectLabelsConfig } from '../../types/task-contracts.js';
+import { LabelType, MediaType } from '../../enums.js';
 
 /**
  * Detect labels step type enum
@@ -90,6 +91,66 @@ export function isLabelTypeRequested(
     return config?.[key] !== false;
   }
   return config?.[key] === true;
+}
+
+/**
+ * Label types that require visual frames — only video media can carry them.
+ */
+const VISUAL_LABEL_TYPES: ReadonlySet<LabelType> = new Set([
+  LabelType.OBJECT,
+  LabelType.SHOT,
+  LabelType.PERSON,
+  LabelType.FACE,
+  LabelType.TEXT,
+  LabelType.SEGMENT,
+]);
+
+/**
+ * Label types derived from an audio track — carried by video (with audio) or
+ * audio-only media.
+ */
+const AUDIO_LABEL_TYPES: ReadonlySet<LabelType> = new Set([
+  LabelType.SPEECH,
+  LabelType.SPEAKER,
+]);
+
+/**
+ * Whether a media type can carry a given label type. Images carry no labels;
+ * audio carries only speech/speaker; video carries all. Single source of truth
+ * for tab/job/button visibility on the media detail & labels pages.
+ */
+export function mediaTypeSupportsLabelType(
+  mediaType: MediaType,
+  labelType: LabelType
+): boolean {
+  switch (mediaType) {
+    case MediaType.IMAGE:
+      return false;
+    case MediaType.AUDIO:
+      return AUDIO_LABEL_TYPES.has(labelType);
+    case MediaType.VIDEO:
+      return (
+        VISUAL_LABEL_TYPES.has(labelType) || AUDIO_LABEL_TYPES.has(labelType)
+      );
+    default:
+      return false;
+  }
+}
+
+/**
+ * The label job types applicable to a media type (a LabelJobType is a subset of
+ * LabelType with identical string values).
+ */
+export function mediaTypeSupportsLabelJobType(
+  mediaType: MediaType,
+  jobType: LabelJobType
+): boolean {
+  return mediaTypeSupportsLabelType(mediaType, jobType as unknown as LabelType);
+}
+
+/** Whether a media type supports any label detection at all. */
+export function mediaTypeSupportsLabels(mediaType: MediaType): boolean {
+  return mediaType !== MediaType.IMAGE;
 }
 
 /**

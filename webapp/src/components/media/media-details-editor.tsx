@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Media } from '@project/shared';
+import { Media, MediaType } from '@project/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,6 +73,14 @@ export function MediaDetailsEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
 
+  // Media type drives which fields make sense. The nested video/audio probe
+  // objects are absent for non-video media, so guard on their presence rather
+  // than assuming they exist (this was the source of the details-page crash).
+  const isAudio = media.mediaType === MediaType.AUDIO;
+  const isImage = media.mediaType === MediaType.IMAGE;
+  const videoMeta = media.mediaData.video;
+  const audioMeta = media.mediaData.audio;
+
   const handleSave = async () => {
     try {
       setIsSaving(true);
@@ -142,49 +150,59 @@ export function MediaDetailsEditor({
             </Popover>
           </div>
 
-          <div className="space-y-2">
-            <Label>Duration</Label>
-            <Input value={`${media.duration.toFixed(2)}s`} disabled />
-          </div>
+          {!isImage && (
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <Input value={`${media.duration.toFixed(2)}s`} disabled />
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <Label>Dimensions</Label>
-            <Input value={`${media.width} x ${media.height}`} disabled />
-          </div>
+          {!isAudio && (
+            <div className="space-y-2">
+              <Label>Dimensions</Label>
+              <Input value={`${media.width} x ${media.height}`} disabled />
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <Label>Aspect Ratio</Label>
-            <Input value={media.aspectRatio?.toFixed(2) || 'N/A'} disabled />
-          </div>
+          {!isAudio && (
+            <div className="space-y-2">
+              <Label>Aspect Ratio</Label>
+              <Input value={media.aspectRatio?.toFixed(2) || 'N/A'} disabled />
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Media Type</Label>
             <Input value={media.mediaType} className="capitalize" disabled />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="media-details-rotation">Rotation</Label>
-            <Select
-              value={String(rotation)}
-              onValueChange={(v) => setRotation(Number(v))}
-            >
-              <SelectTrigger id="media-details-rotation" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ROTATION_OPTIONS.map((deg) => (
-                  <SelectItem key={deg} value={String(deg)}>
-                    {deg}°
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!isAudio && (
+            <div className="space-y-2">
+              <Label htmlFor="media-details-rotation">Rotation</Label>
+              <Select
+                value={String(rotation)}
+                onValueChange={(v) => setRotation(Number(v))}
+              >
+                <SelectTrigger id="media-details-rotation" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROTATION_OPTIONS.map((deg) => (
+                    <SelectItem key={deg} value={String(deg)}>
+                      {deg}°
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          <ReadonlyField
-            label="Has Audio"
-            value={media.hasAudio ? 'Yes' : 'No'}
-          />
+          {!isImage && (
+            <ReadonlyField
+              label="Has Audio"
+              value={media.hasAudio ? 'Yes' : 'No'}
+            />
+          )}
 
           <ReadonlyField
             label="Created At"
@@ -209,58 +227,66 @@ export function MediaDetailsEditor({
                 label="File Size"
                 value={formatSize(media.mediaData.size)}
               />
-              <ReadonlyField
-                label="Frame Rate"
-                value={`${media.mediaData.fps} fps`}
-              />
+              {!isImage && !isAudio && (
+                <ReadonlyField
+                  label="Frame Rate"
+                  value={`${media.mediaData.fps} fps`}
+                />
+              )}
               <ReadonlyField
                 label="Overall Bitrate"
                 value={formatBitrate(media.mediaData.bitrate)}
               />
-              <ReadonlyField
-                label="Video Codec"
-                value={media.mediaData.video.codec || 'N/A'}
-              />
-              <ReadonlyField
-                label="Video Profile"
-                value={
-                  [media.mediaData.video.profile, media.mediaData.video.level]
-                    .filter(Boolean)
-                    .join(' / ') || 'N/A'
-                }
-              />
-              <ReadonlyField
-                label="Pixel Format"
-                value={media.mediaData.video.pixFmt || 'N/A'}
-              />
-              <ReadonlyField
-                label="Color Space"
-                value={media.mediaData.video.colorSpace || 'N/A'}
-              />
-              <ReadonlyField
-                label="Audio Codec"
-                value={media.mediaData.audio.codec || 'N/A'}
-              />
-              <ReadonlyField
-                label="Audio Bitrate"
-                value={formatBitrate(media.mediaData.audio.bitrate)}
-              />
-              <ReadonlyField
-                label="Audio Channels"
-                value={
-                  media.mediaData.audio.channels
-                    ? String(media.mediaData.audio.channels)
-                    : 'N/A'
-                }
-              />
-              <ReadonlyField
-                label="Sample Rate"
-                value={
-                  media.mediaData.audio.sampleRate
-                    ? `${media.mediaData.audio.sampleRate} Hz`
-                    : 'N/A'
-                }
-              />
+              {videoMeta && (
+                <>
+                  <ReadonlyField
+                    label="Video Codec"
+                    value={videoMeta.codec || 'N/A'}
+                  />
+                  <ReadonlyField
+                    label="Video Profile"
+                    value={
+                      [videoMeta.profile, videoMeta.level]
+                        .filter(Boolean)
+                        .join(' / ') || 'N/A'
+                    }
+                  />
+                  <ReadonlyField
+                    label="Pixel Format"
+                    value={videoMeta.pixFmt || 'N/A'}
+                  />
+                  <ReadonlyField
+                    label="Color Space"
+                    value={videoMeta.colorSpace || 'N/A'}
+                  />
+                </>
+              )}
+              {audioMeta && (
+                <>
+                  <ReadonlyField
+                    label="Audio Codec"
+                    value={audioMeta.codec || 'N/A'}
+                  />
+                  <ReadonlyField
+                    label="Audio Bitrate"
+                    value={formatBitrate(audioMeta.bitrate)}
+                  />
+                  <ReadonlyField
+                    label="Audio Channels"
+                    value={
+                      audioMeta.channels ? String(audioMeta.channels) : 'N/A'
+                    }
+                  />
+                  <ReadonlyField
+                    label="Sample Rate"
+                    value={
+                      audioMeta.sampleRate
+                        ? `${audioMeta.sampleRate} Hz`
+                        : 'N/A'
+                    }
+                  />
+                </>
+              )}
             </div>
           </CollapsibleContent>
         </Collapsible>

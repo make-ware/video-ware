@@ -57585,12 +57585,15 @@ var FileMetaSchema = external_exports.object({
   mimeType: external_exports.string()
 });
 var MediaMetadataSchema = external_exports.object({
+  // Present only when the media has an audio stream — omitted by the worker's
+  // probe step for images (and video with no audio). Optional so readers must
+  // guard instead of trusting a type-level lie (see media-details-editor.tsx).
   audio: external_exports.object({
     bitrate: external_exports.number(),
     channels: external_exports.number(),
     codec: external_exports.string(),
     sampleRate: external_exports.string()
-  }),
+  }).optional(),
   bitrate: external_exports.number(),
   codec: external_exports.string(),
   duration: external_exports.number(),
@@ -57602,6 +57605,7 @@ var MediaMetadataSchema = external_exports.object({
   rotation: external_exports.number().optional(),
   mediaDate: external_exports.string(),
   size: external_exports.number(),
+  // Present only for media with a video stream — omitted for audio-only media.
   video: external_exports.object({
     codec: external_exports.string(),
     colorSpace: external_exports.string(),
@@ -57611,7 +57615,7 @@ var MediaMetadataSchema = external_exports.object({
     profile: external_exports.string(),
     width: external_exports.number(),
     rotation: external_exports.number().optional()
-  }),
+  }).optional(),
   width: external_exports.number()
 });
 var MediaClipMetadataSchema = external_exports.object({
@@ -69951,7 +69955,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.9.9";
+    return "0.9.10";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

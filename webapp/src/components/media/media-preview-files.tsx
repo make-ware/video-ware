@@ -7,7 +7,9 @@ import {
   Expanded,
   File,
   FileStatus,
+  MediaType,
 } from '@project/shared';
+import { normalizeMediaType } from './media-type-icon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,6 +31,19 @@ interface MediaPreviewFilesProps<
   media: Expanded<Media, MediaRelations, E>;
   onUpdate: () => void;
 }
+
+/**
+ * Which preview assets are meaningful per media type. Video derives all five;
+ * audio only an extracted audio track; images a thumbnail + sprite. A present
+ * asset is always shown even if not in this list (e.g. embedded cover art).
+ */
+const ASSETS_BY_MEDIA_TYPE: Record<MediaType, string[]> = {
+  [MediaType.VIDEO]: ['thumbnail', 'sprite', 'filmstrip', 'proxy', 'audio'],
+  [MediaType.AUDIO]: ['audio'],
+  [MediaType.IMAGE]: ['thumbnail', 'sprite'],
+};
+
+const ALL_ASSET_TYPES = ['thumbnail', 'sprite', 'filmstrip', 'proxy', 'audio'];
 
 export function MediaPreviewFiles<
   E extends keyof MediaRelations = keyof MediaRelations,
@@ -157,6 +172,31 @@ export function MediaPreviewFiles<
     );
   };
 
+  const mediaType = normalizeMediaType(media.mediaType);
+  const relevantAssets = new Set(
+    mediaType ? ASSETS_BY_MEDIA_TYPE[mediaType] : ALL_ASSET_TYPES
+  );
+
+  const allRows: {
+    label: string;
+    type: string;
+    file?: File;
+    files?: File[];
+  }[] = [
+    { label: 'Thumbnail', type: 'thumbnail', file: thumbnailFile },
+    { label: 'Sprite Sheet', type: 'sprite', file: spriteFile },
+    { label: 'Filmstrip', type: 'filmstrip', files: filmstripFiles },
+    { label: 'Proxy Video', type: 'proxy', file: proxyFile },
+    { label: 'Audio Track', type: 'audio', file: audioFile },
+  ];
+
+  // Show a row if the asset is relevant to this media type, or if it exists
+  // anyway (never hide an asset the user actually has).
+  const visibleRows = allRows.filter((row) => {
+    const present = !!row.file || (row.files?.length ?? 0) > 0;
+    return present || relevantAssets.has(row.type);
+  });
+
   return (
     <Card>
       <CardHeader>
@@ -174,11 +214,9 @@ export function MediaPreviewFiles<
             </TableRow>
           </TableHeader>
           <TableBody>
-            {renderFileRow('Thumbnail', 'thumbnail', thumbnailFile)}
-            {renderFileRow('Sprite Sheet', 'sprite', spriteFile)}
-            {renderFileRow('Filmstrip', 'filmstrip', undefined, filmstripFiles)}
-            {renderFileRow('Proxy Video', 'proxy', proxyFile)}
-            {renderFileRow('Audio Track', 'audio', audioFile)}
+            {visibleRows.map((row) =>
+              renderFileRow(row.label, row.type, row.file, row.files)
+            )}
           </TableBody>
         </Table>
       </CardContent>

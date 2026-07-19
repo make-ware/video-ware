@@ -24,6 +24,8 @@ import {
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 import { MediaService } from '@/services';
+import { mediaTypeSupportsLabels } from '@project/shared';
+import { normalizeMediaType } from '@/components/media';
 
 export default function MediaDetailsPage() {
   const params = useParams();
@@ -117,6 +119,9 @@ export default function MediaDetailsPage() {
     );
   }
 
+  const mediaType = normalizeMediaType(media.mediaType);
+  const canDetectLabels = mediaType ? mediaTypeSupportsLabels(mediaType) : true;
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
       {/* Header */}
@@ -135,17 +140,19 @@ export default function MediaDetailsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDetectLabels}
-            disabled={isDetectingLabels || hasActiveLabelTask}
-          >
-            <Sparkles className="h-4 w-4 mr-2" />
-            {isDetectingLabels || hasActiveLabelTask
-              ? 'Detecting...'
-              : 'Detect Labels'}
-          </Button>
+          {canDetectLabels && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDetectLabels}
+              disabled={isDetectingLabels || hasActiveLabelTask}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              {isDetectingLabels || hasActiveLabelTask
+                ? 'Detecting...'
+                : 'Detect Labels'}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

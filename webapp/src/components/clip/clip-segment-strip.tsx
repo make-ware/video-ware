@@ -33,6 +33,8 @@ interface DragSession {
 const DRAG_THRESHOLD_PX = 3;
 
 export interface ClipSegmentStripProps {
+  /** Optional element id (e.g. an aria-controls target for a scrollbar). */
+  id?: string;
   /** The committed edit list (normalized, sorted). */
   segments: Segment[];
   /** Visible time window (respects the modal's zoom toggle). */
@@ -64,6 +66,7 @@ export interface ClipSegmentStripProps {
  * doesn't cross {@link DRAG_THRESHOLD_PX} is treated as a tap: seek + select.
  */
 export function ClipSegmentStrip({
+  id,
   segments,
   displayRange,
   selectedIndex,
@@ -239,6 +242,7 @@ export function ClipSegmentStrip({
   return (
     <div
       ref={stripRef}
+      id={id}
       className="relative h-14 rounded-md border bg-muted/40 touch-none select-none overflow-hidden"
       onPointerDown={(e) => beginDrag(e, 'scrub', -1)}
       onPointerMove={handlePointerMove}

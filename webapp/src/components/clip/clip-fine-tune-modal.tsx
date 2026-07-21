@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useId } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,13 +23,13 @@ import {
   Trash2,
   Undo2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { VideoPlayerUI } from '@/components/video/video-player-ui';
 import { MEDIA_PREVIEW_FRAME } from '@/components/video/media-preview-frame';
 import { useVideoSource } from '@/hooks/use-video-source';
 import { useVideoPlayhead } from '@/hooks/use-video-playhead';
+import { useViewWindow } from '@/hooks/use-view-window';
+import { WindowScrollbar } from '@/components/video/window-scrollbar';
 import { useFineTune } from './use-fine-tune';
 import { ClipSegmentStrip } from './clip-segment-strip';
 import type { Segment } from '@/components/timeline/segment-editor';
@@ -92,21 +92,24 @@ export function ClipFineTuneModal({
   const [markOut, setMarkOut] = useState<number | null>(null);
   // Informational notice (e.g. a clamped slip), distinct from errors
   const [notice, setNotice] = useState<string | null>(null);
-  const [isZoomed, setIsZoomed] = useState(false);
 
   const stripDuration = mediaDuration > 0 ? mediaDuration : times.end || 1;
 
-  // Zoomed view window spans the segments with 5% padding, like SegmentEditor.
-  const displayRange = useMemo(() => {
-    if (!isZoomed || segments.length === 0) {
-      return { from: 0, to: stripDuration };
-    }
-    const pad = Math.max((times.end - times.start) * 0.05, 0.5);
-    return {
-      from: Math.max(0, times.start - pad),
-      to: Math.min(stripDuration, times.end + pad),
-    };
-  }, [isZoomed, segments.length, times, stripDuration]);
+  // Zoomable/pannable view window over the media; defaults to the segment
+  // span with wiggle room, zoom-out gated at the full media length.
+  const {
+    view: displayRange,
+    canZoomIn,
+    canZoomOut,
+    zoomIn,
+    zoomOut,
+    panTo,
+  } = useViewWindow({
+    total: stripDuration,
+    contentStart: times.start,
+    contentEnd: times.end,
+  });
+  const stripId = useId();
 
   const canCutMarks = markIn !== null && markOut !== null && markIn < markOut;
 
@@ -336,6 +339,7 @@ export function ClipFineTuneModal({
               <span>{formatClipTime(displayRange.to)}</span>
             </div>
             <ClipSegmentStrip
+              id={stripId}
               segments={segments}
               displayRange={displayRange}
               selectedIndex={selectedIndex}
@@ -349,6 +353,17 @@ export function ClipFineTuneModal({
               onMove={handleMove}
               onTrim={handleTrimDrag}
               onDelete={handleDelete}
+            />
+            <WindowScrollbar
+              className="pt-1"
+              controlsId={stripId}
+              total={stripDuration}
+              view={displayRange}
+              onPan={panTo}
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              canZoomIn={canZoomIn}
+              canZoomOut={canZoomOut}
             />
           </div>
 
@@ -407,19 +422,6 @@ export function ClipFineTuneModal({
               </Button>
             )}
             <div className="flex-1" />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setIsZoomed((z) => !z)}
-              title={isZoomed ? 'Show full media' : 'Zoom to segments'}
-            >
-              {isZoomed ? (
-                <ZoomOut className="h-4 w-4" />
-              ) : (
-                <ZoomIn className="h-4 w-4" />
-              )}
-            </Button>
             <Button
               variant="ghost"
               size="icon"

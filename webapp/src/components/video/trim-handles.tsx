@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useId } from 'react';
+import { useViewWindow } from '@/hooks/use-view-window';
+import { WindowScrollbar } from '@/components/video/window-scrollbar';
 import { cn } from '@/lib/utils';
 
 export interface TrimHandlesProps {
@@ -50,6 +52,7 @@ export function TrimHandles({
   className,
 }: TrimHandlesProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const trackId = useId();
   const [dragging, setDragging] = useState<'start' | 'end' | 'playhead' | null>(
     null
   );
@@ -66,6 +69,17 @@ export function TrimHandles({
     handle: 'start' | 'end' | 'playhead';
   } | null>(null);
   const lastScrubAtRef = useRef<number>(0);
+
+  // Zoomable/pannable view window over the media. Defaults to the clip's
+  // trim range plus wiggle room; zooming out is gated at the full media
+  // length so the handles can always reach 0% / 100% of the media.
+  const { view, canZoomIn, canZoomOut, zoomIn, zoomOut, panTo, reveal } =
+    useViewWindow({
+      total: duration,
+      contentStart: startTime,
+      contentEnd: endTime,
+    });
+  const viewSpan = view.to - view.from;
 
   const scheduleScrub = useCallback(
     (time: number, handle: 'start' | 'end' | 'playhead') => {
@@ -123,22 +137,35 @@ export function TrimHandles({
     };
   }, []);
 
-  // Convert time to percentage position
+  // Convert time to percentage position within the view window
   const timeToPercent = useCallback(
     (time: number) => {
-      if (duration <= 0) return 0;
-      return Math.max(0, Math.min(100, (time / duration) * 100));
+      if (viewSpan <= 0) return 0;
+      return Math.max(0, Math.min(100, ((time - view.from) / viewSpan) * 100));
     },
-    [duration]
+    [view.from, viewSpan]
   );
 
-  // Convert percentage position to time
+  // Convert percentage position within the view window to time
   const percentToTime = useCallback(
     (percent: number) => {
-      return Math.max(0, Math.min(duration, (percent / 100) * duration));
+      const time = view.from + (percent / 100) * viewSpan;
+      return Math.max(0, Math.min(duration, time));
     },
-    [duration]
+    [view.from, viewSpan, duration]
   );
+
+  // Keep externally-changed handles visible (numeric inputs, I/O keys,
+  // fine-tune apply): pan minimally to reveal the handle that moved out of
+  // the window. Never fires mid-drag — dragging is clamped to the window.
+  const prevTimesRef = useRef({ start: startTime, end: endTime });
+  useEffect(() => {
+    const prev = prevTimesRef.current;
+    prevTimesRef.current = { start: startTime, end: endTime };
+    if (dragging) return;
+    if (startTime !== prev.start) reveal(startTime);
+    if (endTime !== prev.end) reveal(endTime);
+  }, [startTime, endTime, dragging, reveal]);
 
   // Get mouse/touch position as percentage
   const getPositionPercent = useCallback((clientX: number) => {
@@ -287,7 +314,16 @@ export function TrimHandles({
   const startPercent = timeToPercent(startTime);
   const endPercent = timeToPercent(endTime);
   const currentPercent =
-    currentTime !== undefined ? timeToPercent(currentTime) : null;
+    currentTime !== undefined &&
+    currentTime >= view.from &&
+    currentTime <= view.to
+      ? timeToPercent(currentTime)
+      : null;
+
+  // Handles scrolled/zoomed out of the window pin to its edge, dimmed.
+  const isStartOffWindow =
+    startTime < view.from - 0.01 || startTime > view.to + 0.01;
+  const isEndOffWindow = endTime < view.from - 0.01 || endTime > view.to + 0.01;
 
   const formatTime = (seconds: number) => {
     const min = Math.floor(seconds / 60);
@@ -304,9 +340,16 @@ export function TrimHandles({
     <div className={cn('relative w-full', className)}>
       {/* Container with padding for extended grab areas */}
       <div className="relative px-8 sm:px-6">
+        {/* View window bounds */}
+        <div className="flex justify-between mb-1 text-[10px] font-mono text-muted-foreground">
+          <span>{formatTime(view.from)}</span>
+          <span>{formatTime(view.to)}</span>
+        </div>
+
         {/* Track background */}
         <div
           ref={trackRef}
+          id={trackId}
           className={cn(
             'relative h-12 sm:h-10 bg-muted rounded-md overflow-visible touch-none',
             !disabled && onScrub && 'cursor-pointer',
@@ -317,16 +360,18 @@ export function TrimHandles({
         >
           {/* Segment blocks (composite clips) — rendered under the inactive
               shading so content outside the trim window reads as dropped */}
-          {segments?.map((seg, i) => (
-            <div
-              key={i}
-              className="absolute top-1.5 bottom-1.5 rounded-sm bg-primary/40 border border-primary/60 pointer-events-none"
-              style={{
-                left: `${timeToPercent(seg.start)}%`,
-                width: `${Math.max(timeToPercent(seg.end) - timeToPercent(seg.start), 0.5)}%`,
-              }}
-            />
-          ))}
+          {segments?.map((seg, i) =>
+            seg.end < view.from || seg.start > view.to ? null : (
+              <div
+                key={i}
+                className="absolute top-1.5 bottom-1.5 rounded-sm bg-primary/40 border border-primary/60 pointer-events-none"
+                style={{
+                  left: `${timeToPercent(seg.start)}%`,
+                  width: `${Math.max(timeToPercent(seg.end) - timeToPercent(seg.start), 0.5)}%`,
+                }}
+              />
+            )
+          )}
 
           {/* Inactive region (before start) */}
           <div
@@ -390,7 +435,8 @@ export function TrimHandles({
               'touch-none shadow-lg',
               dragging === 'start' && 'bg-primary scale-105 shadow-xl',
               focusedHandle === 'start' && 'ring-2 ring-ring ring-offset-2',
-              isStartAtBoundary && 'ring-2 ring-yellow-400/60'
+              isStartAtBoundary && 'ring-2 ring-yellow-400/60',
+              isStartOffWindow && 'opacity-50'
             )}
             style={{
               left: `calc(${startPercent}% - 6px)`,
@@ -440,7 +486,8 @@ export function TrimHandles({
               'touch-none shadow-lg',
               dragging === 'end' && 'bg-primary scale-105 shadow-xl',
               focusedHandle === 'end' && 'ring-2 ring-ring ring-offset-2',
-              isEndAtBoundary && 'ring-2 ring-yellow-400/60'
+              isEndAtBoundary && 'ring-2 ring-yellow-400/60',
+              isEndOffWindow && 'opacity-50'
             )}
             style={{
               left: `calc(${endPercent}% - 6px)`,
@@ -459,6 +506,22 @@ export function TrimHandles({
             )}
           </div>
         </div>
+
+        {/* Window zoom + drag-scroll controls */}
+        {duration > 0 && (
+          <WindowScrollbar
+            className="mt-2"
+            controlsId={trackId}
+            total={duration}
+            view={view}
+            onPan={panTo}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            canZoomIn={canZoomIn}
+            canZoomOut={canZoomOut}
+            disabled={disabled}
+          />
+        )}
       </div>
 
       {/* Time labels */}

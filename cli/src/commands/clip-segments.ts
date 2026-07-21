@@ -22,6 +22,7 @@ import {
 } from '../lib/options.js';
 import { info, printRecord, success, table } from '../lib/output.js';
 import { withConflictRetry } from '../lib/conflict.js';
+import { editResultHelp } from '../lib/help.js';
 import {
   enforceStrict,
   noopMessage,
@@ -175,6 +176,10 @@ function segmentEditCommand(
             .option(
               '--dry-run',
               'print the resulting edit list without writing'
+            )
+            .addHelpText(
+              'after',
+              editResultHelp({ noop: true, conflict: true })
             )
         )
       )

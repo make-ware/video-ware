@@ -439,12 +439,13 @@ export const insertOptions = {
   at: {
     flags: '--at <seconds>',
     description:
-      'place at this exact timeline time; nudges past collisions unless --overwrite',
+      'place at this exact timeline time; nudges past collisions unless --ripple/--overwrite',
     parse: parseSeconds,
   },
   after: {
     flags: '--after <clipId>',
-    description: 'place right after this timeline clip (implies its track)',
+    description:
+      'place right after this timeline clip (implies its track); nudges past collisions unless --ripple',
   },
   label: {
     flags: '--label <text>',

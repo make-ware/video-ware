@@ -19,6 +19,7 @@ import {
   type TimelineClipExpanded,
 } from '../lib/timeline-clip.js';
 import { withConflictRetry } from '../lib/conflict.js';
+import { DOCTOR_HELP, editResultHelp } from '../lib/help.js';
 import { enforceStrict, printOpWarnings } from '../lib/warnings.js';
 import {
   clipLabelDetail,
@@ -484,21 +485,22 @@ export function registerTimelineCommands(program: Command): void {
     )
     .option(
       '--overwrite',
-      'with --at: trim/remove overlapping clips instead of nudging forward'
+      'with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)'
     )
     .option(
       '--ripple',
-      'with --at/--after: land at the exact time and shift later clips right'
+      'with --at/--after: land at the exact time and shift later clips right (mutually exclusive with --overwrite)'
     )
     .option(
       '--strict',
-      'exit 1 when the operation completes with warnings (nudged, …)'
+      'exit 1 when the operation completes with warning-level outcomes (see Warnings below)'
     )
     .option(
       '--force',
       're-apply over a concurrent edit to the same fields instead of aborting'
     )
-    .option('--dry-run', 'print the placement plan without writing anything');
+    .option('--dry-run', 'print the placement plan without writing anything')
+    .addHelpText('after', editResultHelp({ conflict: true }));
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
@@ -607,10 +609,11 @@ export function registerTimelineCommands(program: Command): void {
     timeline
       .command('doctor [timelineId]')
       .description(
-        'Health-check a timeline: overlaps, gaps, stale durations, dangling refs'
+        'Health-check a timeline: overlaps, gaps, stale durations, dangling refs, deleted tracks, duplicate layers'
       )
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
       .option('-w, --workspace <id>', 'workspace id override')
+      .addHelpText('after', DOCTOR_HELP)
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
       const pb = await requireClient();

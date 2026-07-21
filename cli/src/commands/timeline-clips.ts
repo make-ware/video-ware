@@ -35,6 +35,7 @@ import {
   truncate,
 } from '../lib/output.js';
 import { withConflictRetry } from '../lib/conflict.js';
+import { editResultHelp } from '../lib/help.js';
 import {
   enforceStrict,
   noopMessage,
@@ -217,6 +218,7 @@ export function registerTimelineClipCommands(timeline: Command): void {
             'Update a timeline clip (label, description, trim, gain)'
           )
           .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+          .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
       )
     )
   );
@@ -277,20 +279,24 @@ export function registerTimelineClipCommands(timeline: Command): void {
             )
             .option(
               '--at <seconds>',
-              'new timeline position (default: keep current position)',
+              'new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)',
               parseSeconds
             )
             .option(
               '--overwrite',
-              'with --at: trim/remove overlapping clips instead of nudging forward'
+              'with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)'
             )
             .option(
               '--ripple',
-              'land at the exact time and shift later clips right to make room'
+              'land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)'
             )
             .option(
               '--dry-run',
               'print the placement plan without writing anything'
+            )
+            .addHelpText(
+              'after',
+              editResultHelp({ noop: true, conflict: true })
             )
         )
       )
@@ -334,30 +340,43 @@ export function registerTimelineClipCommands(timeline: Command): void {
   });
 
   withJsonOption(
-    withStrictOption(
-      workspaceOption(
-        clips
-          .command('ripple <clipId>')
-          .description(
-            'Shift a clip and everything after it on its track by ±seconds'
-          )
-          .requiredOption(
-            '--by <seconds>',
-            'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
-            parseSignedSeconds
-          )
-          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-          .option('--dry-run', 'print the shifts without writing anything')
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          clips
+            .command('ripple <clipId>')
+            .description(
+              'Shift a clip and everything after it on its track by ±seconds'
+            )
+            .requiredOption(
+              '--by <seconds>',
+              'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
+              parseSignedSeconds
+            )
+            .option(
+              '-t, --timeline <id>',
+              'timeline id (validated when passed)'
+            )
+            .option('--dry-run', 'print the shifts without writing anything')
+            .addHelpText(
+              'after',
+              editResultHelp({ noop: true, conflict: true })
+            )
+        )
       )
     )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
-      const result = await rippleTimelineClips(pb, clipId, {
-        by: opts.by,
-        dryRun: opts.dryRun,
-        timelineId: opts.timeline,
-      });
+      const result = await withConflictRetry(
+        () =>
+          rippleTimelineClips(pb, clipId, {
+            by: opts.by,
+            dryRun: opts.dryRun,
+            timelineId: opts.timeline,
+          }),
+        { patchKeys: ['timelineStart'], force: opts.force }
+      );
       if (opts.json) {
         printRecord(result, [], true);
       } else if (result.noop) {
@@ -395,15 +414,24 @@ export function registerTimelineClipCommands(timeline: Command): void {
             '--ripple',
             'shift later clips on the track left to close the gap'
           )
+          .option(
+            '--force',
+            'with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting'
+          )
+          .addHelpText('after', editResultHelp({ conflict: true }))
       )
     )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
-      const result = await removeTimelineClip(pb, clipId, {
-        ripple: opts.ripple,
-        timelineId: opts.timeline,
-      });
+      const result = await withConflictRetry(
+        () =>
+          removeTimelineClip(pb, clipId, {
+            ripple: opts.ripple,
+            timelineId: opts.timeline,
+          }),
+        { patchKeys: ['timelineStart'], force: opts.force }
+      );
       if (opts.json) {
         printRecord(result, [], true);
       } else {
@@ -432,6 +460,7 @@ export function registerTimelineClipCommands(timeline: Command): void {
             'Replace the clip order: pass every clip id in the new sequence'
           )
           .requiredOption('-t, --timeline <id>', 'timeline id')
+          .addHelpText('after', editResultHelp({ noop: true }))
       )
     )
   ).action(async (clipIds: string[], opts) => {

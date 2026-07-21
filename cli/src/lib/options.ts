@@ -84,7 +84,7 @@ export function withJsonOption(cmd: Command): Command {
 export function withStrictOption(cmd: Command): Command {
   return cmd.option(
     '--strict',
-    'exit 1 when the operation completes with warnings (nudged, clamped, …)'
+    'exit 1 when the operation completes with warning-level outcomes (see Warnings below)'
   );
 }
 

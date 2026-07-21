@@ -690,6 +690,116 @@ describe('removeTimelineClip', () => {
   });
 });
 
+describe('bulk-shift concurrent-edit guards', () => {
+  const laneClips = () => [
+    {
+      id: 'a',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 0,
+      start: 0,
+      end: 3,
+      duration: 3,
+      timelineStart: 0,
+      updated: 'u-a',
+    },
+    {
+      id: 'b',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 1,
+      start: 0,
+      end: 4,
+      duration: 4,
+      timelineStart: 5,
+      updated: 'u-b',
+    },
+    {
+      id: 'c',
+      TimelineRef: 'tl1',
+      TimelineTrackRef: 'trk0',
+      MediaRef: 'm1',
+      order: 2,
+      start: 0,
+      end: 2,
+      duration: 2,
+      timelineStart: 9,
+      updated: 'u-c',
+    },
+  ];
+
+  /** getList returns the original lane once, then `mutated` from then on. */
+  const listOnceThen = (
+    stubs: Record<string, Stub>,
+    clips: Record<string, unknown>[],
+    mutated: Record<string, unknown>[]
+  ) => {
+    let calls = 0;
+    stubs.TimelineClips.getList = vi.fn(async () => {
+      calls++;
+      return listResult(calls >= 2 ? mutated : clips);
+    });
+  };
+
+  it('ripple aborts before any write when a lane clip changed', async () => {
+    const clips = laneClips();
+    const stubs = clipStubs({ clips });
+    listOnceThen(
+      stubs,
+      clips,
+      clips.map((c) => (c.id === 'c' ? { ...c, updated: 'u-c2' } : c))
+    );
+    const pb = fakePb(stubs);
+
+    await expect(rippleTimelineClips(pb, 'b', { by: 2 })).rejects.toThrow(
+      RecordConflictError
+    );
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+
+  it('ripple escalates a mid-loop conflict to a non-retryable error', async () => {
+    const clips = laneClips();
+    const stubs = clipStubs({ clips });
+    // The pre-write verification (getList) still sees the original lane;
+    // c changes only at write time, after b's shift already landed.
+    stubs.TimelineClips.getOne = vi.fn(async (id: string) => {
+      const clip = clips.find((c) => c.id === id);
+      if (!clip) throw notFound();
+      return id === 'c' ? { ...clip, updated: 'u-c2' } : clip;
+    });
+    const pb = fakePb(stubs);
+
+    const failure: unknown = await rippleTimelineClips(pb, 'b', {
+      by: 2,
+    }).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(RecordConflictError);
+    expect((failure as Error).message).toMatch(
+      /after 1 of 2 ripple shift\(s\) were already written/
+    );
+    expect(stubs.TimelineClips.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('remove --ripple aborts before the delete on a changed shift target', async () => {
+    const clips = laneClips();
+    const stubs = clipStubs({ clips });
+    listOnceThen(
+      stubs,
+      clips,
+      clips.map((c) => (c.id === 'b' ? { ...c, updated: 'u-b2' } : c))
+    );
+    const pb = fakePb(stubs);
+
+    await expect(removeTimelineClip(pb, 'a', { ripple: true })).rejects.toThrow(
+      RecordConflictError
+    );
+    expect(stubs.TimelineClips.delete).not.toHaveBeenCalled();
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('reorderTimelineClips', () => {
   const clips = [
     { id: 'a', TimelineRef: 'tl1', order: 0, start: 0, end: 1 },

@@ -296,14 +296,17 @@ deleting one never deletes media.
   changed". (Healing a legacy clip that lacks an explicit
   `timelineStart`/track ref still writes the pin.)
 - **Concurrent edits are detected, not clobbered.** Edit ops re-check the
-  primary record right before writing; if another editor (webapp or a second
-  CLI) changed it in between, the op re-plans once against the fresh state
-  when the remote change touched *different* fields (reported as a
+  records they write right before writing; if another editor (webapp or a
+  second CLI) changed one in between, the op re-plans once against the fresh
+  state when the remote change touched *different* fields (reported as a
   `stale-read` warning), and aborts with an error when it touched the *same*
   fields or `meta` (one JSON column — a blind write would drop the other
   editor's keys). Pass `--force` to re-apply your change over the fresh
-  state anyway. After writing, ops re-check the track and warn
-  (`post-write-overlap`) if a concurrent edit produced a same-track overlap.
+  state anyway. Bulk shifts (`clips ripple`, `clips remove --ripple`) verify
+  the whole shift group before the first write lands, so a re-plan or
+  `--force` never re-applies a relative shift on top of a partial one.
+  After writing, ops re-check the track and warn (`post-write-overlap`) if
+  the final state has a same-track overlap involving the touched clips.
 - **`timeline doctor <id>`** verifies the layout: same-track overlaps
   (errors), dangling media/caption refs (errors), clips pointing at deleted
   tracks and duplicate track layers (errors), stale stored durations

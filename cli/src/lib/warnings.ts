@@ -128,8 +128,9 @@ export function staleReadWarning(recordId: string): OpWarning {
 
 /**
  * The op's own writes succeeded, but re-checking the final track state found
- * an error-level overlap involving the clips this op touched — almost always
- * a concurrent editor landing a clip mid-operation.
+ * an error-level overlap involving the clips this op touched. The check
+ * reports the state, not the cause — it can't tell a concurrent edit from a
+ * ripple that missed a clip, so the message stays neutral about blame.
  */
 export function postWriteOverlapWarning(
   finding: DoctorFinding,
@@ -139,8 +140,9 @@ export function postWriteOverlapWarning(
     level: 'warning',
     code: 'post-write-overlap',
     message:
-      `${finding.message} — another editor may have written concurrently; ` +
-      `inspect with \`vw timeline doctor ${timelineId}\``,
+      `${finding.message} — detected after this command's writes; ` +
+      `inspect with \`vw timeline doctor ${timelineId}\` and reposition ` +
+      `with \`vw timeline clips move\``,
     clipIds: finding.clipIds,
   };
 }

@@ -1,10 +1,13 @@
 import {
   MediaClipMutator,
   MediaMutator,
+  RecordConflictError,
+  RecordGoneError,
   TimelineClipMutator,
   TimelineTrackMutator,
   REFLOW_EPSILON,
   TIMELINE_EPSILON,
+  diffTopLevelFields,
   calculateEffectiveDuration,
   clampSegmentsToWindow,
   computeNestedTimelineDuration,
@@ -571,9 +574,17 @@ export async function moveTimelineClip(
         to: move.timelineStart,
       });
       if (!opts.dryRun) {
-        await clipMutator.update(move.clipId, {
-          timelineStart: move.timelineStart,
-        });
+        // Guarded like the overwrite trim victims: a shifted clip edited
+        // concurrently (its position came from this op's initial read) must
+        // not be silently displaced.
+        const victim = destClips.find((c) => c.id === move.clipId);
+        await clipMutator.updateWithGuard(
+          move.clipId,
+          { timelineStart: move.timelineStart },
+          victim
+            ? { expectedUpdated: victim.updated, snapshot: victim }
+            : undefined
+        );
       }
     }
   }
@@ -634,6 +645,65 @@ export interface RippleShift {
   clipId: string;
   from: number;
   to: number;
+}
+
+/**
+ * Bulk-shift guard: re-read the timeline's clips immediately before a
+ * multi-clip write loop and throw if any planned record changed (or was
+ * deleted) since the read the plan was computed from. Relative shifts are
+ * not idempotent — a withConflictRetry re-run (or --force) over partially
+ * written state would shift the already-written clips a second time — so
+ * conflicts must surface while zero writes have landed, where a re-plan is
+ * a clean re-application of the caller's intent.
+ */
+async function assertShiftTargetsUnchanged(
+  pb: TypedPocketBase,
+  timelineId: string,
+  planned: TimelineClip[]
+): Promise<void> {
+  if (planned.length === 0) return;
+  const fresh = await new TimelineClipMutator(pb).getByTimeline(timelineId);
+  const freshById = new Map(fresh.map((c) => [c.id, c]));
+  for (const snapshot of planned) {
+    const current = freshById.get(snapshot.id);
+    if (!current) {
+      throw new RecordGoneError('TimelineClips', snapshot.id);
+    }
+    if (current.updated !== snapshot.updated) {
+      throw new RecordConflictError({
+        collection: 'TimelineClips',
+        recordId: snapshot.id,
+        expectedUpdated: snapshot.updated,
+        actualUpdated: String(current.updated ?? ''),
+        changedFields: diffTopLevelFields(
+          snapshot as unknown as Record<string, unknown>,
+          current as unknown as Record<string, unknown>
+        ),
+      });
+    }
+  }
+}
+
+/**
+ * Escalate a guard trip inside a shift-write loop once writes have landed:
+ * re-running the op would double-shift the clips already written, so the
+ * conflict must NOT propagate as a retryable RecordConflictError.
+ */
+function partialShiftError(
+  err: unknown,
+  written: number,
+  total: number,
+  timelineId: string
+): unknown {
+  if (err instanceof RecordConflictError && written > 0) {
+    return new Error(
+      `${err.message} — after ${written} of ${total} ripple shift(s) were ` +
+        'already written, so the track may be partially shifted. Inspect ' +
+        `with \`vw timeline doctor ${timelineId}\` and \`vw timeline clips ` +
+        `list -t ${timelineId}\` before editing further.`
+    );
+  }
+  return err;
 }
 
 /** A lane clip zipped with its computed timeline range. */
@@ -782,7 +852,10 @@ export interface RippleResult {
  * Ripple edit: shift a clip and every clip after it on the same track by
  * ±seconds, preserving their relative spacing. Leftward shifts clamp so the
  * group can't cross the preceding clip or the start of the timeline. Every
- * shifted clip is written with an explicit timelineStart.
+ * shifted clip is written with an explicit timelineStart. The writes are
+ * conflict-guarded: the whole group is re-verified right before the first
+ * write, so a concurrent edit surfaces as a retryable RecordConflictError
+ * while nothing has been written yet.
  */
 export async function rippleTimelineClips(
   pb: TypedPocketBase,
@@ -855,8 +928,25 @@ export async function rippleTimelineClips(
   }
 
   if (!opts.dryRun) {
-    for (const shift of shifted) {
-      await clipMutator.update(shift.clipId, { timelineStart: shift.to });
+    // Conflicts must surface before any write lands (see the helper) so a
+    // withConflictRetry re-run applies the relative shift exactly once.
+    await assertShiftTargetsUnchanged(
+      pb,
+      timelineId,
+      group.map((e) => e.clip)
+    );
+    let written = 0;
+    try {
+      for (const [i, { clip: c }] of group.entries()) {
+        await clipMutator.updateWithGuard(
+          c.id,
+          { timelineStart: shifted[i].to },
+          { expectedUpdated: c.updated, snapshot: c }
+        );
+        written++;
+      }
+    } catch (err) {
+      throw partialShiftError(err, written, shifted.length, timelineId);
     }
     const check = await syncTimelineAfterWrite(
       pb,
@@ -899,7 +989,10 @@ export interface RemoveClipResult {
  * the timeline duration (webapp removeClipFromTimeline semantics). With
  * `ripple`, clips after the removed one on the same track shift left by the
  * removed clip's length, closing the gap (shared planRippleDelete — the same
- * planner the webapp uses).
+ * planner the webapp uses). The gap-closing writes are conflict-guarded and
+ * verified BEFORE the delete, so retryable conflicts only ever surface while
+ * the clip still exists; the delete itself is unguarded (removal is the
+ * intent regardless of concurrent field edits).
  */
 export async function removeTimelineClip(
   pb: TypedPocketBase,
@@ -916,6 +1009,7 @@ export async function removeTimelineClip(
 
   // Plan downstream shifts from the layout as it is now, before the delete.
   let shifted: RippleShift[] = [];
+  const shiftSnapshots = new Map<string, TimelineClip>();
   if (opts.ripple) {
     const trackList = (
       await new TimelineTrackMutator(pb).getByTimeline(timelineId)
@@ -937,11 +1031,41 @@ export async function removeTimelineClip(
       from: startOf.get(move.clipId) ?? move.timelineStart,
       to: move.timelineStart,
     }));
+    for (const shift of shifted) {
+      const record = laneClips.find((c) => c.id === shift.clipId);
+      if (record) shiftSnapshots.set(shift.clipId, record);
+    }
+    // Verify BEFORE the delete: a conflict thrown here is cleanly retryable
+    // (withConflictRetry re-plans, --force re-applies) — after the delete a
+    // re-run would fail on the missing clip.
+    await assertShiftTargetsUnchanged(pb, timelineId, [
+      ...shiftSnapshots.values(),
+    ]);
   }
 
   await clipMutator.delete(clipId);
-  for (const shift of shifted) {
-    await clipMutator.update(shift.clipId, { timelineStart: shift.to });
+  let written = 0;
+  try {
+    for (const shift of shifted) {
+      const snapshot = shiftSnapshots.get(shift.clipId);
+      await clipMutator.updateWithGuard(
+        shift.clipId,
+        { timelineStart: shift.to },
+        snapshot ? { expectedUpdated: snapshot.updated, snapshot } : undefined
+      );
+      written++;
+    }
+  } catch (err) {
+    // The clip is already gone, so no conflict is retryable from here — a
+    // re-run would abort on the missing record before redoing any shift.
+    if (err instanceof RecordConflictError) {
+      throw new Error(
+        `${err.message} — the clip was already removed but only ${written} ` +
+          `of ${shifted.length} gap-closing shift(s) were written. Inspect ` +
+          `with \`vw timeline doctor ${timelineId}\`.`
+      );
+    }
+    throw err;
   }
   const remaining = await clipMutator.getByTimeline(timelineId);
   await renumberClips(pb, timelineId, remaining);

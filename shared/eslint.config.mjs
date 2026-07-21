@@ -70,6 +70,14 @@ export default [
       "no-undef": "off", // Turn off no-undef for TypeScript files as TypeScript handles this
       "no-console": "off"
     }
+  },
+
+  // Test files configuration (more lenient)
+  {
+    files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "**/__tests__/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off" // Tests often use 'any' for mocks
+    }
   }
 ];
 

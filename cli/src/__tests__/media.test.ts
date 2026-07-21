@@ -12,7 +12,6 @@ import {
 } from '../lib/media.js';
 import type { MediaWithUpload } from '../lib/select.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Stub = Record<string, any>;
 
 function fakePb(collections: Record<string, Stub>): TypedPocketBase {
@@ -33,7 +32,6 @@ function fakePb(collections: Record<string, Stub>): TypedPocketBase {
   } as unknown as TypedPocketBase;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function listResult(items: any[]) {
   return {
     page: 1,

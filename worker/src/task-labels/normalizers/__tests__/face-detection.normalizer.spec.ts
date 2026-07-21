@@ -130,5 +130,52 @@ describe('FaceDetectionNormalizer', () => {
     const face = output.labelFaces?.[0];
     expect(face?.trackId).toBe('track-123');
     expect(face?.headwearLikelihood).toBe('High');
+
+    // The same aggregated attributes are also mirrored as a standalone,
+    // self-contained FaceAttributes object under metadata.
+    const faceAttributes = (
+      face?.metadata as { faceAttributes?: Record<string, unknown> }
+    )?.faceAttributes;
+    expect(faceAttributes).toBeDefined();
+    expect(faceAttributes?.headwearLikelihood).toBe('High');
+    // Only the present key is copied; absent likelihoods are omitted.
+    expect(faceAttributes?.joyLikelihood).toBeUndefined();
+  });
+
+  it('should omit the standalone faceAttributes when none are present', async () => {
+    const input: NormalizerInput<any> = {
+      response: {
+        faces: [
+          {
+            trackId: 'track-no-attrs',
+            frames: [
+              {
+                timeOffset: 0,
+                boundingBox: { left: 0, top: 0, right: 1, bottom: 1 },
+                confidence: 0.9,
+              },
+            ],
+          },
+        ],
+      },
+      mediaId: 'media-1',
+      workspaceRef: 'workspace-1',
+      taskRef: 'task-1',
+      version: 1,
+      processor: 'face-detection',
+      processorVersion: '1.0.0',
+    };
+
+    const output = await normalizer.normalize(input);
+
+    const face = output.labelFaces?.[0];
+    expect(face).toBeDefined();
+    // Null-safe: no attributes → no faceAttributes key, metadata still valid.
+    const metadata = face?.metadata as {
+      processorVersion?: string;
+      faceAttributes?: unknown;
+    };
+    expect(metadata?.processorVersion).toBeDefined();
+    expect(metadata?.faceAttributes).toBeUndefined();
   });
 });

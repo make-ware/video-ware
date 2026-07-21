@@ -66,6 +66,14 @@ export default [
     }
   },
 
+  // Test files configuration (more lenient)
+  {
+    files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "**/__tests__/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off" // Tests often use 'any' for mocks
+    }
+  },
+
   // React/Next.js files
   {
     files: ["webapp/**/*.{jsx,tsx}", "app/**/*.{jsx,tsx}"],

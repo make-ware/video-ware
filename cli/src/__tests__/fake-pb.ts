@@ -1,6 +1,5 @@
 import type { TypedPocketBase } from '@project/shared';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Stub = Record<string, any>;
 
 /**
@@ -26,7 +25,6 @@ export function fakePb(collections: Record<string, Stub>): TypedPocketBase {
   } as unknown as TypedPocketBase;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function listResult(items: any[]) {
   return {
     page: 1,

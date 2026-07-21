@@ -4,12 +4,13 @@ import {
   LabelSpeechInput,
   LabelSpeechInputSchema,
 } from '../schema/label-speech';
+import type { TypedPocketBase } from '../types';
 
 export class LabelSpeechMutator extends BaseMutator<
   LabelSpeech,
   LabelSpeechInput
 > {
-  constructor(pb: any) {
+  constructor(pb: TypedPocketBase) {
     super(pb);
   }
 

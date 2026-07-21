@@ -38,7 +38,7 @@ export interface UpdateGuard<T> {
 export abstract class BaseMutator<
   T extends RecordModel,
   InputType,
-  Relations = Record<string, any>,
+  Relations = Record<string, unknown>,
 > {
   protected pb: TypedPocketBase;
 

@@ -28,48 +28,63 @@ export interface ExpandedSegment {
 }
 
 /**
- * Check if a clip is a composite clip (has segments in clipData)
+ * Whether an edit list actually governs playback. A list needs at least two
+ * segments to describe a cut; a 0/1-segment list is equivalent to the clip's
+ * plain [start, end] window, and writers collapse it away (see
+ * finalizeSegments in segment-edits.ts), so it is never treated as active.
  *
- * @param clipType - The type field of the clip (e.g., 'composite')
- * @param clipData - The clipData field which may contain segments
- * @returns true if this is a composite clip with valid segments
+ * Composite-ness is decided purely by this predicate — a clip's `type` is its
+ * origin (user/shot/face/…) and is never consulted or changed by segment
+ * editing.
  */
-export function isCompositeClip(
-  clipType?: string,
-  clipData?: { segments?: CompositeSegment[] }
-): boolean {
-  return (
-    clipType === 'composite' &&
-    !!clipData?.segments &&
-    Array.isArray(clipData.segments) &&
-    clipData.segments.length > 0
-  );
+export function hasActiveEditList(
+  segments?: CompositeSegment[] | null
+): segments is CompositeSegment[] {
+  return Array.isArray(segments) && segments.length >= 2;
 }
 
 /**
- * Check if a MediaClip is a composite clip
+ * Check if a clip is a composite clip: its clipData carries an active edit
+ * list (>= 2 segments). Independent of the clip's `type`.
+ *
+ * @param clipData - The clipData field which may contain segments
+ * @returns true if this is a composite clip with an active edit list
+ */
+export function isCompositeClip(clipData?: {
+  segments?: CompositeSegment[];
+}): boolean {
+  return hasActiveEditList(clipData?.segments);
+}
+
+/**
+ * Check if a MediaClip is a composite clip (active edit list in clipData).
+ * Accepts anything carrying a clipData field (expanded records included).
  *
  * @param mediaClip - The MediaClip record to check
- * @returns true if this is a composite clip with valid segments
+ * @returns true if this is a composite clip with an active edit list
  */
-export function isMediaClipComposite(mediaClip?: MediaClip | null): boolean {
+export function isMediaClipComposite(
+  mediaClip?: Pick<MediaClip, 'clipData'> | null
+): boolean {
   if (!mediaClip) return false;
-  const clipData = mediaClip.clipData as { segments?: CompositeSegment[] };
-  return isCompositeClip(mediaClip.type, clipData);
+  return isCompositeClip(
+    mediaClip.clipData as { segments?: CompositeSegment[] }
+  );
 }
 
 /**
  * Get segments from a MediaClip if it's a composite clip
  *
  * @param mediaClip - The MediaClip record
- * @returns Array of segments or undefined if not a composite clip
+ * @returns The active edit list (>= 2 segments) or undefined — a 0/1-segment
+ *   list is not an edit list; the clip's [start, end] is its source of truth
  */
 export function getCompositeSegments(
-  mediaClip?: MediaClip | null
+  mediaClip?: Pick<MediaClip, 'clipData'> | null
 ): CompositeSegment[] | undefined {
-  if (!isMediaClipComposite(mediaClip)) return undefined;
-  const clipData = mediaClip!.clipData as { segments?: CompositeSegment[] };
-  return clipData?.segments;
+  if (!mediaClip) return undefined;
+  const clipData = mediaClip.clipData as { segments?: CompositeSegment[] };
+  return hasActiveEditList(clipData?.segments) ? clipData.segments : undefined;
 }
 
 /**

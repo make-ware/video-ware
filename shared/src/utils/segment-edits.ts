@@ -139,6 +139,47 @@ export function deriveClipTimes(segments: CompositeSegment[]): {
   return { start, end, duration };
 }
 
+/** Result of {@link finalizeSegments}: what a writer should persist. */
+export interface FinalizedSegments {
+  /**
+   * The edit list to persist, or undefined when it collapsed (< 2 segments)
+   * and the clip's [start, end] becomes the source of truth again.
+   */
+  segments: CompositeSegment[] | undefined;
+  start: number;
+  end: number;
+  /** Effective (gap-skipping) duration; equals end - start when collapsed. */
+  duration: number;
+}
+
+/**
+ * The storage invariant every edit-list writer routes through: a list with
+ * fewer than 2 segments is not an edit list. Normalizes, then:
+ *  - 0 segments: throws (an edit must leave content),
+ *  - exactly 1: collapses — `segments` is undefined and `start`/`end` are
+ *    that segment's bounds (the non-destructive auto-revert),
+ *  - 2+: the normalized list with times from {@link deriveClipTimes}.
+ */
+export function finalizeSegments(
+  segments: CompositeSegment[],
+  bounds?: SegmentBounds
+): FinalizedSegments {
+  const normalized = normalizeSegments(segments, bounds);
+  if (normalized.length === 0) {
+    throw new Error('Edit produced an empty segment list.');
+  }
+  if (normalized.length === 1) {
+    const [seg] = normalized;
+    return {
+      segments: undefined,
+      start: seg.start,
+      end: seg.end,
+      duration: roundToMs(seg.end - seg.start),
+    };
+  }
+  return { segments: normalized, ...deriveClipTimes(normalized) };
+}
+
 /**
  * Split segments at each source-time point. Each point must fall strictly
  * inside a segment with at least MIN_SEGMENT_SECONDS on both sides — a point

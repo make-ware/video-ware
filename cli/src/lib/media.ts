@@ -5,7 +5,7 @@ import {
   MediaMutator,
   TimelineClipMutator,
   clampSegmentsToWindow,
-  deriveClipTimes,
+  finalizeSegments,
   getCompositeSegments,
   validateTimeRange,
   type Directory,
@@ -229,7 +229,9 @@ export const mediaClipUpdateOptions = {
  * end) is re-validated against the source media and recomputes the stored
  * duration. On a composite clip the trim window intersects the edit list
  * instead of overwriting it — duration stays the effective (gap-skipping)
- * length, not end - start. Only the fields actually passed are written.
+ * length, not end - start. A window that keeps only one segment collapses
+ * the list: the clip reverts to a plain start/end trim. Only the fields
+ * actually passed are written.
  */
 export async function updateMediaClip(
   pb: TypedPocketBase,
@@ -268,7 +270,7 @@ export async function updateMediaClip(
     }
 
     const segments = getCompositeSegments(clip);
-    if (segments && segments.length > 0) {
+    if (segments) {
       const clamped = clampSegmentsToWindow(
         segments,
         start,
@@ -281,13 +283,21 @@ export async function updateMediaClip(
             `inspect the edit list with \`vw media clip segments ${clipId}\`.`
         );
       }
-      const times = deriveClipTimes(clamped);
-      patch.start = times.start;
-      patch.end = times.end;
-      patch.duration = times.duration;
+      // A window that keeps only one segment collapses the edit list — the
+      // clip reverts to a plain start/end trim (finalizeSegments invariant).
+      const finalized = finalizeSegments(clamped, mediaBounds(media));
+      patch.start = finalized.start;
+      patch.end = finalized.end;
+      patch.duration = finalized.duration;
       // merge, never replace: update() skips validation, so unknown keys
       // like gapThreshold survive — keep it that way
-      patch.clipData = { ...(clip.clipData ?? {}), segments: clamped };
+      const clipData: Record<string, unknown> = { ...(clip.clipData ?? {}) };
+      if (finalized.segments) {
+        clipData.segments = finalized.segments;
+      } else {
+        delete clipData.segments;
+      }
+      patch.clipData = clipData;
     } else {
       patch.start = start;
       patch.end = end;

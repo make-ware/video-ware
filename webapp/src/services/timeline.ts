@@ -32,6 +32,7 @@ import {
   computeNestedTimelineDuration,
   computeTimelineDuration,
   fetchNestedTimelineMap,
+  finalizeSegments,
   getCompositeSegments,
   wouldCreateTimelineCycle,
   planRippleDelete,
@@ -659,12 +660,30 @@ export class TimelineService {
     if (extras?.segments && extras.segments.length > 0) {
       // Explicit edit-list replacement (e.g. fine-tune): duration is the
       // list's gap-skipping sum inside the [start, end] window, never
-      // end - start
-      data.duration = calculateEffectiveDuration(start, end, extras.segments);
-      data.meta = {
+      // end - start. A 1-segment list collapses (finalizeSegments) — unless
+      // the source MediaClip has its own edit list, which the 1-segment
+      // override must keep masking.
+      const finalized = finalizeSegments(extras.segments);
+      let toStore = finalized.segments;
+      if (!toStore && clip.MediaClipRef) {
+        const mediaClip = await this.mediaClipMutator.getById(
+          clip.MediaClipRef
+        );
+        if (getCompositeSegments(mediaClip)) {
+          toStore = [{ start: finalized.start, end: finalized.end }];
+        }
+      }
+      const meta: Record<string, unknown> = {
         ...(typeof clip.meta === 'object' && clip.meta ? clip.meta : {}),
-        segments: extras.segments,
       };
+      if (toStore) {
+        meta.segments = toStore;
+        data.duration = calculateEffectiveDuration(start, end, toStore);
+      } else {
+        delete meta.segments;
+        data.duration = end - start;
+      }
+      data.meta = meta;
     }
 
     // Nested-timeline clips trim against the source timeline's duration

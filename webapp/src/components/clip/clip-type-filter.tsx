@@ -9,10 +9,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+// Types are origins only. Composite is not a type: a clip with an edit list
+// (any origin) shows a segments badge instead of living in a filter bucket.
 export const CLIP_TYPE_OPTIONS = [
   { value: 'all', label: 'All Types' },
   { value: ClipType.USER, label: 'My Clips' },
-  { value: ClipType.COMPOSITE, label: 'Composite' },
   { value: ClipType.SHOT, label: 'Shots' },
   { value: ClipType.OBJECT, label: 'Objects' },
   { value: ClipType.PERSON, label: 'People' },
@@ -28,7 +29,6 @@ const CLIP_TYPES = new Set<string>([
   ClipType.PERSON,
   ClipType.FACE,
   ClipType.SPEECH,
-  ClipType.COMPOSITE,
 ]);
 
 /**

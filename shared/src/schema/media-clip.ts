@@ -41,7 +41,6 @@ export const MediaClipInputSchema = z.object({
     ClipType.PERSON,
     ClipType.FACE,
     ClipType.SPEECH,
-    ClipType.COMPOSITE,
   ]),
   label: z.string().optional(),
   description: z.string().optional(),

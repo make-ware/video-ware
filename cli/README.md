@@ -325,18 +325,32 @@ deleting one never deletes media.
 
 `split` / `cut` / `trim` / `slip` / `segments` exist identically under
 `media clip` and `timeline clips`. They edit a clip's **edit list** — an
-ordered array of `{start, end}` source-media ranges (a composite clip) — so
-umms and dead words can be removed in place instead of shredding the library
-into hundreds of tiny clips.
+ordered array of `{start, end}` source-media ranges — so umms and dead words
+can be removed in place instead of shredding the library into hundreds of
+tiny clips.
 
 - **All times are source-media seconds**, the same time base as stored
   segments and transcript word times, so an agent can cut straight from a
   `label search` result.
-- **First edit auto-converts.** A plain MediaClip becomes `type: composite`
-  with its trim window as the first segment. A TimelineClip gets its own
-  `meta.segments` copy — initialized from the referenced composite MediaClip
-  when there is one — and from then on **stops following later edits to that
-  MediaClip** (`segments` shows which source a clip uses).
+- **The edit list IS the composite marker — `type` never changes.** A clip
+  is composite exactly when its edit list has 2+ segments; `type` stays the
+  clip's origin (`user`, `shot`, `face`, …) no matter how it's edited. The
+  first edit on a plain MediaClip seeds the list from its trim window; a
+  TimelineClip gets its own `meta.segments` copy — initialized from the
+  referenced composite MediaClip when there is one — and from then on
+  **stops following later edits to that MediaClip** (`segments` shows which
+  source a clip uses).
+- **Single-segment lists collapse (auto-revert).** An edit that leaves
+  exactly one segment removes the list and writes plain `start`/`end`
+  instead — cutting a clip back down to one range un-composites it. The one
+  exception: a timeline clip whose source MediaClip has its own edit list
+  keeps a 1-segment `meta.segments` as a mask (removing it would bring the
+  source's cuts back).
+- **`segments <id> --clear` is the explicit revert.** On a MediaClip it
+  removes the edit list (the trim window is kept). On a timeline clip it
+  removes the `meta.segments` override — playback reverts to the source
+  MediaClip's edit list when it has one, else to the plain trim;
+  `--ripple`/`--dry-run` are supported.
 - **Inserting a composite MediaClip carries its edits along.**
   `timeline insert --clip` stores the effective duration and the render
   expands the segments; fine-tune the placed copy with `timeline clips`
@@ -344,7 +358,8 @@ into hundreds of tiny clips.
 - **`start`/`end`/`duration` are derived, never hand-written.** Every write
   recomputes them from the segments; `duration` is the effective
   (gap-skipping) playback length, not `end - start`. `update -s/-e` on a
-  composite intersects the edit list with the new window.
+  composite intersects the edit list with the new window — and collapses the
+  clip back to a plain trim when only one segment survives the window.
 - **Edits are validated and normalized.** Segments stay sorted and
   ms-rounded, overlaps merge, edits can't cross neighboring segments or the
   media bounds, and no edit may create a segment shorter than 0.1s or cut
@@ -354,6 +369,9 @@ into hundreds of tiny clips.
   edited one by the duration change so the cut closes up; without it,
   later clips keep their absolute positions. `--dry-run` works on every
   segment command.
+- **`--json` result fields:** `converted` means an edit list was created on
+  a previously-plain clip; `collapsed` means the edit left one segment and
+  the list was removed (plain start/end again).
 - **Preview caveat:** the webapp preview player currently plays composite
   clips straight through (gaps included); renders skip the gaps. Use
   `timeline render` to hear the final cut.

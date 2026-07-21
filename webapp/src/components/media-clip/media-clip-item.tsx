@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { Media, MediaClip } from '@project/shared';
+import { isMediaClipComposite } from '@project/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Eye } from 'lucide-react';
+import { Eye, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
 import { ClipBaseDialog } from '@/components/clip/clip-base-dialog';
@@ -80,6 +81,19 @@ export function MediaClipItem({
             >
               {clip.type}
             </Badge>
+            {isMediaClipComposite(clip) && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-semibold h-5 px-1.5 gap-0.5"
+                title="Has cuts (edit list)"
+              >
+                <Layers className="h-3 w-3" />
+                {
+                  (clip.clipData as { segments?: unknown[] } | undefined)
+                    ?.segments?.length
+                }
+              </Badge>
+            )}
           </div>
         }
         subtitle={

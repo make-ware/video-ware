@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   AlertCircle,
   Check,
+  Combine,
   LogIn,
   LogOut,
   Redo2,
@@ -421,6 +422,16 @@ export function ClipFineTuneModal({
                 Clear marks
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={segments.length < 2}
+              onClick={fineTune.mergeAll}
+              title="Merge all segments into one — applying then reverts the clip to a plain trim"
+            >
+              <Combine className="h-3.5 w-3.5 mr-1" />
+              Remove all cuts
+            </Button>
             <div className="flex-1" />
             <Button
               variant="ghost"

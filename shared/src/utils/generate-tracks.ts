@@ -9,7 +9,6 @@ import type { TimelineClip } from '../schema/timeline-clip';
 import type { MediaClip } from '../schema/media-clip';
 import type { Caption } from '../schema/caption';
 import {
-  isMediaClipComposite,
   getCompositeSegments,
   expandCompositeToSegments,
   calculateEffectiveDuration,
@@ -329,46 +328,44 @@ function generateSegmentsFromClip(
     return { segments, totalDuration: usageDuration };
   }
 
-  // Check if this is a composite clip (from MediaClip definition)
-  if (isMediaClipComposite(mediaClip)) {
-    const mediaClipSegments = getCompositeSegments(mediaClip);
-    if (mediaClipSegments && mediaClipSegments.length > 0) {
-      // The placement's clip.start/end window the MediaClip's edit list
-      const compositeSegments = windowCompositeSegments(
-        mediaClipSegments,
-        clip.start,
-        clip.end
-      );
-      // Calculate effective duration from the windowed segments
-      const usageSourceStart = 0;
-      const usageDuration = calculateEffectiveDuration(
-        clip.start,
-        clip.end,
-        compositeSegments
-      );
+  // Composite clip (active edit list on the source MediaClip, any type)
+  const mediaClipSegments = getCompositeSegments(mediaClip);
+  if (mediaClipSegments) {
+    // The placement's clip.start/end window the MediaClip's edit list
+    const compositeSegments = windowCompositeSegments(
+      mediaClipSegments,
+      clip.start,
+      clip.end
+    );
+    // Calculate effective duration from the windowed segments
+    const usageSourceStart = 0;
+    const usageDuration = calculateEffectiveDuration(
+      clip.start,
+      clip.end,
+      compositeSegments
+    );
 
-      const expanded = expandCompositeToSegments(
-        compositeSegments,
-        usageSourceStart,
-        usageDuration,
-        startTime
-      );
+    const expanded = expandCompositeToSegments(
+      compositeSegments,
+      usageSourceStart,
+      usageDuration,
+      startTime
+    );
 
-      const segments: TimelineSegment[] = expanded.map((expSeg, i) => ({
-        id: `${clip.id}_${i}`,
-        assetId: mediaClip!.MediaRef,
-        type: 'video' as const,
-        time: {
-          start: expSeg.timelineStart,
-          duration: expSeg.duration,
-          sourceStart: expSeg.sourceStart,
-        },
-        video: { opacity },
-        audio: { volume },
-      }));
+    const segments: TimelineSegment[] = expanded.map((expSeg, i) => ({
+      id: `${clip.id}_${i}`,
+      assetId: mediaClip!.MediaRef,
+      type: 'video' as const,
+      time: {
+        start: expSeg.timelineStart,
+        duration: expSeg.duration,
+        sourceStart: expSeg.sourceStart,
+      },
+      video: { opacity },
+      audio: { volume },
+    }));
 
-      return { segments, totalDuration: usageDuration };
-    }
+    return { segments, totalDuration: usageDuration };
   }
 
   // Standard clip (non-composite)

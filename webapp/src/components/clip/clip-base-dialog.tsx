@@ -67,14 +67,13 @@ export function ClipBaseDialog({
   onClipUpdated: _onClipUpdated,
 }: ClipBaseDialogProps) {
   const media = clip.expand?.MediaRef as ExpandedMedia | undefined;
+  // Composite = has an active edit list (>= 2 segments); the clip's type is
+  // its origin and says nothing about cuts.
   const isComposite = useMemo(() => {
     const segments =
       (clip.clipData as { segments?: unknown[] } | undefined)?.segments ||
       (clip.meta as { segments?: unknown[] } | undefined)?.segments;
-    return (
-      !!(segments && (segments as unknown[]).length > 0) ||
-      clip.type === ClipType.COMPOSITE
-    );
+    return Array.isArray(segments) && segments.length >= 2;
   }, [clip]);
 
   const { src, poster } = useVideoSource(media ?? undefined);
@@ -101,13 +100,14 @@ export function ClipBaseDialog({
     return clip.clipData || clip.meta || {};
   }, [clip]);
 
+  // User-owned origins are editable; so is any clip that already has cuts
+  // (previously reachable because segment-editing flipped clips to the
+  // composite type — types are preserved now, so gate on the list itself).
   const isEditable = useMemo(() => {
     return (
-      clip.type === ClipType.USER ||
-      clip.type === ClipType.COMPOSITE ||
-      clip.type === ClipType.RANGE
+      clip.type === ClipType.USER || clip.type === ClipType.RANGE || isComposite
     );
-  }, [clip.type]);
+  }, [clip.type, isComposite]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

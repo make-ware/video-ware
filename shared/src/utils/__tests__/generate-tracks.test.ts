@@ -39,7 +39,7 @@ describe('generateTracks with composite clips', () => {
       },
     } as unknown as TimelineClipWithExpand;
 
-    // Clip 2: Composite, 1 segment, duration 5s
+    // Clip 2: Composite, 2 segments, total duration 5s
     const clip2: TimelineClipWithExpand = {
       id: 'clip2',
       TimelineRef: 'timeline1',
@@ -58,7 +58,8 @@ describe('generateTracks with composite clips', () => {
           end: 0,
           clipData: {
             segments: [
-              { start: 0, end: 5 }, // 5s
+              { start: 0, end: 3 }, // 3s
+              { start: 10, end: 12 }, // 2s
             ],
           },
         } as unknown as MediaClip,
@@ -90,7 +91,7 @@ describe('generateTracks with composite clips', () => {
 
     // Check segments in video track
     const segments = videoTrack!.segments;
-    expect(segments).toHaveLength(3); // 2 from clip1 + 1 from clip2
+    expect(segments).toHaveLength(4); // 2 from clip1 + 2 from clip2
 
     // Clip 1 Segments
     // Seg 1: 0 - 5
@@ -105,7 +106,9 @@ describe('generateTracks with composite clips', () => {
     // Should start at 10!
     expect(segments[2].id).toContain('clip2');
     expect(segments[2].time.start).toBe(10);
-    expect(segments[2].time.duration).toBe(5);
+    expect(segments[2].time.duration).toBe(3);
+    expect(segments[3].time.start).toBe(13);
+    expect(segments[3].time.duration).toBe(2);
   });
 
   it('should handle mixed regular and composite clips', () => {
@@ -120,7 +123,8 @@ describe('generateTracks with composite clips', () => {
       TimelineTrackRef: 'track1',
     } as any;
 
-    // Clip 2: Composite, duration 5
+    // Clip 2: Composite (edit list on a plain 'user' clip — type is origin
+    // only, presence of the list is what makes it composite), duration 5
     const clip2 = {
       id: 'clip2',
       TimelineRef: 'timeline1',
@@ -132,12 +136,15 @@ describe('generateTracks with composite clips', () => {
       expand: {
         MediaClipRef: {
           id: 'mc2',
-          type: 'composite',
+          type: 'user',
           MediaRef: 'media2',
           start: 0,
-          end: 0,
+          end: 12,
           clipData: {
-            segments: [{ start: 0, end: 5 }],
+            segments: [
+              { start: 0, end: 3 },
+              { start: 10, end: 12 },
+            ],
           },
         },
       },
@@ -154,7 +161,86 @@ describe('generateTracks with composite clips', () => {
 
     // Clip 2 should start after Clip 1
     expect(segments[1].time.start).toBe(10);
-    expect(segments[1].time.duration).toBe(5);
+    expect(segments[1].time.duration).toBe(3);
+    expect(segments[2].time.start).toBe(13);
+    expect(segments[2].time.duration).toBe(2);
+  });
+
+  it('treats a 1-segment MediaClip list as a plain clip (start/end rule)', () => {
+    // Writers collapse 1-segment lists (finalizeSegments), so start/end are
+    // the source of truth; a stray 1-segment list must not activate the
+    // composite path.
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 2,
+      end: 7,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      expand: {
+        MediaClipRef: {
+          id: 'mc1',
+          type: 'user',
+          MediaRef: 'media1',
+          start: 2,
+          end: 7,
+          clipData: {
+            segments: [{ start: 2, end: 7 }],
+          },
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0].id).toBe('clip1'); // standard path, no `_i` suffix
+    expect(segments[0].time.start).toBe(0);
+    expect(segments[0].time.duration).toBe(5);
+    expect(segments[0].time.sourceStart).toBe(2);
+  });
+
+  it('a 1-segment meta.segments override still masks a composite source', () => {
+    // The override threshold is deliberately >= 1: this placement cut its
+    // source's list down to one run; unsetting it would unmask the source's
+    // cuts, so it persists and plays as a single contiguous range.
+    const clip = {
+      id: 'clip1',
+      TimelineRef: 'timeline1',
+      MediaRef: 'media1',
+      start: 5,
+      end: 10,
+      order: 0,
+      TimelineTrackRef: 'track1',
+      meta: {
+        segments: [{ start: 5, end: 10 }],
+      },
+      expand: {
+        MediaClipRef: {
+          id: 'mc1',
+          type: 'user',
+          MediaRef: 'media1',
+          start: 0,
+          end: 23,
+          clipData: {
+            segments: [
+              { start: 0, end: 3 },
+              { start: 20, end: 23 },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const tracks = generateTracks([clip], [{ id: 'track1', layer: 0 } as any]);
+    const segments = tracks[0].segments;
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0].time.sourceStart).toBe(5);
+    expect(segments[0].time.duration).toBe(5);
+    expect(segments[0].time.start).toBe(0);
   });
 
   it('should handle clips on multiple layers', () => {

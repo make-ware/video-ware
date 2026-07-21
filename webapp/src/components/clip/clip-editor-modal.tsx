@@ -55,7 +55,12 @@ import {
 } from './clip-save-payloads';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { MediaClipMutator } from '@project/shared/mutator';
-import { ClipType, calculateDuration } from '@project/shared';
+import {
+  ClipType,
+  calculateDuration,
+  getCompositeSegments,
+  isMediaClipComposite,
+} from '@project/shared';
 import type { Media, MediaClip } from '@project/shared';
 import type {
   ExpandedMedia,
@@ -167,31 +172,27 @@ function getInitialSegments(
 ): Segment[] | undefined {
   if (props.mode === 'create') return undefined;
   if (props.mode === 'edit-media-clip') {
-    const clipData = props.clip.clipData as
-      | { segments?: Segment[] }
-      | undefined;
-    return clipData?.segments;
+    return getCompositeSegments(props.clip);
   }
   // timeline clip: check meta and underlying MediaClipRef
   const meta = props.clip.meta as { segments?: Segment[] } | undefined;
   if (meta?.segments?.length) return meta.segments;
-  const mediaClip = props.clip.expand?.MediaClipRef;
-  const clipData = mediaClip?.clipData as { segments?: Segment[] } | undefined;
-  return clipData?.segments;
+  return getCompositeSegments(props.clip.expand?.MediaClipRef);
 }
 
 function getIsComposite(props: ClipEditorModalProps): boolean {
   if (props.mode === 'create') return false;
   if (props.mode === 'edit-media-clip') {
-    return props.clip.type === ClipType.COMPOSITE;
+    return isMediaClipComposite(props.clip);
   }
   // A timeline clip with its own edit list is composite regardless of the
   // source MediaClip (meta.segments wins at render time — e.g. a clip
-  // fine-tuned via the CLI on top of a plain MediaClip).
+  // fine-tuned via the CLI on top of a plain MediaClip). The meta override
+  // counts from 1 segment: a 1-segment mask must keep editing as a list so
+  // saving doesn't unmask a composite source.
   const meta = props.clip.meta as { segments?: Segment[] } | undefined;
   if (meta?.segments?.length) return true;
-  const mediaClip = props.clip.expand?.MediaClipRef;
-  return mediaClip?.type === ClipType.COMPOSITE;
+  return isMediaClipComposite(props.clip.expand?.MediaClipRef);
 }
 
 // --- Component ---
@@ -208,9 +209,11 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   } = getInitialTimes(props);
   const initialSegments = getInitialSegments(props);
 
-  // Fine-tuning a plain clip converts it to a composite: the flag flips when
-  // the fine-tune modal applies an edit list, and the save handlers persist
-  // the conversion (MediaClip type / TimelineClip meta.segments).
+  // Fine-tuning a plain clip gives it an edit list: the flag flips when the
+  // fine-tune modal applies one, and the save handlers persist it
+  // (MediaClip clipData.segments / TimelineClip meta.segments). The clip's
+  // `type` is never touched — the list itself is what makes it composite,
+  // and saving with a single segment collapses it back to a plain trim.
   const [converted, setConverted] = useState(false);
   const isComposite = getIsComposite(props) || converted;
 
@@ -369,6 +372,9 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           endTime: editor.endTime,
           segments:
             isComposite && editor.segments.length > 0 ? editor.segments : null,
+          sourceHasActiveEditList: isMediaClipComposite(
+            tlProps.clip.expand?.MediaClipRef
+          ),
           mediaDuration: editor.mediaDuration,
           isImage,
           title,
@@ -432,6 +438,20 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const openFineTune = useCallback(() => {
     editor.videoRef.current?.pause();
     setFineTuneOpen(true);
+  }, [editor]);
+
+  // Merge the edit list to its span — the visual revert. Saving persists the
+  // collapse (finalizeSegments drops a 1-segment list), so the clip becomes
+  // a plain start/end trim again.
+  const removeAllCuts = useCallback(() => {
+    const segments = editor.segments;
+    if (segments.length < 2) return;
+    editor.applySegments([
+      {
+        start: Math.min(...segments.map((s) => s.start)),
+        end: Math.max(...segments.map((s) => s.end)),
+      },
+    ]);
   }, [editor]);
 
   // Keyboard shortcuts for fast cutting: I/O set in/out points at the
@@ -672,10 +692,23 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                 </div>
 
                 {/* Advanced segment editing (edit modes only): opens the
-                    dedicated fine-tune dialog; plain clips convert to
-                    composite when its edits are applied. */}
+                    dedicated fine-tune dialog; a plain clip becomes
+                    composite once an edit list (2+ segments) is applied.
+                    "Remove all cuts" merges the list to its span — saving
+                    then collapses it back to a plain start/end trim. */}
                 {mode !== 'create' && media && (
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
+                    {editor.segments.length >= 2 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={removeAllCuts}
+                      >
+                        <Layers className="h-3.5 w-3.5 mr-1" />
+                        Remove all cuts
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"

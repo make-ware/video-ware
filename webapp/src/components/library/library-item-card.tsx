@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Media, MediaClip } from '@project/shared';
-import { ClipType } from '@project/shared/enums';
+import { isMediaClipComposite } from '@project/shared';
 import { MediaClipMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Edit, Trash2, Plus, Scissors, Eye } from 'lucide-react';
+import { Edit, Trash2, Plus, Scissors, Eye, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MediaBaseCard } from '@/components/media/media-base-card';
@@ -204,9 +204,7 @@ function ClipCard({
         variant="secondary"
         onClick={handleOpenEdit}
         className="h-7 w-7 shadow-md"
-        title={
-          clip.type === ClipType.COMPOSITE ? 'Fine-Tune Segments' : 'Edit Clip'
-        }
+        title={isMediaClipComposite(clip) ? 'Fine-Tune Segments' : 'Edit Clip'}
       >
         <Edit className="h-4 w-4" />
       </Button>
@@ -280,6 +278,19 @@ function ClipCard({
             >
               {clip.type}
             </Badge>
+            {isMediaClipComposite(clip) && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-semibold h-5 px-1.5 gap-0.5"
+                title="Has cuts (edit list)"
+              >
+                <Layers className="h-3 w-3" />
+                {
+                  (clip.clipData as { segments?: unknown[] } | undefined)
+                    ?.segments?.length
+                }
+              </Badge>
+            )}
           </div>
         }
         subtitle={

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Type, Layers, AlertTriangle } from 'lucide-react';
 import {
   getClipTimelineDuration,
+  getCompositeSegments,
   type TimelineClip,
   type MediaClip,
   type Caption,
@@ -63,20 +64,18 @@ export function ClipBlock({
           : 'bg-blue-600/60');
 
   // Extract composite clip data: the clip's own copy-on-write edit list
-  // (meta.segments) wins over the source MediaClip's segments
+  // (meta.segments) wins over the source MediaClip's active edit list
+  // (getCompositeSegments — presence-based, the clip type is irrelevant)
   const mediaClip = (
     clip as TimelineClip & { expand?: { MediaClipRef?: MediaClip } }
   ).expand?.MediaClipRef;
-  const clipData = mediaClip?.clipData as
-    | { segments?: Array<{ start: number; end: number }> }
-    | undefined;
   const segments =
     clip.meta?.segments && clip.meta.segments.length > 0
       ? clip.meta.segments
-      : mediaClip?.type === 'composite'
-        ? clipData?.segments
-        : undefined;
-  const isComposite = !!segments && segments.length > 0;
+      : getCompositeSegments(mediaClip);
+  // Cut indicators only make sense from 2 segments (a 1-segment override
+  // plays straight through)
+  const isComposite = !!segments && segments.length >= 2;
 
   return (
     <div

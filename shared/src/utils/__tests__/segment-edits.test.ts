@@ -5,6 +5,7 @@ import {
   cutSegments,
   deleteSegment,
   deriveClipTimes,
+  finalizeSegments,
   normalizeSegments,
   roundToMs,
   slipSegments,
@@ -102,6 +103,64 @@ describe('deriveClipTimes', () => {
 
   it('throws on an empty list', () => {
     expect(() => deriveClipTimes([])).toThrow(/empty segment list/i);
+  });
+});
+
+describe('finalizeSegments', () => {
+  it('passes a 2+ segment list through normalized with derived times', () => {
+    expect(finalizeSegments(segs([20, 30], [0, 10]))).toEqual({
+      segments: segs([0, 10], [20, 30]),
+      start: 0,
+      end: 30,
+      duration: 20,
+    });
+  });
+
+  it('collapses a single segment: no list, start/end are source of truth', () => {
+    expect(finalizeSegments(segs([2.5, 8]))).toEqual({
+      segments: undefined,
+      start: 2.5,
+      end: 8,
+      duration: 5.5,
+    });
+  });
+
+  it('collapses when normalization drops a sliver (2 → 1 segments)', () => {
+    const sliver = MIN_SEGMENT_SECONDS / 2;
+    expect(finalizeSegments(segs([0, 10], [20, 20 + sliver]))).toEqual({
+      segments: undefined,
+      start: 0,
+      end: 10,
+      duration: 10,
+    });
+  });
+
+  it('collapses when normalization merges overlaps into one segment', () => {
+    expect(finalizeSegments(segs([0, 6], [4, 10]))).toEqual({
+      segments: undefined,
+      start: 0,
+      end: 10,
+      duration: 10,
+    });
+  });
+
+  it('respects bounds while normalizing', () => {
+    expect(
+      finalizeSegments(segs([0, 10], [20, 99]), { mediaDuration: 30 })
+    ).toEqual({
+      segments: segs([0, 10], [20, 30]),
+      start: 0,
+      end: 30,
+      duration: 20,
+    });
+  });
+
+  it('throws on an empty result', () => {
+    expect(() => finalizeSegments([])).toThrow(/empty segment list/i);
+    const sliver = MIN_SEGMENT_SECONDS / 2;
+    expect(() => finalizeSegments(segs([0, sliver]))).toThrow(
+      /empty segment list/i
+    );
   });
 });
 

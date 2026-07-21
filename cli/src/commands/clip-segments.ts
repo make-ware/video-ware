@@ -2,13 +2,17 @@ import type { Command } from 'commander';
 import type { CompositeSegment } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import {
+  clearMediaClipSegments,
+  clearTimelineClipSegments,
   editMediaClipSegments,
   editTimelineClipSegments,
   inspectMediaClipSegments,
   inspectTimelineClipSegments,
+  type MediaClipSegmentsClearResult,
   type MediaClipSegmentsEditResult,
   type SegmentOp,
   type SegmentsInspection,
+  type TimelineClipSegmentsClearResult,
   type TimelineClipSegmentsEditResult,
 } from '../lib/clip-segments.js';
 import {
@@ -94,15 +98,65 @@ function reportEdit(
     }
 
     if ('converted' in result && result.converted) {
-      info('  converted to a composite clip (edit list created)');
+      info('  edit list created (the clip was plain until now)');
     }
-    if ('segmentsSource' in result && result.segmentsSource !== 'meta') {
+    if (result.collapsed) {
+      info(
+        '  edit list collapsed to a single segment — the clip is plain ' +
+          'again (start/end are the source of truth)'
+      );
+    }
+    if (
+      'segmentsSource' in result &&
+      result.segmentsSource !== 'meta' &&
+      result.hasOwnEditList
+    ) {
       const from =
         result.segmentsSource === 'mediaClip'
           ? "the source MediaClip's edit list"
           : "the clip's trim window";
       info(
         `  edit list initialized from ${from} — this clip now keeps its own copy`
+      );
+    }
+    if ('rippled' in result) {
+      for (const shift of result.rippled) {
+        info(
+          `  rippled: ${shift.clipId} ${secs(shift.from)} → ${secs(shift.to)}`
+        );
+      }
+    }
+  }
+  printOpWarnings(result.warnings);
+  enforceStrict(result.warnings, opts.strict);
+}
+
+/** Shared human/JSON reporting for both domains' `segments --clear`. */
+function reportClear(
+  clipId: string,
+  result: MediaClipSegmentsClearResult | TimelineClipSegmentsClearResult,
+  opts: { json?: boolean; strict?: boolean }
+): void {
+  if (opts.json) {
+    printRecord(result, [], true);
+  } else if (result.noop) {
+    info(noopMessage(result.warnings) ?? 'Nothing to clear — no edit list.');
+  } else {
+    const removed = result.removed ?? [];
+    const summary =
+      `Cleared the edit list of clip ${clipId} ` +
+      `(${removed.length} segment${removed.length === 1 ? '' : 's'} removed) — ` +
+      `effective ${secs(effectiveOf(removed))} → ${secs(result.times.duration)}`;
+    if (result.dryRun) {
+      info(`Dry run — nothing written. Would have: ${summary}`);
+    } else {
+      success(summary);
+    }
+    if ('revertsTo' in result) {
+      info(
+        result.revertsTo === 'mediaClip'
+          ? "  playback now follows the source MediaClip's edit list again"
+          : '  playback now follows the plain start/end trim window'
       );
     }
     if ('rippled' in result) {
@@ -129,7 +183,7 @@ function reportInspection(
   }
   const sourceHint =
     inspection.source === 'trim'
-      ? 'trim window — not composite yet; the first edit converts it'
+      ? 'trim window — no edit list yet; an edit leaving 2+ segments creates one'
       : inspection.source;
   info(
     `Clip ${clipId} — ${inspection.segments.length} segment(s), ` +
@@ -209,7 +263,7 @@ async function runMediaEdit(
   const result = await withConflictRetry(
     () => editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
     {
-      patchKeys: ['start', 'end', 'duration', 'clipData', 'type'],
+      patchKeys: ['start', 'end', 'duration', 'clipData'],
       force: opts.force,
     }
   );
@@ -329,14 +383,41 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
     });
 
   withJsonOption(
-    workspaceOption(
-      clip
-        .command('segments <clipId>')
-        .description("Show a media clip's edit list (segments and gaps)")
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          clip
+            .command('segments <clipId>')
+            .description(
+              "Show a media clip's edit list (segments and gaps), or " +
+                'remove it with --clear'
+            )
+            .option(
+              '--clear',
+              'remove the edit list — the clip reverts to its plain ' +
+                'start/end trim (the explicit un-composite)'
+            )
+            .option(
+              '--dry-run',
+              'with --clear: print the result without writing'
+            )
+        )
+      )
     )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
+      if (opts.clear) {
+        const result = await withConflictRetry(
+          () => clearMediaClipSegments(pb, clipId, { dryRun: opts.dryRun }),
+          {
+            patchKeys: ['start', 'end', 'duration', 'clipData'],
+            force: opts.force,
+          }
+        );
+        reportClear(clipId, result, opts);
+        return;
+      }
       reportInspection(
         clipId,
         await inspectMediaClipSegments(pb, clipId),
@@ -493,18 +574,52 @@ export function registerTimelineClipSegmentCommands(clips: Command): void {
   });
 
   withJsonOption(
-    workspaceOption(
-      timelineOption(
-        clips
-          .command('segments <clipId>')
-          .description(
-            "Show a timeline clip's edit list (segments, gaps, source)"
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          timelineOption(
+            clips
+              .command('segments <clipId>')
+              .description(
+                "Show a timeline clip's edit list (segments, gaps, source), " +
+                  'or remove its override with --clear'
+              )
+              .option(
+                '--clear',
+                'remove the meta.segments override — playback reverts to ' +
+                  "the source MediaClip's edit list (if any) or the plain trim"
+              )
+              .option(
+                '--ripple',
+                'with --clear: shift later clips by the duration change'
+              )
+              .option(
+                '--dry-run',
+                'with --clear: print the result without writing'
+              )
           )
+        )
       )
     )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
+      if (opts.clear) {
+        const result = await withConflictRetry(
+          () =>
+            clearTimelineClipSegments(pb, clipId, {
+              ripple: opts.ripple,
+              dryRun: opts.dryRun,
+              timelineId: opts.timeline,
+            }),
+          {
+            patchKeys: ['start', 'end', 'duration', 'meta'],
+            force: opts.force,
+          }
+        );
+        reportClear(clipId, result, opts);
+        return;
+      }
       reportInspection(
         clipId,
         await inspectTimelineClipSegments(pb, clipId, opts.timeline),

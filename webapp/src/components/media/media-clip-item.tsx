@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
-import { MediaClip, Media } from '@project/shared';
-import { Clock } from 'lucide-react';
+import { MediaClip, Media, isMediaClipComposite } from '@project/shared';
+import { Clock, Layers } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useState } from 'react';
 import { SpriteAnimator } from '../sprite/sprite-animator';
@@ -64,6 +64,16 @@ export function MediaClipItem({
             >
               {clip.type}
             </Badge>
+            {isMediaClipComposite(clip) && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-semibold h-5 px-1.5 gap-0.5"
+                title="Has cuts (edit list)"
+              >
+                <Layers className="h-3 w-3" />
+                {clip.clipData?.segments?.length}
+              </Badge>
+            )}
             <span className="text-xs font-medium tabular-nums text-muted-foreground">
               {formatTime(clip.start)} - {formatTime(clip.end)}
             </span>

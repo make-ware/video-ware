@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { ClipType } from '@project/shared';
 import {
   buildMediaClipSegmentsPatch,
   buildTimelineClipUpdates,
@@ -12,18 +11,17 @@ const segments = [
 ];
 
 describe('buildMediaClipSegmentsPatch', () => {
-  it('converts a plain clip: sets type, derived times, merged clipData', () => {
+  it('writes derived times + merged clipData without ever touching type', () => {
     const patch = buildMediaClipSegmentsPatch({
       clip: {
-        type: ClipType.USER,
         clipData: { gapThreshold: 2 },
       },
       segments,
       mediaDuration: 60,
     });
 
+    // composite-ness is the edit list itself — no type key, ever
     expect(patch).toEqual({
-      type: ClipType.COMPOSITE,
       start: 0,
       end: 30,
       duration: 20, // effective (gap-skipping), not end - start
@@ -37,24 +35,37 @@ describe('buildMediaClipSegmentsPatch', () => {
     });
   });
 
-  it('does not re-set type on an already-composite clip', () => {
+  it('collapses a 1-segment list: start/end become the source of truth', () => {
     const patch = buildMediaClipSegmentsPatch({
-      clip: { type: ClipType.COMPOSITE, clipData: {} },
-      segments,
+      clip: { clipData: { gapThreshold: 2, segments } },
+      segments: [{ start: 5, end: 25 }],
       mediaDuration: 60,
     });
-    expect(patch).not.toHaveProperty('type');
+
+    expect(patch).toEqual({
+      start: 5,
+      end: 25,
+      duration: 20,
+      clipData: { gapThreshold: 2 }, // segments key removed
+    });
   });
 
-  it('clamps segments to the media duration', () => {
+  it('collapses when clamping to the media duration leaves one segment', () => {
     const patch = buildMediaClipSegmentsPatch({
-      clip: { type: ClipType.COMPOSITE, clipData: {} },
-      segments: [{ start: 20, end: 99 }],
+      clip: { clipData: {} },
+      segments: [
+        { start: 20, end: 99 },
+        { start: 30, end: 99 },
+      ],
       mediaDuration: 25,
     });
-    expect((patch.clipData as { segments: unknown }).segments).toEqual([
-      { start: 20, end: 25 },
-    ]);
+    // both clamp to <=25; overlap merges into one segment → collapse
+    expect(patch).toEqual({
+      start: 20,
+      end: 25,
+      duration: 5,
+      clipData: {},
+    });
   });
 });
 
@@ -132,6 +143,52 @@ describe('buildTimelineClipUpdates', () => {
     expect(updates.duration).toBe(20);
   });
 
+  it('collapses a 1-segment list when the source has no edit list', () => {
+    const withOldList = {
+      meta: { gain: 0.5, segments },
+    } as unknown as Pick<ExpandedTimelineClip, 'meta'>;
+
+    const updates = buildTimelineClipUpdates({
+      clip: withOldList,
+      startTime: 0,
+      endTime: 30,
+      segments: [{ start: 0, end: 30 }],
+      sourceHasActiveEditList: false,
+      mediaDuration: 60,
+      title: '',
+      color: 'bg-blue-600',
+      gain: 1,
+    });
+
+    expect(updates).toEqual({
+      start: 0,
+      end: 30,
+      duration: 30,
+      // segments key removed — the clip is plain again
+      meta: { gain: 1, title: '', color: 'bg-blue-600' },
+    });
+  });
+
+  it('keeps a 1-segment override as a mask over a composite source', () => {
+    const updates = buildTimelineClipUpdates({
+      clip,
+      startTime: 0,
+      endTime: 30,
+      segments: [{ start: 0, end: 30 }],
+      sourceHasActiveEditList: true,
+      mediaDuration: 60,
+      title: '',
+      color: 'bg-blue-600',
+      gain: 1,
+    });
+
+    // removing it would unmask the source MediaClip's cuts
+    expect((updates.meta as { segments: unknown }).segments).toEqual([
+      { start: 0, end: 30 },
+    ]);
+    expect(updates.duration).toBe(30);
+  });
+
   it('writes the plain trim window when there is no edit list', () => {
     const updates = buildTimelineClipUpdates({
       clip,
@@ -155,5 +212,24 @@ describe('buildTimelineClipUpdates', () => {
         gain: 1,
       },
     });
+  });
+
+  it('drops a stale meta.segments key when saving as plain', () => {
+    const withStale = {
+      meta: { gain: 0.5, segments },
+    } as unknown as Pick<ExpandedTimelineClip, 'meta'>;
+
+    const updates = buildTimelineClipUpdates({
+      clip: withStale,
+      startTime: 2,
+      endTime: 8,
+      segments: null,
+      mediaDuration: 60,
+      title: '',
+      color: 'bg-blue-600',
+      gain: 1,
+    });
+
+    expect(updates.meta).toEqual({ gain: 1, title: '', color: 'bg-blue-600' });
   });
 });

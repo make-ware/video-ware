@@ -73,9 +73,11 @@ export function TimelineClipItem({
     setPreviewTimeState(clip.start);
   }
 
-  // Check if clip is composite
+  // Composite = has cuts (>= 2 segments). A 1-segment override is just a
+  // mask over the source clip's edit list — it plays straight through, so it
+  // gets no composite affordances.
   const isComposite = useMemo(() => {
-    return !!(clip.meta?.segments && clip.meta.segments.length > 0);
+    return !!(clip.meta?.segments && clip.meta.segments.length >= 2);
   }, [clip.meta?.segments]);
 
   // Calculate effective duration
@@ -295,9 +297,11 @@ export function TimelineClipItem({
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         clip={
+          // Timeline placements are user-owned; composite-ness is read from
+          // the segments themselves, not the type.
           {
             ...clip,
-            type: isComposite ? ClipType.COMPOSITE : ClipType.USER,
+            type: ClipType.USER,
           } as ExpandedTimelineClip & { type: string }
         }
         initialMode={dialogMode}

@@ -141,6 +141,34 @@ describe('useFineTune', () => {
     expect(hook.canUndo).toBe(false);
   });
 
+  it('merges all segments into the spanning one (remove all cuts), undoably', () => {
+    mount(segs([0, 10], [20, 30], [40, 50]));
+    let ok = false;
+    act(() => {
+      ok = hook.mergeAll();
+    });
+    expect(ok).toBe(true);
+    expect(hook.segments).toEqual(segs([0, 50]));
+    expect(hook.canUndo).toBe(true);
+
+    act(() => {
+      hook.undo();
+    });
+    expect(hook.segments).toEqual(segs([0, 10], [20, 30], [40, 50]));
+  });
+
+  it('mergeAll errors when there are no cuts to remove', () => {
+    mount(segs([0, 30]));
+    let ok = true;
+    act(() => {
+      ok = hook.mergeAll();
+    });
+    expect(ok).toBe(false);
+    expect(hook.error).toMatch(/no cuts to remove/i);
+    expect(hook.segments).toEqual(segs([0, 30]));
+    expect(hook.canUndo).toBe(false);
+  });
+
   it('slips and reports the clamped delta', () => {
     mount(segs([2, 5]), 60);
     let applied: number | null = null;

@@ -242,47 +242,41 @@ export function TranscriptList({
       // Push the last segment
       segments.push({ start: currentSegmentStart, end: currentSegmentEnd });
 
-      // 3. Create composite clip
+      // 3. Create the clip. It is a user-created clip; the edit list (when
+      // there are 2+ segments) is what makes it composite — playback skips
+      // the gaps. A single segment (no dead air found) collapses to a plain
+      // start/end clip (finalizeSegments invariant).
       const pb = (await import('@/lib/pocketbase-client')).default;
       const { MediaClipMutator } = await import('@project/shared/mutator');
-      const { ClipType, calculateEffectiveDuration } =
-        await import('@project/shared');
+      const { ClipType, finalizeSegments } = await import('@project/shared');
 
       const mutator = new MediaClipMutator(pb);
-
-      // Calculate overall start/end/duration from the computed segments
-      // The clip itself spans from first segment start to last segment end
-      // BUT playback will skip the gaps.
-      // The backend/player needs to understand 'segments' to skip gaps.
-      // For standard metadata 'start'/'end' we usually put the full range.
-      const totalStart = segments[0].start;
-      const totalEnd = segments[segments.length - 1].end;
-      const effectiveDuration = calculateEffectiveDuration(
-        totalStart,
-        totalEnd,
-        segments
-      );
+      const finalized = finalizeSegments(segments);
 
       await mutator.create({
         WorkspaceRef: workspaceId,
         MediaRef: mediaId,
-        type: ClipType.COMPOSITE,
-        start: totalStart,
-        end: totalEnd,
-        duration: effectiveDuration,
+        type: ClipType.USER,
+        start: finalized.start,
+        end: finalized.end,
+        duration: finalized.duration,
         version: 1,
         clipData: {
           labelType: 'speech',
           sourceType: 'transcript_composite',
           strategy: 'dead_air_removal',
-          segments: segments,
+          ...(finalized.segments ? { segments: finalized.segments } : {}),
           rank: 1,
           score: 1.0,
           gapThreshold: gapThreshold,
         },
       });
 
-      toast.success(`Created composite clip with ${segments.length} segments`);
+      toast.success(
+        finalized.segments
+          ? `Created clip with ${finalized.segments.length} segments (dead air removed)`
+          : 'Created clip — no dead air to remove'
+      );
       setIsDeadAirDialogOpen(false);
       setSelectedIds(new Set()); // Clear selection
     } catch (error) {

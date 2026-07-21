@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  hasActiveEditList,
   isCompositeClip,
   isMediaClipComposite,
   getCompositeSegments,
@@ -25,37 +26,60 @@ describe('composite-utils', () => {
   ];
   // Total effective duration: 4.9 + 1.2 + 2.3 + 2.2 = 10.6s
 
+  describe('hasActiveEditList', () => {
+    it('is true from 2 segments', () => {
+      expect(hasActiveEditList(exampleSegments)).toBe(true);
+      expect(
+        hasActiveEditList([
+          { start: 0, end: 1 },
+          { start: 2, end: 3 },
+        ])
+      ).toBe(true);
+    });
+
+    it('is false for undefined/null/empty/1-segment lists', () => {
+      expect(hasActiveEditList(undefined)).toBe(false);
+      expect(hasActiveEditList(null)).toBe(false);
+      expect(hasActiveEditList([])).toBe(false);
+      expect(hasActiveEditList([{ start: 0, end: 5 }])).toBe(false);
+    });
+  });
+
   describe('isCompositeClip', () => {
-    it('should return true for composite type with valid segments', () => {
-      expect(isCompositeClip('composite', { segments: exampleSegments })).toBe(
-        true
-      );
+    it('should return true for an active edit list, regardless of type', () => {
+      expect(isCompositeClip({ segments: exampleSegments })).toBe(true);
     });
 
-    it('should return false for non-composite type', () => {
-      expect(isCompositeClip('video', { segments: exampleSegments })).toBe(
-        false
-      );
-    });
-
-    it('should return false for composite type without segments', () => {
-      expect(isCompositeClip('composite', {})).toBe(false);
-      expect(isCompositeClip('composite', { segments: [] })).toBe(false);
+    it('should return false without an active edit list', () => {
+      expect(isCompositeClip({})).toBe(false);
+      expect(isCompositeClip({ segments: [] })).toBe(false);
+      expect(isCompositeClip({ segments: [{ start: 0, end: 5 }] })).toBe(false);
     });
 
     it('should return false for undefined clipData', () => {
-      expect(isCompositeClip('composite', undefined)).toBe(false);
+      expect(isCompositeClip(undefined)).toBe(false);
     });
   });
 
   describe('isMediaClipComposite', () => {
-    it('should return true for composite MediaClip with segments', () => {
+    it('should return true for any clip type with an active edit list', () => {
+      for (const type of ['user', 'shot', 'face', 'composite']) {
+        const mediaClip = {
+          id: 'test',
+          type,
+          clipData: { segments: exampleSegments },
+        } as any;
+        expect(isMediaClipComposite(mediaClip)).toBe(true);
+      }
+    });
+
+    it('should return false for a 1-segment list', () => {
       const mediaClip = {
         id: 'test',
-        type: 'composite',
-        clipData: { segments: exampleSegments },
+        type: 'user',
+        clipData: { segments: [{ start: 0, end: 5 }] },
       } as any;
-      expect(isMediaClipComposite(mediaClip)).toBe(true);
+      expect(isMediaClipComposite(mediaClip)).toBe(false);
     });
 
     it('should return false for null/undefined', () => {
@@ -65,22 +89,26 @@ describe('composite-utils', () => {
   });
 
   describe('getCompositeSegments', () => {
-    it('should return segments for composite MediaClip', () => {
+    it('should return segments for any clip type with an active edit list', () => {
       const mediaClip = {
         id: 'test',
-        type: 'composite',
+        type: 'user',
         clipData: { segments: exampleSegments },
       } as any;
       expect(getCompositeSegments(mediaClip)).toEqual(exampleSegments);
     });
 
-    it('should return undefined for non-composite', () => {
-      const mediaClip = {
-        id: 'test',
-        type: 'video',
-        clipData: {},
-      } as any;
-      expect(getCompositeSegments(mediaClip)).toBeUndefined();
+    it('should return undefined without an active edit list', () => {
+      expect(
+        getCompositeSegments({ id: 'test', type: 'user', clipData: {} } as any)
+      ).toBeUndefined();
+      expect(
+        getCompositeSegments({
+          id: 'test',
+          type: 'user',
+          clipData: { segments: [{ start: 0, end: 5 }] },
+        } as any)
+      ).toBeUndefined();
     });
   });
 

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  clearMediaClipSegments,
+  clearTimelineClipSegments,
   editMediaClipSegments,
   editTimelineClipSegments,
   inspectMediaClipSegments,
@@ -93,7 +95,7 @@ const compositeClip = {
 };
 
 describe('editMediaClipSegments', () => {
-  it('auto-converts a plain clip on its first cut', async () => {
+  it("creates an edit list on a plain clip's first cut without touching type", async () => {
     const stubs = segStubs({ mediaClips: [{ ...userClip }] });
     const pb = fakePb(stubs);
 
@@ -104,11 +106,12 @@ describe('editMediaClipSegments', () => {
     });
 
     expect(result.converted).toBe(true);
+    expect(result.collapsed).toBe(false);
     expect(stubs.MediaClips.update).toHaveBeenCalledOnce();
     const [id, patch] = stubs.MediaClips.update.mock.calls[0];
     expect(id).toBe('mc1');
+    // type stays the clip's origin — composite-ness is the edit list itself
     expect(patch).toEqual({
-      type: 'composite',
       start: 0,
       end: 30,
       duration: 28,
@@ -118,6 +121,49 @@ describe('editMediaClipSegments', () => {
           { start: 12, end: 30 },
         ],
       },
+    });
+  });
+
+  it('collapses the edit list when a cut leaves a single segment', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...compositeClip }] });
+    const pb = fakePb(stubs);
+
+    const result = await editMediaClipSegments(pb, 'mc2', {
+      kind: 'cut',
+      from: 20,
+      to: 30,
+    });
+
+    expect(result.collapsed).toBe(true);
+    expect(result.converted).toBe(false);
+    const [, patch] = stubs.MediaClips.update.mock.calls[0];
+    // segments gone, start/end are the source of truth, other keys survive
+    expect(patch).toEqual({
+      start: 0,
+      end: 10,
+      duration: 10,
+      clipData: { gapThreshold: 2 },
+    });
+  });
+
+  it('a trim of a plain clip never materializes an edit list', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...userClip }] });
+    const pb = fakePb(stubs);
+
+    const result = await editMediaClipSegments(pb, 'mc1', {
+      kind: 'trim',
+      start: 5,
+      end: 25,
+    });
+
+    expect(result.converted).toBe(false);
+    expect(result.collapsed).toBe(false);
+    const [, patch] = stubs.MediaClips.update.mock.calls[0];
+    expect(patch).toEqual({
+      start: 5,
+      end: 25,
+      duration: 20,
+      clipData: {},
     });
   });
 
@@ -256,9 +302,11 @@ describe('editMediaClipSegments', () => {
     expect(result.requestedBy).toBe(-3.5);
     expect(result.appliedBy).toBe(-2);
     const [, patch] = stubs.MediaClips.update.mock.calls[0];
-    expect(patch.clipData.segments).toEqual([{ start: 0, end: 3 }]);
+    // single-segment result stays plain — start/end carry the slip
+    expect(patch.clipData.segments).toBeUndefined();
     expect(patch.start).toBe(0);
     expect(patch.end).toBe(3);
+    expect(patch.duration).toBe(3);
   });
 
   it('writes nothing when a slip is fully clamped', async () => {
@@ -488,6 +536,71 @@ describe('editTimelineClipSegments', () => {
     expect(stubs.Timelines.update).not.toHaveBeenCalled();
   });
 
+  it('collapses a 1-segment result when the source has no edit list', async () => {
+    const clip = {
+      ...baseTimelineClip,
+      meta: {
+        gain: 0.5,
+        segments: [
+          { start: 0, end: 10 },
+          { start: 20, end: 30 },
+        ],
+      },
+    };
+    const stubs = segStubs({ timelineClips: [clip] });
+    const pb = fakePb(stubs);
+
+    const result = await editTimelineClipSegments(pb, 'tc1', {
+      kind: 'cut',
+      from: 20,
+      to: 30,
+    });
+
+    expect(result.collapsed).toBe(true);
+    expect(result.hasOwnEditList).toBe(false);
+    const clipPatch = stubs.TimelineClips.update.mock.calls.find(
+      ([id]: [string]) => id === 'tc1'
+    )![1];
+    // override removed; unrelated meta keys survive
+    expect(clipPatch).toEqual({
+      start: 0,
+      end: 10,
+      duration: 10,
+      meta: { gain: 0.5 },
+    });
+  });
+
+  it('keeps a 1-segment override as a mask when the source is composite', async () => {
+    const clip = {
+      ...baseTimelineClip,
+      MediaClipRef: 'mc2',
+      meta: {
+        segments: [
+          { start: 0, end: 8 },
+          { start: 20, end: 30 },
+        ],
+      },
+      expand: { MediaClipRef: compositeClip },
+    };
+    const stubs = segStubs({ timelineClips: [clip] });
+    const pb = fakePb(stubs);
+
+    const result = await editTimelineClipSegments(pb, 'tc1', {
+      kind: 'cut',
+      from: 20,
+      to: 30,
+    });
+
+    // unsetting meta.segments would unmask the source MediaClip's edit list
+    expect(result.collapsed).toBe(false);
+    expect(result.hasOwnEditList).toBe(true);
+    const clipPatch = stubs.TimelineClips.update.mock.calls.find(
+      ([id]: [string]) => id === 'tc1'
+    )![1];
+    expect(clipPatch.meta.segments).toEqual([{ start: 0, end: 8 }]);
+    expect(clipPatch.duration).toBe(8);
+  });
+
   it('rejects caption clips (no source media)', async () => {
     const caption = {
       id: 'tcap',
@@ -516,6 +629,140 @@ describe('editTimelineClipSegments', () => {
         { timelineId: 'tl2' }
       )
     ).rejects.toThrow(/belongs to timeline tl1/i);
+  });
+});
+
+describe('clearMediaClipSegments', () => {
+  it('removes the edit list; start/end keep the window', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...compositeClip }] });
+    const pb = fakePb(stubs);
+
+    const result = await clearMediaClipSegments(pb, 'mc2');
+
+    expect(result.noop).toBe(false);
+    expect(result.removed).toEqual([
+      { start: 0, end: 10 },
+      { start: 20, end: 30 },
+    ]);
+    const [id, patch] = stubs.MediaClips.update.mock.calls[0];
+    expect(id).toBe('mc2');
+    expect(patch).toEqual({
+      start: 0,
+      end: 30,
+      duration: 30,
+      clipData: { gapThreshold: 2 },
+    });
+  });
+
+  it('is a noop on a clip without an edit list', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...userClip }] });
+    const pb = fakePb(stubs);
+
+    const result = await clearMediaClipSegments(pb, 'mc1');
+
+    expect(result.noop).toBe(true);
+    expect(result.warnings.map((w) => w.code)).toEqual(['noop']);
+    expect(stubs.MediaClips.update).not.toHaveBeenCalled();
+  });
+
+  it('dry-run reports without writing', async () => {
+    const stubs = segStubs({ mediaClips: [{ ...compositeClip }] });
+    const pb = fakePb(stubs);
+
+    const result = await clearMediaClipSegments(pb, 'mc2', { dryRun: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.clip).toBeNull();
+    expect(result.times).toEqual({ start: 0, end: 30, duration: 30 });
+    expect(stubs.MediaClips.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('clearTimelineClipSegments', () => {
+  it('reverts to the plain trim when the source has no edit list', async () => {
+    const clip = {
+      ...baseTimelineClip,
+      duration: 28,
+      meta: {
+        title: 'Keep me',
+        segments: [
+          { start: 0, end: 10 },
+          { start: 12, end: 30 },
+        ],
+      },
+    };
+    const stubs = segStubs({ timelineClips: [clip] });
+    const pb = fakePb(stubs);
+
+    const result = await clearTimelineClipSegments(pb, 'tc1');
+
+    expect(result.revertsTo).toBe('trim');
+    expect(result.effectiveDelta).toBe(2);
+    const clipPatch = stubs.TimelineClips.update.mock.calls.find(
+      ([id]: [string]) => id === 'tc1'
+    )![1];
+    expect(clipPatch).toEqual({
+      start: 0,
+      end: 30,
+      duration: 30,
+      meta: { title: 'Keep me' },
+    });
+  });
+
+  it("reverts to the source MediaClip's edit list when it has one", async () => {
+    const clip = {
+      ...baseTimelineClip,
+      MediaClipRef: 'mc2',
+      duration: 30,
+      meta: { segments: [{ start: 0, end: 30 }] },
+      expand: { MediaClipRef: compositeClip },
+    };
+    const stubs = segStubs({ timelineClips: [clip] });
+    const pb = fakePb(stubs);
+
+    const result = await clearTimelineClipSegments(pb, 'tc1');
+
+    expect(result.revertsTo).toBe('mediaClip');
+    // source list [0-10] + [20-30] windowed by 0–30 → 20s effective
+    const clipPatch = stubs.TimelineClips.update.mock.calls.find(
+      ([id]: [string]) => id === 'tc1'
+    )![1];
+    expect(clipPatch.duration).toBe(20);
+    expect(clipPatch.meta).toEqual({});
+  });
+
+  it('is a noop without an override and shifts downstream with --ripple', async () => {
+    const noOverride = { ...baseTimelineClip };
+    const pb1 = fakePb(segStubs({ timelineClips: [noOverride] }));
+    const noop = await clearTimelineClipSegments(pb1, 'tc1');
+    expect(noop.noop).toBe(true);
+
+    const tc1 = {
+      ...baseTimelineClip,
+      end: 42,
+      duration: 40.8,
+      meta: {
+        segments: [
+          { start: 0, end: 14.3 },
+          { start: 15.5, end: 42 },
+        ],
+      },
+    };
+    const tc2 = {
+      ...baseTimelineClip,
+      id: 'tc2',
+      order: 1,
+      timelineStart: 40.8,
+    };
+    const stubs = segStubs({ timelineClips: [tc1, tc2] });
+    const pb2 = fakePb(stubs);
+
+    const result = await clearTimelineClipSegments(pb2, 'tc1', {
+      ripple: true,
+    });
+
+    expect(result.effectiveDelta).toBe(1.2);
+    expect(result.rippled).toEqual([{ clipId: 'tc2', from: 40.8, to: 42 }]);
   });
 });
 

@@ -106,6 +106,29 @@ export function useFineTune({
   );
 
   /**
+   * Merge the whole edit list into its single spanning segment — "remove all
+   * cuts". Undoable like any op; on save the 1-segment list collapses
+   * (finalizeSegments), reverting the clip to a plain start/end trim.
+   */
+  const mergeAll = useCallback(
+    () =>
+      applyOp((s) => {
+        if (s.length < 2) {
+          throw new Error(
+            'No cuts to remove — the clip already plays straight through.'
+          );
+        }
+        return [
+          {
+            start: Math.min(...s.map((seg) => seg.start)),
+            end: Math.max(...s.map((seg) => seg.end)),
+          },
+        ];
+      }),
+    [applyOp]
+  );
+
+  /**
    * Slip the whole edit list (index null) or one segment by ±seconds.
    * Returns the clamped delta actually applied (compare with `by` to detect
    * clamping), or null when nothing could move / the op failed — no history
@@ -166,6 +189,7 @@ export function useFineTune({
     cut,
     trim,
     remove,
+    mergeAll,
     slip,
     undo,
     redo,

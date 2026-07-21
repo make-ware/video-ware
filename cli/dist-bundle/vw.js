@@ -57218,7 +57218,6 @@ var ClipType = /* @__PURE__ */ ((ClipType2) => {
   ClipType2["PERSON"] = "person";
   ClipType2["FACE"] = "face";
   ClipType2["SPEECH"] = "speech";
-  ClipType2["COMPOSITE"] = "composite";
   return ClipType2;
 })(ClipType || {});
 var LabelType = /* @__PURE__ */ ((LabelType2) => {
@@ -58682,9 +58681,8 @@ var MediaClipInputSchema = external_exports.object({
     "object",
     "person",
     "face",
-    "speech",
-    "composite"
-    /* COMPOSITE */
+    "speech"
+    /* SPEECH */
   ]),
   label: external_exports.string().optional(),
   description: external_exports.string().optional(),
@@ -59285,18 +59283,13 @@ function validateTimeRange(start, end, mediaDuration, mediaType) {
   }
   return start >= 0 && start < end && end <= mediaDuration;
 }
-function isCompositeClip(clipType, clipData) {
-  return clipType === "composite" && !!clipData?.segments && Array.isArray(clipData.segments) && clipData.segments.length > 0;
-}
-function isMediaClipComposite(mediaClip) {
-  if (!mediaClip) return false;
-  const clipData = mediaClip.clipData;
-  return isCompositeClip(mediaClip.type, clipData);
+function hasActiveEditList(segments) {
+  return Array.isArray(segments) && segments.length >= 2;
 }
 function getCompositeSegments(mediaClip) {
-  if (!isMediaClipComposite(mediaClip)) return void 0;
+  if (!mediaClip) return void 0;
   const clipData = mediaClip.clipData;
-  return clipData?.segments;
+  return hasActiveEditList(clipData?.segments) ? clipData.segments : void 0;
 }
 var WINDOW_EPSILON = 1e-3;
 function windowCompositeSegments(segments, start, end) {
@@ -60466,40 +60459,38 @@ function generateSegmentsFromClip(clip, startTime, trackSettings, captionOptions
     }));
     return { segments: segments2, totalDuration: usageDuration };
   }
-  if (isMediaClipComposite(mediaClip)) {
-    const mediaClipSegments = getCompositeSegments(mediaClip);
-    if (mediaClipSegments && mediaClipSegments.length > 0) {
-      const compositeSegments = windowCompositeSegments(
-        mediaClipSegments,
-        clip.start,
-        clip.end
-      );
-      const usageSourceStart = 0;
-      const usageDuration = calculateEffectiveDuration(
-        clip.start,
-        clip.end,
-        compositeSegments
-      );
-      const expanded = expandCompositeToSegments(
-        compositeSegments,
-        usageSourceStart,
-        usageDuration,
-        startTime
-      );
-      const segments2 = expanded.map((expSeg, i2) => ({
-        id: `${clip.id}_${i2}`,
-        assetId: mediaClip.MediaRef,
-        type: "video",
-        time: {
-          start: expSeg.timelineStart,
-          duration: expSeg.duration,
-          sourceStart: expSeg.sourceStart
-        },
-        video: { opacity },
-        audio: { volume }
-      }));
-      return { segments: segments2, totalDuration: usageDuration };
-    }
+  const mediaClipSegments = getCompositeSegments(mediaClip);
+  if (mediaClipSegments) {
+    const compositeSegments = windowCompositeSegments(
+      mediaClipSegments,
+      clip.start,
+      clip.end
+    );
+    const usageSourceStart = 0;
+    const usageDuration = calculateEffectiveDuration(
+      clip.start,
+      clip.end,
+      compositeSegments
+    );
+    const expanded = expandCompositeToSegments(
+      compositeSegments,
+      usageSourceStart,
+      usageDuration,
+      startTime
+    );
+    const segments2 = expanded.map((expSeg, i2) => ({
+      id: `${clip.id}_${i2}`,
+      assetId: mediaClip.MediaRef,
+      type: "video",
+      time: {
+        start: expSeg.timelineStart,
+        duration: expSeg.duration,
+        sourceStart: expSeg.sourceStart
+      },
+      video: { opacity },
+      audio: { volume }
+    }));
+    return { segments: segments2, totalDuration: usageDuration };
   }
   const duration3 = clip.end - clip.start;
   const isImage = clipWithExpand.expand?.MediaRef?.mediaType === "image";
@@ -60802,6 +60793,22 @@ function deriveClipTimes(segments) {
     segments.reduce((total, s2) => total + Math.max(0, s2.end - s2.start), 0)
   );
   return { start, end, duration: duration3 };
+}
+function finalizeSegments(segments, bounds) {
+  const normalized = normalizeSegments(segments, bounds);
+  if (normalized.length === 0) {
+    throw new Error("Edit produced an empty segment list.");
+  }
+  if (normalized.length === 1) {
+    const [seg] = normalized;
+    return {
+      segments: void 0,
+      start: seg.start,
+      end: seg.end,
+      duration: roundToMs(seg.end - seg.start)
+    };
+  }
+  return { segments: normalized, ...deriveClipTimes(normalized) };
 }
 function splitSegments(segments, points, bounds) {
   if (points.length === 0) {
@@ -66151,7 +66158,7 @@ async function updateMediaClip(pb, clipId, opts) {
       );
     }
     const segments = getCompositeSegments(clip);
-    if (segments && segments.length > 0) {
+    if (segments) {
       const clamped = clampSegmentsToWindow(
         segments,
         start,
@@ -66163,11 +66170,17 @@ async function updateMediaClip(pb, clipId, opts) {
           `Trim window ${start}\u2013${end}s contains no segment content \u2014 inspect the edit list with \`vw media clip segments ${clipId}\`.`
         );
       }
-      const times = deriveClipTimes(clamped);
-      patch.start = times.start;
-      patch.end = times.end;
-      patch.duration = times.duration;
-      patch.clipData = { ...clip.clipData ?? {}, segments: clamped };
+      const finalized = finalizeSegments(clamped, mediaBounds(media));
+      patch.start = finalized.start;
+      patch.end = finalized.end;
+      patch.duration = finalized.duration;
+      const clipData = { ...clip.clipData ?? {} };
+      if (finalized.segments) {
+        clipData.segments = finalized.segments;
+      } else {
+        delete clipData.segments;
+      }
+      patch.clipData = clipData;
     } else {
       patch.start = start;
       patch.end = end;
@@ -66338,9 +66351,8 @@ async function editMediaClipSegments(pb, clipId, op, opts = {}) {
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const bounds = mediaBounds(media);
   const existing = getCompositeSegments(clip);
-  const converted = !existing || existing.length === 0;
   const before = normalizeSegments(
-    converted ? [{ start: clip.start, end: clip.end }] : existing,
+    existing ?? [{ start: clip.start, end: clip.end }],
     bounds
   );
   if (before.length === 0) {
@@ -66349,21 +66361,31 @@ async function editMediaClipSegments(pb, clipId, op, opts = {}) {
     );
   }
   const applied = applySegmentOp(before, op, bounds);
-  const times = deriveClipTimes(applied.segments);
+  const finalized = finalizeSegments(applied.segments, bounds);
+  const times = {
+    start: finalized.start,
+    end: finalized.end,
+    duration: finalized.duration
+  };
+  const converted = !existing && finalized.segments !== void 0;
+  const collapsed = !!existing && finalized.segments === void 0;
   const noop = segmentsEqual(before, applied.segments);
   const warnings = segmentEditWarnings(clipId, op, applied, noop);
   let updated = null;
   if (!opts.dryRun && !noop) {
+    const clipData = { ...clip.clipData ?? {} };
+    if (finalized.segments) {
+      clipData.segments = finalized.segments;
+    } else {
+      delete clipData.segments;
+    }
     updated = await mutator.updateWithGuard(
       clipId,
       {
-        ...converted ? { type: ClipType.COMPOSITE } : {},
         start: times.start,
         end: times.end,
         duration: times.duration,
-        // merge, never replace: update() skips validation, so unknown keys
-        // like gapThreshold survive — keep it that way
-        clipData: { ...clip.clipData ?? {}, segments: applied.segments }
+        clipData
       },
       { expectedUpdated: clip.updated, snapshot: clip }
     );
@@ -66371,14 +66393,20 @@ async function editMediaClipSegments(pb, clipId, op, opts = {}) {
   return {
     clip: updated,
     before,
-    after: applied.segments,
+    after: finalized.segments ?? [{ start: times.start, end: times.end }],
     times,
     converted,
+    collapsed,
     noop,
     ...applied.requestedBy !== void 0 ? { requestedBy: applied.requestedBy, appliedBy: applied.appliedBy } : {},
     dryRun: !!opts.dryRun,
     warnings
   };
+}
+async function sourceMediaClipHasEditList(pb, clip) {
+  if (!clip.MediaClipRef) return false;
+  const mediaClip = clip.expand?.MediaClipRef ?? await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
+  return !!getCompositeSegments(mediaClip);
 }
 async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
   const clipMutator = new TimelineClipMutator(pb);
@@ -66403,7 +66431,18 @@ async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
   }
   const oldEffective = calculateEffectiveDuration(clip.start, clip.end, before);
   const applied = applySegmentOp(before, op, bounds);
-  const times = deriveClipTimes(applied.segments);
+  const finalized = finalizeSegments(applied.segments, bounds);
+  const times = {
+    start: finalized.start,
+    end: finalized.end,
+    duration: finalized.duration
+  };
+  let segmentsToStore = finalized.segments;
+  if (!segmentsToStore && await sourceMediaClipHasEditList(pb, clip)) {
+    segmentsToStore = [{ start: finalized.start, end: finalized.end }];
+  }
+  const hadOverride = !!clip.meta?.segments?.length;
+  const collapsed = hadOverride && segmentsToStore === void 0;
   const effectiveDelta = roundToMs(times.duration - oldEffective);
   const noop = segmentsEqual(before, applied.segments);
   const warnings = segmentEditWarnings(clipId, op, applied, noop);
@@ -66435,14 +66474,19 @@ async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
   }
   let updated = null;
   if (!opts.dryRun && !noop) {
+    const meta3 = { ...clip.meta ?? {} };
+    if (segmentsToStore) {
+      meta3.segments = segmentsToStore;
+    } else {
+      delete meta3.segments;
+    }
     updated = await clipMutator.updateWithGuard(
       clipId,
       {
         start: times.start,
         end: times.end,
         duration: times.duration,
-        // merge, never replace — gain/title/color survive
-        meta: { ...clip.meta ?? {}, segments: applied.segments }
+        meta: meta3
       },
       { expectedUpdated: clip.updated, snapshot: clip }
     );
@@ -66459,13 +66503,161 @@ async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
   return {
     clip: updated,
     before,
-    after: applied.segments,
+    after: segmentsToStore ?? [{ start: times.start, end: times.end }],
     times,
     segmentsSource: editList.source,
+    collapsed,
+    hasOwnEditList: segmentsToStore !== void 0,
     effectiveDelta,
     rippled,
     noop,
     ...applied.requestedBy !== void 0 ? { requestedBy: applied.requestedBy, appliedBy: applied.appliedBy } : {},
+    dryRun: !!opts.dryRun,
+    warnings
+  };
+}
+async function clearMediaClipSegments(pb, clipId, opts = {}) {
+  const mutator = new MediaClipMutator(pb);
+  const clip = await mutator.getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+  const existing = getCompositeSegments(clip);
+  const times = {
+    start: clip.start,
+    end: clip.end,
+    duration: roundToMs(clip.end - clip.start)
+  };
+  if (!existing) {
+    return {
+      clip: null,
+      removed: null,
+      times,
+      noop: true,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice("the clip has no edit list \u2014 nothing to clear", [clipId])
+      ]
+    };
+  }
+  let updated = null;
+  if (!opts.dryRun) {
+    const clipData = { ...clip.clipData ?? {} };
+    delete clipData.segments;
+    updated = await mutator.updateWithGuard(
+      clipId,
+      {
+        start: times.start,
+        end: times.end,
+        duration: times.duration,
+        clipData
+      },
+      { expectedUpdated: clip.updated, snapshot: clip }
+    );
+  }
+  return {
+    clip: updated,
+    removed: existing,
+    times,
+    noop: false,
+    dryRun: !!opts.dryRun,
+    warnings: []
+  };
+}
+async function clearTimelineClipSegments(pb, clipId, opts = {}) {
+  const clipMutator = new TimelineClipMutator(pb);
+  const clip = await clipMutator.getById(clipId);
+  if (!clip) {
+    throw new Error(`Timeline clip not found: ${clipId}`);
+  }
+  assertOnTimeline(clip, opts.timelineId);
+  const existing = clip.meta?.segments;
+  const sourceSegments = clip.MediaClipRef ? await (async () => {
+    const mediaClip = clip.expand?.MediaClipRef ?? await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
+    return getCompositeSegments(mediaClip);
+  })() : void 0;
+  const revertsTo = sourceSegments ? "mediaClip" : "trim";
+  const newDuration = roundToMs(
+    calculateEffectiveDuration(clip.start, clip.end, sourceSegments)
+  );
+  const times = { start: clip.start, end: clip.end, duration: newDuration };
+  if (!existing || existing.length === 0) {
+    return {
+      clip: null,
+      removed: null,
+      times,
+      revertsTo,
+      effectiveDelta: 0,
+      rippled: [],
+      noop: true,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice("the clip has no edit list override \u2014 nothing to clear", [
+          clipId
+        ])
+      ]
+    };
+  }
+  const oldEffective = calculateEffectiveDuration(
+    clip.start,
+    clip.end,
+    existing
+  );
+  const effectiveDelta = roundToMs(newDuration - oldEffective);
+  const warnings = [];
+  let rippled = [];
+  if (opts.ripple && effectiveDelta !== 0) {
+    const ripple = await rippleDownstreamClips(pb, clip, effectiveDelta, {
+      newEffectiveDuration: newDuration,
+      dryRun: opts.dryRun
+    });
+    rippled = ripple.shifted;
+    if (ripple.downstreamCount > 0 && ripple.by !== ripple.requestedBy) {
+      warnings.push(
+        clampedWarning(
+          ripple.requestedBy,
+          ripple.by,
+          "so downstream clips stay clear of the anchor",
+          rippled.map((s2) => s2.clipId)
+        )
+      );
+    }
+    if (rippled.length > 0) {
+      warnings.push(
+        shiftedOthersNotice(
+          `--ripple shifted ${rippled.length} downstream clip(s) by ${signed2(ripple.by)}`,
+          rippled.map((s2) => s2.clipId)
+        )
+      );
+    }
+  }
+  let updated = null;
+  if (!opts.dryRun) {
+    const meta3 = { ...clip.meta ?? {} };
+    delete meta3.segments;
+    updated = await clipMutator.updateWithGuard(
+      clipId,
+      { start: times.start, end: times.end, duration: times.duration, meta: meta3 },
+      { expectedUpdated: clip.updated, snapshot: clip }
+    );
+    const check3 = await syncTimelineAfterWrite(pb, clip.TimelineRef, [
+      clipId,
+      ...rippled.map((s2) => s2.clipId)
+    ]);
+    warnings.push(
+      ...check3.conflicts.map(
+        (f) => postWriteOverlapWarning(f, clip.TimelineRef)
+      )
+    );
+  }
+  return {
+    clip: updated,
+    removed: existing,
+    times,
+    revertsTo,
+    effectiveDelta,
+    rippled,
+    noop: false,
     dryRun: !!opts.dryRun,
     warnings
   };
@@ -66633,12 +66825,46 @@ function reportEdit(clipId, op, result, opts) {
       success(summary);
     }
     if ("converted" in result && result.converted) {
-      info("  converted to a composite clip (edit list created)");
+      info("  edit list created (the clip was plain until now)");
     }
-    if ("segmentsSource" in result && result.segmentsSource !== "meta") {
+    if (result.collapsed) {
+      info(
+        "  edit list collapsed to a single segment \u2014 the clip is plain again (start/end are the source of truth)"
+      );
+    }
+    if ("segmentsSource" in result && result.segmentsSource !== "meta" && result.hasOwnEditList) {
       const from = result.segmentsSource === "mediaClip" ? "the source MediaClip's edit list" : "the clip's trim window";
       info(
         `  edit list initialized from ${from} \u2014 this clip now keeps its own copy`
+      );
+    }
+    if ("rippled" in result) {
+      for (const shift of result.rippled) {
+        info(
+          `  rippled: ${shift.clipId} ${secs3(shift.from)} \u2192 ${secs3(shift.to)}`
+        );
+      }
+    }
+  }
+  printOpWarnings(result.warnings);
+  enforceStrict(result.warnings, opts.strict);
+}
+function reportClear(clipId, result, opts) {
+  if (opts.json) {
+    printRecord(result, [], true);
+  } else if (result.noop) {
+    info(noopMessage(result.warnings) ?? "Nothing to clear \u2014 no edit list.");
+  } else {
+    const removed = result.removed ?? [];
+    const summary = `Cleared the edit list of clip ${clipId} (${removed.length} segment${removed.length === 1 ? "" : "s"} removed) \u2014 effective ${secs3(effectiveOf(removed))} \u2192 ${secs3(result.times.duration)}`;
+    if (result.dryRun) {
+      info(`Dry run \u2014 nothing written. Would have: ${summary}`);
+    } else {
+      success(summary);
+    }
+    if ("revertsTo" in result) {
+      info(
+        result.revertsTo === "mediaClip" ? "  playback now follows the source MediaClip's edit list again" : "  playback now follows the plain start/end trim window"
       );
     }
     if ("rippled" in result) {
@@ -66657,7 +66883,7 @@ function reportInspection(clipId, inspection, json2) {
     printRecord(inspection, [], true);
     return;
   }
-  const sourceHint = inspection.source === "trim" ? "trim window \u2014 not composite yet; the first edit converts it" : inspection.source;
+  const sourceHint = inspection.source === "trim" ? "trim window \u2014 no edit list yet; an edit leaving 2+ segments creates one" : inspection.source;
   info(
     `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs3(inspection.times.duration)}, span ${range(inspection.times.start, inspection.times.end)}`
   );
@@ -66706,7 +66932,7 @@ async function runMediaEdit(clipId, op, opts) {
   const result = await withConflictRetry(
     () => editMediaClipSegments(pb, clipId, op, { dryRun: opts.dryRun }),
     {
-      patchKeys: ["start", "end", "duration", "clipData", "type"],
+      patchKeys: ["start", "end", "duration", "clipData"],
       force: opts.force
     }
   );
@@ -66807,12 +67033,35 @@ function registerMediaClipSegmentCommands(clip) {
     }
   });
   withJsonOption(
-    workspaceOption(
-      clip.command("segments <clipId>").description("Show a media clip's edit list (segments and gaps)")
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          clip.command("segments <clipId>").description(
+            "Show a media clip's edit list (segments and gaps), or remove it with --clear"
+          ).option(
+            "--clear",
+            "remove the edit list \u2014 the clip reverts to its plain start/end trim (the explicit un-composite)"
+          ).option(
+            "--dry-run",
+            "with --clear: print the result without writing"
+          )
+        )
+      )
     )
   ).action(async (clipId, opts) => {
     try {
       const pb = await requireClient();
+      if (opts.clear) {
+        const result = await withConflictRetry(
+          () => clearMediaClipSegments(pb, clipId, { dryRun: opts.dryRun }),
+          {
+            patchKeys: ["start", "end", "duration", "clipData"],
+            force: opts.force
+          }
+        );
+        reportClear(clipId, result, opts);
+        return;
+      }
       reportInspection(
         clipId,
         await inspectMediaClipSegments(pb, clipId),
@@ -66945,16 +67194,44 @@ function registerTimelineClipSegmentCommands(clips) {
     }
   });
   withJsonOption(
-    workspaceOption(
-      timelineOption(
-        clips.command("segments <clipId>").description(
-          "Show a timeline clip's edit list (segments, gaps, source)"
+    withForceOption(
+      withStrictOption(
+        workspaceOption(
+          timelineOption(
+            clips.command("segments <clipId>").description(
+              "Show a timeline clip's edit list (segments, gaps, source), or remove its override with --clear"
+            ).option(
+              "--clear",
+              "remove the meta.segments override \u2014 playback reverts to the source MediaClip's edit list (if any) or the plain trim"
+            ).option(
+              "--ripple",
+              "with --clear: shift later clips by the duration change"
+            ).option(
+              "--dry-run",
+              "with --clear: print the result without writing"
+            )
+          )
         )
       )
     )
   ).action(async (clipId, opts) => {
     try {
       const pb = await requireClient();
+      if (opts.clear) {
+        const result = await withConflictRetry(
+          () => clearTimelineClipSegments(pb, clipId, {
+            ripple: opts.ripple,
+            dryRun: opts.dryRun,
+            timelineId: opts.timeline
+          }),
+          {
+            patchKeys: ["start", "end", "duration", "meta"],
+            force: opts.force
+          }
+        );
+        reportClear(clipId, result, opts);
+        return;
+      }
       reportInspection(
         clipId,
         await inspectTimelineClipSegments(pb, clipId, opts.timeline),

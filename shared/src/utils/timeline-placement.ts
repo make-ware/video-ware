@@ -29,6 +29,13 @@ import {
  * TimelineClip.meta.segments (copy-on-write override) wins over the source
  * MediaClip's clipData.segments — mirroring the render pipeline's precedence
  * in generateSegmentsFromClip.
+ *
+ * Thresholds differ by level, deliberately: a meta override counts from 1
+ * segment (a 1-segment override exists only to MASK a composite source
+ * MediaClip's list — it plays identically to a plain window, but unsetting it
+ * would unmask the source's cuts), while a MediaClip list counts from 2
+ * (getCompositeSegments; writers collapse 1-segment lists into start/end via
+ * finalizeSegments).
  */
 export function getClipSegments(
   clip: TimelineClip

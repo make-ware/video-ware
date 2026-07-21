@@ -71,6 +71,10 @@ export enum MediaType {
   IMAGE = 'image',
 }
 
+// `type` is a clip's origin only. Composite-ness is not a type: a clip is
+// composite iff its clipData.segments edit list is active (>= 2 segments) —
+// see hasActiveEditList in utils/composite-utils.ts. The legacy 'composite'
+// value was retired by pb_migrations (rows became 'user').
 export enum ClipType {
   USER = 'user',
   FULL = 'full',
@@ -80,7 +84,6 @@ export enum ClipType {
   PERSON = 'person',
   FACE = 'face',
   SPEECH = 'speech',
-  COMPOSITE = 'composite',
 }
 
 export enum LabelType {

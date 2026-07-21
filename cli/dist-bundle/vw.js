@@ -70105,7 +70105,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.9.10";
+    return "0.10.0";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

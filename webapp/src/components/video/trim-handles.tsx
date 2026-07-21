@@ -262,7 +262,10 @@ export function TrimHandles({
         const span = session.originEnd - session.originStart;
         const newStart = Math.max(
           0,
-          Math.min(duration - span, session.originStart + time - session.grabTime)
+          Math.min(
+            duration - span,
+            session.originStart + time - session.grabTime
+          )
         );
         onChange(newStart, newStart + span);
         scheduleScrub(newStart, 'start');

@@ -58996,10 +58996,6 @@ var TimelineTrackCollection = defineCollection({
   schema: TimelineTrackSchema2,
   permissions: workspaceScopedPermissions("TimelineRef.WorkspaceRef")
 });
-var TimeOffsetSchema = external_exports.object({
-  seconds: external_exports.number().int().min(0),
-  nanos: external_exports.number().int().min(0).max(999999999)
-});
 var TimelineSchema = external_exports.object({
   name: TextField().min(1).max(200),
   label: TextField().optional(),
@@ -59009,7 +59005,6 @@ var TimelineSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   duration: NumberField({ min: 0 }).default(0),
   // computed total duration in seconds
-  timelineData: JSONField(TimelineMetadataSchema).optional(),
   UserRef: RelationField({ collection: "Users" }).optional(),
   version: NumberField().default(1).optional(),
   processor: TextField().optional(),
@@ -59025,7 +59020,6 @@ var TimelineInputSchema = external_exports.object({
   description: external_exports.string().optional(),
   WorkspaceRef: external_exports.string().min(1, "Workspace is required"),
   duration: external_exports.number().min(0).default(0),
-  timelineData: TimelineMetadataSchema.optional(),
   UserRef: external_exports.string().optional(),
   version: external_exports.number().default(1).optional(),
   processor: external_exports.string().optional(),
@@ -62852,7 +62846,7 @@ function withJsonOption(cmd) {
 function withStrictOption(cmd) {
   return cmd.option(
     "--strict",
-    "exit 1 when the operation completes with warnings (nudged, clamped, \u2026)"
+    "exit 1 when the operation completes with warning-level outcomes (see Warnings below)"
   );
 }
 function withForceOption(cmd) {
@@ -63283,7 +63277,7 @@ function postWriteOverlapWarning(finding, timelineId) {
   return {
     level: "warning",
     code: "post-write-overlap",
-    message: `${finding.message} \u2014 another editor may have written concurrently; inspect with \`vw timeline doctor ${timelineId}\``,
+    message: `${finding.message} \u2014 detected after this command's writes; inspect with \`vw timeline doctor ${timelineId}\` and reposition with \`vw timeline clips move\``,
     clipIds: finding.clipIds
   };
 }
@@ -63499,12 +63493,12 @@ var insertOptions = {
   },
   at: {
     flags: "--at <seconds>",
-    description: "place at this exact timeline time; nudges past collisions unless --overwrite",
+    description: "place at this exact timeline time; nudges past collisions unless --ripple/--overwrite",
     parse: parseSeconds
   },
   after: {
     flags: "--after <clipId>",
-    description: "place right after this timeline clip (implies its track)"
+    description: "place right after this timeline clip (implies its track); nudges past collisions unless --ripple"
   },
   label: {
     flags: "--label <text>",
@@ -64268,9 +64262,12 @@ async function moveTimelineClip(pb, clipId, opts) {
         to: move.timelineStart
       });
       if (!opts.dryRun) {
-        await clipMutator.update(move.clipId, {
-          timelineStart: move.timelineStart
-        });
+        const victim = destClips.find((c) => c.id === move.clipId);
+        await clipMutator.updateWithGuard(
+          move.clipId,
+          { timelineStart: move.timelineStart },
+          victim ? { expectedUpdated: victim.updated, snapshot: victim } : void 0
+        );
       }
     }
   }
@@ -64320,6 +64317,37 @@ async function moveTimelineClip(pb, clipId, opts) {
     dryRun: !!opts.dryRun,
     warnings
   };
+}
+async function assertShiftTargetsUnchanged(pb, timelineId, planned) {
+  if (planned.length === 0) return;
+  const fresh = await new TimelineClipMutator(pb).getByTimeline(timelineId);
+  const freshById = new Map(fresh.map((c) => [c.id, c]));
+  for (const snapshot of planned) {
+    const current = freshById.get(snapshot.id);
+    if (!current) {
+      throw new RecordGoneError("TimelineClips", snapshot.id);
+    }
+    if (current.updated !== snapshot.updated) {
+      throw new RecordConflictError({
+        collection: "TimelineClips",
+        recordId: snapshot.id,
+        expectedUpdated: snapshot.updated,
+        actualUpdated: String(current.updated ?? ""),
+        changedFields: diffTopLevelFields(
+          snapshot,
+          current
+        )
+      });
+    }
+  }
+}
+function partialShiftError(err, written, total, timelineId) {
+  if (err instanceof RecordConflictError && written > 0) {
+    return new Error(
+      `${err.message} \u2014 after ${written} of ${total} ripple shift(s) were already written, so the track may be partially shifted. Inspect with \`vw timeline doctor ${timelineId}\` and \`vw timeline clips list -t ${timelineId}\` before editing further.`
+    );
+  }
+  return err;
 }
 async function resolveClipLane(pb, clip) {
   const timelineId = clip.TimelineRef;
@@ -64442,8 +64470,23 @@ async function rippleTimelineClips(pb, clipId, opts) {
     );
   }
   if (!opts.dryRun) {
-    for (const shift of shifted) {
-      await clipMutator.update(shift.clipId, { timelineStart: shift.to });
+    await assertShiftTargetsUnchanged(
+      pb,
+      timelineId,
+      group.map((e2) => e2.clip)
+    );
+    let written = 0;
+    try {
+      for (const [i2, { clip: c }] of group.entries()) {
+        await clipMutator.updateWithGuard(
+          c.id,
+          { timelineStart: shifted[i2].to },
+          { expectedUpdated: c.updated, snapshot: c }
+        );
+        written++;
+      }
+    } catch (err) {
+      throw partialShiftError(err, written, shifted.length, timelineId);
     }
     const check3 = await syncTimelineAfterWrite(
       pb,
@@ -64473,6 +64516,7 @@ async function removeTimelineClip(pb, clipId, opts = {}) {
   assertOnTimeline(clip, opts.timelineId);
   const timelineId = clip.TimelineRef;
   let shifted = [];
+  const shiftSnapshots = /* @__PURE__ */ new Map();
   if (opts.ripple) {
     const trackList = (await new TimelineTrackMutator(pb).getByTimeline(timelineId)).items;
     const allClips = await clipMutator.getByTimeline(timelineId);
@@ -64486,10 +64530,33 @@ async function removeTimelineClip(pb, clipId, opts = {}) {
       from: startOf.get(move.clipId) ?? move.timelineStart,
       to: move.timelineStart
     }));
+    for (const shift of shifted) {
+      const record2 = laneClips.find((c) => c.id === shift.clipId);
+      if (record2) shiftSnapshots.set(shift.clipId, record2);
+    }
+    await assertShiftTargetsUnchanged(pb, timelineId, [
+      ...shiftSnapshots.values()
+    ]);
   }
   await clipMutator.delete(clipId);
-  for (const shift of shifted) {
-    await clipMutator.update(shift.clipId, { timelineStart: shift.to });
+  let written = 0;
+  try {
+    for (const shift of shifted) {
+      const snapshot = shiftSnapshots.get(shift.clipId);
+      await clipMutator.updateWithGuard(
+        shift.clipId,
+        { timelineStart: shift.to },
+        snapshot ? { expectedUpdated: snapshot.updated, snapshot } : void 0
+      );
+      written++;
+    }
+  } catch (err) {
+    if (err instanceof RecordConflictError) {
+      throw new Error(
+        `${err.message} \u2014 the clip was already removed but only ${written} of ${shifted.length} gap-closing shift(s) were written. Inspect with \`vw timeline doctor ${timelineId}\`.`
+      );
+    }
+    throw err;
   }
   const remaining = await clipMutator.getByTimeline(timelineId);
   await renumberClips(pb, timelineId, remaining);
@@ -66470,6 +66537,66 @@ async function withConflictRetry(run, opts) {
   }
 }
 
+// src/lib/help.ts
+var WARNINGS_HELP = `Warnings:
+  The result carries a \`warnings\` array \u2014 { level, code, message, clipIds,
+  data? } \u2014 one uniform channel for "succeeded, but not exactly as asked".
+  It is part of the --json document; warning-level entries also print as \u26A0
+  lines on stderr (notices surface as the command's detail lines instead).
+
+  Levels: \`warning\` = the outcome deviates from what was requested or is
+  irreversible; \`notice\` = the documented effect of a flag that was
+  explicitly passed, or a no-op.
+
+  Codes:
+    nudged              placed later than requested, past a collision
+    clamped             requested shift/slip reduced by bounds or neighbors
+    shifted-others      other clips displaced under an explicit --ripple
+    trimmed             --overwrite trimmed overlapping clips (reversible)
+    removed             --overwrite deleted covered clips (irreversible)
+    noop                nothing changed \u2014 no write was performed
+    stale-read          concurrent edit detected; re-planned on fresh state
+    post-write-overlap  final state has an overlap involving this op's clips
+
+  Warnings never change the exit code on their own; --strict exits 1 when
+  any warning-level entry exists.`;
+var NOOP_HELP = `No-op edits:
+  An edit that matches the stored state (same position, same field values,
+  an unchanged edit list) skips the write entirely and reports a top-level
+  \`noop: true\`, so a record's \`updated\` timestamp keeps meaning "content
+  changed".`;
+var CONFLICT_HELP = `Concurrent edits:
+  The writes are guarded: if a record this command writes changed between
+  the command's read and its write, what happens depends on what changed
+  remotely. Fields this command does not touch \u2014 the operation re-plans
+  once against the fresh state and reports a \`stale-read\` warning. The
+  same fields it patches (or \`meta\`, which is replaced whole) \u2014 it aborts
+  before writing; pass --force to re-apply this command over the fresh
+  state anyway.`;
+function editResultHelp(sections = {}) {
+  const parts = [WARNINGS_HELP];
+  if (sections.noop) parts.push(NOOP_HELP);
+  if (sections.conflict) parts.push(CONFLICT_HELP);
+  return `
+${parts.join("\n\n")}`;
+}
+var DOCTOR_HELP = `
+Checks (reported most severe first):
+  error    track-overlap (same-track overlaps are invalid),
+           dangling-media / dangling-caption (rendering will fail),
+           dangling-track (clip points at a deleted track),
+           duplicate-track-layer (two tracks share a layer number)
+  warning  stale-timeline-duration / stale-clip-duration (self-heal on the
+           next clip mutation), dangling-media-clip (provenance only),
+           nested-window-drift (persist the fix with \`timeline reflow\`),
+           micro-gap (clips nearly touching \u2014 usually unintended)
+  info     track-gap (an ordinary gap between clips)
+
+  Exits 1 when any error-level finding exists, so agents can use doctor as
+  an "am I done" gate. --json returns { timelineId, timelineName,
+  computedDuration, clipCount, trackCount, findings: [{ level, code,
+  message, clipIds, layer?, start?, end? }], errors, warnings, ok }.`;
+
 // src/commands/clip-segments.ts
 var secs3 = (v) => `${v.toFixed(2)}s`;
 var range = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
@@ -66565,6 +66692,9 @@ function segmentEditCommand(parent, name, description) {
           parent.command(`${name} <clipId>`).description(description).option(
             "--dry-run",
             "print the resulting edit list without writing"
+          ).addHelpText(
+            "after",
+            editResultHelp({ noop: true, conflict: true })
           )
         )
       )
@@ -68908,7 +69038,7 @@ function registerTimelineClipCommands(timeline) {
       workspaceOption2(
         clips.command("update <clipId>").description(
           "Update a timeline clip (label, description, trim, gain)"
-        ).option("-t, --timeline <id>", "timeline id (validated when passed)")
+        ).option("-t, --timeline <id>", "timeline id (validated when passed)").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
       )
     )
   );
@@ -68960,17 +69090,20 @@ function registerTimelineClipCommands(timeline) {
             "destination track (default: current)"
           ).option(
             "--at <seconds>",
-            "new timeline position (default: keep current position)",
+            "new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)",
             parseSeconds
           ).option(
             "--overwrite",
-            "with --at: trim/remove overlapping clips instead of nudging forward"
+            "with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)"
           ).option(
             "--ripple",
-            "land at the exact time and shift later clips right to make room"
+            "land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)"
           ).option(
             "--dry-run",
             "print the placement plan without writing anything"
+          ).addHelpText(
+            "after",
+            editResultHelp({ noop: true, conflict: true })
           )
         )
       )
@@ -69012,25 +69145,36 @@ function registerTimelineClipCommands(timeline) {
     }
   });
   withJsonOption(
-    withStrictOption(
-      workspaceOption2(
-        clips.command("ripple <clipId>").description(
-          "Shift a clip and everything after it on its track by \xB1seconds"
-        ).requiredOption(
-          "--by <seconds>",
-          "seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)",
-          parseSignedSeconds
-        ).option("-t, --timeline <id>", "timeline id (validated when passed)").option("--dry-run", "print the shifts without writing anything")
+    withForceOption(
+      withStrictOption(
+        workspaceOption2(
+          clips.command("ripple <clipId>").description(
+            "Shift a clip and everything after it on its track by \xB1seconds"
+          ).requiredOption(
+            "--by <seconds>",
+            "seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)",
+            parseSignedSeconds
+          ).option(
+            "-t, --timeline <id>",
+            "timeline id (validated when passed)"
+          ).option("--dry-run", "print the shifts without writing anything").addHelpText(
+            "after",
+            editResultHelp({ noop: true, conflict: true })
+          )
+        )
       )
     )
   ).action(async (clipId, opts) => {
     try {
       const pb = await requireClient();
-      const result = await rippleTimelineClips(pb, clipId, {
-        by: opts.by,
-        dryRun: opts.dryRun,
-        timelineId: opts.timeline
-      });
+      const result = await withConflictRetry(
+        () => rippleTimelineClips(pb, clipId, {
+          by: opts.by,
+          dryRun: opts.dryRun,
+          timelineId: opts.timeline
+        }),
+        { patchKeys: ["timelineStart"], force: opts.force }
+      );
       if (opts.json) {
         printRecord(result, [], true);
       } else if (result.noop) {
@@ -69062,16 +69206,22 @@ function registerTimelineClipCommands(timeline) {
         clips.command("remove <clipId>").description("Remove a clip from its timeline").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
           "--ripple",
           "shift later clips on the track left to close the gap"
-        )
+        ).option(
+          "--force",
+          "with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting"
+        ).addHelpText("after", editResultHelp({ conflict: true }))
       )
     )
   ).action(async (clipId, opts) => {
     try {
       const pb = await requireClient();
-      const result = await removeTimelineClip(pb, clipId, {
-        ripple: opts.ripple,
-        timelineId: opts.timeline
-      });
+      const result = await withConflictRetry(
+        () => removeTimelineClip(pb, clipId, {
+          ripple: opts.ripple,
+          timelineId: opts.timeline
+        }),
+        { patchKeys: ["timelineStart"], force: opts.force }
+      );
       if (opts.json) {
         printRecord(result, [], true);
       } else {
@@ -69095,7 +69245,7 @@ function registerTimelineClipCommands(timeline) {
       workspaceOption2(
         clips.command("reorder <clipIds...>").description(
           "Replace the clip order: pass every clip id in the new sequence"
-        ).requiredOption("-t, --timeline <id>", "timeline id")
+        ).requiredOption("-t, --timeline <id>", "timeline id").addHelpText("after", editResultHelp({ noop: true }))
       )
     )
   ).action(async (clipIds, opts) => {
@@ -69465,17 +69615,17 @@ function registerTimelineCommands(program3) {
     parseIdList
   ).option(
     "--overwrite",
-    "with --at: trim/remove overlapping clips instead of nudging forward"
+    "with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)"
   ).option(
     "--ripple",
-    "with --at/--after: land at the exact time and shift later clips right"
+    "with --at/--after: land at the exact time and shift later clips right (mutually exclusive with --overwrite)"
   ).option(
     "--strict",
-    "exit 1 when the operation completes with warnings (nudged, \u2026)"
+    "exit 1 when the operation completes with warning-level outcomes (see Warnings below)"
   ).option(
     "--force",
     "re-apply over a concurrent edit to the same fields instead of aborting"
-  ).option("--dry-run", "print the placement plan without writing anything");
+  ).option("--dry-run", "print the placement plan without writing anything").addHelpText("after", editResultHelp({ conflict: true }));
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
@@ -69562,8 +69712,8 @@ function registerTimelineCommands(program3) {
   });
   withJsonOption(
     timeline.command("doctor [timelineId]").description(
-      "Health-check a timeline: overlaps, gaps, stale durations, dangling refs"
-    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override")
+      "Health-check a timeline: overlaps, gaps, stale durations, dangling refs, deleted tracks, duplicate layers"
+    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override").addHelpText("after", DOCTOR_HELP)
   ).action(async (timelineIdArg, opts) => {
     try {
       const pb = await requireClient();

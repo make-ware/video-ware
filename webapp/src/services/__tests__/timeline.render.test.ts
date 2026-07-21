@@ -378,11 +378,10 @@ describe('TimelineService.saveTimeline / validateTimeline (reflow + duration pol
 
     await expect(service.saveTimeline(parent.id)).rejects.toThrow('403');
 
-    // Nothing half-written: no snapshot, no version bump, no healed clip.
+    // Nothing half-written: no version bump, no healed clip.
     const storedTimeline = (pb.collection('Timelines') as any)._storage.get(
       parent.id
     );
-    expect(storedTimeline.timelineData).toBeUndefined();
     expect(storedTimeline.version).toBe(1);
     const storedClip = clipsCollection._storage.get(nestedClip.id);
     expect(storedClip.end).toBe(10);

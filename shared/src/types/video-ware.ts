@@ -13,24 +13,6 @@ import type {
 } from '../enums.js';
 
 // ============================================================================
-// App-level editing types
-// ============================================================================
-
-export type TimeOffset = {
-  seconds: number;
-  nanos: number;
-};
-
-export type EditListEntry = {
-  key: string;
-  inputs: string[];
-  startTimeOffset: TimeOffset;
-  endTimeOffset: TimeOffset;
-};
-
-export type EditList = EditListEntry[];
-
-// ============================================================================
 // Core domain record shapes (Phase 0: types only, no schemas)
 // ============================================================================
 

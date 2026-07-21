@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { generateTracks, type TimelineClipWithExpand } from '../edit-list';
+import {
+  generateTracks,
+  type TimelineClipWithExpand,
+} from '../generate-tracks';
 import type { TimelineClip } from '../../schema/timeline-clip';
 import type { Caption } from '../../schema/caption';
 import type { TimelineTrackRecord } from '../../schema';

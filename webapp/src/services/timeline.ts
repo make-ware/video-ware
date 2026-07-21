@@ -791,13 +791,12 @@ export class TimelineService {
       new Set([timelineId])
     );
 
-    // Heal source-duration drift so the stored timelineData snapshot is
-    // consistent with the clips as persisted. Save is this timeline's
-    // explicit write touchpoint, so its own healed clips persist here — but
-    // only its own: nested children belong to other timelines and heal in
-    // memory only (persisted when *they* are saved, or via `vw timeline
-    // reflow`).
-    const { clips, nestedTimelines, rootChanges } = this.reflowTree(
+    // Heal source-duration drift so the stored duration is consistent with
+    // the clips as persisted. Save is this timeline's explicit write
+    // touchpoint, so its own healed clips persist here — but only its own:
+    // nested children belong to other timelines and heal in memory only
+    // (persisted when *they* are saved, or via `vw timeline reflow`).
+    const { clips, rootChanges } = this.reflowTree(
       timelineId,
       rawClips,
       tracksList.items,
@@ -805,21 +804,15 @@ export class TimelineService {
     );
     if (rootChanges.length > 0) {
       // Save is durable by contract: if a heal write fails, fail the save
-      // rather than store a timelineData/duration snapshot describing
-      // geometry the persisted clips don't actually have. Reflow is
-      // idempotent, so a retried save re-plans the identical writes.
+      // rather than store a duration describing geometry the persisted
+      // clips don't actually have. Reflow is idempotent, so a retried save
+      // re-plans the identical writes.
       await Promise.all(
         rootChanges.map(({ clipId, ...fields }) =>
           this.timelineClipMutator.update(clipId, fields)
         )
       );
     }
-
-    // Generate tracks
-    const tracks = generateTracks(clips, tracksList.items, {
-      nestedTimelines,
-      rootTimelineId: timelineId,
-    });
 
     // Timeline length: the furthest placed clip end across tracks (what the
     // doctor's computedDuration and the CLI's syncTimelineDuration compute)
@@ -830,9 +823,8 @@ export class TimelineService {
     // Increment version
     const timeline = await this.timelineMutator.incrementVersion(timelineId);
 
-    // Update with tracks and duration
+    // Update duration
     return this.timelineMutator.update(timelineId, {
-      timelineData: { trackList: tracks },
       duration,
       version: timeline.version,
     });

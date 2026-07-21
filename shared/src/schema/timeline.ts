@@ -3,20 +3,12 @@ import {
   TextField,
   NumberField,
   RelationField,
-  JSONField,
   SingleSelectField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
-import { TimelineMetadataSchema } from '../types/metadata';
 import { TimelineOrientation } from '../enums';
-
-// Zod schema for EditListEntry validation (types are in types/video-ware.ts)
-export const TimeOffsetSchema = z.object({
-  seconds: z.number().int().min(0),
-  nanos: z.number().int().min(0).max(999999999),
-});
 
 // Define the Zod schema
 export const TimelineSchema = z
@@ -26,7 +18,6 @@ export const TimelineSchema = z
     description: TextField().optional(), // editor-facing notes, searchable
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     duration: NumberField({ min: 0 }).default(0), // computed total duration in seconds
-    timelineData: JSONField(TimelineMetadataSchema).optional(),
     UserRef: RelationField({ collection: 'Users' }).optional(),
     version: NumberField().default(1).optional(),
     processor: TextField().optional(),
@@ -44,7 +35,6 @@ export const TimelineInputSchema = z.object({
   description: z.string().optional(),
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   duration: z.number().min(0).default(0),
-  timelineData: TimelineMetadataSchema.optional(),
   UserRef: z.string().optional(),
   version: z.number().default(1).optional(),
   processor: z.string().optional(),

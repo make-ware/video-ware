@@ -177,7 +177,7 @@ export function TimelineProvider({
   // timelineQuery below); originalTimeline is the baseline snapshot from the
   // last full fetch, backing hasUnsavedChanges and revertChanges. Realtime
   // merges intentionally never touch the baseline: a remote edit is
-  // persisted but uncommitted (no version bump / editList), so it should
+  // persisted but uncommitted (no version bump), so it should
   // light up Save exactly like a local edit does.
   const [originalTimeline, setOriginalTimeline] =
     useState<TimelineWithClips | null>(null);
@@ -407,7 +407,7 @@ export function TimelineProvider({
     clearError();
 
     try {
-      // Save timeline (increments version, generates editList)
+      // Save timeline (increments version, recomputes duration)
       await timelineService.saveTimeline(timeline.id);
 
       // Reload to get updated state

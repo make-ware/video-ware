@@ -3,7 +3,7 @@ export * from './record-conflict.js';
 export * from './media-errors.js';
 export * from './retry.js';
 export * from './time.js';
-export * from './edit-list.js';
+export * from './generate-tracks.js';
 export * from './composite-utils.js';
 export * from './segment-edits.js';
 export * from './captions.js';

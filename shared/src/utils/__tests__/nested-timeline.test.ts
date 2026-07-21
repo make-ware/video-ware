@@ -8,7 +8,7 @@ import {
   wouldCreateTimelineCycle,
   type NestedTimelineMap,
 } from '../nested-timeline';
-import { generateTracks } from '../edit-list';
+import { generateTracks } from '../generate-tracks';
 
 function makeClip(overrides: Partial<TimelineClip>): TimelineClip {
   return {

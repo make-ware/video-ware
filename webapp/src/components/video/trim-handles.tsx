@@ -39,6 +39,9 @@ export interface TrimHandlesProps {
 const KEYBOARD_STEP = 0.1; // seconds per arrow key press
 const KEYBOARD_STEP_LARGE = 1; // seconds per shift+arrow key press
 
+/** Pixels of travel before a press on the range becomes a move, not a tap. */
+const DRAG_THRESHOLD_PX = 3;
+
 export function TrimHandles({
   duration,
   startTime,
@@ -53,9 +56,18 @@ export function TrimHandles({
 }: TrimHandlesProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const trackId = useId();
-  const [dragging, setDragging] = useState<'start' | 'end' | 'playhead' | null>(
-    null
-  );
+  const [dragging, setDragging] = useState<
+    'start' | 'end' | 'playhead' | 'move' | null
+  >(null);
+  // Whole-range move gesture (drag the middle of the selected range). The
+  // session snapshots the range at pointer-down so the drag is absolute.
+  const moveSessionRef = useRef<{
+    originStart: number;
+    originEnd: number;
+    grabTime: number;
+    startClientX: number;
+    moved: boolean;
+  } | null>(null);
   const [focusedHandle, setFocusedHandle] = useState<'start' | 'end' | null>(
     null
   );
@@ -187,6 +199,28 @@ export function TrimHandles({
     [disabled, scheduleScrub, startTime, endTime]
   );
 
+  // Press on the selected range: crossing the drag threshold shifts the
+  // whole range (duration preserved); releasing without crossing it is a
+  // tap and scrubs the playhead there, like pressing anywhere else on the
+  // track.
+  const handleMoveStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (disabled) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      moveSessionRef.current = {
+        originStart: startTime,
+        originEnd: endTime,
+        grabTime: percentToTime(getPositionPercent(clientX)),
+        startClientX: clientX,
+        moved: false,
+      };
+      setDragging('move');
+    },
+    [disabled, startTime, endTime, percentToTime, getPositionPercent]
+  );
+
   // Click / drag anywhere on the track to move the playhead (scrub the video).
   // Handle grab areas stop propagation, so this only fires off the handles.
   const handleTrackPointerDown = useCallback(
@@ -213,6 +247,25 @@ export function TrimHandles({
         // Free scrub of the playhead across the whole media; trim range
         // is unaffected.
         scheduleScrub(time, 'playhead');
+      } else if (dragging === 'move') {
+        const session = moveSessionRef.current;
+        if (!session) return;
+        if (
+          !session.moved &&
+          Math.abs(clientX - session.startClientX) < DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        session.moved = true;
+        // Shift by pointer travel from the grab point, clamped to the
+        // media bounds (not the window — the range may extend past it).
+        const span = session.originEnd - session.originStart;
+        const newStart = Math.max(
+          0,
+          Math.min(duration - span, session.originStart + time - session.grabTime)
+        );
+        onChange(newStart, newStart + span);
+        scheduleScrub(newStart, 'start');
       } else if (dragging === 'start') {
         // Ensure start doesn't exceed end - minDuration
         const maxStart = endTime - minDuration;
@@ -229,6 +282,12 @@ export function TrimHandles({
     };
 
     const handleUp = () => {
+      const session = moveSessionRef.current;
+      if (dragging === 'move' && session && !session.moved) {
+        // A tap on the selected range: scrub the playhead there.
+        scheduleScrub(session.grabTime, 'playhead');
+      }
+      moveSessionRef.current = null;
       setDragging(null);
     };
 
@@ -379,13 +438,19 @@ export function TrimHandles({
             style={{ width: `${startPercent}%` }}
           />
 
-          {/* Active region (selected range) */}
+          {/* Active region (selected range) — drag to shift the whole range */}
           <div
-            className="absolute top-0 bottom-0 bg-primary/20 border-y-2 border-primary"
+            className={cn(
+              'absolute top-0 bottom-0 bg-primary/20 border-y-2 border-primary touch-none',
+              !disabled && 'cursor-grab',
+              dragging === 'move' && 'cursor-grabbing bg-primary/30'
+            )}
             style={{
               left: `${startPercent}%`,
               width: `${endPercent - startPercent}%`,
             }}
+            onMouseDown={handleMoveStart}
+            onTouchStart={handleMoveStart}
           />
 
           {/* Inactive region (after end) */}

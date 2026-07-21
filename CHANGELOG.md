@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.0...video-ware-v0.10.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* add draggable trim handles ([abc3705](https://github.com/make-ware/video-ware/commit/abc3705f2305c2b3f968acb95fcd2a1462ae0d0d))
+* non-destructive composite clips (presence-based edit lists) ([f9ed518](https://github.com/make-ware/video-ware/commit/f9ed518e4274c92ef002211811d9f6a5069774f1))
+* non-destructive composite clips via presence-based edit lists ([bc91dce](https://github.com/make-ware/video-ware/commit/bc91dce6ab2a3fb8c80f0339c37b45dae36202e5))
+
 ## [0.10.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.10...video-ware-v0.10.0) (2026-07-21)
 
 

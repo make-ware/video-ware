@@ -131,7 +131,14 @@ export class LabelsFlowBuilder {
         stepType: DetectLabelsStepType.FACE_DETECTION,
         enabled: enabled.faceDetection && payload.config?.detectFaces === true,
         needsGcsUpload: true,
-        input: { type: 'face_detection', ...detectionInputBase },
+        // Explicitly request the enhanced attribute data (emotion/headwear/
+        // looking-at-camera likelihoods) rather than leaning on the executor's
+        // implicit default, so the intent is visible at the flow level.
+        input: {
+          type: 'face_detection',
+          ...detectionInputBase,
+          config: { includeBoundingBoxes: true, includeAttributes: true },
+        },
       },
       {
         stepType: DetectLabelsStepType.PERSON_DETECTION,

@@ -173,6 +173,11 @@ export class FaceDetectionNormalizer {
         attributesSummary[key] = this.getMostCommon(attributeCounts[key]);
       }
 
+      // Build one standalone, typed FaceAttributes object per face from the
+      // summary. `undefined` when the provider returned nothing usable, so the
+      // metadata field can be safely omitted rather than stored empty.
+      const faceAttributes = this.buildFaceAttributes(attributesSummary);
+
       // Generate track hash
       const trackHash = this.generateTrackHash(
         mediaId,
@@ -218,6 +223,9 @@ export class FaceDetectionNormalizer {
         faceHash,
         metadata: {
           processorVersion,
+          // Standalone, self-contained copy of the aggregated face attributes.
+          // Optional by design — absent when the provider returned none.
+          ...(faceAttributes ? { faceAttributes } : {}),
         },
       });
 
@@ -282,6 +290,44 @@ export class FaceDetectionNormalizer {
       labelTracks: validTracks,
       labelMediaUpdate,
     };
+  }
+
+  /**
+   * Build a standalone, typed FaceAttributes object from an aggregated
+   * attribute summary.
+   *
+   * Only the known likelihood keys are copied, and only when they carry a
+   * non-empty string — so a null/malformed summary never throws and never
+   * leaks stray keys. Returns undefined when nothing usable is present, which
+   * lets callers omit the field entirely.
+   */
+  private buildFaceAttributes(
+    summary: Record<string, unknown>
+  ): FaceAttributes | undefined {
+    if (!summary || typeof summary !== 'object') {
+      return undefined;
+    }
+
+    const keys: Array<keyof FaceAttributes> = [
+      'joyLikelihood',
+      'sorrowLikelihood',
+      'angerLikelihood',
+      'surpriseLikelihood',
+      'underExposedLikelihood',
+      'blurredLikelihood',
+      'headwearLikelihood',
+      'lookingAtCameraLikelihood',
+    ];
+
+    const attributes: FaceAttributes = {};
+    for (const key of keys) {
+      const value = summary[key];
+      if (typeof value === 'string' && value.length > 0) {
+        attributes[key] = value;
+      }
+    }
+
+    return Object.keys(attributes).length > 0 ? attributes : undefined;
   }
 
   /**

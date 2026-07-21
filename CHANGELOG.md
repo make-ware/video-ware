@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.10...video-ware-v0.10.0) (2026-07-21)
+
+
+### Features
+
+* **labels:** store standalone face attributes + request them explicitly ([46051dc](https://github.com/make-ware/video-ware/commit/46051dc868022accdca8c6248a004b93f14a3d01))
+* **labels:** store standalone face attributes + request them explicitly ([3c1c394](https://github.com/make-ware/video-ware/commit/3c1c394551509cdcfccc1ba4c385337206973dc4))
+
+
+### Bug Fixes
+
+* add window for clip editors ([da200f4](https://github.com/make-ware/video-ware/commit/da200f438d818af3f1b5080487f0b744230eff94))
+* improve cli commands and help docs ([495ca29](https://github.com/make-ware/video-ware/commit/495ca29017fc724dee7c7f85f776ccbe8ecb12e7))
+* lint warnings ([de69276](https://github.com/make-ware/video-ware/commit/de6927698132fffefa791d17139d6fcbf2a27c52))
+* remove timelineData from timeline entity ([7558683](https://github.com/make-ware/video-ware/commit/755868305381b40c9cea669849a95765e05f9713))
+* replace explicit any in shared mutators and s3 backend ([3a4a7a6](https://github.com/make-ware/video-ware/commit/3a4a7a639d38b0d3048e9edd84b4439135d9db66))
+* replace explicit any in shared mutators and s3 backend ([11abc74](https://github.com/make-ware/video-ware/commit/11abc741d1553b4b9bcf382bfbb4459ef8892ce3))
+* resolve webapp eslint warnings ([6eb3040](https://github.com/make-ware/video-ware/commit/6eb304080755100f9a8edf1fa593b8c2df023259))
+* resolve webapp eslint warnings ([a2858b6](https://github.com/make-ware/video-ware/commit/a2858b67c9095fcf84ec44ea3bcb104c3be1148c))
+* support media types ([cb35804](https://github.com/make-ware/video-ware/commit/cb35804089ac7508afdb80623c24381a06e31958))
+
 ## [0.9.10](https://github.com/make-ware/video-ware/compare/video-ware-v0.9.9...video-ware-v0.9.10) (2026-07-19)
 
 

@@ -40,8 +40,9 @@ export function MediaClipItem({
     typeof clipData?.label === 'string' ? (clipData.label as string) : 'Clip';
 
   // Construct a pseudo-clip for the dialog
-  const detailsClip: ExpandedTimelineClip = {
+  const detailsClip: ExpandedTimelineClip & { type: string } = {
     id: clip.id,
+    type: clip.type,
     TimelineRef: 'preview',
     MediaRef: media.id,
     MediaClipRef: clip.id,
@@ -123,7 +124,7 @@ export function MediaClipItem({
         <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          clip={detailsClip as any}
+          clip={detailsClip as React.ComponentProps<typeof ClipBaseDialog>['clip']}
           initialMode="view"
         />
       )}

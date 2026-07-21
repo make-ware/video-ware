@@ -8,7 +8,7 @@ import {
 } from '../schema/label-speaker';
 import type { LabelEntity } from '../schema/label-entity';
 import type { LabelTrack } from '../schema/label-track';
-import type { Expanded } from '../types';
+import type { Expanded, TypedPocketBase } from '../types';
 
 export interface LabelSpeakerRelations {
   LabelEntityRef?: LabelEntity;
@@ -22,7 +22,7 @@ export class LabelSpeakerMutator extends BaseMutator<
   LabelSpeaker,
   LabelSpeakerInput
 > {
-  constructor(pb: any) {
+  constructor(pb: TypedPocketBase) {
     super(pb);
   }
 

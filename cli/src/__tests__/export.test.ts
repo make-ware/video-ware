@@ -153,7 +153,6 @@ function makeCollections(): Record<string, Stub> {
   return collections;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function readJson(...segments: string[]): any {
   return JSON.parse(readFileSync(join(...segments), 'utf8'));
 }

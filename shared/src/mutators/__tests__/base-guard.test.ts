@@ -8,7 +8,6 @@ import {
 } from '../../utils/record-conflict';
 import type { TypedPocketBase } from '../../types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Stub = Record<string, any>;
 
 function fakePb(collections: Record<string, Stub>): TypedPocketBase {

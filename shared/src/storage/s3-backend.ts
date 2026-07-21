@@ -366,8 +366,12 @@ export class S3StorageBackend implements StorageBackend {
         throw new Error('No body in S3 response');
       }
 
-      // Convert AWS SDK stream to Web ReadableStream
-      const body = response.Body as any;
+      // Convert AWS SDK stream to Web ReadableStream. The SDK types Body as a
+      // union (Node Readable | web ReadableStream | Blob); in this runtime it is
+      // always one of the async-iterable stream forms.
+      const body = response.Body as
+        | ReadableStream
+        | AsyncIterable<Uint8Array | ArrayBuffer>;
 
       if (body instanceof ReadableStream) {
         return body;
@@ -470,10 +474,15 @@ export class S3StorageBackend implements StorageBackend {
         })
       );
       return true;
-    } catch (error: any) {
+    } catch (error) {
+      const httpStatus =
+        typeof error === 'object' && error !== null && '$metadata' in error
+          ? (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+              ?.httpStatusCode
+          : undefined;
       if (
-        error.name === 'NotFound' ||
-        error.$metadata?.httpStatusCode === 404
+        (error instanceof Error && error.name === 'NotFound') ||
+        httpStatus === 404
       ) {
         return false;
       }

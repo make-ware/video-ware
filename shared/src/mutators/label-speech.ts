@@ -4,7 +4,7 @@ import {
   LabelSpeechInput,
   LabelSpeechInputSchema,
 } from '../schema/label-speech';
-import { TypedPocketBase } from '../types';
+import type { TypedPocketBase } from '../types';
 
 export class LabelSpeechMutator extends BaseMutator<
   LabelSpeech,

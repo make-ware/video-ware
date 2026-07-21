@@ -124,7 +124,9 @@ export function MediaClipItem({
         <ClipBaseDialog
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
-          clip={detailsClip as React.ComponentProps<typeof ClipBaseDialog>['clip']}
+          clip={
+            detailsClip as React.ComponentProps<typeof ClipBaseDialog>['clip']
+          }
           initialMode="view"
         />
       )}

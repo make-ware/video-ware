@@ -1,6 +1,5 @@
 'use client';
 
-import { useCallback } from 'react';
 import Link from 'next/link';
 import {
   Card,
@@ -24,7 +23,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 import type { Timeline } from '@project/shared';
 import type { OverviewRender } from '@/hooks/use-timelines-overview';
@@ -99,16 +97,6 @@ export function TimelineOverviewCard({
 }: TimelineOverviewCardProps) {
   const editorHref = `/ws/${workspaceId}/timelines/${timeline.id}`;
   const rendersHref = `${editorHref}/renders`;
-
-  // Open the rendered video in a new tab so it can be reviewed in-browser.
-  const handleView = useCallback((render: OverviewRender) => {
-    const file = render.expand?.FileRef;
-    if (!file?.file) {
-      toast.error('Render output not available');
-      return;
-    }
-    window.open(pb.files.getURL(file, file.file), '_blank', 'noopener');
-  }, []);
 
   return (
     <Card className="flex flex-col">
@@ -223,14 +211,16 @@ export function TimelineOverviewCard({
                   {hasFile && downloadUrl && (
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Button
+                        asChild
                         variant="outline"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => handleView(render)}
-                        title="View render"
+                        title="Watch render"
                       >
-                        <Play className="h-4 w-4" />
-                        <span className="sr-only">View render</span>
+                        <Link href={`${rendersHref}/${render.id}`}>
+                          <Play className="h-4 w-4" />
+                          <span className="sr-only">Watch render</span>
+                        </Link>
                       </Button>
                       <Button
                         asChild

@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   XCircle,
   Trash2,
+  Play,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -343,6 +344,16 @@ function TimelineRendersPageContent() {
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
+                      {isDownloadable && (
+                        <Button asChild variant="outline" className="gap-2">
+                          <Link
+                            href={`/ws/${currentWorkspace?.id}/timelines/${timelineId}/renders/${render.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                            Watch
+                          </Link>
+                        </Button>
+                      )}
                       {isDownloadable && downloadUrl && (
                         <Button asChild className="gap-2">
                           <a

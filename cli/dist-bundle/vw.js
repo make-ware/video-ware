@@ -60095,13 +60095,14 @@ function findNonOverlappingTimelineStart(trackClips, desiredTime, newClipDuratio
   return candidateTime;
 }
 var OVERLAP_EPSILON = 1e-6;
-function planOverwriteAtTime(trackClips, insertStart, insertDuration) {
+function planOverwriteAtTime(trackClips, insertStart, insertDuration, excludeClipId) {
   const insertEnd = insertStart + insertDuration;
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
   const trims = [];
   const removals = [];
   sorted.forEach((clip, i2) => {
+    if (clip.id === excludeClipId) return;
     const { start: s2, end: e2 } = ranges[i2];
     if (e2 <= s2) return;
     if (e2 <= insertStart + OVERLAP_EPSILON || s2 >= insertEnd - OVERLAP_EPSILON) {
@@ -70382,7 +70383,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.0";
+    return "0.10.1";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

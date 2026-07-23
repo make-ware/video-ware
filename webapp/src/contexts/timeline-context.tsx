@@ -29,6 +29,7 @@ import {
   getClipTimelineDuration,
   getSortedTrackClips,
   planRippleInsert,
+  type ClipDropPlan,
   type LabelSpeech,
   type Timeline,
   type TimelineClip,
@@ -148,6 +149,16 @@ interface TimelineContextType {
     timelineStart?: number
   ) => Promise<void>;
   updateClipPosition: (clipId: string, timelineStart: number) => Promise<void>;
+  /**
+   * Apply a resolved drag-drop plan (planClipDrop): shift the pushed clips,
+   * place the dragged clip on the target track, then trim/remove the
+   * overwrite victims. Re-syncs from the server if any stage fails.
+   */
+  applyClipDrop: (
+    clipId: string,
+    targetTrackId: string,
+    plan: ClipDropPlan
+  ) => Promise<void>;
 
   // Render operations
   createRenderTask: (outputSettings: RenderFlowConfig) => Promise<void>;
@@ -1240,6 +1251,75 @@ export function TimelineProvider({
     [timeline, timelineService, patchTimeline, clearError, handleError]
   );
 
+  // Apply a drag-drop plan. The service sequences the writes damage-ordered
+  // (shifts, then the dragged clip's placement, then the destructive trims
+  // and removals); one cache patch at the end keeps the preview seamless.
+  const applyClipDrop = useCallback(
+    async (clipId: string, targetTrackId: string, plan: ClipDropPlan) => {
+      if (!timeline) {
+        throw new Error('No timeline loaded');
+      }
+
+      setIsLoading(true);
+      clearError();
+
+      try {
+        const {
+          movedClips,
+          placedClip,
+          trimmedClips,
+          removedIds: removed,
+        } = await timelineService.applyClipDrop(clipId, targetTrackId, plan);
+
+        const removedIds = new Set(removed);
+        patchTimeline((prev) => {
+          const patchedById = new Map<string, TimelineClip>([
+            ...movedClips.map((c) => [c.id, c] as const),
+            ...trimmedClips.map((c) => [c.id, c] as const),
+            [placedClip.id, placedClip],
+          ]);
+          return {
+            ...prev,
+            clips: prev.clips
+              .filter((c) => !removedIds.has(c.id))
+              .map((c) => {
+                const patched = patchedById.get(c.id);
+                return patched ? { ...c, ...patched } : c;
+              }),
+          };
+        });
+
+        // Overwrite removals may include selected clips
+        if (removedIds.size > 0) {
+          setSelectedClipIds((prev) =>
+            [...prev].some((id) => removedIds.has(id))
+              ? new Set([...prev].filter((id) => !removedIds.has(id)))
+              : prev
+          );
+        }
+      } catch (error) {
+        // The write sequence is not atomic — some stages may have landed
+        // before the failure. Re-sync from the server so the local cache
+        // reflects exactly what persisted, rather than showing victims
+        // intact until the next SSE event contradicts it. (refreshTimeline
+        // clears the error state, so it must run before handleError.)
+        await refreshTimeline().catch(() => {});
+        handleError(error, 'apply clip drop');
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      timeline,
+      timelineService,
+      patchTimeline,
+      refreshTimeline,
+      clearError,
+      handleError,
+    ]
+  );
+
   // Create render task
   const createRenderTask = useCallback(
     async (outputSettings: RenderFlowConfig) => {
@@ -1419,6 +1499,7 @@ export function TimelineProvider({
       // Clip positioning operations
       moveClipToTrack,
       updateClipPosition,
+      applyClipDrop,
 
       // Render operations
       createRenderTask,
@@ -1466,6 +1547,7 @@ export function TimelineProvider({
       deleteTrack,
       moveClipToTrack,
       updateClipPosition,
+      applyClipDrop,
       createRenderTask,
       clearError,
       refreshTimeline,

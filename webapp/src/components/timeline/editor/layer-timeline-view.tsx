@@ -19,6 +19,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  BetweenHorizontalStart,
+  ArrowRightFromLine,
+  Replace,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,9 +43,16 @@ import {
   getClipSegments,
   getClipTimelineDuration,
   getSortedTrackClips,
+  planClipDrop,
   sourceTimeAtCompositeOffset,
 } from '@project/shared';
-import type { Caption, CompositeSegment, TimelineClip } from '@project/shared';
+import type {
+  Caption,
+  ClipDropMode,
+  ClipDropPlan,
+  CompositeSegment,
+  TimelineClip,
+} from '@project/shared';
 import { TrackLane } from './track-lane';
 import { TrackHeader } from './track-header';
 import { SnapGuide } from './snap-guide';
@@ -67,6 +77,32 @@ const DRAG_ACTIVATION_PX = 4; // pointer travel before a press becomes a drag
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 const MIN_LABEL_PX = 56;
 const MIN_MINOR_PX = 8;
+
+// Drop-mode picker entries: the persistent toggle (the only way to switch
+// modes on touch devices) plus the modifier that overrides it mid-drag.
+const DROP_MODE_OPTIONS: Array<{
+  mode: ClipDropMode;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+}> = [
+  {
+    mode: 'insert',
+    icon: BetweenHorizontalStart,
+    title: 'Insert drop mode — overlapped clips slide right to make room',
+  },
+  {
+    mode: 'shift',
+    icon: ArrowRightFromLine,
+    title:
+      'Shift drop mode — the clip and every clip after it move together (hold Shift while dragging)',
+  },
+  {
+    mode: 'overwrite',
+    icon: Replace,
+    title:
+      'Overwrite drop mode — clips in the way are trimmed or removed (hold Alt/Option while dragging)',
+  },
+];
 
 function clampZoom(value: number): number {
   return Math.min(Math.max(value, MIN_PPS), MAX_PPS);
@@ -143,8 +179,7 @@ export function LayerTimelineView() {
     createTrack,
     updateTrack,
     deleteTrack,
-    moveClipToTrack,
-    updateClipPosition,
+    applyClipDrop,
     addClip,
     refreshTimeline,
   } = useTimeline();
@@ -163,7 +198,12 @@ export function LayerTimelineView() {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [shiftPressed, setShiftPressed] = useState(false);
+  const [altPressed, setAltPressed] = useState(false);
+  const [metaPressed, setMetaPressed] = useState(false);
   const [headersCollapsed, setHeadersCollapsed] = useState(false);
+  // Sticky drop mode from the toolbar picker; the modifier keys override it
+  // for the duration of a drag (Shift → shift, Alt/Option → overwrite).
+  const [dropMode, setDropMode] = useState<ClipDropMode>('insert');
 
   // Timeline zoom (pixels per second). Adjustable so users can zoom in for
   // precise trims or out for a high-level overview of a long timeline.
@@ -298,20 +338,30 @@ export function LayerTimelineView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleZoomIn, handleZoomOut, handleZoomFit]);
 
-  // Initialize snap engine
+  // Initialize snap engine. Cmd/Ctrl disables snapping (Shift is the
+  // shift-drop-mode modifier while dragging clips).
   const { snapTime, activeGuides, clearGuides } = useSnap({
     clips: timeline?.clips || [],
     currentTime,
     pixelsPerSecond: pixelsPerSecond,
     threshold: 8,
-    enabled: !shiftPressed,
+    enabled: !metaPressed,
   });
 
-  // Listen for Shift key to disable snapping + multi-select keyboard shortcuts
+  // Track drag modifiers (Shift → shift mode, Alt/Option → overwrite mode,
+  // Cmd/Ctrl → no snapping) + multi-select keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         setShiftPressed(true);
+      }
+      if (e.key === 'Alt') {
+        setAltPressed(true);
+        // Keep the browser from focusing its menu bar mid-drag
+        e.preventDefault();
+      }
+      if (e.key === 'Meta' || e.key === 'Control') {
+        setMetaPressed(true);
       }
 
       // Skip shortcuts when typing in input/textarea
@@ -351,14 +401,30 @@ export function LayerTimelineView() {
       if (e.key === 'Shift') {
         setShiftPressed(false);
       }
+      if (e.key === 'Alt') {
+        setAltPressed(false);
+      }
+      if (e.key === 'Meta' || e.key === 'Control') {
+        setMetaPressed(false);
+      }
+    };
+
+    // Alt-Tab and friends can steal the matching keyup; a stuck modifier
+    // would silently change every following drop.
+    const handleBlur = () => {
+      setShiftPressed(false);
+      setAltPressed(false);
+      setMetaPressed(false);
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [
     selectAllClips,
@@ -397,6 +463,98 @@ export function LayerTimelineView() {
 
     return map;
   }, [timeline?.clips]);
+
+  // The mode a release right now would apply: modifier keys override the
+  // toolbar pick for the duration of the drag.
+  const effectiveDropMode: ClipDropMode = altPressed
+    ? 'overwrite'
+    : shiftPressed
+      ? 'shift'
+      : dropMode;
+
+  // The lane a release would drop onto. Shift mode moves a block within the
+  // clip's own track, so it pins the target back to the source lane no
+  // matter where the pointer wanders.
+  const effectiveTargetTrackId =
+    dragState?.active && dragState.handle === 'move'
+      ? effectiveDropMode === 'shift'
+        ? dragState.sourceTrackId
+        : dragState.targetTrackId
+      : null;
+
+  // The dragged clip's CURRENT effective duration, resolved from the live
+  // timeline rather than the pointer-down snapshot — a realtime edit that
+  // trims the clip mid-drag must reshape the drop footprint, not reserve
+  // stale space. Null when the clip was deleted mid-drag (nothing to drop).
+  const dragClipDuration = useMemo(() => {
+    if (!dragState || dragState.handle !== 'move' || !timeline) return null;
+    const clip = timeline.clips.find((c) => c.id === dragState.clipId);
+    return clip ? getClipTimelineDuration(clip) : null;
+  }, [dragState, timeline]);
+
+  // Live resolution of the in-flight move drag: where the dragged clip lands
+  // and what happens to every other clip on the target lane. Drives both the
+  // mid-drag preview and the ghost label; onUp recomputes the same plan from
+  // the same inputs to persist exactly what was previewed.
+  const dropPlan = useMemo<ClipDropPlan | null>(() => {
+    if (
+      !dragState?.active ||
+      dragState.handle !== 'move' ||
+      !timeline ||
+      dragClipDuration === null
+    ) {
+      return null;
+    }
+    const trackId =
+      effectiveDropMode === 'shift'
+        ? dragState.sourceTrackId
+        : dragState.targetTrackId;
+    const targetTrack = timeline.tracks.find((t) => t.id === trackId);
+    if (!targetTrack || targetTrack.isLocked) return null;
+    const trackClips = timeline.clips.filter(
+      (c) => (c.TimelineTrackRef || '') === trackId
+    );
+    return planClipDrop(
+      trackClips,
+      dragState.clipId,
+      dragState.previewTimelineStart,
+      dragClipDuration,
+      effectiveDropMode
+    );
+  }, [dragState, timeline, effectiveDropMode, dragClipDuration]);
+
+  // Per-clip fates for the target lane, in the shape TrackLane consumes
+  const dropPreview = useMemo(() => {
+    if (!dropPlan) return null;
+    return {
+      moves: new Map(dropPlan.moves.map((m) => [m.clipId, m.timelineStart])),
+      trims: new Map(dropPlan.trims.map((t) => [t.clipId, t])),
+      removals: new Set(dropPlan.removals),
+    };
+  }, [dropPlan]);
+
+  // One-line answer to "what will releasing here do?"
+  const dropImpactLabel = useMemo(() => {
+    if (!dropPlan) return null;
+    if (dropPlan.mode === 'overwrite') {
+      const parts: string[] = [];
+      if (dropPlan.trims.length > 0) {
+        parts.push(`trims ${dropPlan.trims.length}`);
+      }
+      if (dropPlan.removals.length > 0) {
+        parts.push(`removes ${dropPlan.removals.length}`);
+      }
+      return parts.length > 0 ? `Overwrite · ${parts.join(', ')}` : 'Overwrite';
+    }
+    if (dropPlan.mode === 'shift') {
+      return dropPlan.moves.length > 0
+        ? `Shift · ${dropPlan.moves.length} follow`
+        : 'Shift';
+    }
+    return dropPlan.moves.length > 0
+      ? `Insert · pushes ${dropPlan.moves.length}`
+      : 'Insert';
+  }, [dropPlan]);
 
   // Build the shared initial drag state for both resize and move drags
   const buildDragState = useCallback(
@@ -555,7 +713,12 @@ export function LayerTimelineView() {
         const initialLeftTime = next.initialLeft / pixelsPerSecond;
 
         if (next.handle === 'move') {
-          const clipDuration = next.timelineDuration;
+          // Footprint from the live clip, not the pointer-down snapshot — a
+          // realtime edit can trim the dragged clip mid-drag.
+          const liveClip = timeline?.clips.find((c) => c.id === next.clipId);
+          const clipDuration = liveClip
+            ? getClipTimelineDuration(liveClip)
+            : next.timelineDuration;
           let leftTime = Math.max(0, initialLeftTime + deltaTime);
 
           // Snap whichever clip edge is closest to a target: try the leading
@@ -701,34 +864,46 @@ export function LayerTimelineView() {
 
       try {
         if (info.handle === 'move') {
+          // Shift mode is a block move within the source track; the other
+          // modes drop wherever the pointer is hovering.
+          const targetTrackId =
+            effectiveDropMode === 'shift'
+              ? info.sourceTrackId
+              : info.targetTrackId;
           const targetTrack = timeline?.tracks.find(
-            (t) => t.id === info.targetTrackId
+            (t) => t.id === targetTrackId
           );
           if (!targetTrack || targetTrack.isLocked) return;
 
-          const clipDuration = info.timelineDuration;
+          // Plan against the clip's live footprint — a realtime edit may
+          // have trimmed it mid-drag; if it was deleted, there is nothing
+          // left to drop.
+          const draggedClip = timeline?.clips.find((c) => c.id === info.clipId);
+          if (!draggedClip) return;
+
+          // Same plan the preview showed (same pure function, same inputs)
           const trackClips = (timeline?.clips || []).filter(
-            (c) => c.TimelineTrackRef === info.targetTrackId
+            (c) => (c.TimelineTrackRef || '') === targetTrackId
           );
-          const timelineStart = findNonOverlappingTimelineStart(
+          const plan = planClipDrop(
             trackClips,
+            info.clipId,
             info.previewTimelineStart,
-            clipDuration,
-            info.clipId
+            getClipTimelineDuration(draggedClip),
+            effectiveDropMode
           );
 
-          if (info.targetTrackId === info.sourceTrackId) {
-            const previousStart =
-              info.initialTimelineStart ?? info.initialLeft / pixelsPerSecond;
-            if (Math.abs(timelineStart - previousStart) > 0.001) {
-              await updateClipPosition(info.clipId, timelineStart);
-            }
-          } else {
-            await moveClipToTrack(
-              info.clipId,
-              info.targetTrackId,
-              timelineStart
-            );
+          // A drop back onto the clip's own footprint changes nothing
+          const previousStart =
+            info.initialTimelineStart ?? info.initialLeft / pixelsPerSecond;
+          const isNoOp =
+            targetTrackId === info.sourceTrackId &&
+            Math.abs(plan.timelineStart - previousStart) <= 0.001 &&
+            plan.moves.length === 0 &&
+            plan.trims.length === 0 &&
+            plan.removals.length === 0;
+          if (!isNoOp) {
+            await applyClipDrop(info.clipId, targetTrackId, plan);
           }
         } else {
           const finalStart = info.previewStart;
@@ -782,8 +957,8 @@ export function LayerTimelineView() {
     timeline?.clips,
     timeline?.tracks,
     updateClipTimes,
-    updateClipPosition,
-    moveClipToTrack,
+    applyClipDrop,
+    effectiveDropMode,
     snapTime,
     clearGuides,
     pixelsPerSecond,
@@ -1251,8 +1426,26 @@ export function LayerTimelineView() {
           </div>
         )}
 
-        {/* Zoom controls */}
+        {/* Drop mode + zoom controls */}
         <div className="absolute bottom-3 right-3 z-50 flex items-center gap-0.5 rounded-md border bg-background/90 px-0.5 py-0.5 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          {DROP_MODE_OPTIONS.map(({ mode, icon: Icon, title }) => (
+            <Button
+              key={mode}
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-7 w-7',
+                // Reflects the mode a release would use right now, so a held
+                // modifier lights up its button mid-drag
+                effectiveDropMode === mode && 'bg-accent text-accent-foreground'
+              )}
+              onClick={() => setDropMode(mode)}
+              title={title}
+            >
+              <Icon className="h-4 w-4" />
+            </Button>
+          ))}
+          <div className="mx-0.5 h-4 w-px bg-border" />
           <Button
             variant="ghost"
             size="icon"
@@ -1456,10 +1649,11 @@ export function LayerTimelineView() {
                             ? dragState.clipId
                             : null
                         }
-                        isDropTarget={
-                          dragState?.active &&
-                          dragState.handle === 'move' &&
-                          dragState.targetTrackId === track.id
+                        isDropTarget={effectiveTargetTrackId === track.id}
+                        dropPreview={
+                          effectiveTargetTrackId === track.id
+                            ? dropPreview
+                            : null
                         }
                         isSelected={selectedTrackId === track.id}
                       />
@@ -1468,32 +1662,56 @@ export function LayerTimelineView() {
                 )}
               </div>
 
-              {/* Move Drag Ghost */}
+              {/* Move Drag Ghost — colored by drop mode, labeled with the
+                  planned landing time and what releasing will do */}
               {dragState?.active &&
                 dragState.handle === 'move' &&
                 (() => {
                   const targetIndex = sortedTracks.findIndex(
-                    (t) => t.id === dragState.targetTrackId
+                    (t) => t.id === effectiveTargetTrackId
                   );
                   if (targetIndex === -1) return null;
                   const blocked = sortedTracks[targetIndex].isLocked;
+                  const ghostTime = dropPlan
+                    ? dropPlan.timelineStart
+                    : dragState.previewTimelineStart;
                   return (
                     <div
                       className={cn(
                         'absolute z-[15] pointer-events-none rounded-sm border-2',
                         blocked
                           ? 'border-destructive bg-destructive/20'
-                          : 'border-primary bg-primary/30'
+                          : effectiveDropMode === 'overwrite'
+                            ? 'border-destructive bg-destructive/25'
+                            : effectiveDropMode === 'shift'
+                              ? 'border-amber-500 bg-amber-500/25'
+                              : 'border-primary bg-primary/30'
                       )}
                       style={{
-                        left: dragState.previewLeft,
-                        width: dragState.previewWidth,
+                        left: ghostTime * pixelsPerSecond,
+                        // Live footprint (a realtime edit can trim the clip
+                        // mid-drag); previewWidth only updates on pointer moves
+                        width:
+                          (dragClipDuration ?? dragState.timelineDuration) *
+                          pixelsPerSecond,
                         top: RULER_HEIGHT + targetIndex * TRACK_HEIGHT,
                         height: TRACK_HEIGHT,
                       }}
                     >
                       <div className="absolute top-1 left-1.5 text-[10px] font-mono text-white drop-shadow whitespace-nowrap">
-                        {formatTime(dragState.previewTimelineStart)}
+                        {formatTime(ghostTime)}
+                      </div>
+                      <div
+                        className={cn(
+                          'absolute bottom-1 left-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium shadow whitespace-nowrap',
+                          blocked || effectiveDropMode === 'overwrite'
+                            ? 'bg-destructive text-destructive-foreground'
+                            : effectiveDropMode === 'shift'
+                              ? 'bg-amber-500 text-black'
+                              : 'bg-primary text-primary-foreground'
+                        )}
+                      >
+                        {blocked ? 'Locked track' : (dropImpactLabel ?? '')}
                       </div>
                     </div>
                   );

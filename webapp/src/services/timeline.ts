@@ -37,7 +37,9 @@ import {
   wouldCreateTimelineCycle,
   planRippleDelete,
   planTimelineTreeReflow,
+  type ClipDropPlan,
   type ClipReflowChange,
+  type ClipTrim,
   type NestedTimelineMap,
 } from '@project/shared';
 
@@ -788,6 +790,76 @@ export class TimelineService {
         this.timelineClipMutator.update(clipId, { timelineStart })
       )
     );
+  }
+
+  /**
+   * Apply planned overwrite trims (planOverwriteAtTime / planClipDrop): each
+   * victim keeps only its surviving window, pinned at its (possibly shifted)
+   * timeline position. Every trim goes through updateClipTimes so each clip
+   * type's companion maintenance runs (nested-timeline followSource
+   * recompute, composite duration from the windowed edit list, range
+   * validation) — the plan's precomputed duration is preview-only.
+   */
+  async applyClipTrims(trims: ClipTrim[]): Promise<TimelineClip[]> {
+    return Promise.all(
+      trims.map(({ clipId, start, end, timelineStart }) =>
+        this.updateClipTimes(clipId, start, end, { timelineStart })
+      )
+    );
+  }
+
+  /**
+   * Apply a resolved drag-drop plan (planClipDrop) in damage-ordered stages:
+   * the non-destructive shifts, then the dragged clip's own placement, and
+   * only then the destructive trims and removals. PocketBase has no
+   * client-side transaction, so the sequence cannot be atomic — the ordering
+   * instead guarantees a mid-sequence failure can leave a temporary overlap
+   * on the track (visible and repairable) but never a trimmed or deleted
+   * victim with the dragged clip left unplaced. Throws on any stage failure,
+   * including a partial bulk removal; callers must re-sync from the server
+   * to reconcile whatever landed before the failure.
+   */
+  async applyClipDrop(
+    clipId: string,
+    targetTrackId: string,
+    plan: ClipDropPlan
+  ): Promise<{
+    movedClips: TimelineClip[];
+    placedClip: TimelineClip;
+    trimmedClips: TimelineClip[];
+    removedIds: string[];
+  }> {
+    const clip = await this.timelineClipMutator.getById(clipId);
+    if (!clip) {
+      throw new Error(`Timeline clip not found: ${clipId}`);
+    }
+
+    const movedClips =
+      plan.moves.length > 0 ? await this.applyClipShifts(plan.moves) : [];
+
+    const placedClip =
+      (clip.TimelineTrackRef || '') !== targetTrackId
+        ? await this.moveClipToTrack(clipId, targetTrackId, plan.timelineStart)
+        : await this.updateClipPosition(clipId, plan.timelineStart);
+
+    const trimmedClips =
+      plan.trims.length > 0 ? await this.applyClipTrims(plan.trims) : [];
+
+    let removedIds: string[] = [];
+    if (plan.removals.length > 0) {
+      const { succeeded, failed } = await this.bulkRemoveClipsFromTimeline(
+        plan.removals
+      );
+      removedIds = succeeded;
+      if (failed.length > 0) {
+        throw new Error(
+          `Failed to remove ${failed.length} of ${plan.removals.length} ` +
+            `overwritten clip(s): ${failed.map((f) => f.error).join('; ')}`
+        );
+      }
+    }
+
+    return { movedClips, placedClip, trimmedClips, removedIds };
   }
 
   // ============================================================================

@@ -13,6 +13,7 @@ import {
   findNonOverlappingTimelineStart,
   getClipRanges,
   getClipTimelineDuration,
+  planClipDrop,
   planOverwriteAtTime,
   planRippleDelete,
   planRippleInsert,
@@ -1001,6 +1002,201 @@ describe('planRippleInsert', () => {
     ];
     expect(planRippleInsert(clips, 0, 0)).toEqual([]);
     expect(planRippleInsert(clips, 0, -2)).toEqual([]);
+  });
+});
+
+describe('planClipDrop', () => {
+  // A same-track layout used across modes:
+  // mover [0,4), b [6,9), c [10,12)
+  const trackClips = () => [
+    makeClip({ id: 'mover', timelineStart: 0, start: 0, end: 4, duration: 4 }),
+    makeClip({ id: 'b', timelineStart: 6, start: 0, end: 3, duration: 3 }),
+    makeClip({ id: 'c', timelineStart: 10, start: 0, end: 2, duration: 2 }),
+  ];
+
+  describe('insert mode', () => {
+    it('is a plain move when the drop range is clear', () => {
+      expect(planClipDrop(trackClips(), 'mover', 1, 4, 'insert')).toEqual({
+        mode: 'insert',
+        timelineStart: 1,
+        moves: [],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('clamps the drop point to 0', () => {
+      const plan = planClipDrop(trackClips(), 'mover', -3, 4, 'insert');
+      expect(plan.timelineStart).toBe(0);
+    });
+
+    it('pushes the overlapped clip and followers right, preserving gaps', () => {
+      // Drop mover (4s) at t=5: overlaps b [6,9). b must start at 9, so the
+      // delta is 3; c keeps its 1s gap after b.
+      expect(planClipDrop(trackClips(), 'mover', 5, 4, 'insert')).toEqual({
+        mode: 'insert',
+        timelineStart: 5,
+        moves: [
+          { clipId: 'b', timelineStart: 9 },
+          { clipId: 'c', timelineStart: 13 },
+        ],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('pushes a straddled clip fully past the dropped clip', () => {
+      // Drop mover (4s) at t=8, mid-c... b [6,9) straddles the drop start:
+      // b lands at the drop end (12), c follows with spacing preserved.
+      expect(planClipDrop(trackClips(), 'mover', 8, 4, 'insert')).toEqual({
+        mode: 'insert',
+        timelineStart: 8,
+        moves: [
+          { clipId: 'b', timelineStart: 12 },
+          { clipId: 'c', timelineStart: 16 },
+        ],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('leaves clips wholly before the drop range untouched', () => {
+      // Drop mover at t=10.5: only c overlaps; b stays.
+      const plan = planClipDrop(trackClips(), 'mover', 10.5, 4, 'insert');
+      expect(plan.moves).toEqual([{ clipId: 'c', timelineStart: 14.5 }]);
+    });
+
+    it('plans a cross-track drop without the dragged clip in the list', () => {
+      const target = [
+        makeClip({ id: 'x', timelineStart: 2, start: 0, end: 3, duration: 3 }),
+      ];
+      expect(planClipDrop(target, 'mover', 1, 4, 'insert')).toEqual({
+        mode: 'insert',
+        timelineStart: 1,
+        moves: [{ clipId: 'x', timelineStart: 5 }],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('resolves sequential clips at their effective positions', () => {
+      // No timelineStart: a [0,3), b [3,5) sequentially. Dropping mover (2s)
+      // at t=1 pushes both, pinning them at explicit positions.
+      const clips = [
+        makeClip({ id: 'a', start: 0, end: 3, duration: 3 }),
+        makeClip({ id: 'b', start: 0, end: 2, duration: 2 }),
+      ];
+      expect(planClipDrop(clips, 'mover', 1, 2, 'insert')).toEqual({
+        mode: 'insert',
+        timelineStart: 1,
+        moves: [
+          { clipId: 'a', timelineStart: 3 },
+          { clipId: 'b', timelineStart: 6 },
+        ],
+        trims: [],
+        removals: [],
+      });
+    });
+  });
+
+  describe('shift mode', () => {
+    it('moves the dragged clip and all followers by the same delta', () => {
+      // mover [0,4) → t=2: b and c follow, +2 each.
+      expect(planClipDrop(trackClips(), 'mover', 2, 4, 'shift')).toEqual({
+        mode: 'shift',
+        timelineStart: 2,
+        moves: [
+          { clipId: 'b', timelineStart: 8 },
+          { clipId: 'c', timelineStart: 12 },
+        ],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('moves the block left, closing toward the preceding clip', () => {
+      // b [6,9) → t=4: mover [0,4) precedes and stays; c follows b.
+      expect(planClipDrop(trackClips(), 'b', 4, 3, 'shift')).toEqual({
+        mode: 'shift',
+        timelineStart: 4,
+        moves: [{ clipId: 'c', timelineStart: 8 }],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('clamps a left move at the preceding clip end', () => {
+      // b can't move left past mover's end (4) — the block stops there.
+      expect(planClipDrop(trackClips(), 'b', 1, 3, 'shift')).toEqual({
+        mode: 'shift',
+        timelineStart: 4,
+        moves: [{ clipId: 'c', timelineStart: 8 }],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('returns no moves when the clip lands where it started', () => {
+      const plan = planClipDrop(trackClips(), 'b', 6, 3, 'shift');
+      expect(plan).toEqual({
+        mode: 'shift',
+        timelineStart: 6,
+        moves: [],
+        trims: [],
+        removals: [],
+      });
+    });
+
+    it('falls back to insert semantics when the clip is not on the track', () => {
+      const target = [
+        makeClip({ id: 'x', timelineStart: 2, start: 0, end: 3, duration: 3 }),
+      ];
+      const plan = planClipDrop(target, 'mover', 1, 4, 'shift');
+      expect(plan.mode).toBe('insert');
+      expect(plan.moves).toEqual([{ clipId: 'x', timelineStart: 5 }]);
+    });
+  });
+
+  describe('overwrite mode', () => {
+    it('trims and removes covered clips, excluding the dragged clip', () => {
+      // Drop mover (6s) at t=5, covering [5,11): b [6,9) is fully covered →
+      // removed; c [10,12) loses its head → keeps a 1s tail pinned at the
+      // drop end.
+      const plan = planClipDrop(trackClips(), 'mover', 5, 6, 'overwrite');
+      expect(plan.mode).toBe('overwrite');
+      expect(plan.timelineStart).toBe(5);
+      expect(plan.moves).toEqual([]);
+      expect(plan.removals).toEqual(['b']);
+      expect(plan.trims).toEqual([
+        { clipId: 'c', start: 1, end: 2, duration: 1, timelineStart: 11 },
+      ]);
+    });
+
+    it('trims the tail of a clip overlapped at its end', () => {
+      // Drop mover (4s) at t=8, covering [8,12): b [6,9) keeps its head
+      // [6,8); c [10,12) is fully covered → removed.
+      const plan = planClipDrop(trackClips(), 'mover', 8, 4, 'overwrite');
+      expect(plan.trims).toEqual([
+        { clipId: 'b', start: 0, end: 2, duration: 2, timelineStart: 6 },
+      ]);
+      expect(plan.removals).toEqual(['c']);
+    });
+  });
+});
+
+describe('planOverwriteAtTime excludeClipId', () => {
+  it('skips the excluded clip without disturbing sequential placement', () => {
+    // Sequential: a [0,3), b [3,5). Excluding a must keep b resolved at
+    // [3,5) — not collapse it to [0,2).
+    const clips = [
+      makeClip({ id: 'a', start: 0, end: 3, duration: 3 }),
+      makeClip({ id: 'b', start: 0, end: 2, duration: 2 }),
+    ];
+    const plan = planOverwriteAtTime(clips, 0, 4, 'a');
+    expect(plan.removals).toEqual([]);
+    expect(plan.trims).toEqual([
+      { clipId: 'b', start: 1, end: 2, duration: 1, timelineStart: 4 },
+    ]);
   });
 });
 

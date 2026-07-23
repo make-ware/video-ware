@@ -21,6 +21,12 @@ export interface ClipBlockProps {
   isLocked: boolean;
   /** True while this clip is mid-move-drag (ghost shows the drop target) */
   isDragging?: boolean;
+  /**
+   * This clip's fate under the in-flight drop plan: it will move (shifted —
+   * already rendered at the planned position), lose the covered part
+   * (trimmed — rendered at its surviving window), or be deleted (removed).
+   */
+  dropFate?: 'shifted' | 'trimmed' | 'removed' | null;
   onSelect: (e: React.MouseEvent) => void;
   onResizeStart: (
     handle: 'left' | 'right',
@@ -39,6 +45,7 @@ export function ClipBlock({
   isSelected,
   isLocked,
   isDragging = false,
+  dropFate = null,
   onSelect,
   onResizeStart,
   onMoveStart,
@@ -86,6 +93,12 @@ export function ClipBlock({
         isSelected && 'ring-2 ring-inset ring-white/50 z-10 shadow-sm',
         isLocked && 'cursor-not-allowed opacity-60',
         isDragging && 'opacity-40',
+        // Drop-plan preview: shifted clips render at their planned position,
+        // trimmed ones at their surviving window, removed ones fade out
+        dropFate === 'shifted' && 'ring-1 ring-inset ring-primary/60',
+        dropFate === 'trimmed' && 'ring-1 ring-inset ring-destructive/80',
+        dropFate === 'removed' &&
+          'opacity-25 grayscale ring-1 ring-inset ring-destructive',
         // Position updates must be instant while dragging/resizing
         !isDragging && 'transition-colors'
       )}

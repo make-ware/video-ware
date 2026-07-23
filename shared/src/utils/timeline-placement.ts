@@ -179,11 +179,16 @@ const OVERLAP_EPSILON = 1e-6;
  *   shifted to the end of the inserted clip).
  * - A clip fully covered by the insert range is removed.
  * - A clip spanning the whole insert range keeps only its head.
+ *
+ * excludeClipId skips a clip (e.g. the clip being moved) without disturbing
+ * the other clips' sequential placement — ranges are resolved on the full
+ * list first.
  */
 export function planOverwriteAtTime(
   trackClips: TimelineClip[],
   insertStart: number,
-  insertDuration: number
+  insertDuration: number,
+  excludeClipId?: string
 ): OverwritePlan {
   const insertEnd = insertStart + insertDuration;
   const sorted = getSortedTrackClips(trackClips);
@@ -192,6 +197,7 @@ export function planOverwriteAtTime(
   const removals: string[] = [];
 
   sorted.forEach((clip, i) => {
+    if (clip.id === excludeClipId) return;
     const { start: s, end: e } = ranges[i];
     if (e <= s) return;
     if (
@@ -348,6 +354,141 @@ export function planRippleInsert(
     clipId: clip.id,
     timelineStart: range.start + delta,
   }));
+}
+
+/**
+ * How dropping a dragged clip onto a track resolves against the clips
+ * already there:
+ * - `insert` — the clip lands at the drop point; if it would overlap, the
+ *   first overlapped clip and everything after it slide right just enough to
+ *   make room (non-destructive, gaps between them preserved).
+ * - `shift` — the clip and ALL clips positioned after it on its track move
+ *   together by the drag delta, keeping their relative layout (block move).
+ * - `overwrite` — the clip lands at the drop point and covered clips are
+ *   trimmed or removed (planOverwriteAtTime).
+ */
+export type ClipDropMode = 'insert' | 'shift' | 'overwrite';
+
+/**
+ * Everything a clip drop changes, resolved up front so the editor can both
+ * preview the outcome mid-drag and persist it on release:
+ * - timelineStart — where the dragged clip itself lands (clamped, e.g. a
+ *   shift-mode block can't move left past the preceding clip).
+ * - moves — other clips pinned at new positions (insert pushes, shift block).
+ * - trims / removals — overwrite-mode victims (empty in the other modes).
+ */
+export interface ClipDropPlan {
+  mode: ClipDropMode;
+  timelineStart: number;
+  moves: RippleDeleteMove[];
+  trims: ClipTrim[];
+  removals: string[];
+}
+
+/**
+ * Plan dropping a dragged clip at desiredStart on a track under a drop mode.
+ *
+ * trackClips are the TARGET track's clips; when the clip is moving within
+ * its own track they include the dragged clip (it is excluded from planning
+ * internally, after ranges are resolved on the full list). Shift mode needs
+ * the dragged clip present to know which clips follow it — when it isn't
+ * (cross-track drop), the plan falls back to insert semantics and says so
+ * via its mode field.
+ *
+ * The returned plan never leaves the dragged clip overlapping another clip,
+ * so appliers need no findNonOverlappingTimelineStart fallback.
+ */
+export function planClipDrop(
+  trackClips: TimelineClip[],
+  clipId: string,
+  desiredStart: number,
+  clipDuration: number,
+  mode: ClipDropMode
+): ClipDropPlan {
+  const dropStart = Math.max(0, desiredStart);
+
+  if (mode === 'overwrite') {
+    const { trims, removals } = planOverwriteAtTime(
+      trackClips,
+      dropStart,
+      clipDuration,
+      clipId
+    );
+    return { mode, timelineStart: dropStart, moves: [], trims, removals };
+  }
+
+  const sorted = getSortedTrackClips(trackClips);
+  const ranges = getClipRanges(trackClips);
+
+  if (mode === 'shift') {
+    const index = sorted.findIndex((c) => c.id === clipId);
+    if (index >= 0) {
+      const origin = ranges[index];
+      // The block: the dragged clip plus every clip at/after its position.
+      // Clips before it stay put and floor how far left the block can go.
+      const followers = sorted
+        .map((clip, i) => ({ clip, range: ranges[i] }))
+        .filter(({ clip }) => clip.id !== clipId)
+        .filter(({ range }) => range.start >= origin.start - OVERLAP_EPSILON);
+      const floor = sorted
+        .map((clip, i) => ({ clip, range: ranges[i] }))
+        .filter(({ clip }) => clip.id !== clipId)
+        .filter(({ range }) => range.start < origin.start - OVERLAP_EPSILON)
+        .reduce((max, { range }) => Math.max(max, range.end), 0);
+
+      const timelineStart = Math.max(floor, dropStart);
+      const delta = timelineStart - origin.start;
+      const moves =
+        Math.abs(delta) <= OVERLAP_EPSILON
+          ? []
+          : followers.map(({ clip, range }) => ({
+              clipId: clip.id,
+              timelineStart: range.start + delta,
+            }));
+      return { mode, timelineStart, moves, trims: [], removals: [] };
+    }
+    // Dragged clip not on this track: "the clips after it" is undefined, so
+    // the drop degrades to a plain insert (and the plan reports that).
+    mode = 'insert';
+  }
+
+  // insert: find the earliest clip overlapping the drop range; it and every
+  // clip after it shift right by one uniform delta so the first of them
+  // starts exactly at the dropped clip's end. Clips wholly before the drop
+  // range never move, and the pushed clips keep their gaps.
+  const others = sorted
+    .map((clip, i) => ({ clip, range: ranges[i] }))
+    .filter(({ clip }) => clip.id !== clipId)
+    .filter(({ range }) => range.end > range.start)
+    .sort((a, b) => a.range.start - b.range.start);
+
+  const dropEnd = dropStart + clipDuration;
+  const firstOverlap = others.find(
+    ({ range }) =>
+      range.start < dropEnd - OVERLAP_EPSILON &&
+      range.end > dropStart + OVERLAP_EPSILON
+  );
+  if (!firstOverlap) {
+    return {
+      mode,
+      timelineStart: dropStart,
+      moves: [],
+      trims: [],
+      removals: [],
+    };
+  }
+
+  const delta = dropEnd - firstOverlap.range.start;
+  const moves = others
+    .filter(
+      ({ range }) => range.start >= firstOverlap.range.start - OVERLAP_EPSILON
+    )
+    .map(({ clip, range }) => ({
+      clipId: clip.id,
+      timelineStart: range.start + delta,
+    }));
+
+  return { mode, timelineStart: dropStart, moves, trims: [], removals: [] };
 }
 
 /**

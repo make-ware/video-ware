@@ -7,6 +7,7 @@ import {
   clusterOverlappingRanges,
   getClipRanges,
   getSortedTrackClips,
+  type ClipTrim,
   type PlacedClip,
   type TimelineClip,
   type TimelineTrackRecord,
@@ -45,6 +46,17 @@ export interface TrackLaneProps {
   movingClipId?: string | null;
   /** True while a move drag is hovering this lane */
   isDropTarget?: boolean;
+  /**
+   * Live drop-mode preview while a move drag targets this lane: clips in
+   * `moves` render at their planned shifted positions, clips in `trims` at
+   * their surviving window, clips in `removals` as pending deletions — so
+   * the lane shows exactly what releasing the drag will do.
+   */
+  dropPreview?: {
+    moves: Map<string, number>;
+    trims: Map<string, ClipTrim>;
+    removals: Set<string>;
+  } | null;
   /** True when this lane is the selected insertion target */
   isSelected?: boolean;
 }
@@ -65,6 +77,7 @@ export function TrackLane({
   resizeOverride,
   movingClipId,
   isDropTarget,
+  dropPreview,
   isSelected,
 }: TrackLaneProps) {
   // Sort clips by their position (either timelineStart or sequential order)
@@ -90,12 +103,40 @@ export function TrackLane({
         clip,
         left: resizeOverride.left,
         width: resizeOverride.width,
+        dropFate: null,
       };
+    }
+
+    // Apply the live drop-mode preview: show each clip where the pending
+    // drop will put it (or how much of it survives an overwrite)
+    if (dropPreview) {
+      const movedStart = dropPreview.moves.get(clip.id);
+      if (movedStart !== undefined) {
+        return {
+          clip,
+          left: movedStart * pixelsPerSecond,
+          width: position.width,
+          dropFate: 'shifted' as const,
+        };
+      }
+      const trim = dropPreview.trims.get(clip.id);
+      if (trim) {
+        return {
+          clip,
+          left: trim.timelineStart * pixelsPerSecond,
+          width: Math.max(trim.duration * pixelsPerSecond, 2),
+          dropFate: 'trimmed' as const,
+        };
+      }
+      if (dropPreview.removals.has(clip.id)) {
+        return { clip, ...position, dropFate: 'removed' as const };
+      }
     }
 
     return {
       clip,
       ...position,
+      dropFate: null,
     };
   });
 
@@ -165,7 +206,7 @@ export function TrackLane({
       data-track-layer={track.layer}
     >
       {/* Render all clips */}
-      {clipPositions.map(({ clip, left, width }) => (
+      {clipPositions.map(({ clip, left, width, dropFate }) => (
         <ClipBlock
           key={clip.id}
           clip={clip}
@@ -174,6 +215,7 @@ export function TrackLane({
           isSelected={selectedClipIds.has(clip.id)}
           isLocked={isLocked}
           isDragging={movingClipId === clip.id}
+          dropFate={dropFate}
           onSelect={(e) => onClipSelect(clip.id, e)}
           onMoveStart={(e) => onClipMoveStart(clip, left, e)}
           onResizeStart={(handle, e) =>

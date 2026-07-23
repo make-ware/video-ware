@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.1...video-ware-v0.10.2) (2026-07-23)
+
+
+### Bug Fixes
+
+* add storage dl dedup ([71a55e4](https://github.com/make-ware/video-ware/commit/71a55e43d14ce8986e1829f4c36584ea5d6b4064))
+* add timeline edit overlays ([62e4ead](https://github.com/make-ware/video-ware/commit/62e4ead86637ce2bd99e45aad6b5f77216556693))
+* add timeline preview ([3e51869](https://github.com/make-ware/video-ware/commit/3e5186993b0c1c2e275c33b382240a8e2fc460a5))
+
 ## [0.10.1](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.0...video-ware-v0.10.1) (2026-07-21)
 
 

@@ -8,6 +8,7 @@ import {
   StorageConfig,
 } from '@project/shared/storage';
 import { StorageBackendType, FileSource, FileType } from '@project/shared';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -58,9 +59,27 @@ export interface LocalReconcileKeep {
 
 @Injectable()
 export class StorageService implements OnModuleInit {
+  /** Total attempts for one temp download (covers transient S3 stream errors). */
+  private static readonly DOWNLOAD_ATTEMPTS = 3;
+  /** Base delay between download attempts; grows linearly per attempt. */
+  private static readonly DOWNLOAD_RETRY_DELAY_MS = 250;
+
   private readonly logger = new Logger(StorageService.name);
   private backend!: StorageBackend;
   private resolvedBasePath!: string;
+
+  /**
+   * Collapses concurrent downloads of the same object onto one transfer,
+   * keyed by the destination temp path. Entries are removed once settled so
+   * a failed download is retried fresh instead of replaying the rejection.
+   */
+  private readonly inFlightDownloads = new Map<string, Promise<string>>();
+
+  /** Ref-count of steps currently using a record's temp dir (withTempLease). */
+  private readonly tempDirLeases = new Map<string, number>();
+
+  /** Records whose cleanupTemp() arrived while temp leases were still held. */
+  private readonly pendingTempCleanups = new Set<string>();
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -309,11 +328,41 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
-   * Download file from S3 to temporary location for processing
+   * Download file from S3 to temporary location for processing.
+   *
+   * Concurrent callers targeting the same temp path (e.g. parallel sibling
+   * steps resolving the same media) share ONE in-flight transfer instead of
+   * racing each other's part files — the later caller simply awaits the
+   * earlier caller's promise.
    */
   private async downloadToTemp(
     storagePath: string,
     recordId: string
+  ): Promise<string> {
+    const tempDir = path.join(os.tmpdir(), 'worker-temp', recordId);
+    const tempFilePath = path.join(tempDir, path.basename(storagePath));
+
+    const inFlight = this.inFlightDownloads.get(tempFilePath);
+    if (inFlight) {
+      this.logger.debug(`Joining in-flight download for ${storagePath}`);
+      return inFlight;
+    }
+
+    const download = this.performDownloadToTemp(
+      storagePath,
+      tempDir,
+      tempFilePath
+    ).finally(() => {
+      this.inFlightDownloads.delete(tempFilePath);
+    });
+    this.inFlightDownloads.set(tempFilePath, download);
+    return download;
+  }
+
+  private async performDownloadToTemp(
+    storagePath: string,
+    tempDir: string,
+    tempFilePath: string
   ): Promise<string> {
     try {
       // Check if file exists in storage
@@ -322,45 +371,61 @@ export class StorageService implements OnModuleInit {
         throw new Error(`File not found in storage: ${storagePath}`);
       }
 
-      // Create temp directory
-      const tempDir = path.join(os.tmpdir(), 'worker-temp', recordId);
-      await fs.promises.mkdir(tempDir, { recursive: true });
+      let lastError: unknown;
+      for (
+        let attempt = 1;
+        attempt <= StorageService.DOWNLOAD_ATTEMPTS;
+        attempt++
+      ) {
+        // (Re-)create the temp dir every attempt — a concurrent cleanup may
+        // have removed it since the previous one.
+        await fs.promises.mkdir(tempDir, { recursive: true });
 
-      // Generate temp file path
-      const fileName = path.basename(storagePath);
-      const tempFilePath = path.join(tempDir, fileName);
+        // Check if already downloaded (possibly by another worker process
+        // sharing the same temp volume)
+        if (fs.existsSync(tempFilePath)) {
+          this.logger.debug(`Using cached temp file: ${tempFilePath}`);
+          return tempFilePath;
+        }
 
-      // Check if already downloaded
-      if (fs.existsSync(tempFilePath)) {
-        this.logger.debug(`Using cached temp file: ${tempFilePath}`);
-        return tempFilePath;
-      }
-
-      // Download file. Stream to disk via pipeline() for backpressure: it
-      // pauses the source whenever the disk write buffer is full, so a fast
-      // source (S3 over LAN) feeding a slow disk can't accumulate the
-      // difference in process memory. Write to a .part file and rename so the
-      // "already downloaded" check above never picks up a partial download
-      // left behind by a failed or interrupted attempt.
-      this.logger.debug(`Downloading ${storagePath} to ${tempFilePath}`);
-      const stream = await this.backend.download(storagePath);
-      const partFilePath = `${tempFilePath}.part`;
-
-      try {
-        await pipeline(
-          Readable.fromWeb(stream as unknown as WebReadableStream),
-          fs.createWriteStream(partFilePath)
+        // Download file. Stream to disk via pipeline() for backpressure: it
+        // pauses the source whenever the disk write buffer is full, so a fast
+        // source (S3 over LAN) feeding a slow disk can't accumulate the
+        // difference in process memory. Write to a UNIQUE .part file and
+        // rename into place: the "already downloaded" check above can never
+        // see a partial download, and a concurrent download of the same
+        // object (another worker process) can never interleave writes into
+        // our part file or rename it out from under us.
+        this.logger.debug(
+          `Downloading ${storagePath} to ${tempFilePath} (attempt ${attempt}/${StorageService.DOWNLOAD_ATTEMPTS})`
         );
-        await fs.promises.rename(partFilePath, tempFilePath);
-      } catch (error) {
-        await fs.promises.rm(partFilePath, { force: true });
-        throw error;
+        const partFilePath = `${tempFilePath}.${randomUUID()}.part`;
+        try {
+          const stream = await this.backend.download(storagePath);
+          await pipeline(
+            Readable.fromWeb(stream as unknown as WebReadableStream),
+            fs.createWriteStream(partFilePath)
+          );
+          await fs.promises.rename(partFilePath, tempFilePath);
+          this.logger.debug(
+            `Downloaded ${storagePath} to temp file: ${tempFilePath}`
+          );
+          return tempFilePath;
+        } catch (error) {
+          await fs.promises.rm(partFilePath, { force: true });
+          lastError = error;
+          if (attempt < StorageService.DOWNLOAD_ATTEMPTS) {
+            const delayMs = StorageService.DOWNLOAD_RETRY_DELAY_MS * attempt;
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              `Download attempt ${attempt}/${StorageService.DOWNLOAD_ATTEMPTS} for ${storagePath} failed, retrying in ${delayMs}ms: ${message}`
+            );
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
       }
-
-      this.logger.debug(
-        `Downloaded ${storagePath} to temp file: ${tempFilePath}`
-      );
-      return tempFilePath;
+      throw lastError;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -488,9 +553,53 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
-   * Clean up temporary files for a record
+   * Run `fn` while holding a lease on `recordId`'s worker-temp directory.
+   *
+   * Parallel sibling steps share one temp dir per record and each cleans up
+   * in its own `finally`. Without coordination the first step to finish
+   * rm -rf's the directory out from under the others — deleting files
+   * mid-download or mid-upload. While ANY lease is held, cleanupTemp()
+   * defers instead of deleting; the release that drops the count to zero
+   * performs the deferred deletion. The LAST finisher cleans, so a stateless
+   * pod still never leaks disk. Leases are process-local; stale dirs from
+   * crashed pods are reclaimed by cleanupStaleWorkingDirs (mtime-guarded).
+   */
+  async withTempLease<T>(recordId: string, fn: () => Promise<T>): Promise<T> {
+    this.tempDirLeases.set(
+      recordId,
+      (this.tempDirLeases.get(recordId) ?? 0) + 1
+    );
+    try {
+      return await fn();
+    } finally {
+      const remaining = (this.tempDirLeases.get(recordId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.tempDirLeases.set(recordId, remaining);
+      } else {
+        this.tempDirLeases.delete(recordId);
+        if (this.pendingTempCleanups.delete(recordId)) {
+          await this.removeTempDir(recordId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Clean up temporary files for a record. Deferred (not skipped) while any
+   * step holds a temp lease for the record — see withTempLease.
    */
   async cleanupTemp(recordId: string): Promise<void> {
+    if ((this.tempDirLeases.get(recordId) ?? 0) > 0) {
+      this.pendingTempCleanups.add(recordId);
+      this.logger.debug(
+        `Deferred temp cleanup for ${recordId}: directory in use by a concurrent step`
+      );
+      return;
+    }
+    await this.removeTempDir(recordId);
+  }
+
+  private async removeTempDir(recordId: string): Promise<void> {
     try {
       const tempDir = path.join(os.tmpdir(), 'worker-temp', recordId);
       if (fs.existsSync(tempDir)) {

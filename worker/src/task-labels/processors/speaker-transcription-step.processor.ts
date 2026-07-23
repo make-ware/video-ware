@@ -127,17 +127,25 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
           `Cache miss for media ${input.mediaId}, calling ElevenLabs STT API`
         );
 
-        // Prefer the audio-only proxy rendered by the transcode task
-        // (Media.audioFileRef). Resolves to undefined on any issue, in which
-        // case the executor uses the original file (input.fileRef).
-        const audioProxyPath = await this.resolveAudioProxy(media);
-
-        response = await this.speakerTranscriptionExecutor.execute(
-          input.workspaceRef,
+        // Lease the media temp dir across BOTH the proxy download and the
+        // executor's provider upload, so a concurrent sibling step's
+        // cleanupTemp can't delete the proxy in the gap between the two.
+        response = await this.storageService.withTempLease(
           input.mediaId,
-          input.fileRef,
-          input.config,
-          audioProxyPath
+          async () => {
+            // Prefer the audio-only proxy rendered by the transcode task
+            // (Media.audioFileRef). Resolves to undefined on any issue, in
+            // which case the executor uses the original file (input.fileRef).
+            const audioProxyPath = await this.resolveAudioProxy(media);
+
+            return this.speakerTranscriptionExecutor.execute(
+              input.workspaceRef,
+              input.mediaId,
+              input.fileRef,
+              input.config,
+              audioProxyPath
+            );
+          }
         );
 
         // Step 7: Store normalized response to cache

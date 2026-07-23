@@ -91,6 +91,11 @@ describe('SpeakerTranscriptionStepProcessor - audio proxy resolution', () => {
     };
     storageService = {
       createTempDir: vi.fn().mockResolvedValue(tempDir),
+      withTempLease: vi
+        .fn()
+        .mockImplementation((_recordId: string, fn: () => Promise<unknown>) =>
+          fn()
+        ),
     };
 
     processor = new SpeakerTranscriptionStepProcessor(

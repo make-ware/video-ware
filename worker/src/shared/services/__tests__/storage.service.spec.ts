@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { StorageService } from '../storage.service';
 import { StorageBackendType } from '@project/shared';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { Writable } from 'stream';
 import { createMockConfigService } from '@/__mocks__/config.service';
@@ -221,6 +222,156 @@ describe('StorageService', () => {
       await expect(service.resolveFilePath(params)).rejects.toThrow(
         'Unsupported storage type: unsupported'
       );
+    });
+  });
+
+  describe('downloadToTemp robustness', () => {
+    const params = {
+      storagePath: 'uploads/workspace1/upload1/original.mp4',
+      storageBackend: StorageBackendType.S3,
+      recordId: 'media1',
+    };
+
+    const okStream = () =>
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]));
+          controller.close();
+        },
+      });
+
+    const failingStream = () =>
+      new ReadableStream({
+        start(controller) {
+          controller.error(new Error('stream reset'));
+        },
+      });
+
+    beforeEach(async () => {
+      await service.onModuleInit();
+      getMockStorageBackend().type = StorageBackendType.S3;
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(fs.createWriteStream).mockImplementation(
+        () =>
+          new Writable({
+            write(_chunk, _encoding, callback) {
+              callback();
+            },
+          }) as any
+      );
+      getMockStorageBackend().download.mockImplementation(async () =>
+        okStream()
+      );
+    });
+
+    it('shares one in-flight download between concurrent resolves', async () => {
+      const [a, b] = await Promise.all([
+        service.resolveFilePath(params),
+        service.resolveFilePath(params),
+      ]);
+
+      expect(a).toBe(b);
+      expect(getMockStorageBackend().download).toHaveBeenCalledTimes(1);
+    });
+
+    it('downloads again after the previous transfer settles', async () => {
+      await service.resolveFilePath(params);
+      await service.resolveFilePath(params);
+
+      expect(getMockStorageBackend().download).toHaveBeenCalledTimes(2);
+    });
+
+    it('writes to a unique .part file and renames it into place', async () => {
+      const result = await service.resolveFilePath(params);
+
+      const partPath = vi.mocked(fs.createWriteStream).mock
+        .calls[0][0] as string;
+      expect(partPath).toMatch(/original\.mp4\.[0-9a-f-]{36}\.part$/);
+      expect(fs.promises.rename).toHaveBeenCalledWith(partPath, result);
+    });
+
+    it('retries a transiently failed download and removes its part file', async () => {
+      getMockStorageBackend()
+        .download.mockImplementationOnce(async () => failingStream())
+        .mockImplementationOnce(async () => okStream());
+
+      const result = await service.resolveFilePath(params);
+
+      expect(result).toContain('media1');
+      expect(getMockStorageBackend().download).toHaveBeenCalledTimes(2);
+      const failedPart = vi.mocked(fs.createWriteStream).mock
+        .calls[0][0] as string;
+      expect(fs.promises.rm).toHaveBeenCalledWith(failedPart, { force: true });
+    });
+
+    it('throws the last error once retries are exhausted', async () => {
+      getMockStorageBackend().download.mockImplementation(async () =>
+        failingStream()
+      );
+
+      await expect(service.resolveFilePath(params)).rejects.toThrow(
+        'stream reset'
+      );
+      expect(getMockStorageBackend().download).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('temp leases and cleanupTemp', () => {
+    const tempDirFor = (recordId: string) =>
+      path.join(os.tmpdir(), 'worker-temp', recordId);
+
+    beforeEach(async () => {
+      await service.onModuleInit();
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+    });
+
+    it('deletes immediately when no lease is held', async () => {
+      await service.cleanupTemp('media1');
+
+      expect(fs.promises.rm).toHaveBeenCalledWith(tempDirFor('media1'), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it('defers cleanup while a lease is held and deletes on release', async () => {
+      await service.withTempLease('media1', async () => {
+        await service.cleanupTemp('media1');
+        expect(fs.promises.rm).not.toHaveBeenCalled();
+      });
+
+      expect(fs.promises.rm).toHaveBeenCalledWith(tempDirFor('media1'), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it('waits for the LAST lease holder before deleting', async () => {
+      await service.withTempLease('media1', async () => {
+        await service.withTempLease('media1', async () => {
+          await service.cleanupTemp('media1');
+        });
+        // Inner lease released, outer still held: nothing deleted yet.
+        expect(fs.promises.rm).not.toHaveBeenCalled();
+      });
+
+      expect(fs.promises.rm).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not delete on release when no cleanup was requested', async () => {
+      await service.withTempLease('media1', async () => {});
+
+      expect(fs.promises.rm).not.toHaveBeenCalled();
+    });
+
+    it('scopes leases per record', async () => {
+      await service.withTempLease('media1', async () => {
+        await service.cleanupTemp('media2');
+        expect(fs.promises.rm).toHaveBeenCalledWith(tempDirFor('media2'), {
+          recursive: true,
+          force: true,
+        });
+      });
     });
   });
 

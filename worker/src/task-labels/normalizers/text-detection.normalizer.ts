@@ -10,6 +10,11 @@ import type {
   LabelTextData,
   KeyframeData,
 } from '../types';
+import {
+  cleanDetectedTexts,
+  type CleanedTextRun,
+  type TextCleaningOptions,
+} from '../utils/text-cleaning';
 
 /** Round a number to `decimals` places (used to trim keyframe JSON size). */
 function round(value: number, decimals: number): number {
@@ -21,10 +26,15 @@ function round(value: number, decimals: number): number {
  * Text Detection Normalizer
  *
  * Transforms GCVI Text Detection (on-screen OCR) responses into database
- * entities:
+ * entities. The raw response is cleaned first (see utils/text-cleaning.ts):
+ * fragmented appearances of the same string are merged, and sub-second
+ * flickers, low-confidence misreads, and contained fragments are dropped.
+ * Cleaning runs here — after the cache layer — so thresholds can change and
+ * re-apply to cached responses without new API calls.
+ *
  * - LabelEntity: Unique text strings (labelType: text)
- * - LabelTrack: One per text appearance, with per-frame box keyframes
- * - LabelText: One row per appearance (text, timing, confidence)
+ * - LabelTrack: One per merged appearance, with per-frame box keyframes
+ * - LabelText: One row per merged appearance (text, timing, confidence)
  * - LabelMedia: Aggregated text counts
  */
 @Injectable()
@@ -35,10 +45,12 @@ export class TextDetectionNormalizer {
    * Normalize text detection response into database entities
    *
    * @param input Normalizer input with response and context
+   * @param cleaningOptions Threshold overrides for the cleaning pass
    * @returns Normalized entities ready for database insertion
    */
   async normalize(
-    input: NormalizerInput<TextDetectionResponse>
+    input: NormalizerInput<TextDetectionResponse>,
+    cleaningOptions?: Partial<TextCleaningOptions>
   ): Promise<NormalizerOutput> {
     const {
       response,
@@ -49,8 +61,11 @@ export class TextDetectionNormalizer {
       processorVersion,
     } = input;
 
+    const runs = cleanDetectedTexts(response.texts, cleaningOptions);
+
     this.logger.debug(
-      `Normalizing text detection response for media ${mediaId}: ${response.texts.length} text segments`
+      `Normalizing text detection response for media ${mediaId}: ` +
+        `${response.texts.length} raw segments → ${runs.length} cleaned runs`
     );
 
     const labelEntities: LabelEntityData[] = [];
@@ -58,17 +73,18 @@ export class TextDetectionNormalizer {
     const labelTexts: LabelTextData[] = [];
     const seenLabels = new Set<string>();
 
-    for (let i = 0; i < response.texts.length; i++) {
-      const entry = response.texts[i];
-      // One track per appearance. The API has no track ids for text, so the
-      // index keeps appearances of the same string distinct.
-      const trackId = `text_${i}`;
+    for (const run of runs) {
+      // Content-based track id: the same detection re-run on the same
+      // media/version maps to the same id (and thus the same hashes), so
+      // re-processing upserts instead of duplicating rows. Merged runs of the
+      // same string can't collide — they'd have been merged if they touched.
+      const trackId = this.generateRunTrackId(run);
 
       // Create LabelEntity for this text string if not seen before
       const entityHash = this.generateEntityHash(
         workspaceRef,
         LabelType.TEXT,
-        entry.text,
+        run.text,
         ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
       );
 
@@ -76,12 +92,12 @@ export class TextDetectionNormalizer {
         labelEntities.push({
           WorkspaceRef: workspaceRef,
           labelType: LabelType.TEXT,
-          canonicalName: entry.text,
+          canonicalName: run.text,
           provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
           processor: processorVersion,
           entityHash,
           metadata: {
-            confidence: entry.confidence,
+            confidence: run.confidence,
           },
         });
         seenLabels.add(entityHash);
@@ -89,7 +105,7 @@ export class TextDetectionNormalizer {
 
       // Keyframes from the per-frame boxes; rounded like the object-tracking
       // normalizer (4 decimals is sub-pixel even at 4K).
-      const keyframes: KeyframeData[] = entry.frames.map((frame) => ({
+      const keyframes: KeyframeData[] = run.frames.map((frame) => ({
         t: frame.timeOffset,
         bbox: {
           left: round(frame.boundingBox.left, 4),
@@ -97,12 +113,11 @@ export class TextDetectionNormalizer {
           right: round(frame.boundingBox.right, 4),
           bottom: round(frame.boundingBox.bottom, 4),
         },
-        confidence: round(entry.confidence, 3),
+        confidence: round(run.confidence, 3),
       }));
 
-      // Timing comes from the segment itself; frames may be sparse.
-      const start = entry.startTime;
-      const end = entry.endTime;
+      const start = run.start;
+      const end = run.end;
       const duration = Math.max(0, end - start);
 
       const trackHash = this.generateTrackHash(
@@ -120,13 +135,14 @@ export class TextDetectionNormalizer {
         start,
         end,
         duration,
-        confidence: entry.confidence,
+        confidence: run.confidence,
         provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         processor: processorVersion,
         version,
         trackData: {
-          entity: entry.text,
-          frameCount: entry.frames.length,
+          entity: run.text,
+          frameCount: run.frames.length,
+          segmentCount: run.segmentCount,
         },
         keyframes,
         trackHash,
@@ -136,7 +152,7 @@ export class TextDetectionNormalizer {
       labelTexts.push({
         WorkspaceRef: workspaceRef,
         MediaRef: mediaId,
-        text: entry.text,
+        text: run.text,
         textHash: this.generateTextHash(
           mediaId,
           trackId,
@@ -147,10 +163,11 @@ export class TextDetectionNormalizer {
         start,
         end,
         duration,
-        confidence: entry.confidence,
+        confidence: run.confidence,
         metadata: {
           taskRef,
-          frameCount: entry.frames.length,
+          frameCount: run.frames.length,
+          segmentCount: run.segmentCount,
         },
         // LabelEntityRef and LabelTrackRef will be set by step processor
       });
@@ -173,6 +190,19 @@ export class TextDetectionNormalizer {
         processors: ['text_detection'],
       },
     };
+  }
+
+  /**
+   * Track id for a cleaned run, derived from its content (normalized text +
+   * start time on the ms grid) instead of an array index, so identity is
+   * stable across re-runs and threshold changes.
+   */
+  private generateRunTrackId(run: CleanedTextRun): string {
+    const textHash = createHash('sha256')
+      .update(run.normalizedText)
+      .digest('hex')
+      .slice(0, 12);
+    return `text_${textHash}_${Math.round(run.start * 1000)}`;
   }
 
   /**

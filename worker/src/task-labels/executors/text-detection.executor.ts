@@ -19,7 +19,11 @@ import { protos } from '@google-cloud/video-intelligence';
 export interface TextDetectionConfig {
   /** BCP-47 language hints for OCR (e.g. ['en-US']); auto-detect when unset */
   languageHints?: string[];
-  /** Minimum segment confidence to keep (default: 0, keep everything) */
+  /**
+   * Minimum confidence for cleaned runs. Applied by the normalizer, not
+   * here — the executor's response is cached and must stay raw so
+   * thresholds can be re-tuned without new API calls.
+   */
   confidenceThreshold?: number;
 }
 
@@ -109,18 +113,14 @@ export class TextDetectionExecutor {
         }
       );
 
-      // Apply confidence threshold if specified
-      const threshold = config.confidenceThreshold ?? 0;
-      const filteredTexts = texts.filter(
-        (entry) => entry.confidence >= threshold
-      );
-
+      // No filtering here: this response gets cached, and the normalizer's
+      // cleaning pass (merge/duration/confidence/dedup) works off the raw
+      // segments so thresholds can change without re-calling the API.
       this.logger.log(
-        `Text detection completed: ${filteredTexts.length} text segments ` +
-          `(${texts.length - filteredTexts.length} filtered by confidence threshold)`
+        `Text detection completed: ${texts.length} raw text segments`
       );
 
-      return { texts: filteredTexts };
+      return { texts };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);

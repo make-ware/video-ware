@@ -223,7 +223,15 @@ export interface TaskDetectLabelsTextDetectionStep extends TaskDetectLabelsBaseS
   config?: {
     /** BCP-47 language hints for OCR (e.g. ['en-US']) */
     languageHints?: string[];
+    /** Drop cleaned text runs below this confidence (0–1, default 0.85) */
     confidenceThreshold?: number;
+    /** Drop cleaned text runs shorter than this (seconds, default 1.0) */
+    minDurationSec?: number;
+    /**
+     * Merge same-text segments separated by at most this gap
+     * (seconds, default 1.0)
+     */
+    mergeGapSec?: number;
   };
 }
 

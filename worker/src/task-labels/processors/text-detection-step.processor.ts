@@ -39,6 +39,10 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
   TextDetectionStepOutput
 > {
   protected readonly logger = new Logger(TextDetectionStepProcessor.name);
+  // Also the cache key: the cache stores the RAW provider response, and all
+  // cleaning/filtering happens in the normalizer, so normalizer-side changes
+  // must NOT bump this — a bump orphans every cached response and re-spends
+  // API quota.
   private readonly processorVersion = 'text-detection:1.0.0';
 
   constructor(
@@ -114,16 +118,24 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
         );
       }
 
-      // Step 3: Call normalizer to transform response
-      const normalizedData = await this.textDetectionNormalizer.normalize({
-        response,
-        mediaId: input.mediaId,
-        workspaceRef: input.workspaceRef,
-        taskRef: input.taskRef,
-        version: input.version,
-        processor: 'text-detection',
-        processorVersion: this.processorVersion,
-      });
+      // Step 3: Call normalizer to transform response (cleaning thresholds
+      // come from the step config; unset values fall back to defaults)
+      const normalizedData = await this.textDetectionNormalizer.normalize(
+        {
+          response,
+          mediaId: input.mediaId,
+          workspaceRef: input.workspaceRef,
+          taskRef: input.taskRef,
+          version: input.version,
+          processor: 'text-detection',
+          processorVersion: this.processorVersion,
+        },
+        {
+          minConfidence: input.config?.confidenceThreshold,
+          minDurationSec: input.config?.minDurationSec,
+          mergeGapSec: input.config?.mergeGapSec,
+        }
+      );
 
       // Step 4: Batch insert LabelEntity records
       const entityIds = await this.batchInsertLabelEntities(

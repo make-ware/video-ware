@@ -405,7 +405,17 @@ describe('uploadFile', () => {
       }
     );
     vi.stubGlobal('fetch', fetchMock);
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    // Each chunk send awaits real filesystem I/O (open + positioned reads)
+    // before it reaches fetch, and that resolves on libuv's thread pool — so
+    // the number of event-loop turns until a chunk starts is nondeterministic.
+    // Poll for the expected count instead of assuming a fixed tick suffices;
+    // the scheduler's ordering still guarantees the exact state each assertion
+    // below checks (pending chunks can never overshoot the awaited count).
+    const waitForStarts = async (count: number): Promise<void> => {
+      for (let i = 0; i < 1000 && started.length < count; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    };
 
     const run = uploadFile(pb, {
       filePath: file,
@@ -416,19 +426,19 @@ describe('uploadFile', () => {
     });
 
     // Chunk 0 goes alone.
-    await tick();
+    await waitForStarts(1);
     expect(started).toEqual(['0']);
     resolvers.get('0')!(jsonResponse(200, { complete: false }));
 
     // All three middles go out together; the finalizer must wait.
-    await tick();
+    await waitForStarts(4);
     expect([...started].sort()).toEqual(['0', '1', '2', '3']);
     for (const index of ['1', '2', '3']) {
       resolvers.get(index)!(jsonResponse(200, { complete: false }));
     }
 
     // Only after every middle resolved does the last chunk go out.
-    await tick();
+    await waitForStarts(5);
     expect(started).toHaveLength(5);
     expect(started[4]).toBe('4');
     resolvers.get('4')!(

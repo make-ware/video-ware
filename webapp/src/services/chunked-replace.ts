@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: Required<ChunkedReplaceConfig> = {
   chunkSize: 64 * 1024 * 1024, // 64MB
   maxRetries: 3,
   timeout: 10 * 60 * 1000, // 10 minutes
-  concurrency: 1,
+  concurrency: 3,
 };
 
 export class ChunkedReplaceService {

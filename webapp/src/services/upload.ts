@@ -296,12 +296,21 @@ export class UploadService {
   }
 
   /**
-   * Retry a failed upload. Resetting the status to `uploaded` re-fires the
-   * PocketBase ingest hook, which creates a fresh `full_ingest` task; the
-   * worker then reuses/creates the Media record and re-runs transcode/labels.
+   * Retry a failed upload whose bytes are ALREADY fully stored, by re-firing
+   * the PocketBase ingest hook (transition back to `uploaded`); the worker then
+   * reuses/creates the Media record and re-runs transcode/labels.
+   *
+   * This only re-triggers processing — it does NOT re-transfer the file (this
+   * path has no `File` handle; re-transferring is the session-queue retry). So
+   * it is valid ONLY when the original transfer completed. A failed/aborted
+   * transfer never ran finalize, leaving no stored original (empty
+   * `externalPath`, `bytesUploaded < size`); flipping such a record to
+   * `uploaded` would ingest a truncated/absent blob and create an empty Media.
+   * Refuse it here and tell the caller to upload the file again.
+   *
    * @param uploadId The upload ID to retry
    * @returns The updated upload record
-   * @throws Error if upload not found or not in failed state
+   * @throws Error if the upload is missing, not failed, or never fully uploaded
    */
   async retryUpload(uploadId: string): Promise<Upload> {
     const upload = await this.uploadMutator.getById(uploadId);
@@ -315,7 +324,18 @@ export class UploadService {
       );
     }
 
-    // Re-fire the ingest hook by transitioning back to `uploaded`.
+    const fullyTransferred =
+      !!upload.externalPath &&
+      upload.size > 0 &&
+      (upload.bytesUploaded ?? 0) >= upload.size;
+    if (!fullyTransferred) {
+      throw new Error(
+        'This upload did not finish transferring, so it cannot be reprocessed. Please upload the file again.'
+      );
+    }
+
+    // Bytes are fully stored — re-fire the ingest hook by transitioning back
+    // to `uploaded`.
     return this.uploadMutator.updateStatus(uploadId, UploadStatus.UPLOADED);
   }
 

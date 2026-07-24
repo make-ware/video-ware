@@ -37,6 +37,32 @@ function onUploadSaved(e) {
       return;
     }
 
+    // Completeness gate. The finalize step (last chunk) sets `externalPath`,
+    // `bytesUploaded` and `status=uploaded` together and ONLY after the whole
+    // file is stored (S3 CompleteMultipartUpload). A failed/aborted transfer
+    // never reaches finalize, so it has no stored original (empty externalPath,
+    // bytesUploaded < size). A `failed -> uploaded` retry, and any direct
+    // status edit, can flip the status WITHOUT re-transferring the bytes;
+    // ingesting then would create an empty/corrupt Media from a truncated or
+    // absent blob. Require a stored original before handing off to the worker.
+    const externalPath = upload.get('externalPath');
+    const size = upload.get('size');
+    const bytesUploaded = upload.get('bytesUploaded');
+    if (!externalPath || !size || bytesUploaded < size) {
+      console.log(
+        'Skipping ingest for upload ' +
+          upload.id +
+          ': stored file is incomplete (externalPath=' +
+          externalPath +
+          ', bytesUploaded=' +
+          bytesUploaded +
+          ', size=' +
+          size +
+          ')'
+      );
+      return;
+    }
+
     const uploadId = upload.id;
 
     // Idempotency: skip if an ingest task for this upload is already active.

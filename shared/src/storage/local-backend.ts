@@ -13,6 +13,8 @@ import type {
   StorageFile,
   PresignedUrl,
   UploadProgress,
+  ChunkUploadOptions,
+  ChunkUploadResult,
   LocalStorageConfig,
 } from './types';
 
@@ -185,17 +187,25 @@ export class LocalStorageBackend implements StorageBackend {
   }
 
   /**
-   * Upload a chunk of a file (for chunked uploads)
-   * Appends chunks to the file sequentially
+   * Upload a chunk of a file (for chunked uploads).
+   *
+   * When the chunk carries its byte offset (options.offset), it is written at
+   * that position: retries simply rewrite the same range (idempotent) and
+   * chunks may arrive in parallel, since their ranges are disjoint. Without an
+   * offset (older clients) chunks append sequentially; a failed append is
+   * rolled back by truncating to the pre-write length so the client's retry
+   * of the SAME chunk appends cleanly. In neither case is the partially
+   * assembled file deleted on error — earlier chunks stay valid for retries.
+   *
+   * pipeline() applies backpressure throughout so a fast client upload can't
+   * outrun the disk and pile up in process memory.
    */
   async uploadChunk(
     chunk: ReadableStream,
     filePath: string,
-    chunkIndex: number,
-    totalChunks: number,
-    isFirstChunk: boolean,
-    isLastChunk: boolean
-  ): Promise<StorageResult | void> {
+    options: ChunkUploadOptions
+  ): Promise<ChunkUploadResult> {
+    const { chunkIndex, totalChunks, isFirstChunk, isLastChunk } = options;
     const fullPath = this.resolvePath(filePath);
     const directory = path.dirname(fullPath);
 
@@ -203,35 +213,58 @@ export class LocalStorageBackend implements StorageBackend {
     await mkdir(directory, { recursive: true });
 
     try {
-      // For first chunk, create/overwrite file; for subsequent chunks, append.
-      // pipeline() applies backpressure so a fast client upload can't outrun
-      // the disk and pile up in process memory.
-      const writeStream = isFirstChunk
-        ? createWriteStream(fullPath)
-        : createWriteStream(fullPath, { flags: 'a' });
+      const source = Readable.fromWeb(chunk as unknown as WebReadableStream);
 
-      await pipeline(
-        Readable.fromWeb(chunk as unknown as WebReadableStream),
-        writeStream
-      );
+      if (options.offset !== undefined) {
+        // Positioned write. The first chunk creates/truncates the file (so a
+        // restarted upload never inherits stale trailing bytes); later chunks
+        // require it to exist ('r+') — a missing file means the first chunk
+        // never landed, which must surface as an error, not a sparse file.
+        const writeStream = isFirstChunk
+          ? createWriteStream(fullPath, { flags: 'w', start: options.offset })
+          : createWriteStream(fullPath, { flags: 'r+', start: options.offset });
+        await pipeline(source, writeStream);
+      } else if (isFirstChunk) {
+        await pipeline(source, createWriteStream(fullPath));
+      } else {
+        // Sequential append (older clients). Remember the pre-append length
+        // so a partial write can be rolled back for a clean retry.
+        const priorSize = (await stat(fullPath)).size;
+        try {
+          await pipeline(source, createWriteStream(fullPath, { flags: 'a' }));
+        } catch (appendError) {
+          await fs.promises.truncate(fullPath, priorSize).catch(() => {
+            // Best-effort rollback; the size check at finalize is the backstop.
+          });
+          throw appendError;
+        }
+      }
 
-      // Only return result on last chunk
-      if (isLastChunk) {
-        const stats = await stat(fullPath);
-        return {
+      if (!isLastChunk) {
+        return {};
+      }
+
+      // Finalize: verify the assembled file is exactly the declared size
+      // before reporting success, so truncated or mis-assembled uploads are
+      // caught here instead of failing later in the ingest pipeline.
+      const stats = await stat(fullPath);
+      if (
+        options.expectedTotalSize !== undefined &&
+        stats.size !== options.expectedTotalSize
+      ) {
+        throw new Error(
+          `assembled file is ${stats.size} bytes but ` +
+            `${options.expectedTotalSize} bytes were expected — upload is corrupt`
+        );
+      }
+      return {
+        result: {
           path: filePath,
           size: stats.size,
           lastModified: stats.mtime,
-        };
-      }
+        },
+      };
     } catch (error) {
-      // Clean up partial file on error
-      try {
-        await unlink(fullPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-
       throw new Error(
         `Failed to upload chunk ${chunkIndex + 1}/${totalChunks} to ${filePath}: ${
           error instanceof Error ? error.message : String(error)

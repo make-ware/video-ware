@@ -42996,7 +42996,7 @@ function uploadFetch(url2, init) {
   });
 }
 function resetUploadConnections() {
-  void uploadAgent.destroy().catch(() => void 0);
+  void uploadAgent.close().catch(() => void 0);
   uploadAgent = makeUploadAgent();
 }
 
@@ -59258,6 +59258,61 @@ var WorkspaceCollection = defineCollection({
   schema: WorkspaceSchema,
   permissions: workspacesCollectionPermissions
 });
+function chunkPlan(fileSize, chunkSize) {
+  const totalChunks = Math.ceil(fileSize / chunkSize);
+  const chunks = [];
+  for (let index = 0; index < totalChunks; index++) {
+    const start = index * chunkSize;
+    chunks.push({
+      index,
+      start,
+      length: Math.min(chunkSize, fileSize - start)
+    });
+  }
+  return chunks;
+}
+async function runChunkSchedule(options) {
+  const { chunks, sendChunk } = options;
+  const concurrency = Math.max(1, Math.floor(options.concurrency));
+  if (chunks.length === 0) {
+    throw new Error("Cannot upload a file with no chunks");
+  }
+  const context = {};
+  const first = await sendChunk(chunks[0], context);
+  if (first.complete || chunks.length === 1) {
+    return first;
+  }
+  if (first.multipartUploadId) {
+    context.multipartUploadId = first.multipartUploadId;
+  }
+  const middle = chunks.slice(1, -1);
+  let earlyComplete = null;
+  if (middle.length > 0) {
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < middle.length && !earlyComplete) {
+        const chunk = middle[cursor++];
+        const result = await sendChunk(chunk, context);
+        if (result.complete) {
+          earlyComplete = result;
+        }
+      }
+    };
+    const workers = Array.from(
+      { length: Math.min(concurrency, middle.length) },
+      () => worker()
+    );
+    const settled = await Promise.allSettled(workers);
+    const failure = settled.find((s2) => s2.status === "rejected");
+    if (failure && failure.status === "rejected") {
+      throw failure.reason;
+    }
+  }
+  if (earlyComplete) {
+    return earlyComplete;
+  }
+  return sendChunk(chunks[chunks.length - 1], context);
+}
 var LoadingManager = class {
   loadingStates = /* @__PURE__ */ new Map();
   listeners = /* @__PURE__ */ new Set();
@@ -65464,7 +65519,8 @@ async function mediaCountsByDirectory(pb, workspaceId) {
 // src/lib/upload.ts
 import { open, stat } from "fs/promises";
 import { basename, extname } from "path";
-var DEFAULT_CHUNK_SIZE = 100 * 1024 * 1024;
+var DEFAULT_CHUNK_SIZE = 64 * 1024 * 1024;
+var DEFAULT_CHUNK_CONCURRENCY = 1;
 var MAX_UPLOAD_SIZE = 24 * 1024 * 1024 * 1024;
 var UPLOAD_ROUTE_PATH = "/api-next/uploads/upload";
 var REPLACE_ROUTE_PATH = "/api-next/uploads/replace";
@@ -65526,19 +65582,6 @@ function resolveAppUrl(override) {
   } catch {
   }
   return pbUrl;
-}
-function chunkPlan(fileSize, chunkSize) {
-  const totalChunks = Math.ceil(fileSize / chunkSize);
-  const chunks = [];
-  for (let index = 0; index < totalChunks; index++) {
-    const start = index * chunkSize;
-    chunks.push({
-      index,
-      start,
-      length: Math.min(chunkSize, fileSize - start)
-    });
-  }
-  return chunks;
 }
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
@@ -65634,8 +65677,13 @@ async function putChunk(pb, url2, params) {
     "x-file-name": params.fileName,
     "x-chunk-index": String(params.chunk.index),
     "x-total-chunks": String(params.totalChunks),
-    "x-chunk-size": String(params.buffer.length)
+    "x-chunk-size": String(params.buffer.length),
+    "x-chunk-offset": String(params.chunk.start),
+    "x-total-size": String(params.fileSize)
   };
+  if (params.multipartUploadId) {
+    headers["x-multipart-upload-id"] = params.multipartUploadId;
+  }
   if (params.directoryId) {
     headers["x-directory-id"] = params.directoryId;
   }
@@ -65661,22 +65709,28 @@ async function putChunk(pb, url2, params) {
       res.status === 429 || res.status >= 500
     );
   }
-  return { complete: body.complete === true, upload: body.upload };
+  return {
+    complete: body.complete === true,
+    multipartUploadId: body.multipartUploadId,
+    upload: body.upload
+  };
 }
 async function driveChunkProtocol(pb, url2, fh, params) {
   let bytesUploaded = 0;
-  for (const chunk of params.chunks) {
+  const sendChunk = async (chunk, context) => {
     const buffer = await readChunk(fh, chunk);
     for (let attempt = 0; ; attempt++) {
       try {
-        const result = await putChunk(pb, url2, {
+        const result2 = await putChunk(pb, url2, {
           uploadId: params.uploadId,
           workspaceId: params.workspaceId,
           userId: params.userId,
           fileName: params.fileName,
+          fileSize: params.fileSize,
           chunk,
           totalChunks: params.chunks.length,
           buffer,
+          multipartUploadId: context.multipartUploadId,
           directoryId: params.directoryId,
           timeoutMs: params.timeoutMs
         });
@@ -65687,10 +65741,7 @@ async function driveChunkProtocol(pb, url2, fh, params) {
           bytesUploaded,
           totalBytes: params.fileSize
         });
-        if (result.complete) {
-          return result;
-        }
-        break;
+        return result2;
       } catch (err) {
         const retryable = !(err instanceof ChunkRequestError) || err.retryable;
         if (!retryable || attempt >= params.maxRetries) {
@@ -65704,8 +65755,18 @@ async function driveChunkProtocol(pb, url2, fh, params) {
         );
       }
     }
+  };
+  const result = await runChunkSchedule({
+    chunks: params.chunks,
+    concurrency: params.concurrency,
+    sendChunk
+  });
+  if (!result.complete) {
+    throw new Error(
+      "Upload finished but the server never confirmed completion."
+    );
   }
-  throw new Error("Upload finished but the server never confirmed completion.");
+  return result;
 }
 async function uploadFile(pb, opts) {
   const {
@@ -65714,6 +65775,7 @@ async function uploadFile(pb, opts) {
     appUrl,
     directoryId,
     chunkSize = DEFAULT_CHUNK_SIZE,
+    concurrency = DEFAULT_CHUNK_CONCURRENCY,
     maxRetries = 5,
     backoffBaseMs = 1e3,
     timeoutMs = 10 * 60 * 1e3,
@@ -65749,6 +65811,7 @@ async function uploadFile(pb, opts) {
         fileSize: size,
         chunks,
         directoryId,
+        concurrency,
         maxRetries,
         backoffBaseMs,
         timeoutMs,
@@ -65815,6 +65878,7 @@ async function replaceUploadFile(pb, opts) {
     upload,
     appUrl,
     chunkSize = DEFAULT_CHUNK_SIZE,
+    concurrency = DEFAULT_CHUNK_CONCURRENCY,
     maxRetries = 5,
     backoffBaseMs = 1e3,
     timeoutMs = 10 * 60 * 1e3,
@@ -65836,6 +65900,7 @@ async function replaceUploadFile(pb, opts) {
       fileName: name,
       fileSize: size,
       chunks,
+      concurrency,
       maxRetries,
       backoffBaseMs,
       timeoutMs,

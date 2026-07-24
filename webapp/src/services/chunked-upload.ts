@@ -5,9 +5,10 @@
  * proxy limits (e.g., Cloudflare Tunnel's 100MB limit).
  *
  * Features:
- * - Splits files into configurable chunk sizes (default: 100MB)
- * - Sequential chunk upload with progress tracking
- * - Per-chunk retry logic
+ * - Splits files into configurable chunk sizes (default: 64MB)
+ * - First chunk alone, then middle chunks in parallel, last chunk alone
+ *   (the shared chunk schedule — parallelism hides per-request latency)
+ * - Per-chunk retry logic with exponential backoff
  * - Minimal database writes (only on completion)
  */
 
@@ -15,36 +16,41 @@ import type { TypedPocketBase } from '@project/shared';
 import { UploadMutator } from '@project/shared/mutator';
 import { UploadStatus } from '@project/shared';
 import type { Upload } from '@project/shared';
+import { driveChunkedTransfer } from './chunk-protocol';
 
 /**
  * Progress callback for chunk uploads
  */
 export interface ChunkProgress {
-  chunkIndex: number; // Current chunk being uploaded (0-based)
+  chunkIndex: number; // Chunk the latest progress event came from (0-based)
   totalChunks: number; // Total number of chunks
-  chunkProgress: number; // Progress within current chunk (0-100)
+  chunkProgress: number; // Progress within that chunk (0-100)
   overallProgress: number; // Overall upload progress (0-100)
-  bytesUploaded: number; // Total bytes uploaded so far
+  bytesUploaded: number; // Total bytes uploaded so far (all chunks)
   totalBytes: number; // Total file size
-  currentChunkSize: number; // Size of current chunk
+  currentChunkSize: number; // Size of that chunk
 }
 
 /**
  * Configuration for chunked uploads
  */
 export interface ChunkedUploadConfig {
-  chunkSize?: number; // Size of each chunk in bytes (default: 100MB)
+  chunkSize?: number; // Size of each chunk in bytes (default: 64MB)
   maxRetries?: number; // Max retries per chunk (default: 3)
-  timeout?: number; // Timeout per chunk in ms (default: 5 minutes)
+  timeout?: number; // Timeout per chunk in ms (default: 10 minutes)
+  concurrency?: number; // Middle chunks in flight at once (default: 3)
 }
 
 /**
  * Default configuration
  */
 const DEFAULT_CONFIG: Required<ChunkedUploadConfig> = {
-  chunkSize: 100 * 1024 * 1024, // 100MB (more stable for various network conditions)
+  // Comfortably under Cloudflare Tunnel's ~100MB request cap, and small
+  // enough that parallel middle chunks overlap well on large files.
+  chunkSize: 64 * 1024 * 1024, // 64MB
   maxRetries: 3,
   timeout: 10 * 60 * 1000, // 10 minutes
+  concurrency: 1,
 };
 
 /**
@@ -63,93 +69,6 @@ export class ChunkedUploadService {
   }
 
   /**
-   * Upload a single chunk
-   */
-  private async uploadChunk(
-    uploadId: string,
-    workspaceId: string,
-    userId: string,
-    fileName: string,
-    chunk: Blob,
-    chunkIndex: number,
-    totalChunks: number,
-    abortSignal: AbortSignal,
-    onProgress?: (loaded: number, total: number) => void,
-    directoryId?: string
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-
-      // Handle abort
-      const abortHandler = () => {
-        xhr.abort();
-        reject(new Error('Upload cancelled'));
-      };
-      abortSignal.addEventListener('abort', abortHandler);
-
-      // Track progress within this chunk
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable && onProgress) {
-          onProgress(event.loaded, event.total);
-        }
-      });
-
-      xhr.addEventListener('load', () => {
-        abortSignal.removeEventListener('abort', abortHandler);
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
-          let errorMessage = `Chunk ${chunkIndex + 1} failed with status ${xhr.status}`;
-          try {
-            const errorResponse = JSON.parse(xhr.responseText) as {
-              error?: string;
-            };
-            if (errorResponse.error) {
-              errorMessage = errorResponse.error;
-            }
-          } catch {
-            // Use default error message
-          }
-          reject(new Error(errorMessage));
-        }
-      });
-
-      xhr.addEventListener('error', () => {
-        abortSignal.removeEventListener('abort', abortHandler);
-        reject(new Error(`Network error uploading chunk ${chunkIndex + 1}`));
-      });
-
-      xhr.addEventListener('timeout', () => {
-        abortSignal.removeEventListener('abort', abortHandler);
-        reject(new Error(`Chunk ${chunkIndex + 1} upload timed out`));
-      });
-
-      const token = this.pb.authStore.token;
-      if (!token) {
-        reject(new Error('User must be authenticated to upload files'));
-        return;
-      }
-
-      xhr.open('PUT', '/api-next/uploads/upload');
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.setRequestHeader('x-upload-id', uploadId);
-      xhr.setRequestHeader('x-workspace-id', workspaceId);
-      xhr.setRequestHeader('x-user-id', userId);
-      xhr.setRequestHeader('x-file-name', fileName);
-      xhr.setRequestHeader('x-chunk-index', chunkIndex.toString());
-      xhr.setRequestHeader('x-total-chunks', totalChunks.toString());
-      xhr.setRequestHeader('x-chunk-size', chunk.size.toString());
-      if (directoryId) {
-        xhr.setRequestHeader('x-directory-id', directoryId);
-      }
-      xhr.timeout = this.config.timeout;
-
-      xhr.send(chunk);
-    });
-  }
-
-  /**
    * Upload a file in chunks
    */
   async uploadFile(
@@ -160,103 +79,58 @@ export class ChunkedUploadService {
     onProgress?: (progress: ChunkProgress) => void,
     directoryId?: string
   ): Promise<Upload> {
-    const totalChunks = Math.ceil(file.size / this.config.chunkSize);
     const abortController = new AbortController();
     this.abortControllers.set(uploadId, abortController);
 
+    let lastProgressUpdate = 0;
+    const PROGRESS_UPDATE_INTERVAL = 1000; // ms
+
     try {
-      let totalBytesUploaded = 0;
-      let lastProgressUpdate = 0;
-      const PROGRESS_UPDATE_INTERVAL = 1000; // ms
-
-      // Upload each chunk sequentially
-      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-        const start = chunkIndex * this.config.chunkSize;
-        const end = Math.min(start + this.config.chunkSize, file.size);
-        const chunk = file.slice(start, end);
-        const chunkSize = chunk.size;
-
-        let retries = 0;
-        let chunkUploaded = false;
-
-        // Retry logic for this chunk
-        while (!chunkUploaded && retries <= this.config.maxRetries) {
-          try {
-            await this.uploadChunk(
-              uploadId,
-              workspaceId,
-              userId,
-              file.name,
-              chunk,
-              chunkIndex,
-              totalChunks,
-              abortController.signal,
-              (loaded, total) => {
-                const now = Date.now();
-                // Throttle updates to avoid overwhelming the UI
-                if (now - lastProgressUpdate < PROGRESS_UPDATE_INTERVAL) {
-                  return;
-                }
-                lastProgressUpdate = now;
-
-                // Progress within current chunk
-                const chunkProgress = (loaded / total) * 100;
-                const bytesUploadedSoFar = totalBytesUploaded + loaded;
-                const overallProgress = (bytesUploadedSoFar / file.size) * 100;
-
-                if (onProgress) {
-                  onProgress({
-                    chunkIndex,
-                    totalChunks,
-                    chunkProgress,
-                    overallProgress,
-                    bytesUploaded: bytesUploadedSoFar,
-                    totalBytes: file.size,
-                    currentChunkSize: chunkSize,
-                  });
-                }
-              },
-              directoryId
-            );
-
-            chunkUploaded = true;
-            totalBytesUploaded += chunkSize;
-
-            // Report chunk completion (always report completion)
-            lastProgressUpdate = Date.now();
-            if (onProgress) {
-              onProgress({
-                chunkIndex,
-                totalChunks,
-                chunkProgress: 100,
-                overallProgress: (totalBytesUploaded / file.size) * 100,
-                bytesUploaded: totalBytesUploaded,
-                totalBytes: file.size,
-                currentChunkSize: chunkSize,
-              });
-            }
-          } catch (error) {
-            retries++;
-            if (retries > this.config.maxRetries) {
-              throw new Error(
-                `Failed to upload chunk ${chunkIndex + 1} after ${this.config.maxRetries} retries: ${error instanceof Error ? error.message : 'Unknown error'}`
-              );
-            }
-            // Wait before retry (exponential backoff)
-            await new Promise((resolve) =>
-              setTimeout(resolve, Math.pow(2, retries) * 1000)
-            );
+      const response = await driveChunkedTransfer({
+        pb: this.pb,
+        url: '/api-next/uploads/upload',
+        file,
+        uploadId,
+        workspaceId,
+        userId,
+        directoryId,
+        chunkSize: this.config.chunkSize,
+        concurrency: this.config.concurrency,
+        maxRetries: this.config.maxRetries,
+        timeout: this.config.timeout,
+        abortSignal: abortController.signal,
+        onProgress: (progress) => {
+          if (!onProgress) return;
+          const chunkComplete = progress.chunkLoaded >= progress.chunk.length;
+          const now = Date.now();
+          // Throttle in-flight updates to avoid overwhelming the UI, but
+          // always report a chunk finishing.
+          if (
+            !chunkComplete &&
+            now - lastProgressUpdate < PROGRESS_UPDATE_INTERVAL
+          ) {
+            return;
           }
-        }
-      }
+          lastProgressUpdate = now;
+          onProgress({
+            chunkIndex: progress.chunk.index,
+            totalChunks: progress.totalChunks,
+            chunkProgress: (progress.chunkLoaded / progress.chunk.length) * 100,
+            overallProgress: (progress.bytesUploaded / file.size) * 100,
+            bytesUploaded: progress.bytesUploaded,
+            totalBytes: file.size,
+            currentChunkSize: progress.chunk.length,
+          });
+        },
+      });
 
-      // All chunks uploaded successfully
-      // Fetch the final upload record from the server
-      const upload = await this.uploadMutator.getById(uploadId);
+      // The route returns the finalized record on the completing chunk; fall
+      // back to a fetch for older responses.
+      const upload =
+        response.upload ?? (await this.uploadMutator.getById(uploadId));
       if (!upload) {
         throw new Error('Upload record not found after completion');
       }
-
       return upload;
     } finally {
       this.abortControllers.delete(uploadId);

@@ -53,12 +53,18 @@ export function uploadFetch(url: string, init: RequestInit): Promise<Response> {
 }
 
 /**
- * Discard the upload agent's pooled connections and start fresh. Called
+ * Retire the upload agent's pooled connections and start fresh. Called
  * between chunk retry attempts: a retry on the connection that just failed
  * tends to fail the same way (a reset or rate-limited socket is served
  * straight from the pool), while a new connection gets a clean slate.
+ *
+ * The old agent is drained with close() rather than destroy(): chunks now
+ * upload in parallel, and destroy() would kill the sibling chunks' in-flight
+ * requests, turning one bad socket into a retry cascade. close() lets them
+ * finish on their existing connections while all NEW requests (including the
+ * retry that triggered the reset) go to the fresh agent.
  */
 export function resetUploadConnections(): void {
-  void uploadAgent.destroy().catch(() => undefined);
+  void uploadAgent.close().catch(() => undefined);
   uploadAgent = makeUploadAgent();
 }

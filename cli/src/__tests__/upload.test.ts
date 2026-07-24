@@ -343,6 +343,101 @@ describe('uploadFile', () => {
     });
   });
 
+  it('sends offset/total-size headers and threads the multipart id', async () => {
+    const file = await makeFile(25);
+    const uploads = uploadsStub();
+    const pb = fakePb({ Uploads: uploads });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, { complete: false, multipartUploadId: 'mp-1' })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { complete: false }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { complete: true, upload: { id: 'up1' } })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await uploadFile(pb, {
+      filePath: file,
+      workspaceId: 'ws1',
+      appUrl: 'http://app.test',
+      chunkSize: 10,
+    });
+
+    const headersOf = (i: number) =>
+      (fetchMock.mock.calls[i] as [string, RequestInit])[1].headers as Record<
+        string,
+        string
+      >;
+    expect(headersOf(0)).toMatchObject({
+      'x-chunk-index': '0',
+      'x-chunk-offset': '0',
+      'x-total-size': '25',
+    });
+    // The first chunk cannot know the id — the server mints it.
+    expect(headersOf(0)).not.toHaveProperty('x-multipart-upload-id');
+    expect(headersOf(1)).toMatchObject({
+      'x-chunk-offset': '10',
+      'x-multipart-upload-id': 'mp-1',
+    });
+    expect(headersOf(2)).toMatchObject({
+      'x-chunk-offset': '20',
+      'x-multipart-upload-id': 'mp-1',
+    });
+  });
+
+  it('uploads middle chunks in parallel between a lone first and last chunk', async () => {
+    const file = join(tmpDir, 'clip.mp4');
+    await writeFile(file, 'x'.repeat(50)); // chunkSize 10 → chunks 0..4
+    const uploads = uploadsStub();
+    const pb = fakePb({ Uploads: uploads });
+
+    const started: string[] = [];
+    const resolvers = new Map<string, (r: Response) => void>();
+    const fetchMock = vi.fn(
+      (_url: string, init: RequestInit): Promise<Response> => {
+        const index = (init.headers as Record<string, string>)['x-chunk-index'];
+        started.push(index);
+        return new Promise<Response>((resolve) => {
+          resolvers.set(index, resolve);
+        });
+      }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const run = uploadFile(pb, {
+      filePath: file,
+      workspaceId: 'ws1',
+      appUrl: 'http://app.test',
+      chunkSize: 10,
+      concurrency: 3,
+    });
+
+    // Chunk 0 goes alone.
+    await tick();
+    expect(started).toEqual(['0']);
+    resolvers.get('0')!(jsonResponse(200, { complete: false }));
+
+    // All three middles go out together; the finalizer must wait.
+    await tick();
+    expect([...started].sort()).toEqual(['0', '1', '2', '3']);
+    for (const index of ['1', '2', '3']) {
+      resolvers.get(index)!(jsonResponse(200, { complete: false }));
+    }
+
+    // Only after every middle resolved does the last chunk go out.
+    await tick();
+    expect(started).toHaveLength(5);
+    expect(started[4]).toBe('4');
+    resolvers.get('4')!(
+      jsonResponse(200, { complete: true, upload: { id: 'up1' } })
+    );
+
+    await expect(run).resolves.toEqual({ id: 'up1' });
+  });
+
   it('stops early when the route reports the upload already complete', async () => {
     const file = await makeFile(25);
     const uploads = uploadsStub();

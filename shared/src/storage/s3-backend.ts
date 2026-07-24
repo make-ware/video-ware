@@ -1,3 +1,5 @@
+import { Readable } from 'stream';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 import {
   S3Client,
   PutObjectCommand,
@@ -10,6 +12,8 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListPartsCommand,
+  ListMultipartUploadsCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -20,24 +24,27 @@ import type {
   StorageFile,
   PresignedUrl,
   UploadProgress,
+  ChunkUploadOptions,
+  ChunkUploadResult,
   S3StorageConfig,
 } from './types';
 
 interface MultipartUploadState {
   uploadId: string;
-  parts: Array<{ PartNumber: number; ETag: string }>;
   updatedAt: number;
 }
 
 /**
- * Multipart upload state, keyed by file path.
+ * Cache of in-progress multipart upload ids, keyed by file path.
  *
- * This is module-level (process-global) rather than per-instance on purpose:
- * the chunked-upload route creates a fresh S3StorageBackend on every request,
- * so a per-instance map would be empty for every chunk after the first. Keeping
- * it at module scope lets the multipart upload survive across the separate
- * requests that carry each chunk — the same single-process assumption the local
- * backend already relies on (it appends to a shared file on disk).
+ * This is only a cache, not the source of truth: clients echo the upload id
+ * back with every chunk (ChunkUploadOptions.multipartUploadId), and when both
+ * are missing the id is rediscovered from S3 via ListMultipartUploads. Part
+ * ETags are never tracked here — finalization reads them back with ListParts —
+ * so chunks can land on any server instance and survive restarts.
+ *
+ * Module-level (process-global) because the chunked-upload route may create a
+ * fresh S3StorageBackend per request.
  */
 const multipartUploads: Map<string, MultipartUploadState> = new Map();
 
@@ -51,6 +58,19 @@ function pruneStaleMultipartUploads(now: number): void {
       multipartUploads.delete(key);
     }
   }
+}
+
+/** Buffer a web ReadableStream fully into memory (fallback when the chunk's
+ * byte length is unknown — S3 needs a length up front to stream). */
+async function bufferStream(chunk: ReadableStream): Promise<Buffer> {
+  const reader = chunk.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c)));
 }
 
 /**
@@ -187,41 +207,78 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   /**
-   * Upload a chunk of a file (for chunked uploads)
-   * Uses S3 multipart upload API
+   * Upload a chunk of a file (for chunked uploads).
+   *
+   * Streams the chunk straight into S3 when its byte length is known
+   * (options.contentLength), so the server→S3 transfer overlaps the
+   * client→server one instead of buffering the whole chunk in memory first.
+   *
+   * Single-chunk files skip the multipart API entirely (one PutObject instead
+   * of Create + UploadPart + Complete + Head). Multi-chunk files use multipart
+   * with NO server-side state required: the upload id is echoed by the client
+   * (or rediscovered via ListMultipartUploads), and part ETags are read back
+   * with ListParts at finalize — so chunks may arrive in parallel, on any
+   * instance, across restarts.
    */
   async uploadChunk(
     chunk: ReadableStream,
     filePath: string,
-    chunkIndex: number,
-    totalChunks: number,
-    isFirstChunk: boolean,
-    isLastChunk: boolean
-  ): Promise<StorageResult | void> {
+    options: ChunkUploadOptions
+  ): Promise<ChunkUploadResult> {
+    const { chunkIndex, totalChunks, isFirstChunk, isLastChunk } = options;
     try {
-      // Convert ReadableStream to Buffer
-      const reader = chunk.getReader();
-      const chunks: Uint8Array[] = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
+      // Stream when the length is known; S3 requires ContentLength up front,
+      // so an unknown-length chunk (a proxy stripped content-length and the
+      // client sent no x-chunk-size) falls back to full buffering.
+      let body: Readable | Buffer;
+      let contentLength: number;
+      if (options.contentLength !== undefined) {
+        body = Readable.fromWeb(chunk as unknown as WebReadableStream);
+        contentLength = options.contentLength;
+      } else {
+        body = await bufferStream(chunk);
+        contentLength = body.length;
       }
 
-      const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+      // Fast path: the whole file fits in one chunk — a single PutObject.
+      // S3 enforces that the body matches ContentLength, so no verify read
+      // is needed afterwards.
+      if (totalChunks === 1) {
+        if (
+          options.expectedTotalSize !== undefined &&
+          options.expectedTotalSize !== contentLength
+        ) {
+          throw new Error(
+            `chunk is ${contentLength} bytes but the file was declared as ` +
+              `${options.expectedTotalSize} bytes`
+          );
+        }
+        const putResult = await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: filePath,
+            Body: body,
+            ContentLength: contentLength,
+          })
+        );
+        return {
+          result: {
+            path: filePath,
+            size: contentLength,
+            etag: putResult.ETag?.replace(/"/g, ''),
+          },
+        };
+      }
 
       const now = Date.now();
       pruneStaleMultipartUploads(now);
 
-      // Initialize multipart upload on first chunk
+      let uploadId: string;
       if (isFirstChunk) {
-        // A retried first chunk would orphan the prior multipart upload; abort
-        // it first so Garage doesn't accumulate dangling incomplete uploads.
-        const existing = multipartUploads.get(filePath);
-        if (existing) {
-          await this.abortMultipartUpload(filePath, existing.uploadId);
-        }
+        // A retried first chunk (or a crashed earlier attempt) would orphan
+        // the prior multipart upload; abort anything dangling for this key so
+        // the store doesn't accumulate incomplete uploads.
+        await this.abortDanglingUploads(filePath);
 
         const createResult = await this.client.send(
           new CreateMultipartUploadCommand({
@@ -229,104 +286,182 @@ export class S3StorageBackend implements StorageBackend {
             Key: filePath,
           })
         );
-
         if (!createResult.UploadId) {
           throw new Error('Failed to create multipart upload');
         }
-
-        multipartUploads.set(filePath, {
-          uploadId: createResult.UploadId,
-          parts: [],
-          updatedAt: now,
-        });
+        uploadId = createResult.UploadId;
+      } else {
+        // Client echo → local cache → rediscover from the store itself.
+        uploadId =
+          options.multipartUploadId ??
+          multipartUploads.get(filePath)?.uploadId ??
+          (await this.discoverMultipartUploadId(filePath));
       }
+      multipartUploads.set(filePath, { uploadId, updatedAt: now });
 
-      const uploadData = multipartUploads.get(filePath);
-      if (!uploadData) {
-        throw new Error('Multipart upload not initialized');
-      }
-
-      // Upload this part (S3 part numbers are 1-based)
+      // Upload this part (S3 part numbers are 1-based). A retried chunk
+      // re-uploads the same part number, which S3 treats as a replace, so
+      // retries are naturally idempotent.
       const partNumber = chunkIndex + 1;
       const uploadPartResult = await this.client.send(
         new UploadPartCommand({
           Bucket: this.bucket,
           Key: filePath,
-          UploadId: uploadData.uploadId,
+          UploadId: uploadId,
           PartNumber: partNumber,
-          Body: buffer,
+          Body: body,
+          ContentLength: contentLength,
         })
       );
-
       if (!uploadPartResult.ETag) {
         throw new Error(`Failed to upload part ${partNumber}`);
       }
 
-      // Record the part. Upsert by PartNumber: a retried chunk re-uploads the
-      // same part number, and a duplicate entry would itself break completion
-      // with "Parts do not match uploaded parts".
-      const existingPart = uploadData.parts.find(
-        (p) => p.PartNumber === partNumber
-      );
-      if (existingPart) {
-        existingPart.ETag = uploadPartResult.ETag;
-      } else {
-        uploadData.parts.push({
-          PartNumber: partNumber,
-          ETag: uploadPartResult.ETag,
-        });
+      if (!isLastChunk) {
+        return { multipartUploadId: uploadId };
       }
-      uploadData.updatedAt = now;
 
-      // Complete multipart upload on last chunk
-      if (isLastChunk) {
-        // Sort parts by part number
-        uploadData.parts.sort((a, b) => a.PartNumber - b.PartNumber);
-
-        await this.client.send(
-          new CompleteMultipartUploadCommand({
-            Bucket: this.bucket,
-            Key: filePath,
-            UploadId: uploadData.uploadId,
-            MultipartUpload: {
-              Parts: uploadData.parts,
-            },
-          })
+      // Finalize: read the uploaded parts back from S3 (authoritative no
+      // matter which instance handled which chunk), check completeness,
+      // complete, then verify the assembled size.
+      const parts = await this.listUploadedParts(filePath, uploadId);
+      if (parts.length !== totalChunks) {
+        throw new Error(
+          `expected ${totalChunks} uploaded parts but found ${parts.length} — ` +
+            'a chunk is missing or still in flight'
         );
+      }
 
-        // Clean up tracking
-        multipartUploads.delete(filePath);
+      await this.client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: filePath,
+          UploadId: uploadId,
+          MultipartUpload: { Parts: parts },
+        })
+      );
+      multipartUploads.delete(filePath);
 
-        // Get object metadata
-        const headResult = await this.client.send(
-          new HeadObjectCommand({
-            Bucket: this.bucket,
-            Key: filePath,
-          })
+      const headResult = await this.client.send(
+        new HeadObjectCommand({
+          Bucket: this.bucket,
+          Key: filePath,
+        })
+      );
+      const size = headResult.ContentLength ?? 0;
+      if (
+        options.expectedTotalSize !== undefined &&
+        size !== options.expectedTotalSize
+      ) {
+        throw new Error(
+          `assembled file is ${size} bytes but ${options.expectedTotalSize} ` +
+            'bytes were expected — upload is corrupt'
         );
+      }
 
-        return {
+      return {
+        multipartUploadId: uploadId,
+        result: {
           path: filePath,
-          size: headResult.ContentLength || 0,
+          size,
           etag: headResult.ETag?.replace(/"/g, ''),
           lastModified: headResult.LastModified,
-        };
-      }
+        },
+      };
     } catch (error) {
       // Deliberately do NOT abort/delete the multipart upload here: the client
-      // retries a failed chunk (same chunkIndex) up to a few times, and those
-      // retries depend on the multipart state surviving. Aborting on the first
-      // transient error would make the retry fail with "Multipart upload not
-      // initialized". Abandoned uploads are reclaimed by pruneStaleMultipartUploads
-      // (local map) and by aborting any leftover upload when a first chunk for the
-      // same path is re-sent; orphaned server-side uploads should be swept by a
-      // bucket lifecycle policy.
+      // retries a failed chunk (same chunkIndex), and that retry depends on
+      // the multipart upload surviving. Abandoned uploads are aborted when a
+      // first chunk for the same path is re-sent; orphaned server-side uploads
+      // should be swept by a bucket lifecycle policy.
       throw new Error(
         `Failed to upload chunk ${chunkIndex + 1}/${totalChunks} to S3 at ${filePath}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
     }
+  }
+
+  /**
+   * Find the in-progress multipart upload id for a key directly from S3.
+   * Fallback for chunks that arrive with no client-echoed id on an instance
+   * that didn't create the upload (restart, second instance, old client).
+   * Picks the most recently initiated when several exist.
+   */
+  private async discoverMultipartUploadId(filePath: string): Promise<string> {
+    const response = await this.client.send(
+      new ListMultipartUploadsCommand({
+        Bucket: this.bucket,
+        Prefix: filePath,
+      })
+    );
+    const candidates = (response.Uploads ?? []).filter(
+      (u) => u.Key === filePath && u.UploadId
+    );
+    if (candidates.length === 0) {
+      throw new Error('Multipart upload not initialized');
+    }
+    candidates.sort(
+      (a, b) => (a.Initiated?.getTime() ?? 0) - (b.Initiated?.getTime() ?? 0)
+    );
+    return candidates[candidates.length - 1].UploadId as string;
+  }
+
+  /**
+   * Abort every in-progress multipart upload for a key (used before starting
+   * a fresh one so retried/crashed attempts don't accumulate).
+   */
+  private async abortDanglingUploads(filePath: string): Promise<void> {
+    let uploadIds: string[] = [];
+    try {
+      const response = await this.client.send(
+        new ListMultipartUploadsCommand({
+          Bucket: this.bucket,
+          Prefix: filePath,
+        })
+      );
+      uploadIds = (response.Uploads ?? [])
+        .filter((u) => u.Key === filePath && u.UploadId)
+        .map((u) => u.UploadId as string);
+    } catch (listError) {
+      // Best-effort: some S3-compatible stores restrict this listing; a
+      // dangling upload is only debris for the lifecycle policy to sweep.
+      console.error('Failed to list dangling multipart uploads:', listError);
+      return;
+    }
+    for (const uploadId of uploadIds) {
+      await this.abortMultipartUpload(filePath, uploadId);
+    }
+  }
+
+  /**
+   * Read back all uploaded parts for a multipart upload, paginating as needed,
+   * sorted by part number — the shape CompleteMultipartUpload expects.
+   */
+  private async listUploadedParts(
+    filePath: string,
+    uploadId: string
+  ): Promise<Array<{ PartNumber: number; ETag: string }>> {
+    const parts: Array<{ PartNumber: number; ETag: string }> = [];
+    let marker: string | undefined;
+    do {
+      const response = await this.client.send(
+        new ListPartsCommand({
+          Bucket: this.bucket,
+          Key: filePath,
+          UploadId: uploadId,
+          PartNumberMarker: marker,
+        })
+      );
+      for (const part of response.Parts ?? []) {
+        if (part.PartNumber !== undefined && part.ETag) {
+          parts.push({ PartNumber: part.PartNumber, ETag: part.ETag });
+        }
+      }
+      marker = response.IsTruncated ? response.NextPartNumberMarker : undefined;
+    } while (marker);
+    parts.sort((a, b) => a.PartNumber - b.PartNumber);
+    return parts;
   }
 
   /**

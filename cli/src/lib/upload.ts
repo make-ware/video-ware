@@ -7,6 +7,10 @@ import {
   MediaType,
   UploadMutator,
   UploadStatus,
+  chunkPlan,
+  runChunkSchedule,
+  type ChunkScheduleContext,
+  type ChunkSpec,
   type Media,
   type TypedPocketBase,
   type Upload,
@@ -15,15 +19,26 @@ import { loadConfig } from './config.js';
 import { resetUploadConnections, uploadFetch } from './http.js';
 import { resolveUrl } from './pocketbase.js';
 
+export { chunkPlan, type ChunkSpec } from '@project/shared';
+
 /**
  * Uploads mirror the webapp's chunked uploader: the file is PUT to the
- * Next.js `/api-next/uploads/upload` route in sequential chunks sized under
- * Cloudflare's ~100MB request-body limit, so proxied deployments work. On
- * the last chunk the route flips the Upload record to `uploaded`, which
- * triggers ingest (a PocketBase hook queues a `full_ingest` task and the
- * worker creates the Media and transcodes).
+ * Next.js `/api-next/uploads/upload` route in chunks sized under
+ * Cloudflare's ~100MB request-body limit, so proxied deployments work.
+ * Chunk 0 goes alone (it opens the storage session), middle chunks upload
+ * in parallel, and the last chunk goes alone once the rest landed — it makes
+ * the route finalize and verify the assembled file. On that last chunk the
+ * route flips the Upload record to `uploaded`, which triggers ingest (a
+ * PocketBase hook queues a `full_ingest` task and the worker creates the
+ * Media and transcodes).
  */
-export const DEFAULT_CHUNK_SIZE = 100 * 1024 * 1024;
+export const DEFAULT_CHUNK_SIZE = 64 * 1024 * 1024;
+
+/**
+ * Middle chunks in flight at once. Peak buffered memory is roughly
+ * concurrency × chunk size (192MB at the defaults).
+ */
+export const DEFAULT_CHUNK_CONCURRENCY = 1;
 
 /** Same ceiling the webapp enforces (webapp/src/constants/upload.ts). */
 export const MAX_UPLOAD_SIZE = 24 * 1024 * 1024 * 1024;
@@ -151,27 +166,6 @@ export function resolveAppUrl(override?: string): string {
   return pbUrl;
 }
 
-export interface ChunkSpec {
-  index: number;
-  start: number;
-  length: number;
-}
-
-/** Split a file size into sequential chunk specs (last chunk may be short). */
-export function chunkPlan(fileSize: number, chunkSize: number): ChunkSpec[] {
-  const totalChunks = Math.ceil(fileSize / chunkSize);
-  const chunks: ChunkSpec[] = [];
-  for (let index = 0; index < totalChunks; index++) {
-    const start = index * chunkSize;
-    chunks.push({
-      index,
-      start,
-      length: Math.min(chunkSize, fileSize - start),
-    });
-  }
-  return chunks;
-}
-
 /** Format a byte count for progress lines (e.g. "1.2 GB"). */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
@@ -243,6 +237,8 @@ export interface UploadFileOptions {
   appUrl: string;
   directoryId?: string;
   chunkSize?: number;
+  /** Middle chunks uploaded in parallel (first/last always go alone). */
+  concurrency?: number;
   /** Retries per chunk on network errors / 429 / 5xx (other 4xx fail fast). */
   maxRetries?: number;
   /** Base for the 2^attempt exponential backoff (capped); tests pass 0. */
@@ -312,6 +308,7 @@ async function readChunk(
 
 interface ChunkResponse {
   complete: boolean;
+  multipartUploadId?: string;
   upload?: Upload;
 }
 
@@ -323,9 +320,11 @@ async function putChunk(
     workspaceId: string;
     userId: string;
     fileName: string;
+    fileSize: number;
     chunk: ChunkSpec;
     totalChunks: number;
     buffer: Uint8Array<ArrayBuffer>;
+    multipartUploadId?: string;
     directoryId?: string;
     timeoutMs: number;
   }
@@ -348,7 +347,12 @@ async function putChunk(
     'x-chunk-index': String(params.chunk.index),
     'x-total-chunks': String(params.totalChunks),
     'x-chunk-size': String(params.buffer.length),
+    'x-chunk-offset': String(params.chunk.start),
+    'x-total-size': String(params.fileSize),
   };
+  if (params.multipartUploadId) {
+    headers['x-multipart-upload-id'] = params.multipartUploadId;
+  }
   if (params.directoryId) {
     headers['x-directory-id'] = params.directoryId;
   }
@@ -375,6 +379,7 @@ async function putChunk(
   const body = (await res.json().catch(() => ({}))) as {
     error?: string;
     complete?: boolean;
+    multipartUploadId?: string;
     upload?: Upload;
   };
 
@@ -385,12 +390,18 @@ async function putChunk(
       res.status === 429 || res.status >= 500
     );
   }
-  return { complete: body.complete === true, upload: body.upload };
+  return {
+    complete: body.complete === true,
+    multipartUploadId: body.multipartUploadId,
+    upload: body.upload,
+  };
 }
 
 /**
- * Drive the sequential chunk protocol shared by upload and replace: read each
- * chunk, PUT it (with per-chunk retries), report progress, and return the
+ * Drive the chunk protocol shared by upload and replace: chunk 0 first (its
+ * response may name the storage session, echoed to later chunks), middle
+ * chunks with bounded concurrency, last chunk alone. Each chunk is read from
+ * the file with positioned reads and PUT with per-chunk retries. Returns the
  * response that confirmed completion — the routes report `complete` on the
  * last chunk, or early when a retried request finds the work already done.
  */
@@ -406,6 +417,7 @@ async function driveChunkProtocol(
     fileSize: number;
     chunks: ChunkSpec[];
     directoryId?: string;
+    concurrency: number;
     maxRetries: number;
     backoffBaseMs: number;
     timeoutMs: number;
@@ -413,7 +425,12 @@ async function driveChunkProtocol(
   }
 ): Promise<ChunkResponse> {
   let bytesUploaded = 0;
-  for (const chunk of params.chunks) {
+
+  const sendChunk = async (
+    chunk: ChunkSpec,
+    context: ChunkScheduleContext
+  ): Promise<ChunkResponse> => {
+    // One buffer per chunk, kept across its retries, released when it's done.
     const buffer = await readChunk(fh, chunk);
     for (let attempt = 0; ; attempt++) {
       try {
@@ -422,9 +439,11 @@ async function driveChunkProtocol(
           workspaceId: params.workspaceId,
           userId: params.userId,
           fileName: params.fileName,
+          fileSize: params.fileSize,
           chunk,
           totalChunks: params.chunks.length,
           buffer,
+          multipartUploadId: context.multipartUploadId,
           directoryId: params.directoryId,
           timeoutMs: params.timeoutMs,
         });
@@ -435,10 +454,7 @@ async function driveChunkProtocol(
           bytesUploaded,
           totalBytes: params.fileSize,
         });
-        if (result.complete) {
-          return result;
-        }
-        break;
+        return result;
       } catch (err) {
         const retryable = !(err instanceof ChunkRequestError) || err.retryable;
         if (!retryable || attempt >= params.maxRetries) {
@@ -456,8 +472,19 @@ async function driveChunkProtocol(
         );
       }
     }
+  };
+
+  const result = await runChunkSchedule<ChunkResponse>({
+    chunks: params.chunks,
+    concurrency: params.concurrency,
+    sendChunk,
+  });
+  if (!result.complete) {
+    throw new Error(
+      'Upload finished but the server never confirmed completion.'
+    );
   }
-  throw new Error('Upload finished but the server never confirmed completion.');
+  return result;
 }
 
 /**
@@ -477,6 +504,7 @@ export async function uploadFile(
     appUrl,
     directoryId,
     chunkSize = DEFAULT_CHUNK_SIZE,
+    concurrency = DEFAULT_CHUNK_CONCURRENCY,
     maxRetries = 5,
     backoffBaseMs = 1000,
     timeoutMs = 10 * 60 * 1000,
@@ -515,6 +543,7 @@ export async function uploadFile(
         fileSize: size,
         chunks,
         directoryId,
+        concurrency,
         maxRetries,
         backoffBaseMs,
         timeoutMs,
@@ -634,6 +663,8 @@ export interface ReplaceFileOptions {
   /** Webapp origin serving `/api-next` (see resolveAppUrl). */
   appUrl: string;
   chunkSize?: number;
+  /** Middle chunks uploaded in parallel (first/last always go alone). */
+  concurrency?: number;
   /** Retries per chunk on network errors / 429 / 5xx (other 4xx fail fast). */
   maxRetries?: number;
   /** Base for the 2^attempt exponential backoff (capped); tests pass 0. */
@@ -662,6 +693,7 @@ export async function replaceUploadFile(
     upload,
     appUrl,
     chunkSize = DEFAULT_CHUNK_SIZE,
+    concurrency = DEFAULT_CHUNK_CONCURRENCY,
     maxRetries = 5,
     backoffBaseMs = 1000,
     timeoutMs = 10 * 60 * 1000,
@@ -685,6 +717,7 @@ export async function replaceUploadFile(
       fileName: name,
       fileSize: size,
       chunks,
+      concurrency,
       maxRetries,
       backoffBaseMs,
       timeoutMs,

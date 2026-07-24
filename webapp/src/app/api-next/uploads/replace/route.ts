@@ -7,12 +7,18 @@ import {
   createServerPocketBaseClient,
   authenticateAsUser,
 } from '@/lib/pocketbase-server';
-import { createStorageBackend } from '@project/shared/storage';
-import { loadStorageConfig } from '@project/shared/config';
+import { getStorageBackend } from '@/lib/storage-backend';
 import { UploadMutator } from '@project/shared/mutator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/** Parse an optional non-negative integer header; undefined when absent. */
+function parseCountHeader(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
 
 /**
  * Media file REPLACE handler (chunked).
@@ -41,6 +47,12 @@ export const dynamic = 'force-dynamic';
  * - x-file-name: The original file name (used only for logging/context)
  * - x-chunk-index: Current chunk number (0-based)
  * - x-total-chunks: Total number of chunks
+ *
+ * Optional headers (same chunk protocol as the upload route): x-chunk-offset,
+ * x-chunk-size, x-total-size (declared size of the replacement file, verified
+ * before the staged file is promoted), x-multipart-upload-id. After the first
+ * chunk, middle chunks may be sent in parallel; the last chunk must be sent
+ * alone once all others succeeded.
  */
 export async function PUT(req: Request) {
   let pb: PocketBase | null = null;
@@ -54,6 +66,13 @@ export async function PUT(req: Request) {
     const totalChunksHeader = req.headers.get('x-total-chunks');
     const chunkIndex = chunkIndexHeader ? parseInt(chunkIndexHeader, 10) : 0;
     const totalChunks = totalChunksHeader ? parseInt(totalChunksHeader, 10) : 1;
+    const contentLength =
+      parseCountHeader(req.headers.get('content-length')) ??
+      parseCountHeader(req.headers.get('x-chunk-size'));
+    const offset = parseCountHeader(req.headers.get('x-chunk-offset'));
+    const expectedTotalSize = parseCountHeader(req.headers.get('x-total-size'));
+    const multipartUploadId =
+      req.headers.get('x-multipart-upload-id')?.trim() || undefined;
 
     if (!uploadId || !workspaceId || !userId || !fileName) {
       return NextResponse.json(
@@ -125,20 +144,24 @@ export async function PUT(req: Request) {
     // request (each a separate call) targets the same staging object.
     const stagingPath = `${targetPath}.replacing`;
 
-    const storage = await createStorageBackend(loadStorageConfig());
+    // Cached, already-initialized backend — no per-chunk connectivity probe.
+    const storage = await getStorageBackend();
 
     const isFirstChunk = chunkIndex === 0;
     const isLastChunk = chunkIndex === totalChunks - 1;
 
+    let chunkResult;
     try {
-      await storage.uploadChunk(
-        req.body,
-        stagingPath,
+      chunkResult = await storage.uploadChunk(req.body, stagingPath, {
         chunkIndex,
         totalChunks,
         isFirstChunk,
-        isLastChunk
-      );
+        isLastChunk,
+        contentLength,
+        offset,
+        multipartUploadId,
+        expectedTotalSize,
+      });
     } catch (storageError) {
       console.error(
         `Failed to write replacement chunk ${chunkIndex}:`,
@@ -170,6 +193,9 @@ export async function PUT(req: Request) {
       uploadId,
       chunkIndex,
       totalChunks,
+      ...(chunkResult.multipartUploadId
+        ? { multipartUploadId: chunkResult.multipartUploadId }
+        : {}),
     });
   } catch (error) {
     console.error('Replace route error:', error);

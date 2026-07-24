@@ -7,10 +7,8 @@ import {
   createServerPocketBaseClient,
   authenticateAsUser,
 } from '@/lib/pocketbase-server';
-import {
-  createStorageBackend,
-  generateStoragePath,
-} from '@project/shared/storage';
+import { getStorageBackend } from '@/lib/storage-backend';
+import { generateStoragePath } from '@project/shared/storage';
 import { loadStorageConfig } from '@project/shared/config';
 import { UploadStatus, StorageBackendType } from '@project/shared';
 import { UploadMutator } from '@project/shared/mutator';
@@ -18,11 +16,22 @@ import { UploadMutator } from '@project/shared/mutator';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/** Parse an optional non-negative integer header; undefined when absent. */
+function parseCountHeader(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 /**
  * Chunked upload handler for large files behind proxies with size limits.
  *
  * Handles individual chunks of a larger file upload. Each chunk is uploaded
  * separately to bypass proxy limits (e.g., Cloudflare Tunnel's 100MB limit).
+ * Chunks stream straight through to the storage backend (positioned local
+ * writes / S3 multipart parts), so after the first chunk the client may send
+ * middle chunks IN PARALLEL; the last chunk must be sent alone once all
+ * others succeeded, because it finalizes and verifies the assembled file.
  *
  * Required headers:
  * - x-upload-id: The upload record ID
@@ -34,8 +43,15 @@ export const dynamic = 'force-dynamic';
  * - x-chunk-size: Size of this chunk in bytes
  *
  * Optional:
+ * - x-chunk-offset: Byte offset of this chunk within the file (enables
+ *   positioned writes and idempotent chunk retries on the local backend)
+ * - x-multipart-upload-id: S3 multipart upload id echoed from the first
+ *   chunk's response (keeps the protocol stateless server-side)
  * - content-length: Size of the chunk
  * - content-type: MIME type
+ *
+ * First-chunk responses include `multipartUploadId` when the backend opened
+ * an upload session (S3); clients echo it back on subsequent chunks.
  */
 export async function PUT(req: Request) {
   let pb: PocketBase | null = null;
@@ -60,6 +76,14 @@ export async function PUT(req: Request) {
     const directoryId = directoryIdHeader
       ? String(directoryIdHeader).trim()
       : undefined;
+    // Actual transported length when the proxy preserved it, otherwise the
+    // client-declared chunk size. Lets the backend stream instead of buffer.
+    const contentLength =
+      parseCountHeader(req.headers.get('content-length')) ??
+      parseCountHeader(req.headers.get('x-chunk-size'));
+    const offset = parseCountHeader(req.headers.get('x-chunk-offset'));
+    const multipartUploadId =
+      req.headers.get('x-multipart-upload-id')?.trim() || undefined;
 
     if (!uploadId || !workspaceId || !userId || !fileName) {
       return NextResponse.json(
@@ -123,9 +147,13 @@ export async function PUT(req: Request) {
       });
     }
 
+    // QUEUED/UPLOADING are the normal states. FAILED is also accepted so a
+    // client retry can resume after a transient server-side error marked the
+    // record failed — otherwise one hiccup would permanently brick the upload.
     if (
       upload.status !== UploadStatus.QUEUED &&
-      upload.status !== UploadStatus.UPLOADING
+      upload.status !== UploadStatus.UPLOADING &&
+      upload.status !== UploadStatus.FAILED
     ) {
       return NextResponse.json(
         {
@@ -142,20 +170,19 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Initialize storage backend from env (local or s3)
+    // Cached, already-initialized storage backend (local or s3): no per-chunk
+    // connectivity probe, and S3 connection pools stay warm between chunks.
     const storageConfig = loadStorageConfig();
-    const storage = await createStorageBackend(storageConfig);
+    const storage = await getStorageBackend(storageConfig);
 
     const extension = fileName.split('.').pop() || 'bin';
     const storagePath = generateStoragePath(workspaceId, uploadId, extension);
 
-    // For chunked uploads, append chunk to the file
-    // The storage backend handles multipart uploads for S3 or file appending for local
     const isFirstChunk = chunkIndex === 0;
     const isLastChunk = chunkIndex === totalChunks - 1;
 
-    // Update status to UPLOADING on first chunk only
-    if (isFirstChunk && upload.status === UploadStatus.QUEUED) {
+    // Flip QUEUED (or a resumed FAILED) to UPLOADING once.
+    if (upload.status !== UploadStatus.UPLOADING) {
       try {
         await uploadMutator.updateStatus(uploadId, UploadStatus.UPLOADING);
       } catch (statusError) {
@@ -167,15 +194,20 @@ export async function PUT(req: Request) {
     }
 
     // Upload chunk to storage
+    let chunkResult;
     try {
-      await storage.uploadChunk(
-        req.body,
-        storagePath,
+      chunkResult = await storage.uploadChunk(req.body, storagePath, {
         chunkIndex,
         totalChunks,
         isFirstChunk,
-        isLastChunk
-      );
+        isLastChunk,
+        contentLength,
+        offset,
+        multipartUploadId,
+        // The declared file size (from the client's stat) — finalization
+        // verifies the assembled file matches before we mark it uploaded.
+        expectedTotalSize: upload.size > 0 ? upload.size : undefined,
+      });
     } catch (storageError) {
       console.error(`Failed to upload chunk ${chunkIndex}:`, storageError);
       throw new Error(
@@ -204,8 +236,10 @@ export async function PUT(req: Request) {
         storageBackend: storageConfig.type,
         externalPath: storagePath,
         storageConfig: storageMetadata,
-        bytesUploaded: upload.size || 0,
+        // Verified stored size, not the claimed one.
+        bytesUploaded: chunkResult.result?.size ?? upload.size ?? 0,
         name: fileName,
+        errorMessage: '',
         ...(directoryId ? { DirectoryRef: directoryId } : {}),
       });
 
@@ -218,13 +252,17 @@ export async function PUT(req: Request) {
       });
     }
 
-    // Return progress for intermediate chunks
+    // Return progress for intermediate chunks. The first chunk's response
+    // carries the backend's upload session id for the client to echo back.
     return NextResponse.json({
       success: true,
       complete: false,
       chunkIndex,
       totalChunks,
       uploadId,
+      ...(chunkResult.multipartUploadId
+        ? { multipartUploadId: chunkResult.multipartUploadId }
+        : {}),
     });
   } catch (error) {
     if (uploadMutator && uploadId) {

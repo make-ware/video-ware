@@ -69,6 +69,61 @@ export interface UploadProgress {
 }
 
 /**
+ * Per-chunk parameters for chunked uploads.
+ *
+ * Chunks arrive as separate HTTP requests (often on different server
+ * instances after a restart), so everything a backend needs to place the
+ * chunk and finalize the file travels here rather than in backend state.
+ */
+export interface ChunkUploadOptions {
+  /** Index of this chunk (0-based). */
+  chunkIndex: number;
+  /** Total number of chunks. */
+  totalChunks: number;
+  /** Whether this is the first chunk. */
+  isFirstChunk: boolean;
+  /** Whether this is the last chunk (triggers finalize + verification). */
+  isLastChunk: boolean;
+  /**
+   * Exact byte length of this chunk when known. Lets backends stream the
+   * chunk to its destination (S3 UploadPart needs a length up front) instead
+   * of buffering it fully in memory first.
+   */
+  contentLength?: number;
+  /**
+   * Byte offset of this chunk within the final file. When present, the local
+   * backend writes at this position (idempotent retries, parallel chunks);
+   * absent, it falls back to sequential append.
+   */
+  offset?: number;
+  /**
+   * Expected size of the fully-assembled file. When present, finalization
+   * verifies the stored object matches before reporting success.
+   */
+  expectedTotalSize?: number;
+  /**
+   * S3 multipart upload id, echoed back by the client from the first chunk's
+   * response. Makes the chunk protocol stateless server-side: any instance
+   * can accept any chunk, and uploads survive server restarts.
+   */
+  multipartUploadId?: string;
+}
+
+/**
+ * Result of uploading one chunk.
+ */
+export interface ChunkUploadResult {
+  /**
+   * Backend upload session id (S3 multipart upload id). Returned on the
+   * first chunk; clients echo it back via ChunkUploadOptions.multipartUploadId
+   * on subsequent chunks.
+   */
+  multipartUploadId?: string;
+  /** Final object metadata; present only once the last chunk finalized. */
+  result?: StorageResult;
+}
+
+/**
  * Storage backend interface - all storage implementations must implement this
  */
 export interface StorageBackend {
@@ -97,20 +152,14 @@ export interface StorageBackend {
    * Upload a chunk of a file (for chunked uploads)
    * @param chunk - ReadableStream of the chunk data
    * @param path - Destination path in storage
-   * @param chunkIndex - Index of this chunk (0-based)
-   * @param totalChunks - Total number of chunks
-   * @param isFirstChunk - Whether this is the first chunk
-   * @param isLastChunk - Whether this is the last chunk
-   * @returns Storage result (only on last chunk)
+   * @param options - Chunk placement/finalization parameters
+   * @returns Chunk result (upload session id on first chunk, final metadata on last)
    */
   uploadChunk(
     chunk: ReadableStream,
     path: string,
-    chunkIndex: number,
-    totalChunks: number,
-    isFirstChunk: boolean,
-    isLastChunk: boolean
-  ): Promise<StorageResult | void>;
+    options: ChunkUploadOptions
+  ): Promise<ChunkUploadResult>;
 
   /**
    * Download a file from storage

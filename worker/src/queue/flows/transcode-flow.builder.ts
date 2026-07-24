@@ -10,6 +10,27 @@ import { getStepJobOptions } from '../config/step-options';
 import { QUEUE_NAMES } from '../queue.constants';
 import type { TranscodeFlowDefinition } from './types';
 
+/**
+ * Child step priorities (BullMQ: 0 = highest, larger = lower). Transcode
+ * children are siblings with no `dependsOn`, so ordering is expressed via
+ * priority. With the transcode queue's default concurrency of 1 this makes the
+ * order deterministic: PROBE first (writes Media.mediaData/hasAudio that AUDIO
+ * reads — also closes a latent read-before-write race), then AUDIO so the
+ * audio-only proxy (Media.audioFileRef) lands within seconds, ahead of the
+ * heavy video encode. Downstream speaker transcription waits for that proxy,
+ * so producing it early keeps its ElevenLabs upload small. (At concurrency > 1
+ * priority is best-effort ordering, but strictly no worse than today's
+ * unordered fan-out.)
+ */
+const STEP_PRIORITY: Record<string, number> = {
+  [TranscodeStepType.PROBE]: 1,
+  [TranscodeStepType.AUDIO]: 2,
+  [TranscodeStepType.THUMBNAIL]: 3,
+  [TranscodeStepType.SPRITE]: 3,
+  [TranscodeStepType.FILMSTRIP]: 3,
+  [TranscodeStepType.TRANSCODE]: 4,
+};
+
 export class TranscodeFlowBuilder {
   /**
    * Build a transcode flow definition for PROCESS_UPLOAD tasks
@@ -54,7 +75,10 @@ export class TranscodeFlowBuilder {
           filePath: '', // Will be resolved by processor
         },
       },
-      opts: probeOptions,
+      opts: {
+        ...probeOptions,
+        priority: STEP_PRIORITY[TranscodeStepType.PROBE],
+      },
     });
 
     // THUMBNAIL step (if configured)
@@ -75,7 +99,10 @@ export class TranscodeFlowBuilder {
             config: payload.thumbnail,
           },
         },
-        opts: thumbnailOptions,
+        opts: {
+          ...thumbnailOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.THUMBNAIL],
+        },
       });
     }
 
@@ -97,7 +124,10 @@ export class TranscodeFlowBuilder {
             config: payload.sprite,
           },
         },
-        opts: spriteOptions,
+        opts: {
+          ...spriteOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.SPRITE],
+        },
       });
     }
 
@@ -119,7 +149,10 @@ export class TranscodeFlowBuilder {
             config: payload.filmstrip,
           },
         },
-        opts: filmstripOptions,
+        opts: {
+          ...filmstripOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.FILMSTRIP],
+        },
       });
     }
 
@@ -142,7 +175,10 @@ export class TranscodeFlowBuilder {
             config: payload.transcode,
           },
         },
-        opts: transcodeOptions,
+        opts: {
+          ...transcodeOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.TRANSCODE],
+        },
       });
     }
 
@@ -167,7 +203,10 @@ export class TranscodeFlowBuilder {
             sampleRate: payload.audio.sampleRate,
           },
         },
-        opts: audioOptions,
+        opts: {
+          ...audioOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.AUDIO],
+        },
       });
     }
 

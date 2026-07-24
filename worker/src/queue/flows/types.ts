@@ -26,6 +26,11 @@ export interface ChildJobOpts {
    * still recorded on the failed job itself).
    */
   ignoreDependencyOnFailure?: boolean;
+  /**
+   * BullMQ job priority (0 = highest, larger = lower). Used to order sibling
+   * children that have no `dependsOn` between them.
+   */
+  priority?: number;
 }
 
 /**

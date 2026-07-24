@@ -22,6 +22,19 @@ import type {
 // Re-export types for parent processor
 export type { SpeakerTranscriptionStepInput, SpeakerTranscriptionStepOutput };
 
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * Total window and poll interval for the in-process wait on the transcode
+ * outputs (see waitForAudioReadiness). Read from the environment on each call
+ * so deployments can tune them without a rebuild.
+ */
+const AUDIO_READY_WAIT_MS_DEFAULT = 120_000;
+const AUDIO_READY_POLL_MS_DEFAULT = 3_000;
+
 /**
  * Step processor for SPEAKER_TRANSCRIPTION in detect_labels flow
  *
@@ -71,9 +84,16 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
     );
 
     try {
-      // Step 0: Check if media has audio
-      const media = await this.pocketBaseService.getMedia(input.mediaId);
-      if (media.hasAudio === false) {
+      // Step 0: Wait (bounded, in-process) for the transcode task to determine
+      // audio presence (PROBE) and produce the audio-only proxy (AUDIO ->
+      // Media.audioFileRef) before deciding. Keeps the labels and transcode
+      // tasks decoupled (no cross-task dependency) while ensuring we neither
+      // run speaker detection on silent media nor upload the full original
+      // file to ElevenLabs when a small audio proxy is moments away.
+      const { decision, media } = await this.waitForAudioReadiness(
+        input.mediaId
+      );
+      if (decision === 'skip') {
         this.logger.log(
           `Media ${input.mediaId} has no audio track, skipping speaker transcription`
         );
@@ -270,6 +290,90 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
       // partial-success accounting count a failed step as completed.
       throw error;
     }
+  }
+
+  /**
+   * Wait (in-process, bounded by AUDIO_READY_WAIT_MS) for the transcode task to
+   * produce the two facts this step depends on, then return a decision:
+   *   - 'skip'    -> PROBE has run and the media has no audio track;
+   *   - 'proceed' -> PROBE has run, audio is present, and the audio proxy
+   *                  (Media.audioFileRef) is AVAILABLE.
+   *
+   * `hasAudio` is only authoritative once PROBE has run. The ingest placeholder
+   * Media is created with hasAudio:true and duration:0, and PROBE writes a real
+   * duration for every video/audio file (images never reach this step), so
+   * `duration > 0` is our "PROBE has run" signal.
+   *
+   * On timeout it returns 'proceed' regardless; resolveAudioProxy() will then
+   * find no available proxy and the executor falls back to the original upload.
+   */
+  private async waitForAudioReadiness(
+    mediaId: string
+  ): Promise<{ decision: 'skip' | 'proceed'; media: Media }> {
+    const waitMs = parsePositiveInt(
+      process.env.SPEAKER_TRANSCRIPTION_AUDIO_WAIT_MS,
+      AUDIO_READY_WAIT_MS_DEFAULT
+    );
+    const pollMs = parsePositiveInt(
+      process.env.SPEAKER_TRANSCRIPTION_AUDIO_POLL_MS,
+      AUDIO_READY_POLL_MS_DEFAULT
+    );
+    const deadline = Date.now() + waitMs;
+    let media = await this.pocketBaseService.getMedia(mediaId);
+    let waitLogged = false;
+
+    for (;;) {
+      const probeComplete = media.duration > 0;
+
+      if (probeComplete) {
+        if (media.hasAudio === false) {
+          return { decision: 'skip', media };
+        }
+        if (await this.isAudioProxyAvailable(media)) {
+          return { decision: 'proceed', media };
+        }
+      }
+
+      if (Date.now() >= deadline) {
+        this.logger.warn(
+          `Audio proxy for media ${mediaId} not ready after ${waitMs}ms ` +
+            `(probeComplete=${probeComplete}, hasAudio=${media.hasAudio}); ` +
+            `proceeding, executor will fall back to the original upload`
+        );
+        return { decision: 'proceed', media };
+      }
+
+      if (!waitLogged) {
+        this.logger.debug(
+          `Waiting for transcode audio proxy for media ${mediaId} (probeComplete=${probeComplete})`
+        );
+        waitLogged = true;
+      }
+
+      await this.sleep(pollMs);
+      media = await this.pocketBaseService.getMedia(mediaId);
+    }
+  }
+
+  /**
+   * Cheap readiness probe for the audio-only proxy: the ref must be set and its
+   * File record AVAILABLE with a stored blob. Does NOT download (that happens
+   * in resolveAudioProxy once we commit to running).
+   */
+  private async isAudioProxyAvailable(media: Media): Promise<boolean> {
+    if (!media.audioFileRef) {
+      return false;
+    }
+    try {
+      const file = await this.pocketBaseService.getFile(media.audioFileRef);
+      return !!file && file.fileStatus === FileStatus.AVAILABLE && !!file.file;
+    } catch {
+      return false;
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

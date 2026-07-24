@@ -70383,7 +70383,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.1";
+    return "0.10.2";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

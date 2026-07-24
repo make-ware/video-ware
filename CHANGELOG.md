@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.2...video-ware-v0.10.3) (2026-07-24)
+
+
+### Bug Fixes
+
+* add experimental watch folder ([22b47b3](https://github.com/make-ware/video-ware/commit/22b47b3ac605cb050dbeb91f664f5d8ec7541377))
+* gate audio only labels on files with no audio ([245ddb0](https://github.com/make-ware/video-ware/commit/245ddb042ef9562b57c11a8871eab202c7af10b3))
+* improve upload handler ([2632eb9](https://github.com/make-ware/video-ware/commit/2632eb964c1d59a5ad34f8437049c0e76fb27cdf))
+* prevent failed uploads ([36c4b91](https://github.com/make-ware/video-ware/commit/36c4b917e723dbfb6554300a387f88549dd67da1))
+
 ## [0.10.2](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.1...video-ware-v0.10.2) (2026-07-23)
 
 

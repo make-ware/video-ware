@@ -77,7 +77,7 @@ export class LabelDetectionNormalizer {
           processor: processorVersion,
           entityHash,
           metadata: {
-            confidence: segmentLabel.confidence,
+            confidence: this.clamp01(segmentLabel.confidence),
           },
         });
         seenLabels.add(entityHash);
@@ -101,7 +101,9 @@ export class LabelDetectionNormalizer {
           start: segment.startTime,
           end: segment.endTime,
           duration: segment.endTime - segment.startTime,
-          confidence: segment.confidence ?? segmentLabel.confidence,
+          confidence: this.clamp01(
+            segment.confidence ?? segmentLabel.confidence
+          ),
           version,
           metadata: {
             processor: processorVersion,
@@ -129,7 +131,9 @@ export class LabelDetectionNormalizer {
           start: segment.startTime,
           end: segment.endTime,
           duration: segment.endTime - segment.startTime,
-          confidence: segment.confidence ?? segmentLabel.confidence,
+          confidence: this.clamp01(
+            segment.confidence ?? segmentLabel.confidence
+          ),
           version,
           processor: processorVersion,
           provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
@@ -160,7 +164,7 @@ export class LabelDetectionNormalizer {
           processor: processorVersion,
           entityHash,
           metadata: {
-            confidence: shotLabel.confidence,
+            confidence: this.clamp01(shotLabel.confidence),
           },
         });
         seenLabels.add(entityHash);
@@ -184,7 +188,7 @@ export class LabelDetectionNormalizer {
           start: segment.startTime,
           end: segment.endTime,
           duration: segment.endTime - segment.startTime,
-          confidence: segment.confidence ?? shotLabel.confidence,
+          confidence: this.clamp01(segment.confidence ?? shotLabel.confidence),
           version,
           metadata: {
             processor: processorVersion,
@@ -212,7 +216,7 @@ export class LabelDetectionNormalizer {
           start: segment.startTime,
           end: segment.endTime,
           duration: segment.endTime - segment.startTime,
-          confidence: segment.confidence ?? shotLabel.confidence,
+          confidence: this.clamp01(segment.confidence ?? shotLabel.confidence),
           version,
           processor: processorVersion,
           provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
@@ -305,6 +309,17 @@ export class LabelDetectionNormalizer {
       labelShots,
       labelMediaUpdate,
     };
+  }
+
+  /**
+   * Clamp a confidence score into the [0, 1] range required by the DB schema.
+   * GCVI occasionally returns values marginally above 1.0 (floating-point
+   * rounding), which would otherwise fail Zod validation and drop the label.
+   * Non-finite values (NaN/undefined-derived) collapse to 0.
+   */
+  private clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(1, Math.max(0, value));
   }
 
   /**

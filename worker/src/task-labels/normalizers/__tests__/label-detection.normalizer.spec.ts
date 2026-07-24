@@ -62,4 +62,44 @@ describe('LabelDetectionNormalizer', () => {
     expect(output.labelMediaUpdate.segmentLabelCount).toBeGreaterThan(0);
     expect(output.labelMediaUpdate.shotLabelCount).toBeGreaterThan(0);
   });
+
+  it('clamps out-of-range confidence into [0, 1] for segments, shots, and clips', async () => {
+    // GCVI occasionally returns confidence marginally above 1.0; every
+    // confidence written to the DB must land in [0, 1] or Zod rejects the insert.
+    const response = {
+      segmentLabels: [
+        {
+          entity: 'overconfident',
+          confidence: 1.0000001,
+          segments: [{ startTime: 0, endTime: 1, confidence: 1.0000001 }],
+        },
+      ],
+      shotLabels: [
+        {
+          entity: 'overconfident-shot',
+          confidence: 1.5,
+          segments: [{ startTime: 0, endTime: 1, confidence: 1.5 }],
+        },
+      ],
+      shots: [{ startTime: 0, endTime: 1 }],
+    };
+    const input = createMockInput(response, 'label-detection');
+
+    const output = await normalizer.normalize(input);
+
+    const allConfidences = [
+      ...(output.labelSegments ?? []).map((s) => s.confidence),
+      ...(output.labelShots ?? []).map((s) => s.confidence),
+      ...(output.labelClips ?? []).map((c) => c.confidence),
+      ...output.labelEntities.map(
+        (e) => e.metadata?.confidence as number | undefined
+      ),
+    ].filter((c): c is number => typeof c === 'number');
+
+    expect(allConfidences.length).toBeGreaterThan(0);
+    for (const c of allConfidences) {
+      expect(c).toBeGreaterThanOrEqual(0);
+      expect(c).toBeLessThanOrEqual(1);
+    }
+  });
 });

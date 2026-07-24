@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.4](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.3...video-ware-v0.10.4) (2026-07-24)
+
+
+### Bug Fixes
+
+* add parallel uploads ([1fe23f7](https://github.com/make-ware/video-ware/commit/1fe23f7cbe9603d100f7dfe036b1ddd8d7cd84a3))
+* add text data dedup ([34643f0](https://github.com/make-ware/video-ware/commit/34643f0ba2c4d197846f03cf761351e78e4d8ad6))
+
 ## [0.10.3](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.2...video-ware-v0.10.3) (2026-07-24)
 
 

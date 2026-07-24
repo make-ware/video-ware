@@ -37,8 +37,11 @@ import {
   TimelineClipMutator,
   TimelineMutator,
   TimelineRenderMutator,
+  DirectoryMutator,
   UploadMutator,
   UserMutator,
+  WatchFolderImportMutator,
+  WorkspaceMemberMutator,
   WorkspaceMutator,
 } from '@project/shared';
 import { PocketBaseClientService } from './pocketbase-client.service';
@@ -60,8 +63,11 @@ export class PocketBaseService implements OnModuleInit {
   public timelineClipMutator!: TimelineClipMutator;
   public timelineMutator!: TimelineMutator;
   public timelineRenderMutator!: TimelineRenderMutator;
+  public directoryMutator!: DirectoryMutator;
   public uploadMutator!: UploadMutator;
   public userMutator!: UserMutator;
+  public watchFolderImportMutator!: WatchFolderImportMutator;
+  public workspaceMemberMutator!: WorkspaceMemberMutator;
   public workspaceMutator!: WorkspaceMutator;
   public labelTrackMutator!: LabelTrackMutator;
   public labelFaceMutator!: LabelFaceMutator;
@@ -142,8 +148,11 @@ export class PocketBaseService implements OnModuleInit {
     this.timelineClipMutator = new TimelineClipMutator(this.pb);
     this.timelineMutator = new TimelineMutator(this.pb);
     this.timelineRenderMutator = new TimelineRenderMutator(this.pb);
+    this.directoryMutator = new DirectoryMutator(this.pb);
     this.uploadMutator = new UploadMutator(this.pb);
     this.userMutator = new UserMutator(this.pb);
+    this.watchFolderImportMutator = new WatchFolderImportMutator(this.pb);
+    this.workspaceMemberMutator = new WorkspaceMemberMutator(this.pb);
     this.workspaceMutator = new WorkspaceMutator(this.pb);
 
     this.logger.log('All mutators initialized successfully');

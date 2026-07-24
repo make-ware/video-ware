@@ -140,6 +140,20 @@ export enum ArtifactReason {
   RENDER_DELETED = 'render_deleted',
 }
 
+// Lifecycle of a WatchFolderImports row (an attempted S3 watch-folder pickup).
+// A row existing at ALL — regardless of status — burns its (key, etag) pair:
+// the watcher never reattempts a pair it has a row for.
+export enum WatchFolderImportStatus {
+  // Claimed; import in flight (a crash can strand a row here — still burned).
+  IMPORTING = 'importing',
+  // Handed off to the normal upload→ingest pipeline.
+  IMPORTED = 'imported',
+  // Attempt errored; the object stays in the import folder.
+  FAILED = 'failed',
+  // Rejected without an attempt (unsupported extension, bad layout, …).
+  SKIPPED = 'skipped',
+}
+
 export enum ProcessingProvider {
   FFMPEG = 'ffmpeg',
   GOOGLE_TRANSCODER = 'google_transcoder',

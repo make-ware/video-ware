@@ -27,5 +27,6 @@ export * from './timeline.js';
 export * from './upload.js';
 export * from './usage-events.js';
 export * from './user.js';
+export * from './watch-folder-import.js';
 export * from './workspace-member.js';
 export * from './workspace.js';

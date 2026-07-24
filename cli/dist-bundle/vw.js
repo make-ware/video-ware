@@ -59184,6 +59184,52 @@ var RegisterSchema = external_exports.object({
   message: "Passwords don't match",
   path: ["passwordConfirm"]
 });
+var WatchFolderImportSchema = external_exports.object({
+  // Full S3 object key, e.g. "import/{workspaceId}/{dir}/clip.mp4".
+  key: TextField(),
+  // S3 ETag with surrounding quotes stripped (as listFiles returns it).
+  etag: TextField(),
+  // Object size in bytes at claim time.
+  size: NumberField({ min: 0 }).optional(),
+  status: SelectField(
+    [
+      "importing",
+      "imported",
+      "failed",
+      "skipped"
+      /* SKIPPED */
+    ],
+    { maxSelect: 1 }
+  ),
+  // Failure/skip reason, for operators (truncated to 500 chars).
+  error: TextField().optional(),
+  // The Upload the import produced. No cascade: deleting the Upload must
+  // not un-burn the ledger row.
+  UploadRef: RelationField({ collection: "Uploads" }).optional(),
+  // Blank for structural rejects that never resolved a workspace
+  // (e.g. a file dropped at the import root).
+  WorkspaceRef: RelationField({ collection: "Workspaces" }).optional()
+}).extend(baseSchema);
+var WatchFolderImportInputSchema = external_exports.object({
+  key: external_exports.string().min(1, "key is required"),
+  etag: external_exports.string().min(1, "etag is required"),
+  size: external_exports.number().min(0).optional(),
+  status: external_exports.enum([
+    "importing",
+    "imported",
+    "failed",
+    "skipped"
+    /* SKIPPED */
+  ]),
+  error: external_exports.string().optional(),
+  UploadRef: external_exports.string().optional(),
+  WorkspaceRef: external_exports.string().optional()
+});
+var WatchFolderImportCollection = defineCollection({
+  collectionName: "WatchFolderImports",
+  schema: WatchFolderImportSchema,
+  permissions: superuserWriteWorkspaceReadPermissions
+});
 var WorkspaceMemberSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   UserRef: RelationField({ collection: "Users" })

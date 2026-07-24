@@ -45,6 +45,10 @@ export { LabelPersonMutator } from './label-person';
 export { ClipLabelSearchMutator } from './clip-label-search';
 export { TaskMutator, asTaskRecordProvider } from './task';
 export { ArtifactMutator } from './artifact';
+export {
+  WatchFolderImportMutator,
+  watchFolderPairKey,
+} from './watch-folder-import';
 
 // Timeline and clip mutators
 export { TimelineMutator } from './timeline';

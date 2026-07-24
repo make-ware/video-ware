@@ -21,6 +21,7 @@ import type { LabelEntity } from '../schema/label-entity';
 import type { Entity } from '../schema/entity';
 import type { EntityStats } from '../schema/entity-stats';
 import type { Artifact } from '../schema/artifact';
+import type { WatchFolderImport } from '../schema/watch-folder-import';
 import { LabelTrack } from '../schema/label-track';
 import { LabelSpeaker } from '../schema/label-speaker';
 import { LabelSpeech } from '../schema/label-speech';
@@ -74,6 +75,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'Uploads'): RecordService<Upload>;
   collection(idOrName: 'UsageEvents'): RecordService<UsageEvent>;
   collection(idOrName: 'Users'): RecordService<User>;
+  collection(idOrName: 'WatchFolderImports'): RecordService<WatchFolderImport>;
   collection(idOrName: 'WorkspaceMembers'): RecordService<WorkspaceMember>;
   collection(idOrName: 'Workspaces'): RecordService<Workspace>;
 }

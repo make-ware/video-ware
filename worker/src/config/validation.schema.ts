@@ -89,4 +89,10 @@ export const validationSchema = Joi.object({
   ENABLE_TASK_ENQUEUER: Joi.string().optional(),
   TASK_ENQUEUER_POLL_INTERVAL_MS: Joi.string().optional(),
   TASK_ENQUEUER_BATCH_SIZE: Joi.string().optional(),
+
+  // Watch-folder import configuration (S3 only)
+  ENABLE_WATCH_FOLDER: Joi.string().optional(),
+  WATCH_FOLDER_PREFIX: Joi.string().optional(),
+  WATCH_FOLDER_QUIET_PERIOD_MS: Joi.string().optional(),
+  WATCH_FOLDER_POLL_INTERVAL_MS: Joi.string().optional(),
 });

@@ -57,6 +57,18 @@ export const envSchema = z.object({
   STORAGE_S3_FORCE_PATH_STYLE: z.string().optional(),
 
   // ===========================================
+  // Watch-Folder Import (S3 only, Optional)
+  // ===========================================
+  /** Enable the worker's S3 import-folder watcher ('true' to enable) */
+  ENABLE_WATCH_FOLDER: z.string().optional(),
+  /** Bucket prefix watched for drop-ins: {prefix}{workspaceId}/[{dir}/]{file} */
+  WATCH_FOLDER_PREFIX: z.string().default('import/'),
+  /** Never touch an object until this long after its S3 LastModified */
+  WATCH_FOLDER_QUIET_PERIOD_MS: z.coerce.number().default(900000),
+  /** How often the watcher lists the import prefix */
+  WATCH_FOLDER_POLL_INTERVAL_MS: z.coerce.number().default(60000),
+
+  // ===========================================
   // Monitoring & Behavior
   // ===========================================
   LOG_LEVEL: z

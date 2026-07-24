@@ -12,6 +12,7 @@ import { HealthModule } from './health/health.module';
 import { TasksModule } from './tasks/tasks.module';
 import { LabelsModule } from './task-labels/labels.module';
 import { BullBoardModule } from './bull-board/bull-board.module';
+import { WatchFolderModule } from './watch-folder/watch-folder.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { BullBoardModule } from './bull-board/bull-board.module';
     SharedModule,
     QueueModule,
     TasksModule,
+    WatchFolderModule,
     TranscodeModule,
     LabelsModule,
     RenderModule,

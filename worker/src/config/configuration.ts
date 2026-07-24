@@ -57,6 +57,17 @@ function parseMs(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+/**
+ * Normalize an S3 key prefix: strip leading '/', ensure a trailing '/'.
+ * Falls back when the result would be empty (a bare '/' would watch the
+ * whole bucket).
+ */
+function normalizePrefix(raw: string | undefined, fallback: string): string {
+  const trimmed = (raw ?? '').trim().replace(/^\/+/, '');
+  if (!trimmed) return fallback;
+  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
+}
+
 export default () => {
   const redisConfig = parseRedisUrl(process.env.REDIS_URL);
 
@@ -161,6 +172,15 @@ export default () => {
         process.env.TASK_ENQUEUER_BATCH_SIZE || '25',
         10
       ),
+    },
+
+    // S3 import-folder watcher (WatchFolderService). Default OFF — it is a
+    // deployment-level opt-in, and only meaningful with STORAGE_TYPE=s3.
+    watchFolder: {
+      enabled: process.env.ENABLE_WATCH_FOLDER === 'true',
+      prefix: normalizePrefix(process.env.WATCH_FOLDER_PREFIX, 'import/'),
+      quietPeriodMs: parseMs(process.env.WATCH_FOLDER_QUIET_PERIOD_MS, 900000),
+      pollIntervalMs: parseMs(process.env.WATCH_FOLDER_POLL_INTERVAL_MS, 60000),
     },
   };
 };

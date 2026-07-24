@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import type { UploadItem as UploadItemType } from '@/types/upload-manager';
 import { UploadItemStatus } from '@/types/upload-manager';
 import { formatBytes } from '@/utils/upload-progress';
-import { ChunkedProgressBar, SimpleProgressBar } from './upload-progress';
+import { SimpleProgressBar } from './upload-progress';
 
 interface UploadItemProps {
   item: UploadItemType;
@@ -35,12 +35,6 @@ interface UploadItemProps {
   onRetry?: (id: string) => void;
   onRemove?: (id: string) => void;
   className?: string;
-  // Chunk progress (optional, for chunked uploads)
-  chunkProgress?: {
-    currentChunk: number;
-    totalChunks: number;
-    chunkProgress: number;
-  };
 }
 
 export function UploadItem({
@@ -49,7 +43,6 @@ export function UploadItem({
   onRetry,
   onRemove,
   className,
-  chunkProgress,
 }: UploadItemProps) {
   // Get appropriate icon based on file type
   const getFileIcon = () => {
@@ -136,19 +129,11 @@ export function UploadItem({
           </Badge>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress bar — driven purely by bytes transferred, so it stays
+            accurate no matter how many chunks are uploading in parallel. */}
         {showProgress && (
           <div className="space-y-1">
-            {chunkProgress && chunkProgress.totalChunks > 1 ? (
-              <ChunkedProgressBar
-                currentChunk={chunkProgress.currentChunk}
-                totalChunks={chunkProgress.totalChunks}
-                chunkProgress={chunkProgress.chunkProgress}
-                overallProgress={item.progress.percentage}
-              />
-            ) : (
-              <SimpleProgressBar progress={item.progress.percentage} />
-            )}
+            <SimpleProgressBar progress={item.progress.percentage} />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>
                 {formatBytes(item.progress.loaded)} of{' '}

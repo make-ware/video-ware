@@ -38,7 +38,6 @@ import {
   handleStaleUploads,
 } from '@/utils/upload-persistence';
 import { ChunkedUploadService } from '@/services/chunked-upload';
-import type { ChunkProgress } from '@/services/chunked-upload';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import pb from '@/lib/pocketbase-client';
@@ -417,7 +416,6 @@ function queueReducer(
 interface UploadQueueContextType {
   state: UploadQueueState;
   actions: UploadManagerActions;
-  chunkProgress: Map<string, ChunkProgress>; // Track chunk progress per upload
 }
 
 // Create context
@@ -441,11 +439,6 @@ export function UploadQueueProvider({
 
   // Create chunked upload service instance
   const uploadService = useMemo(() => new ChunkedUploadService(pb), []);
-
-  // Track chunk progress for each upload
-  const [chunkProgress, setChunkProgress] = useState<
-    Map<string, ChunkProgress>
-  >(new Map());
 
   // Only restore state on client-side (after mount)
   const [restoredState, setRestoredState] =
@@ -566,11 +559,6 @@ export function UploadQueueProvider({
       activeUploadsRef.current.delete(id);
     }
     uploadStartTimes.current.delete(id);
-    setChunkProgress((prev) => {
-      const newMap = new Map(prev);
-      newMap.delete(id);
-      return newMap;
-    });
 
     dispatch({ type: 'REMOVE_UPLOAD', payload: { id } });
   }, []);
@@ -658,14 +646,8 @@ export function UploadQueueProvider({
             user.id,
             item.file!,
             (chunkProgressData) => {
-              // Update chunk progress
-              setChunkProgress((prev) => {
-                const newMap = new Map(prev);
-                newMap.set(item.id, chunkProgressData);
-                return newMap;
-              });
-
-              // Update overall progress
+              // Drive the bar off total bytes transferred so it stays
+              // accurate with multiple chunks uploading in parallel.
               dispatch({
                 type: 'UPDATE_PROGRESS',
                 payload: {
@@ -691,11 +673,6 @@ export function UploadQueueProvider({
           });
           activeUploadsRef.current.delete(item.id);
           uploadStartTimes.current.delete(item.id);
-          setChunkProgress((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(item.id);
-            return newMap;
-          });
         })
         .catch((error) => {
           // Upload failed
@@ -711,11 +688,6 @@ export function UploadQueueProvider({
           });
           activeUploadsRef.current.delete(item.id);
           uploadStartTimes.current.delete(item.id);
-          setChunkProgress((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(item.id);
-            return newMap;
-          });
         });
 
       // Store abort function for cancellation
@@ -740,9 +712,8 @@ export function UploadQueueProvider({
     () => ({
       state,
       actions,
-      chunkProgress,
     }),
-    [state, actions, chunkProgress]
+    [state, actions]
   );
 
   return (

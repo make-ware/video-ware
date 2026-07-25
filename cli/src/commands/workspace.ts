@@ -4,6 +4,10 @@ import { WorkspaceMutator } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { loadConfig, updateConfig } from '../lib/config.js';
 import { pickWorkspace, resolveWorkspaceId } from '../lib/select.js';
+import {
+  resolveWorkspaceRef,
+  workspaceOverride,
+} from '../lib/workspace-option.js';
 import { withJsonOption } from '../lib/options.js';
 import { info, printList, printRecord, success } from '../lib/output.js';
 import { exportWorkspace } from '../lib/export.js';
@@ -37,14 +41,21 @@ export function registerWorkspaceCommands(program: Command): void {
   });
 
   ws.command('use [workspaceId]')
-    .description('Set the active workspace (interactive when no id is given)')
+    .description(
+      'Set the active workspace for this machine — id, slug, or name ' +
+        '(interactive when none is given; -w works as the positional here)'
+    )
     .action(async (workspaceId?: string) => {
       try {
         const pb = await requireClient();
-        if (workspaceId) {
-          const found = await new WorkspaceMutator(pb).getById(workspaceId);
+        // `-w` is accepted on every command, so honour it here as the target
+        // rather than falling through to a picker that would block an agent.
+        const ref = workspaceId ?? workspaceOverride();
+        if (ref) {
+          const id = await resolveWorkspaceRef(pb, ref);
+          const found = await new WorkspaceMutator(pb).getById(id);
           if (!found) {
-            handleError(new Error(`Workspace not found: ${workspaceId}`));
+            handleError(new Error(`Workspace not found: ${ref}`));
           }
           updateConfig({ workspaceId: found.id, workspaceName: found.name });
           success(`Active workspace: ${found.name} (${found.id})`);
@@ -65,7 +76,6 @@ export function registerWorkspaceCommands(program: Command): void {
         'Export the workspace (media, clips, labels, timelines) as a ' +
           'directory of JSON files for AI agents (default dir: ./vw-export)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('--no-labels', 'skip per-media label data')
       .option(
         '--force',
@@ -74,7 +84,7 @@ export function registerWorkspaceCommands(program: Command): void {
   ).action(async (dir: string | undefined, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await exportWorkspace(
         pb,
         {

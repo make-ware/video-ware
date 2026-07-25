@@ -49,7 +49,6 @@ export function registerCaptionCommands(program: Command): void {
   const create = caption
     .command('create')
     .description('Create a caption (subtitle) or a title card')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option(
       '--animate',
       'split the text into evenly-timed cues (one per line)'
@@ -60,7 +59,7 @@ export function registerCaptionCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const created = await createCaption(pb, {
         workspaceId,
         animate: !!opts.animate,
@@ -92,7 +91,6 @@ export function registerCaptionCommands(program: Command): void {
       .command('list')
       .alias('ls')
       .description('List captions in the active workspace')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '--all',
         'include media-attached transcript captions (default: ad-hoc only)'
@@ -100,7 +98,7 @@ export function registerCaptionCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await new CaptionMutator(pb).getByWorkspace(
         workspaceId,
         !opts.all,

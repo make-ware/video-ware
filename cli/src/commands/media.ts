@@ -5,12 +5,12 @@ import {
   MediaTagMutator,
   type Entity,
   type MediaTag,
-  type TypedPocketBase,
 } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import {
   mediaLabel,
   pickMedia,
+  requireMedia,
   resolveWorkspaceId,
   type MediaWithUpload,
 } from '../lib/select.js';
@@ -56,17 +56,6 @@ const tagColumns: Column<MediaTagWithEntity>[] = [
   { header: 'ENTITY ID', value: (t) => t.EntityRef },
 ];
 
-async function requireMedia(
-  pb: TypedPocketBase,
-  mediaId: string
-): Promise<MediaWithUpload> {
-  const media = await new MediaMutator(pb).getById(mediaId);
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
-  }
-  return media as MediaWithUpload;
-}
-
 export function registerMediaCommands(program: Command): void {
   const media = program.command('media').description('Browse workspace media');
 
@@ -77,7 +66,6 @@ export function registerMediaCommands(program: Command): void {
       .description(
         'List media in the active workspace (all of it unless -d filters to one directory)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '-d, --directory <dir>',
         'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
@@ -85,7 +73,7 @@ export function registerMediaCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const mutator = new MediaMutator(pb);
       const result =
         opts.directory === undefined
@@ -118,7 +106,6 @@ export function registerMediaCommands(program: Command): void {
       .command('search <query>')
       .alias('find')
       .description('Search workspace media by filename, label, or description')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '-d, --directory <dir>',
         'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
@@ -129,7 +116,7 @@ export function registerMediaCommands(program: Command): void {
   ).action(async (query: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const directoryId =
         opts.directory === undefined
           ? undefined
@@ -303,13 +290,12 @@ export function registerMediaCommands(program: Command): void {
   const clipCreate = clip
     .command('create')
     .description('Create a media clip from a media sub-range')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-m, --media <id>', 'source media id');
 
   applyOptions(clipCreate, clipFieldOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
 
       let mediaId = opts.media as string | undefined;
       if (!mediaId) {
@@ -335,7 +321,6 @@ export function registerMediaCommands(program: Command): void {
       .command('list')
       .alias('ls')
       .description('List media clips in the active workspace')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('-m, --media <id>', 'filter to a single source media')
       .option('--type <type>', 'filter by clip type')
       .option(
@@ -349,7 +334,7 @@ export function registerMediaCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const mutator = new MediaClipMutator(pb);
       if (opts.media && opts.directory !== undefined) {
         throw new Error(

@@ -15,13 +15,6 @@ import { info, printRecord, range, secs, warn } from '../lib/output.js';
  * cut gaps trimmed out, so the text you read is the text the cut plays.
  */
 
-/** `-w` is accepted on every clip command so agents can pass it uniformly. */
-const workspaceOption = (cmd: Command): Command =>
-  cmd.option(
-    '-w, --workspace <id>',
-    'workspace id (accepted for flag consistency; clips are addressed by id)'
-  );
-
 function parseTranscriptType(value: string): TranscriptLabelType {
   if (value !== 'speaker' && value !== 'speech') {
     throw new Error(`Invalid --type "${value}" — use speaker or speech.`);
@@ -31,24 +24,22 @@ function parseTranscriptType(value: string): TranscriptLabelType {
 
 function transcriptCommand(parent: Command): Command {
   return withJsonOption(
-    workspaceOption(
-      parent
-        .command('transcript <clipId>')
-        .description(
-          "What the clip actually says: transcript trimmed to the clip's " +
-            'edit list at word level (cut gaps omitted)'
-        )
-        .option(
-          '--type <speaker|speech>',
-          'force the label source (default: speaker labels, falling back to speech)',
-          parseTranscriptType
-        )
-        .option(
-          '--full-text',
-          'print only the flowing speaker-labeled text (audit mode)'
-        )
-        .option('--words', 'include per-word timing arrays in --json output')
-    )
+    parent
+      .command('transcript <clipId>')
+      .description(
+        "What the clip actually says: transcript trimmed to the clip's " +
+          'edit list at word level (cut gaps omitted)'
+      )
+      .option(
+        '--type <speaker|speech>',
+        'force the label source (default: speaker labels, falling back to speech)',
+        parseTranscriptType
+      )
+      .option(
+        '--full-text',
+        'print only the flowing speaker-labeled text (audit mode)'
+      )
+      .option('--words', 'include per-word timing arrays in --json output')
   );
 }
 

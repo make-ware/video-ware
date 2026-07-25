@@ -27,6 +27,7 @@ import {
   type TimelineTrackRecord,
   type TypedPocketBase,
 } from '@project/shared';
+import { assertWorkspaceMatch } from './workspace-option.js';
 import {
   attributedEntitySummaryOf,
   LABEL_TYPE_CONFIG,
@@ -111,7 +112,11 @@ function placedClipsOf(track: {
   ].sort((a, b) => a.globalStart - b.globalStart);
 }
 
-/** Full timeline picture: tracks (layer ascending) with placed clips. */
+/**
+ * Full timeline picture: tracks (layer ascending) with placed clips. The single
+ * choke point for every timeline/clip command, so a `-w` that contradicts the
+ * timeline is caught here rather than in each command.
+ */
 export async function getTimelineOverview(
   pb: TypedPocketBase,
   timelineId: string
@@ -120,6 +125,11 @@ export async function getTimelineOverview(
   if (!timeline) {
     throw new Error(`Timeline not found: ${timelineId}`);
   }
+  await assertWorkspaceMatch(
+    pb,
+    timeline.WorkspaceRef,
+    `Timeline ${timelineId}`
+  );
   const clips = await new TimelineClipMutator(pb).getByTimeline(timelineId);
   const trackRecords = (
     await new TimelineTrackMutator(pb).getByTimeline(timelineId)
@@ -219,6 +229,11 @@ export async function inspectAtTime(
   if (!timeline) {
     throw new Error(`Timeline not found: ${opts.timelineId}`);
   }
+  await assertWorkspaceMatch(
+    pb,
+    timeline.WorkspaceRef,
+    `Timeline ${opts.timelineId}`
+  );
   const clips = await new TimelineClipMutator(pb).getByTimeline(
     opts.timelineId
   );

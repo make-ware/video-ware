@@ -219,11 +219,10 @@ export function registerTimelineCommands(program: Command): void {
       .command('list')
       .alias('ls')
       .description('List timelines in the active workspace')
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await new TimelineMutator(pb).getByWorkspace(
         workspaceId,
         1,
@@ -251,13 +250,12 @@ export function registerTimelineCommands(program: Command): void {
 
   const create = timeline
     .command('create <name>')
-    .description('Create a timeline with its tracks')
-    .option('-w, --workspace <id>', 'workspace id override');
+    .description('Create a timeline with its tracks');
   applyOptions(withJsonOption(create), timelineCreateOptions).action(
     async (name: string, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const created = await createTimeline(pb, {
           workspaceId,
           name,
@@ -305,7 +303,6 @@ export function registerTimelineCommands(program: Command): void {
       .command('show [timelineId]')
       .description('Inspect a timeline: tracks, settings, and placed clips')
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
       const pb = await requireClient();
@@ -316,15 +313,10 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
       const overview = await getTimelineOverview(pb, timelineId);
-      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
-        throw new Error(
-          `Timeline ${timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
-        );
-      }
       if (opts.json) {
         printRecord(overview, [], true);
         return;
@@ -374,7 +366,6 @@ export function registerTimelineCommands(program: Command): void {
     timeline
       .command('inspect')
       .description('Show what plays on each track at a timeline time')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('-t, --timeline <id>', 'timeline id')
       .requiredOption(
         '--at <seconds>',
@@ -389,7 +380,7 @@ export function registerTimelineCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const timelineId =
         opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
 
@@ -507,7 +498,6 @@ export function registerTimelineCommands(program: Command): void {
         'into a timeline track (appends to the end of the track unless ' +
         '--at/--after)'
     )
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
     .option(
       '--clips <ids>',
@@ -535,7 +525,7 @@ export function registerTimelineCommands(program: Command): void {
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
 
       const timelineId =
         opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
@@ -643,7 +633,6 @@ export function registerTimelineCommands(program: Command): void {
         'Health-check a timeline: overlaps, gaps, stale durations, dangling refs, deleted tracks, duplicate layers'
       )
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
       .addHelpText('after', DOCTOR_HELP)
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
@@ -655,7 +644,7 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
 
@@ -706,7 +695,6 @@ export function registerTimelineCommands(program: Command): void {
         'Heal nested-timeline clip drift (gap-preserving reflow of each track)'
       )
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('--dry-run', 'compute and report the plan without writing')
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
@@ -718,7 +706,7 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
 
@@ -781,7 +769,6 @@ export function registerTimelineCommands(program: Command): void {
           '-t, --timeline <id>',
           'timeline id (alternative to positional)'
         )
-        .option('-w, --workspace <id>', 'workspace id override')
         .option(
           '--track <layer|id>',
           'compact only this track (overlay tracks often keep gaps on purpose)'
@@ -803,7 +790,7 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
 
@@ -847,7 +834,6 @@ export function registerTimelineCommands(program: Command): void {
   timeline
     .command('render')
     .description('Render a timeline')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
     .option('--format <fmt>', 'output container format (default: mp4)')
     .option('--codec <codec>', 'video codec (default: h264)')
@@ -868,7 +854,7 @@ export function registerTimelineCommands(program: Command): void {
     .action(async (opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
 
         let timelineId = opts.timeline as string | undefined;
         if (!timelineId) {

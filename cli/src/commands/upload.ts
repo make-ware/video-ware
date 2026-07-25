@@ -113,7 +113,6 @@ export function registerUploadCommands(program: Command): void {
       .description(
         'Upload local video/audio/image files into the active workspace as new media (default intent)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '--directory <dir>',
         'file the new media into a directory (name or id; omit or "/" = workspace root)'
@@ -125,7 +124,7 @@ export function registerUploadCommands(program: Command): void {
   ).action(async (files: string[], opts: UploadCommandOptions) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       // Root refs ("/", "root", "none") mean the workspace root, same as
       // every other directory-taking flag — an upload without a directory.
       const directoryId =
@@ -209,7 +208,6 @@ export function registerUploadCommands(program: Command): void {
       .description(
         'List uploads in the active workspace by original file name, with the media ingested from each'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '--status <status>',
         'filter by upload status (queued, uploading, uploaded, processing, ready, failed)'
@@ -220,7 +218,7 @@ export function registerUploadCommands(program: Command): void {
   ).action(async (opts: UploadListOptions) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const status = opts.status ? parseUploadStatus(opts.status) : undefined;
       const result = await listUploads(pb, workspaceId, {
         status,

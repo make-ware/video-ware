@@ -1,10 +1,12 @@
 import { select } from '@inquirer/prompts';
 import {
+  MediaClipMutator,
   MediaMutator,
   TimelineMutator,
   WorkspaceMutator,
   type Directory,
   type Media,
+  type MediaClip,
   type Timeline,
   type TypedPocketBase,
   type Upload,
@@ -12,6 +14,11 @@ import {
 } from '@project/shared';
 import { updateConfig, loadConfig } from './config.js';
 import { fail, formatDuration } from './output.js';
+import {
+  assertWorkspaceMatch,
+  resolveWorkspaceRef,
+  workspaceOverride,
+} from './workspace-option.js';
 
 /** Media expanded with its source upload (for a human-readable label) and,
  * when one is set, its directory. */
@@ -40,14 +47,14 @@ export async function pickWorkspace(pb: TypedPocketBase): Promise<Workspace> {
 }
 
 /**
- * Resolve the active workspace id: `--workspace` flag → cached selection →
- * interactive picker (which is then persisted).
+ * Resolve the workspace this invocation acts on: the `-w/--workspace` override
+ * (accepted on every command — see `lib/workspace-option.ts`) → the selection
+ * persisted by `vw workspace use` → the interactive picker (then persisted).
+ * An override is used for this invocation only and never persisted.
  */
-export async function resolveWorkspaceId(
-  pb: TypedPocketBase,
-  flag?: string
-): Promise<string> {
-  if (flag) return flag;
+export async function resolveWorkspaceId(pb: TypedPocketBase): Promise<string> {
+  const override = workspaceOverride();
+  if (override) return resolveWorkspaceRef(pb, override);
 
   const cfg = loadConfig();
   if (cfg.workspaceId) return cfg.workspaceId;
@@ -55,6 +62,36 @@ export async function resolveWorkspaceId(
   const ws = await pickWorkspace(pb);
   updateConfig({ workspaceId: ws.id, workspaceName: ws.name });
   return ws.id;
+}
+
+/**
+ * Load a media by id. Records are addressed by globally unique id, so no
+ * workspace is needed — but a `-w` that contradicts the record is a mistake,
+ * not a redundancy, and is refused here.
+ */
+export async function requireMedia(
+  pb: TypedPocketBase,
+  mediaId: string
+): Promise<MediaWithUpload> {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found: ${mediaId}`);
+  }
+  await assertWorkspaceMatch(pb, media.WorkspaceRef, `Media ${mediaId}`);
+  return media as MediaWithUpload;
+}
+
+/** Load a media clip by id, refusing one outside a `-w` override. */
+export async function requireMediaClip(
+  pb: TypedPocketBase,
+  clipId: string
+): Promise<MediaClip> {
+  const clip = await new MediaClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+  await assertWorkspaceMatch(pb, clip.WorkspaceRef, `Media clip ${clipId}`);
+  return clip;
 }
 
 /** Interactive media picker for a workspace. */

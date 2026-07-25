@@ -50,13 +50,6 @@ import {
 
 const signed = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}s`;
 
-/** `-w` is accepted on every clip command so agents can pass it uniformly. */
-const workspaceOption = (cmd: Command): Command =>
-  cmd.option(
-    '-w, --workspace <id>',
-    'workspace id (accepted for flag consistency; clips are addressed by id)'
-  );
-
 const effectiveOf = (segments: CompositeSegment[]): number =>
   segments.reduce((total, s) => total + Math.max(0, s.end - s.start), 0);
 
@@ -233,19 +226,11 @@ function segmentEditCommand(
   return withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          parent
-            .command(`${name} <clipId>`)
-            .description(description)
-            .option(
-              '--dry-run',
-              'print the resulting edit list without writing'
-            )
-            .addHelpText(
-              'after',
-              editResultHelp({ noop: true, conflict: true })
-            )
-        )
+        parent
+          .command(`${name} <clipId>`)
+          .description(description)
+          .option('--dry-run', 'print the resulting edit list without writing')
+          .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
       )
     )
   );
@@ -395,23 +380,18 @@ export function registerMediaClipSegmentCommands(clip: Command): void {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          clip
-            .command('segments <clipId>')
-            .description(
-              "Show a media clip's edit list (segments and gaps), or " +
-                'remove it with --clear'
-            )
-            .option(
-              '--clear',
-              'remove the edit list — the clip reverts to its plain ' +
-                'start/end trim (the explicit un-composite)'
-            )
-            .option(
-              '--dry-run',
-              'with --clear: print the result without writing'
-            )
-        )
+        clip
+          .command('segments <clipId>')
+          .description(
+            "Show a media clip's edit list (segments and gaps), or " +
+              'remove it with --clear'
+          )
+          .option(
+            '--clear',
+            'remove the edit list — the clip reverts to its plain ' +
+              'start/end trim (the explicit un-composite)'
+          )
+          .option('--dry-run', 'with --clear: print the result without writing')
       )
     )
   ).action(async (clipId: string, opts) => {
@@ -586,28 +566,26 @@ export function registerTimelineClipSegmentCommands(clips: Command): void {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          timelineOption(
-            clips
-              .command('segments <clipId>')
-              .description(
-                "Show a timeline clip's edit list (segments, gaps, source), " +
-                  'or remove its override with --clear'
-              )
-              .option(
-                '--clear',
-                'remove the meta.segments override — playback reverts to ' +
-                  "the source MediaClip's edit list (if any) or the plain trim"
-              )
-              .option(
-                '--ripple',
-                'with --clear: shift later clips by the duration change'
-              )
-              .option(
-                '--dry-run',
-                'with --clear: print the result without writing'
-              )
-          )
+        timelineOption(
+          clips
+            .command('segments <clipId>')
+            .description(
+              "Show a timeline clip's edit list (segments, gaps, source), " +
+                'or remove its override with --clear'
+            )
+            .option(
+              '--clear',
+              'remove the meta.segments override — playback reverts to ' +
+                "the source MediaClip's edit list (if any) or the plain trim"
+            )
+            .option(
+              '--ripple',
+              'with --clear: shift later clips by the duration change'
+            )
+            .option(
+              '--dry-run',
+              'with --clear: print the result without writing'
+            )
         )
       )
     )

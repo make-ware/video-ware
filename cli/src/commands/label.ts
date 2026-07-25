@@ -60,7 +60,6 @@ export function registerLabelCommands(program: Command): void {
     .description(
       'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
     )
-    .option('-w, --workspace <id>', 'workspace id override')
     .option(
       '--entity <nameOrId>',
       'only labels attributed to this entity (tagged track or cluster)'
@@ -69,7 +68,7 @@ export function registerLabelCommands(program: Command): void {
   withJsonOption(search).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const entityId = opts.entity
         ? (await resolveEntity(pb, workspaceId, opts.entity)).id
         : undefined;
@@ -93,7 +92,6 @@ export function registerLabelCommands(program: Command): void {
     .command('list')
     .alias('ls')
     .description('List labels for one media')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-m, --media <id>', 'source media id')
     .option(
       '-t, --types <types>',
@@ -163,7 +161,7 @@ export function registerLabelCommands(program: Command): void {
         window = { start: opts.from, end: opts.to };
       }
 
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       if (!mediaId) {
         mediaId = (await pickMedia(pb, workspaceId)).id;
       }
@@ -281,13 +279,12 @@ export function registerLabelCommands(program: Command): void {
       "Attribute a label to a real-world entity — writes the label's track " +
         'when it has one (this instance across the media), else its ' +
         'provider cluster (workspace-wide)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override');
+    );
   withJsonOption(tag).action(
     async (typeArg: string, labelId: string, entityNameOrId: string, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const type = parseLabelType(typeArg);
         const entity = await resolveEntity(pb, workspaceId, entityNameOrId);
         const result = await tagLabel(pb, type, labelId, entity.id);

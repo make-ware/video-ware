@@ -56,13 +56,6 @@ import { registerTimelineClipSegmentCommands } from './clip-segments.js';
 import { registerTimelineClipTranscriptCommand } from './clip-transcript.js';
 import { printLabelDetail, reportPlacement } from './timeline.js';
 
-/** `-w` is accepted on every clip command so agents can pass it uniformly. */
-const workspaceOption = (cmd: Command): Command =>
-  cmd.option(
-    '-w, --workspace <id>',
-    'workspace id (accepted for flag consistency; clips are addressed by id)'
-  );
-
 type ClipRow = InspectClipInfo & { layer: number };
 
 export function registerTimelineClipCommands(timeline: Command): void {
@@ -76,17 +69,11 @@ export function registerTimelineClipCommands(timeline: Command): void {
       .alias('ls')
       .description("List a timeline's clips with computed positions")
       .requiredOption('-t, --timeline <id>', 'timeline id')
-      .option('-w, --workspace <id>', 'workspace id (validated when passed)')
       .option('--track <layer|id>', 'restrict to one track')
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const overview = await getTimelineOverview(pb, opts.timeline);
-      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
-        throw new Error(
-          `Timeline ${opts.timeline} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
-        );
-      }
 
       let tracks = overview.tracks;
       if (opts.track) {
@@ -133,16 +120,14 @@ export function registerTimelineClipCommands(timeline: Command): void {
   });
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('show <clipId>')
-        .description('Show a timeline clip with its computed placement')
-        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-        .option(
-          '--labels',
-          'include label detail (provenance + overlapping labels)'
-        )
-    )
+    clips
+      .command('show <clipId>')
+      .description('Show a timeline clip with its computed placement')
+      .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+      .option(
+        '--labels',
+        'include label detail (provenance + overlapping labels)'
+      )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();
@@ -262,15 +247,11 @@ export function registerTimelineClipCommands(timeline: Command): void {
 
   const update = withForceOption(
     withStrictOption(
-      workspaceOption(
-        clips
-          .command('update <clipId>')
-          .description(
-            'Update a timeline clip (label, description, trim, gain)'
-          )
-          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-          .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
-      )
+      clips
+        .command('update <clipId>')
+        .description('Update a timeline clip (label, description, trim, gain)')
+        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+        .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
     )
   );
   applyOptions(withJsonOption(update), clipUpdateOptions).action(
@@ -314,42 +295,29 @@ export function registerTimelineClipCommands(timeline: Command): void {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          clips
-            .command('move <clipId>')
-            .description(
-              'Move a clip to another track and/or timeline position'
-            )
-            .option(
-              '-t, --timeline <id>',
-              'timeline id (validated when passed)'
-            )
-            .option(
-              '--track <layer|id>',
-              'destination track (default: current)'
-            )
-            .option(
-              '--at <seconds>',
-              'new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)',
-              parseSeconds
-            )
-            .option(
-              '--overwrite',
-              'with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)'
-            )
-            .option(
-              '--ripple',
-              'land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)'
-            )
-            .option(
-              '--dry-run',
-              'print the placement plan without writing anything'
-            )
-            .addHelpText(
-              'after',
-              editResultHelp({ noop: true, conflict: true })
-            )
-        )
+        clips
+          .command('move <clipId>')
+          .description('Move a clip to another track and/or timeline position')
+          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+          .option('--track <layer|id>', 'destination track (default: current)')
+          .option(
+            '--at <seconds>',
+            'new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)',
+            parseSeconds
+          )
+          .option(
+            '--overwrite',
+            'with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)'
+          )
+          .option(
+            '--ripple',
+            'land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)'
+          )
+          .option(
+            '--dry-run',
+            'print the placement plan without writing anything'
+          )
+          .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
       )
     )
   ).action(async (clipId: string, opts) => {
@@ -393,27 +361,19 @@ export function registerTimelineClipCommands(timeline: Command): void {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          clips
-            .command('ripple <clipId>')
-            .description(
-              'Shift a clip and everything after it on its track by ±seconds'
-            )
-            .requiredOption(
-              '--by <seconds>',
-              'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
-              parseSignedSeconds
-            )
-            .option(
-              '-t, --timeline <id>',
-              'timeline id (validated when passed)'
-            )
-            .option('--dry-run', 'print the shifts without writing anything')
-            .addHelpText(
-              'after',
-              editResultHelp({ noop: true, conflict: true })
-            )
-        )
+        clips
+          .command('ripple <clipId>')
+          .description(
+            'Shift a clip and everything after it on its track by ±seconds'
+          )
+          .requiredOption(
+            '--by <seconds>',
+            'seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)',
+            parseSignedSeconds
+          )
+          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+          .option('--dry-run', 'print the shifts without writing anything')
+          .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
       )
     )
   ).action(async (clipId: string, opts) => {
@@ -456,21 +416,19 @@ export function registerTimelineClipCommands(timeline: Command): void {
 
   withJsonOption(
     withStrictOption(
-      workspaceOption(
-        clips
-          .command('remove <clipId>')
-          .description('Remove a clip from its timeline')
-          .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-          .option(
-            '--ripple',
-            'shift later clips on the track left to close the gap'
-          )
-          .option(
-            '--force',
-            'with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting'
-          )
-          .addHelpText('after', editResultHelp({ conflict: true }))
-      )
+      clips
+        .command('remove <clipId>')
+        .description('Remove a clip from its timeline')
+        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+        .option(
+          '--ripple',
+          'shift later clips on the track left to close the gap'
+        )
+        .option(
+          '--force',
+          'with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting'
+        )
+        .addHelpText('after', editResultHelp({ conflict: true }))
     )
   ).action(async (clipId: string, opts) => {
     try {
@@ -504,15 +462,13 @@ export function registerTimelineClipCommands(timeline: Command): void {
 
   withJsonOption(
     withStrictOption(
-      workspaceOption(
-        clips
-          .command('reorder <clipIds...>')
-          .description(
-            'Replace the clip order: pass every clip id in the new sequence'
-          )
-          .requiredOption('-t, --timeline <id>', 'timeline id')
-          .addHelpText('after', editResultHelp({ noop: true }))
-      )
+      clips
+        .command('reorder <clipIds...>')
+        .description(
+          'Replace the clip order: pass every clip id in the new sequence'
+        )
+        .requiredOption('-t, --timeline <id>', 'timeline id')
+        .addHelpText('after', editResultHelp({ noop: true }))
     )
   ).action(async (clipIds: string[], opts) => {
     try {
@@ -544,30 +500,28 @@ export function registerTimelineClipCommands(timeline: Command): void {
   });
 
   withJsonOption(
-    workspaceOption(
-      clips
-        .command('map <clipId>')
-        .description(
-          'Translate a time through a clip: source-media time ↔ ' +
-            'clip-effective offset ↔ timeline time (edit-list aware)'
-        )
-        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
-        .option(
-          '--source-time <seconds>',
-          'locate a source-media time (gap times report the cut and collapse to its boundary)',
-          parseSeconds
-        )
-        .option(
-          '--timeline-time <seconds>',
-          'locate an absolute timeline time',
-          parseSeconds
-        )
-        .option(
-          '--offset <seconds>',
-          'locate a clip-effective offset (0 = first visible frame)',
-          parseSeconds
-        )
-    )
+    clips
+      .command('map <clipId>')
+      .description(
+        'Translate a time through a clip: source-media time ↔ ' +
+          'clip-effective offset ↔ timeline time (edit-list aware)'
+      )
+      .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+      .option(
+        '--source-time <seconds>',
+        'locate a source-media time (gap times report the cut and collapse to its boundary)',
+        parseSeconds
+      )
+      .option(
+        '--timeline-time <seconds>',
+        'locate an absolute timeline time',
+        parseSeconds
+      )
+      .option(
+        '--offset <seconds>',
+        'locate a clip-effective offset (0 = first visible frame)',
+        parseSeconds
+      )
   ).action(async (clipId: string, opts) => {
     try {
       const pb = await requireClient();

@@ -124,8 +124,27 @@ vw job label                   # (dev) queue label detection for a media (-t lim
 vw job transcode               # (dev) queue transcode/preview regeneration (-a limits assets)
 ```
 
-Any id omitted on the command line is chosen interactively. `--workspace <id>`
-overrides the active workspace for a single command.
+Any id omitted on the command line is chosen interactively.
+
+### `-w/--workspace` — accepted on every command
+
+`vw workspace use` sets the active workspace for the machine; `-w <id>`
+overrides it for one invocation and is never persisted. The flag is registered
+on **every** command (`src/lib/workspace-option.ts` walks the whole tree at
+startup), so a script or agent can pass it uniformly without tracking which
+commands are workspace-scoped — no command answers `-w` with "unknown option".
+
+- Position doesn't matter: `vw -w ID media list`, `vw media -w ID list`, and
+  `vw media list -w ID` are equivalent; the innermost `-w` wins.
+- It takes an id, a slug, or a workspace name (like directory and entity refs).
+  An unknown one is an error, not an empty result list.
+- Workspace-scoped commands (`list`, `search`, `create`, `export`, …) act on it.
+- Id-addressed commands (`vw media show <id>`, `vw timeline clips update <id>`)
+  don't need it — record ids are globally unique — but where the record's
+  workspace is loaded anyway (media, media clips, timelines) a `-w` that
+  contradicts the record is refused rather than ignored.
+- `vw workspace use -w ID` treats it as the positional, so it never falls back
+  to the interactive picker.
 
 ## The agent editing flow
 
@@ -717,9 +736,10 @@ document on stdout with nothing else:
 
 Non-interactive callers (AI agents, scripts) should always pass explicit ids
 (`-m`, `-t`, `-w`, positional ids) — commands fall back to interactive pickers
-when an id is omitted, which blocks without a TTY. `-w` and `-t` are accepted
-uniformly across the timeline/clips commands: where an id is redundant it is
-validated against the target record instead of rejected.
+when an id is omitted, which blocks without a TTY. `-w` is accepted by every
+command and `-t` by every timeline/clips command: where an id is redundant it is
+validated against the target record instead of rejected (see
+[`-w/--workspace`](#-w--workspace--accepted-on-every-command)).
 
 ## Adding command options
 
@@ -740,6 +760,12 @@ To expose a new MediaClip field on `media clip create`:
 The command wires itself — it already spreads
 `pickOptions(opts, clipFieldOptions)` into `createMediaClip`. The same group
 can be reused by future commands (e.g. `clip update`).
+
+Don't declare `-w/--workspace` on a command: `installWorkspaceOption`
+(`src/lib/workspace-option.ts`) registers it across the tree in `buildProgram`,
+and workspace-scoped commands read it through `resolveWorkspaceId(pb)` with no
+plumbing. New commands are covered automatically — the test in
+`src/__tests__/workspace-option.test.ts` fails if one isn't.
 
 ## Uploading media
 

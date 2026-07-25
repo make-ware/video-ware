@@ -18,6 +18,7 @@ import {
   type TimelineClip,
   type TypedPocketBase,
 } from '@project/shared';
+import { requireMediaClip } from './select.js';
 import { mediaBounds, syncTimelineAfterWrite } from './timeline.js';
 import {
   assertOnTimeline,
@@ -243,10 +244,7 @@ export async function editMediaClipSegments(
   opts: { dryRun?: boolean } = {}
 ): Promise<MediaClipSegmentsEditResult> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const bounds = mediaBounds(media);
 
@@ -526,10 +524,7 @@ export async function clearMediaClipSegments(
   opts: { dryRun?: boolean } = {}
 ): Promise<MediaClipSegmentsClearResult> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const existing = getCompositeSegments(clip);
   const times = {
     start: clip.start,
@@ -739,10 +734,7 @@ export async function inspectMediaClipSegments(
   pb: TypedPocketBase,
   clipId: string
 ): Promise<SegmentsInspection> {
-  const clip = await new MediaClipMutator(pb).getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const existing = getCompositeSegments(clip);
   const segments = normalizeSegments(

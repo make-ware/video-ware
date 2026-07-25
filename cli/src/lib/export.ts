@@ -651,6 +651,13 @@ flags. Always pass explicit ids and \`-w ${workspace.id}\` — commands fall
 back to interactive pickers when an id is omitted, which blocks without a
 TTY. Add \`--json\` for machine-readable output.
 
+\`-w\` is accepted by **every** \`vw\` command and in any position
+(\`vw -w ${workspace.id} media list\` == \`vw media list -w ${workspace.id}\`),
+so it is safe to pass on every call: workspace-scoped commands act on it, and
+id-addressed commands validate it against the record instead of rejecting it.
+It applies to that one command only — \`vw workspace use\` is what changes the
+active workspace.
+
 \`\`\`bash
 # 1. Find moments and turn the good ones into MediaClips
 vw label search "sunset" -w ${workspace.id} --min-confidence 0.8 --json

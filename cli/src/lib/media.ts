@@ -15,7 +15,11 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import { mediaBounds, singleMediaType } from './timeline.js';
-import { mediaLabel, type MediaWithUpload } from './select.js';
+import {
+  mediaLabel,
+  requireMediaClip,
+  type MediaWithUpload,
+} from './select.js';
 import { isRootDirRef, resolveDirectory } from './directory.js';
 import type { OptionGroupOf } from './options.js';
 import { formatDuration, type Column } from './output.js';
@@ -239,10 +243,7 @@ export async function updateMediaClip(
   opts: UpdateMediaClipOptions
 ): Promise<MediaClip> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
 
   const patch: Partial<MediaClip> = {
     ...(opts.label !== undefined ? { label: opts.label } : {}),
@@ -331,10 +332,7 @@ export async function deleteMediaClip(
   clipId: string
 ): Promise<DeleteMediaClipResult> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
 
   const refs = await new TimelineClipMutator(pb).getList(
     1,

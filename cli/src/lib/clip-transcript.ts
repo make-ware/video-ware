@@ -1,6 +1,5 @@
 import {
   LabelType,
-  MediaClipMutator,
   MediaMutator,
   TimelineClipMutator,
   attributionExpands,
@@ -17,6 +16,7 @@ import {
   type TypedPocketBase,
   type UtteranceLike,
 } from '@project/shared';
+import { requireMediaClip } from './select.js';
 import {
   attributedEntitySummaryOf,
   labelMutator,
@@ -285,10 +285,7 @@ export async function mediaClipTranscript(
   clipId: string,
   opts: TranscriptOptions = {}
 ): Promise<ClipTranscriptResult> {
-  const clip = await new MediaClipMutator(pb).getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const existing = getCompositeSegments(clip);
   const normalized = normalizeSegments(

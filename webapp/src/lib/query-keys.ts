@@ -40,15 +40,20 @@ export const qk = {
     detail: (id: string) => ['tasks', 'detail', id] as const,
   },
   clips: {
-    library: (args: {
-      kind: string;
+    all: ['clips'] as const,
+    /** Prefix for every clip list query — gap-heal / mutation invalidation. */
+    lists: ['clips', 'list'] as const,
+    list: (args: {
       workspaceId: string;
-      directoryId?: string;
-      typeFilter: string;
-      mediaTypeFilter: string;
-      sortBy: string;
+      /** null = all directories, '' = workspace root, id = one directory. */
+      directoryId: string | null;
+      /** 'all' | one ClipType. */
+      clipType: string;
+      /** 'all' | 'video' | 'audio' | 'image'. */
+      mediaType: string;
+      sort: string;
       search: string;
-    }) => ['clips', 'library', args] as const,
+    }) => ['clips', 'list', args] as const,
   },
   directories: {
     list: (workspaceId: string) => ['directories', workspaceId] as const,

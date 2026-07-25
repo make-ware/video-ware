@@ -7,3 +7,9 @@ export { MediaService, createMediaService } from './media';
 export type { MediaWithPreviews } from './media';
 export { TaskService, createTaskService, ACTIVE_TASK_STATUSES } from './task';
 export type { TaskListQuery } from './task';
+export {
+  MediaClipService,
+  createMediaClipService,
+  CLIP_LIST_EXPAND,
+} from './media-clip';
+export type { ClipListItem, ClipListQuery } from './media-clip';

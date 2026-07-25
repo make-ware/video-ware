@@ -14,21 +14,30 @@ import { MediaTypeFilter } from '@/components/media/media-type-filter';
 import { ClipTypeFilter } from '@/components/clip/clip-type-filter';
 import { Search, Folder, FolderOpen } from 'lucide-react';
 import type { Directory } from '@project/shared';
-import type { LibrarySortBy } from './types';
+import type { LibrarySortChoice } from './types';
 
 interface LibraryToolbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  sortBy: LibrarySortBy;
-  onSortChange: (sort: LibrarySortBy) => void;
+  sortBy: string;
+  onSortChange: (sort: string) => void;
+  /** The tab's sort choices; the caller narrows the value it receives back. */
+  sortOptions: readonly LibrarySortChoice[];
   /** Media-type filter ('all' | 'video' | 'audio' | 'image'). Hidden when undefined. */
   mediaTypeFilter?: string;
   onMediaTypeFilterChange?: (value: string) => void;
   /** Clip-type filter ('all' | ClipType). Hidden when undefined. */
   clipTypeFilter?: string;
   onClipTypeFilterChange?: (value: string) => void;
-  itemCount?: number;
+  /**
+   * Server-side total for the current filters — not the loaded count. Pass
+   * undefined while the first page is in flight so the badge doesn't read
+   * "0" next to the loading skeletons.
+   */
+  totalItems?: number;
   itemLabel?: string;
+  /** Defaults to `itemLabel + 's'`; set it for labels like "media". */
+  itemLabelPlural?: string;
   searchPlaceholder?: string;
   // Directory filter (flat folders; null = all media)
   directories?: Directory[];
@@ -41,12 +50,14 @@ export function LibraryToolbar({
   onSearchChange,
   sortBy,
   onSortChange,
+  sortOptions,
   mediaTypeFilter,
   onMediaTypeFilterChange,
   clipTypeFilter,
   onClipTypeFilterChange,
-  itemCount,
+  totalItems,
   itemLabel = 'item',
+  itemLabelPlural,
   searchPlaceholder = 'Search...',
   directories,
   directoryFilter = null,
@@ -71,22 +82,20 @@ export function LibraryToolbar({
             className="pl-8 h-9"
           />
         </div>
-        <Select
-          value={sortBy}
-          onValueChange={(val) => onSortChange(val as LibrarySortBy)}
-        >
+        <Select value={sortBy} onValueChange={onSortChange}>
           <SelectTrigger className="w-[120px] h-9">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="recent">Recent</SelectItem>
-            <SelectItem value="duration">Duration</SelectItem>
-            <SelectItem value="name">Name</SelectItem>
-            <SelectItem value="media_time">Creation Time</SelectItem>
+            {sortOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
-      {(showTypeFilter || showClipTypeFilter || itemCount !== undefined) && (
+      {(showTypeFilter || showClipTypeFilter || totalItems !== undefined) && (
         <div className="flex items-center justify-between gap-2">
           {showTypeFilter || showClipTypeFilter ? (
             <div className="flex items-center gap-2 min-w-0">
@@ -107,10 +116,12 @@ export function LibraryToolbar({
           ) : (
             <div />
           )}
-          {itemCount !== undefined && itemCount > 0 && (
+          {totalItems !== undefined && (
             <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
-              {itemCount} {itemLabel}
-              {itemCount !== 1 ? 's' : ''}
+              {totalItems}{' '}
+              {totalItems === 1
+                ? itemLabel
+                : (itemLabelPlural ?? `${itemLabel}s`)}
             </div>
           )}
         </div>

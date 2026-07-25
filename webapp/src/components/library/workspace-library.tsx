@@ -5,18 +5,37 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Film, FolderOpen, Scissors, Video } from 'lucide-react';
+import {
+  AlertCircle,
+  Film,
+  FolderOpen,
+  Loader2,
+  Scissors,
+  Video,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { CLIP_GRID_CLASS } from '@/components/timeline/constants';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useDirectories } from '@/hooks/use-directories';
+import { useMediaList } from '@/hooks/use-media-list';
+import { useClipList } from '@/hooks/use-clip-list';
+import {
+  MEDIA_SORT_OPTIONS,
+  DEFAULT_MEDIA_SORT,
+  getMediaSortOption,
+  type MediaSortValue,
+} from '@/components/media/media-sort';
+import {
+  CLIP_SORT_OPTIONS,
+  DEFAULT_CLIP_SORT,
+  getClipSortOption,
+  type ClipSortValue,
+} from '@/components/clip/clip-sort';
 import type { Media, MediaClip } from '@project/shared';
 import { LibraryToolbar } from './library-toolbar';
 import { LibraryItemCard } from './library-item-card';
-import { useClipLibrary } from './use-clip-library';
-import type { LibrarySortBy } from './types';
 import type { ExpandedMedia, ExpandedMediaClip } from '@/types/expanded-types';
 import type { MediaWithPreviews } from '@/services/media';
 
@@ -40,14 +59,13 @@ export function WorkspaceLibrary({
     [onDirectoryFilterChange]
   );
 
-  const directoryFilterId = directoryFilter ?? undefined;
   const inDirectory = directoryFilter !== null;
 
   const [activeTab, setActiveTab] = useState<'media' | 'clips'>('clips');
 
   // Clips tab state
   const [clipSearch, setClipSearch] = useState('');
-  const [clipSort, setClipSort] = useState<LibrarySortBy>('recent');
+  const [clipSort, setClipSort] = useState<ClipSortValue>(DEFAULT_CLIP_SORT);
   const [clipMediaType, setClipMediaType] = useState('all');
   // Clip-type filter ('all' | ClipType). Defaults to all so CLI/label-derived
   // clips (object, face, speech, shot, …) are visible, not just user clips.
@@ -55,7 +73,8 @@ export function WorkspaceLibrary({
 
   // Media tab state
   const [mediaSearch, setMediaSearch] = useState('');
-  const [mediaSort, setMediaSort] = useState<LibrarySortBy>('recent');
+  const [mediaSort, setMediaSort] =
+    useState<MediaSortValue>(DEFAULT_MEDIA_SORT);
   const [mediaMediaType, setMediaMediaType] = useState('all');
 
   // Carve-from-media (ClipEditorModal in create mode)
@@ -63,32 +82,32 @@ export function WorkspaceLibrary({
     Media | ExpandedMedia | MediaWithPreviews | null
   >(null);
 
-  const clipsLib = useClipLibrary({
-    source: currentWorkspace
-      ? {
-          kind: 'workspace-clips',
-          workspaceId: currentWorkspace.id,
-          directoryId: directoryFilterId,
-        }
-      : null,
-    searchQuery: clipSearch,
-    typeFilter: clipType,
+  // Both tabs stay mounted, so both live lists stay subscribed — PocketBase
+  // multiplexes them over its single realtime connection.
+  const clipsLib = useClipList({
+    workspaceId: currentWorkspace?.id,
+    directoryFilter,
+    clipTypeFilter: clipType,
     mediaTypeFilter: clipMediaType,
-    sortBy: clipSort,
+    searchQuery: clipSearch,
+    sort: clipSort,
   });
 
-  const mediaLib = useClipLibrary({
-    source: currentWorkspace
-      ? {
-          kind: 'workspace-media',
-          workspaceId: currentWorkspace.id,
-          directoryId: directoryFilterId,
-        }
-      : null,
-    searchQuery: mediaSearch,
+  const mediaLib = useMediaList({
+    workspaceId: currentWorkspace?.id,
+    directoryFilter,
     mediaTypeFilter: mediaMediaType,
-    sortBy: mediaSort,
+    searchQuery: mediaSearch,
+    sort: mediaSort,
   });
+
+  const handleClipSortChange = useCallback((value: string) => {
+    setClipSort(getClipSortOption(value).value);
+  }, []);
+
+  const handleMediaSortChange = useCallback((value: string) => {
+    setMediaSort(getMediaSortOption(value).value);
+  }, []);
 
   const handleAddClipToTimeline = useCallback(
     async (clip: ExpandedMediaClip | MediaClip) => {
@@ -182,12 +201,14 @@ export function WorkspaceLibrary({
             searchQuery={mediaSearch}
             onSearchChange={setMediaSearch}
             sortBy={mediaSort}
-            onSortChange={setMediaSort}
+            onSortChange={handleMediaSortChange}
+            sortOptions={MEDIA_SORT_OPTIONS}
             mediaTypeFilter={mediaMediaType}
             onMediaTypeFilterChange={setMediaMediaType}
             searchPlaceholder="Search media..."
-            itemCount={mediaLib.items.length}
+            totalItems={mediaLib.isLoading ? undefined : mediaLib.totalItems}
             itemLabel="media"
+            itemLabelPlural="media"
             directories={directories}
             directoryFilter={directoryFilter}
             onDirectorySelect={handleDirectorySelect}
@@ -202,11 +223,16 @@ export function WorkspaceLibrary({
             hasSearch={mediaSearch.length > 0}
             onClearDirectory={() => handleDirectorySelect(null)}
             inDirectory={inDirectory}
+            loadedCount={mediaLib.items.length}
+            totalItems={mediaLib.totalItems}
+            hasNextPage={mediaLib.hasNextPage}
+            isFetchingNextPage={mediaLib.isFetchingNextPage}
+            onLoadMore={mediaLib.loadMore}
           >
-            {mediaLib.items.map((item) => (
+            {mediaLib.items.map((media) => (
               <LibraryItemCard
-                key={item.id}
-                item={item}
+                key={media.id}
+                item={{ kind: 'media', id: media.id, media }}
                 surface="timeline"
                 onAddMediaToTimeline={handleAddMediaToTimeline}
                 onCarveClipFromMedia={handleCarveClipFromMedia}
@@ -223,13 +249,14 @@ export function WorkspaceLibrary({
             searchQuery={clipSearch}
             onSearchChange={setClipSearch}
             sortBy={clipSort}
-            onSortChange={setClipSort}
+            onSortChange={handleClipSortChange}
+            sortOptions={CLIP_SORT_OPTIONS}
             clipTypeFilter={clipType}
             onClipTypeFilterChange={setClipType}
             mediaTypeFilter={clipMediaType}
             onMediaTypeFilterChange={setClipMediaType}
             searchPlaceholder="Search clips..."
-            itemCount={clipsLib.items.length}
+            totalItems={clipsLib.isLoading ? undefined : clipsLib.totalItems}
             itemLabel="clip"
             directories={directories}
             directoryFilter={directoryFilter}
@@ -245,11 +272,16 @@ export function WorkspaceLibrary({
             hasSearch={clipSearch.length > 0}
             onClearDirectory={() => handleDirectorySelect(null)}
             inDirectory={inDirectory}
+            loadedCount={clipsLib.items.length}
+            totalItems={clipsLib.totalItems}
+            hasNextPage={clipsLib.hasNextPage}
+            isFetchingNextPage={clipsLib.isFetchingNextPage}
+            onLoadMore={clipsLib.loadMore}
           >
-            {clipsLib.items.map((item) => (
+            {clipsLib.items.map((clip) => (
               <LibraryItemCard
-                key={item.id}
-                item={item}
+                key={clip.id}
+                item={{ kind: 'clip', id: clip.id, clip }}
                 surface="timeline"
                 onAddClipToTimeline={handleAddClipToTimeline}
               />
@@ -283,6 +315,13 @@ interface LibraryGridProps {
   hasSearch: boolean;
   onClearDirectory: () => void;
   inDirectory: boolean;
+  /** Rows currently in the cache; the "X" of "Showing X of Y". */
+  loadedCount: number;
+  /** Server-side total for the current filters; the "Y". */
+  totalItems: number;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  onLoadMore: () => void;
   children: React.ReactNode;
 }
 
@@ -294,6 +333,11 @@ function LibraryGrid({
   hasSearch,
   onClearDirectory,
   inDirectory,
+  loadedCount,
+  totalItems,
+  hasNextPage,
+  isFetchingNextPage,
+  onLoadMore,
   children,
 }: LibraryGridProps) {
   const childrenCount = React.Children.count(children);
@@ -337,7 +381,32 @@ function LibraryGrid({
           </div>
         </div>
       ) : (
-        <div className={`${CLIP_GRID_CLASS} pb-8`}>{children}</div>
+        <>
+          <div className={CLIP_GRID_CLASS}>{children}</div>
+          {hasNextPage && (
+            <div className="mt-4 pb-8 flex flex-col items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onLoadMore}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  'Load More'
+                )}
+              </Button>
+              <span className="text-[10px] text-muted-foreground">
+                Showing {loadedCount} of {totalItems}
+              </span>
+            </div>
+          )}
+          {!hasNextPage && <div className="pb-8" />}
+        </>
       )}
     </div>
   );

@@ -19,6 +19,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Upload as UploadIcon } from 'lucide-react';
 import Link from 'next/link';
+import { CliBanner } from '@/components/layout/cli-banner';
 import { DirectoryBrowser } from '@/components/media/directory-browser';
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_SIZE } from '@/constants/upload';
 
@@ -58,6 +59,9 @@ function UploadsPageContent() {
 
   return (
     <div className="container mx-auto px-4 pt-6 pb-4 sm:pb-6 max-w-4xl">
+      {/* CLI promo banner */}
+      <CliBanner className="mb-4" />
+
       {/* Page Header */}
       <div className="mb-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">

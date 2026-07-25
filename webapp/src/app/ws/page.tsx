@@ -23,6 +23,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { CliBanner } from '@/components/layout/cli-banner';
 import { useState } from 'react';
 import type { Workspace } from '@project/shared';
 
@@ -166,6 +167,7 @@ export default function WorkspaceSelectionPage() {
 
   return (
     <div className="container mx-auto py-8 space-y-6">
+      <CliBanner />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">

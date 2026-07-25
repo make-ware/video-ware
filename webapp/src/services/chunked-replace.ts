@@ -19,15 +19,15 @@ import { driveChunkedTransfer } from './chunk-protocol';
  */
 export interface ChunkedReplaceConfig {
   chunkSize?: number; // Size of each chunk in bytes (default: 64MB)
-  maxRetries?: number; // Max retries per chunk (default: 3)
-  timeout?: number; // Timeout per chunk in ms (default: 10 minutes)
+  maxRetries?: number; // Max retries per chunk (default: 5)
+  timeout?: number; // Timeout per chunk in ms (default: 30 minutes)
   concurrency?: number; // Middle chunks in flight at once (default: 3)
 }
 
 const DEFAULT_CONFIG: Required<ChunkedReplaceConfig> = {
   chunkSize: 64 * 1024 * 1024, // 64MB
-  maxRetries: 3,
-  timeout: 10 * 60 * 1000, // 10 minutes
+  maxRetries: 5,
+  timeout: 30 * 60 * 1000, // 30 minutes
   concurrency: 3,
 };
 

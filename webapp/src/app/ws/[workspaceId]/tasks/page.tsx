@@ -1,77 +1,151 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
-import { TaskProvider } from '@/contexts/task-context';
-import { useTasks } from '@/hooks/use-tasks';
-import { TaskMonitor } from '@/components/task';
+import { useTaskList } from '@/hooks/use-task-list';
+import { useTaskActions } from '@/hooks/use-task-actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination';
-import { AlertCircle } from 'lucide-react';
-import Link from 'next/link';
-import { TaskType } from '@project/shared';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { AlertCircle, ListChecks, Search } from 'lucide-react';
+import {
+  TaskMonitor,
+  TaskStatusFilter,
+  TaskTypeFilter,
+  TASK_SORT_OPTIONS,
+  DEFAULT_TASK_SORT,
+  getTaskSortOption,
+  type TaskSortValue,
+} from '@/components/task';
 
-const PAGE_SIZE = 10;
-
-function getPageNumbers(currentPage: number, totalPages: number): number[] {
-  if (totalPages <= 5) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-  const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
-  const end = Math.min(totalPages, start + 4);
-  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-}
+const DEFAULT_STATUS_FILTER = 'all';
+const DEFAULT_TYPE_FILTER = 'all';
 
 function TasksPageContent() {
-  const { tasks, isLoading: tasksLoading } = useTasks();
   const { currentWorkspace } = useWorkspace();
-  const [page, setPage] = useState(1);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  // Filter tasks to only show create_labels, transcode, and render_timeline
-  const filteredTasks = useMemo(() => {
-    const allowedTypes = [
-      TaskType.DETECT_LABELS,
-      TaskType.RENDER_TIMELINE,
-      TaskType.PROCESS_UPLOAD,
-    ];
-    return tasks.filter((task) => {
-      const taskType = Array.isArray(task.type) ? task.type[0] : task.type;
-      return allowedTypes.includes(taskType);
-    });
-  }, [tasks]);
+  const [statusFilter, setStatusFilter] = useState<string>(
+    searchParams.get('status') ?? DEFAULT_STATUS_FILTER
+  );
+  const [typeFilter, setTypeFilter] = useState<string>(
+    searchParams.get('type') ?? DEFAULT_TYPE_FILTER
+  );
+  const [sort, setSort] = useState<TaskSortValue>(
+    getTaskSortOption(searchParams.get('sort')).value
+  );
+  // Search is transient (debounced input) and deliberately not URL-synced.
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
+  const {
+    items: tasks,
+    totalItems,
+    isLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+    error,
+  } = useTaskList({
+    workspaceId: currentWorkspace?.id,
+    statusFilter,
+    typeFilter,
+    searchQuery,
+    sort,
+  });
 
-  const currentPage = Math.min(Math.max(1, page), totalPages);
-  const pageTasks = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredTasks.slice(start, start + PAGE_SIZE);
-  }, [filteredTasks, currentPage]);
+  const { retryTask, cancelTask, pendingIds } = useTaskActions();
 
-  const pageNumbers = getPageNumbers(currentPage, totalPages);
-  const showStartEllipsis = pageNumbers[0] > 1;
-  const showEndEllipsis = pageNumbers[pageNumbers.length - 1] < totalPages;
+  // Build a URL that preserves the status, type, and sort params
+  const buildTasksUrl = useCallback(
+    (status: string, type: string, sortValue: TaskSortValue) => {
+      const params = new URLSearchParams();
+      if (status !== DEFAULT_STATUS_FILTER) params.set('status', status);
+      if (type !== DEFAULT_TYPE_FILTER) params.set('type', type);
+      if (sortValue !== DEFAULT_TASK_SORT) params.set('sort', sortValue);
+      const qs = params.toString();
+      return qs ? `${pathname}?${qs}` : pathname;
+    },
+    [pathname]
+  );
+
+  // Sync URL → state when the browser navigates back/forward. Filter changes
+  // below write the URL with replaceState (no popstate, no new entry), so the
+  // history event is the only way the URL can change under us.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      setStatusFilter(params.get('status') ?? DEFAULT_STATUS_FILTER);
+      setTypeFilter(params.get('type') ?? DEFAULT_TYPE_FILTER);
+      setSort(getTaskSortOption(params.get('sort')).value);
+    };
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, []);
+
+  // Update URL when filters change (replaceState avoids Next.js soft
+  // navigation/remount)
+  const handleStatusChange = useCallback(
+    (value: string) => {
+      setStatusFilter(value);
+      window.history.replaceState(
+        null,
+        '',
+        buildTasksUrl(value, typeFilter, sort)
+      );
+    },
+    [buildTasksUrl, typeFilter, sort]
+  );
+
+  const handleTypeChange = useCallback(
+    (value: string) => {
+      setTypeFilter(value);
+      window.history.replaceState(
+        null,
+        '',
+        buildTasksUrl(statusFilter, value, sort)
+      );
+    },
+    [buildTasksUrl, statusFilter, sort]
+  );
+
+  const handleSortChange = useCallback(
+    (value: string) => {
+      const sortValue = getTaskSortOption(value).value;
+      setSort(sortValue);
+      window.history.replaceState(
+        null,
+        '',
+        buildTasksUrl(statusFilter, typeFilter, sortValue)
+      );
+    },
+    [buildTasksUrl, statusFilter, typeFilter]
+  );
 
   if (!currentWorkspace) {
     return null;
   }
 
-  const goTo = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
+  const filtersActive =
+    statusFilter !== DEFAULT_STATUS_FILTER ||
+    typeFilter !== DEFAULT_TYPE_FILTER ||
+    searchQuery.trim().length > 0;
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-5xl">
       {/* Page Header */}
       <div className="mb-4">
-        <h1 className="text-2xl font-bold text-foreground mb-1">
+        <h1 className="text-2xl font-bold text-foreground mb-1 flex items-center gap-2">
+          <ListChecks className="h-6 w-6" />
           Background Tasks
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -79,106 +153,54 @@ function TasksPageContent() {
         </p>
       </div>
 
-      <TaskMonitor
-        tasks={pageTasks}
-        totalCount={filteredTasks.length}
-        isLoading={tasksLoading}
-      />
-
-      {totalPages > 1 && (
-        <Pagination className="mt-4">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                href="#"
-                aria-disabled={currentPage === 1}
-                className={
-                  currentPage === 1
-                    ? 'pointer-events-none opacity-50'
-                    : undefined
-                }
-                onClick={(e) => {
-                  e.preventDefault();
-                  goTo(currentPage - 1);
-                }}
-              />
-            </PaginationItem>
-
-            {showStartEllipsis && (
-              <>
-                <PaginationItem>
-                  <PaginationLink
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      goTo(1);
-                    }}
-                  >
-                    1
-                  </PaginationLink>
-                </PaginationItem>
-                {pageNumbers[0] > 2 && (
-                  <PaginationItem>
-                    <PaginationEllipsis />
-                  </PaginationItem>
-                )}
-              </>
-            )}
-
-            {pageNumbers.map((p) => (
-              <PaginationItem key={p}>
-                <PaginationLink
-                  href="#"
-                  isActive={p === currentPage}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    goTo(p);
-                  }}
-                >
-                  {p}
-                </PaginationLink>
-              </PaginationItem>
+      {/* Filters: search + sort + status + type */}
+      <div className="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by source, type, id, or error..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 h-9"
+          />
+        </div>
+        <Select value={sort} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-[150px] h-9">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            {TASK_SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <TaskStatusFilter value={statusFilter} onChange={handleStatusChange} />
+        <TaskTypeFilter value={typeFilter} onChange={handleTypeChange} />
+      </div>
 
-            {showEndEllipsis && (
-              <>
-                {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && (
-                  <PaginationItem>
-                    <PaginationEllipsis />
-                  </PaginationItem>
-                )}
-                <PaginationItem>
-                  <PaginationLink
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      goTo(totalPages);
-                    }}
-                  >
-                    {totalPages}
-                  </PaginationLink>
-                </PaginationItem>
-              </>
-            )}
-
-            <PaginationItem>
-              <PaginationNext
-                href="#"
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages
-                    ? 'pointer-events-none opacity-50'
-                    : undefined
-                }
-                onClick={(e) => {
-                  e.preventDefault();
-                  goTo(currentPage + 1);
-                }}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Failed to load tasks</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
+
+      <TaskMonitor
+        tasks={tasks}
+        totalItems={totalItems}
+        isLoading={isLoading}
+        tasksHref={`/ws/${currentWorkspace.id}/tasks`}
+        filtersActive={filtersActive}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={loadMore}
+        onRetry={retryTask}
+        onCancel={cancelTask}
+        pendingIds={pendingIds}
+      />
     </div>
   );
 }
@@ -230,9 +252,5 @@ export default function TasksPage() {
     );
   }
 
-  return (
-    <TaskProvider workspaceId={currentWorkspace.id}>
-      <TasksPageContent />
-    </TaskProvider>
-  );
+  return <TasksPageContent />;
 }

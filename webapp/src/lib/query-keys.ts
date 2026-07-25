@@ -24,6 +24,21 @@ export const qk = {
     neighbors: (workspaceId: string, mediaId: string) =>
       ['media', 'neighbors', workspaceId, mediaId] as const,
   },
+  tasks: {
+    all: ['tasks'] as const,
+    /** Prefix for every task list query — gap-heal / mutation invalidation. */
+    lists: ['tasks', 'list'] as const,
+    list: (args: {
+      workspaceId: string;
+      /** 'all' | 'active' | one TaskStatus. */
+      status: string;
+      /** 'all' | one TaskType. */
+      type: string;
+      sort: string;
+      search: string;
+    }) => ['tasks', 'list', args] as const,
+    detail: (id: string) => ['tasks', 'detail', id] as const,
+  },
   clips: {
     library: (args: {
       kind: string;

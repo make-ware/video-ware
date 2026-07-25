@@ -8,6 +8,7 @@ import {
   formatEntityTranscript,
   getEntityAppearances,
   getEntityLabels,
+  getEntityTaggedMedia,
   getEntityWords,
   linkTargetOptions,
   mediaNameOf,
@@ -16,6 +17,7 @@ import {
   resolveEntity,
   resolveLinkTargets,
   type EntityAppearance,
+  type EntityTaggedMedia,
   type EntityUtterance,
 } from '../lib/entity.js';
 import { hitColumns, parseLabelTypes } from '../lib/label.js';
@@ -38,6 +40,13 @@ const appearanceColumns: Column<EntityAppearance>[] = [
   { header: 'END', value: (a) => `${a.track.end.toFixed(2)}s` },
   { header: 'DUR', value: (a) => formatDuration(a.track.duration) },
   { header: 'VIA', value: (a) => a.via },
+];
+
+const taggedMediaColumns: Column<EntityTaggedMedia>[] = [
+  { header: 'MEDIA ID', value: (t) => t.mediaId },
+  { header: 'NAME', value: (t) => t.mediaName },
+  { header: 'TYPE', value: (t) => t.mediaType },
+  { header: 'DURATION', value: (t) => formatDuration(t.duration) },
 ];
 
 const utteranceColumns: Column<EntityUtterance>[] = [
@@ -139,7 +148,9 @@ export function registerEntityCommands(program: Command): void {
 
   const show = entity
     .command('show <nameOrId>')
-    .description('Show one entity with its linked tracks and appearances')
+    .description(
+      'Show one entity with its linked tracks, appearances, and tagged media'
+    )
     .option('-w, --workspace <id>', 'workspace id override');
   withJsonOption(show).action(async (nameOrId: string, opts) => {
     try {
@@ -152,9 +163,20 @@ export function registerEntityCommands(program: Command): void {
         { limit: 20 }
       );
       const media = distinctMedia(appearances.map((a) => a.track));
+      const taggedMedia = await getEntityTaggedMedia(pb, found.id, 20);
 
       if (opts.json) {
-        printRecord({ ...found, appearances, totalItems }, [], true);
+        printRecord(
+          {
+            ...found,
+            appearances,
+            totalItems,
+            taggedMedia: taggedMedia.tagged,
+            taggedMediaTotal: taggedMedia.totalItems,
+          },
+          [],
+          true
+        );
         return;
       }
       const aliases = Array.isArray(found.aliases)
@@ -172,6 +194,14 @@ export function registerEntityCommands(program: Command): void {
         totalItems,
         hint: 'vw entity words/appearances <name|id> queries across all media',
       });
+      if (taggedMedia.tagged.length > 0) {
+        info('');
+        info(`tagged on ${taggedMedia.totalItems} media:`);
+        printList(taggedMedia.tagged, taggedMediaColumns, {
+          totalItems: taggedMedia.totalItems,
+          hint: 'vw media untag <mediaId> <entity> removes a tag',
+        });
+      }
     } catch (err) {
       handleError(err);
     }

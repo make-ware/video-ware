@@ -81,6 +81,11 @@ export const qk = {
   labelTracks: {
     byMedia: (id: string) => ['label-tracks', id] as const,
   },
+  mediaTags: {
+    all: ['media-tags'] as const,
+    byMedia: (id: string) => ['media-tags', 'media', id] as const,
+    byEntity: (id: string) => ['media-tags', 'entity', id] as const,
+  },
   labels: {
     list: (
       mediaId: string,

@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Pencil, Save, X, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
+import { MediaTagsRow } from './media-tags-row';
 
 interface MediaInfoEditorProps {
   media: Media;
@@ -138,6 +139,13 @@ export function MediaInfoEditor({ media, onUpdate }: MediaInfoEditorProps) {
             </div>
           </>
         )}
+        {/* Entity tags write immediately, independent of the edit/save flow */}
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            Entity tags
+          </span>
+          <MediaTagsRow workspaceId={media.WorkspaceRef} mediaId={media.id} />
+        </div>
       </CardContent>
     </Card>
   );

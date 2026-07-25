@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, MessageSquareText } from 'lucide-react';
 import { ENTITY_KIND_META } from './entity-kind';
+import { EntityTaggedMediaRow } from './entity-tagged-media-row';
 
 export interface EntityHeaderStats {
   mediaCount: number;
@@ -93,6 +94,7 @@ export function EntityHeaderCard({
             </div>
           ))}
         </div>
+        <EntityTaggedMediaRow workspaceId={workspaceId} entityId={entity.id} />
       </CardContent>
     </Card>
   );

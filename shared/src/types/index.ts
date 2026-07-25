@@ -6,6 +6,7 @@ import type { User } from '../schema/user';
 import type { Task } from '../schema/task';
 import type { MediaClip } from '../schema/media-clip';
 import type { MediaClipLabel } from '../schema/media-clip-label';
+import type { MediaTag } from '../schema/media-tag';
 import type { Upload } from '../schema/upload';
 import type { File } from '../schema/file';
 import type { Directory } from '../schema/directory';
@@ -67,6 +68,7 @@ export interface TypedPocketBase extends PocketBase {
   collection(idOrName: 'Media'): RecordService<Media>;
   collection(idOrName: 'MediaClipLabels'): RecordService<MediaClipLabel>;
   collection(idOrName: 'MediaClips'): RecordService<MediaClip>;
+  collection(idOrName: 'MediaTags'): RecordService<MediaTag>;
   collection(idOrName: 'Tasks'): RecordService<Task>;
   collection(idOrName: 'TimelineClips'): RecordService<TimelineClip>;
   collection(idOrName: 'TimelineRenders'): RecordService<TimelineRender>;

@@ -6,12 +6,14 @@ import {
   LabelSpeakerMutator,
   LabelTrackMutator,
   LabelType,
+  MediaTagMutator,
   entityAttributionFilter,
   trackEntityAttributionFilter,
   type Entity,
   type LabelEntity,
   type LabelSpeaker,
   type LabelTrack,
+  type MediaTag,
   type TypedPocketBase,
 } from '@project/shared';
 import {
@@ -374,6 +376,46 @@ export async function getEntityAppearances(
     };
   });
   return { appearances, totalItems: result.totalItems };
+}
+
+/** One media manually tagged with an entity (a whole-media MediaTags edge). */
+export interface EntityTaggedMedia {
+  tagId: string;
+  mediaId: string;
+  mediaName: string;
+  mediaType: string;
+  duration: number;
+}
+
+/**
+ * Media manually tagged with the entity ("this media features X") — the
+ * whole-media MediaTags edges, distinct from track/cluster attribution.
+ * Newest tags first.
+ */
+export async function getEntityTaggedMedia(
+  pb: TypedPocketBase,
+  entityId: string,
+  limit = 100
+): Promise<{ tagged: EntityTaggedMedia[]; totalItems: number }> {
+  const result = await new MediaTagMutator(pb).getList(
+    1,
+    limit,
+    `EntityRef = "${entityId}"`,
+    '-created',
+    ['MediaRef.UploadRef']
+  );
+  const tagged = result.items.map((tag) => {
+    const row = tag as MediaTag & WithMediaExpand;
+    const media = row.expand?.MediaRef;
+    return {
+      tagId: tag.id,
+      mediaId: tag.MediaRef,
+      mediaName: mediaNameOf(row),
+      mediaType: media ? String(media.mediaType) : '?',
+      duration: media?.duration ?? 0,
+    };
+  });
+  return { tagged, totalItems: result.totalItems };
 }
 
 export interface EntityLabelsOptions {

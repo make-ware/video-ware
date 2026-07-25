@@ -67,34 +67,27 @@ export function CliBanner({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'relative flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between',
+        // Hidden on mobile — the CLI is a desktop workflow.
+        'hidden items-center gap-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 sm:flex',
         className
       )}
     >
-      <div className="flex items-start gap-3 pr-6 sm:pr-0">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <Terminal className="size-5" />
-        </div>
-        <div className="space-y-0.5">
-          <p className="text-sm font-medium text-foreground">
-            Prefer the terminal? Get the{' '}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-              vw
-            </code>{' '}
-            CLI
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Upload, organize, and edit your videos from the command line — and
-            let AI agents edit for you.
-          </p>
-        </div>
-      </div>
+      <p className="flex min-w-0 flex-1 items-center gap-2.5 text-sm text-foreground">
+        <Terminal className="size-4 shrink-0 text-primary" />
+        <span>
+          Get the{' '}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+            vw
+          </code>{' '}
+          CLI — edit from your terminal, or let AI agents edit for you.
+        </span>
+      </p>
 
-      <div className="flex shrink-0 items-center gap-3 pl-12 sm:pl-0">
+      <div className="flex shrink-0 items-center gap-3">
         <button
           type="button"
           onClick={handleCopy}
-          className="group flex items-center gap-2 rounded-md border bg-background px-3 py-2 font-mono text-xs text-foreground transition-colors hover:bg-accent"
+          className="group flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 font-mono text-xs text-foreground transition-colors hover:bg-accent"
           aria-label="Copy install command"
         >
           <span className="text-muted-foreground select-none">$</span>
@@ -111,7 +104,7 @@ export function CliBanner({ className }: { className?: string }) {
           rel="noreferrer"
           className="hidden text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline lg:inline"
         >
-          Other install options
+          Other options
         </a>
       </div>
 
@@ -119,7 +112,7 @@ export function CliBanner({ className }: { className?: string }) {
         type="button"
         onClick={markDismissed}
         aria-label="Dismiss"
-        className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:static sm:size-7"
+        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <X className="size-4" />
       </button>

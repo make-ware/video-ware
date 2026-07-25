@@ -18,6 +18,7 @@ export * from './label-text.js';
 export * from './label-track.js';
 export * from './media-clip-label.js';
 export * from './media-clip.js';
+export * from './media-tag.js';
 export * from './media.js';
 export * from './task.js';
 export * from './timeline-clip.js';

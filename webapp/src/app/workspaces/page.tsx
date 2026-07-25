@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, ArrowRight, ExternalLink, Settings } from 'lucide-react';
+import { CliBanner } from '@/components/layout/cli-banner';
 import Link from 'next/link';
 
 export default function WorkspacesPage() {
@@ -34,6 +35,7 @@ export default function WorkspacesPage() {
 
   return (
     <div className="container mx-auto py-8 space-y-6">
+      <CliBanner />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Workspaces</h1>

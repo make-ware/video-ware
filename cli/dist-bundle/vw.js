@@ -58702,6 +58702,31 @@ var MediaClipCollection = defineCollection({
     "CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)"
   ]
 });
+var MediaTagSchema = external_exports.object({
+  WorkspaceRef: RelationField({ collection: "Workspaces" }),
+  MediaRef: RelationField({ collection: "Media" }),
+  EntityRef: RelationField({ collection: "Entities" }),
+  metadata: JSONField().optional()
+  // tag context, e.g. provenance notes
+}).extend(baseSchema);
+var MediaTagInputSchema = external_exports.object({
+  WorkspaceRef: external_exports.string().min(1, "Workspace is required"),
+  MediaRef: external_exports.string().min(1, "Media is required"),
+  EntityRef: external_exports.string().min(1, "Entity is required"),
+  metadata: JSONField().optional()
+});
+var MediaTagCollection = defineCollection({
+  collectionName: "MediaTags",
+  schema: MediaTagSchema,
+  permissions: workspaceScopedPermissions(),
+  indexes: [
+    // One tag per (media, entity) edge — tagging twice is a no-op, not a dup
+    "CREATE UNIQUE INDEX idx_media_tags_media_entity ON MediaTags (MediaRef, EntityRef)",
+    // "Which media feature this entity" listings
+    "CREATE INDEX idx_media_tags_entity ON MediaTags (EntityRef)",
+    "CREATE INDEX idx_media_tags_workspace ON MediaTags (WorkspaceRef)"
+  ]
+});
 var MediaSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   UploadRef: RelationField({ collection: "Uploads" }),
@@ -61731,6 +61756,77 @@ var MediaMutator = class extends BaseMutator {
       perPage,
       [`WorkspaceRef = "${workspaceId}"`, `DirectoryRef = ""`],
       void 0,
+      expand
+    );
+  }
+};
+var MediaTagMutator = class extends BaseMutator {
+  constructor(pb, options) {
+    super(pb, options);
+  }
+  getCollection() {
+    return this.pb.collection("MediaTags");
+  }
+  setDefaults() {
+    return {
+      expand: [],
+      filter: [],
+      sort: ["-created"]
+    };
+  }
+  async validateInput(input) {
+    return MediaTagInputSchema.parse(input);
+  }
+  /**
+   * Tag a media with an entity. Idempotent: if the (media, entity) edge
+   * already exists — including losing a creation race to the unique index —
+   * the existing row is returned.
+   *
+   * Bypasses BaseMutator.create so an expected unique-index rejection isn't
+   * logged as an error.
+   */
+  async tag(input) {
+    const data = await this.validateInput(input);
+    try {
+      return await this.getCollection().create(data);
+    } catch (error49) {
+      const existing = await this.getTag(input.MediaRef, input.EntityRef);
+      if (existing) return existing;
+      throw error49;
+    }
+  }
+  /**
+   * Remove a (media, entity) tag. Returns false when no such tag exists —
+   * untagging twice is a no-op, not an error.
+   */
+  async untag(mediaId, entityId) {
+    const existing = await this.getTag(mediaId, entityId);
+    if (!existing) return false;
+    return this.delete(existing.id);
+  }
+  /** The (media, entity) edge row, or null. */
+  async getTag(mediaId, entityId) {
+    return this.getFirstByFilter(
+      `MediaRef = "${mediaId}" && EntityRef = "${entityId}"`
+    );
+  }
+  /** A media's tags, oldest first so chip order is stable. */
+  async getByMedia(mediaId, page = 1, perPage = 100, expand) {
+    return this.getList(
+      page,
+      perPage,
+      `MediaRef = "${mediaId}"`,
+      "created",
+      expand
+    );
+  }
+  /** All media tagged with an entity, newest tags first. */
+  async getByEntity(entityId, page = 1, perPage = 100, expand) {
+    return this.getList(
+      page,
+      perPage,
+      `EntityRef = "${entityId}"`,
+      "-created",
       expand
     );
   }
@@ -66126,6 +66222,290 @@ function registerUploadCommands(program3) {
   );
 }
 
+// src/lib/entity.ts
+function parseEntityKind(value) {
+  const kinds = Object.values(EntityKind);
+  if (!kinds.includes(value)) {
+    throw new InvalidArgumentError(
+      `Invalid entity kind "${value}". Valid kinds: ${kinds.join(", ")}`
+    );
+  }
+  return value;
+}
+function parseAliases(value) {
+  return value.split(",").map((a) => a.trim()).filter(Boolean);
+}
+async function resolveEntity(pb, workspaceId, ref) {
+  const mutator = new EntityMutator(pb);
+  const byId = await mutator.getById(ref);
+  if (byId && byId.WorkspaceRef === workspaceId) return byId;
+  const byName = await mutator.getByName(workspaceId, ref);
+  if (byName) return byName;
+  const fuzzy = await mutator.search(workspaceId, ref, 1, 5);
+  if (fuzzy.items.length === 1) return fuzzy.items[0];
+  if (fuzzy.items.length > 1) {
+    const candidates = fuzzy.items.map((e2) => `${e2.name} (${e2.kind}, ${e2.id})`).join(", ");
+    throw new Error(
+      `Entity "${ref}" is ambiguous \u2014 matches: ${candidates}. Use the id.`
+    );
+  }
+  throw new Error(
+    `No entity matching "${ref}" \u2014 vw entity list shows this workspace's entities`
+  );
+}
+function mediaNameOf(record2) {
+  const media = record2.expand?.MediaRef;
+  return media ? mediaLabel(media) : record2.MediaRef ?? "";
+}
+var linkTargetOptions = {
+  track: {
+    flags: "--track <ids>",
+    description: "comma-separated LabelTrack record ids",
+    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
+  },
+  cluster: {
+    flags: "--cluster <ids>",
+    description: "comma-separated LabelEntity (provider cluster) record ids \u2014 links every label in the cluster, across all media",
+    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
+  },
+  label: {
+    flags: "--label <pairs>",
+    description: "comma-separated type:labelId pairs (e.g. face:abc123) \u2014 links each label row's track",
+    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
+  },
+  speaker: {
+    flags: "--speaker <mediaId:speakerId>",
+    description: "link one diarized speaker in one media (e.g. m1:speaker_0)"
+  },
+  face: {
+    flags: "--face <mediaId:trackId>",
+    description: "link one face track in one media"
+  }
+};
+function splitPair(value, flag) {
+  const idx = value.indexOf(":");
+  if (idx <= 0 || idx === value.length - 1) {
+    throw new Error(`${flag} expects <mediaId>:<providerId>, got "${value}"`);
+  }
+  return [value.slice(0, idx), value.slice(idx + 1)];
+}
+async function trackByMediaAndTrackId(pb, mediaId, trackId) {
+  const track = await new LabelTrackMutator(pb).getFirstByFilter(
+    pb.filter("MediaRef = {:media} && trackId = {:trackId}", {
+      media: mediaId,
+      trackId
+    }),
+    void 0,
+    "-created"
+  );
+  if (!track) {
+    throw new Error(
+      `No label track "${trackId}" in media ${mediaId} \u2014 vw label list -m ${mediaId} shows its labels`
+    );
+  }
+  return track;
+}
+async function trackOfLabelPair(pb, pair) {
+  const [typeArg, labelId] = splitPair(pair, "--label");
+  const type = parseLabelType(typeArg);
+  const record2 = await labelMutator(pb, type).getById(labelId);
+  if (!record2) {
+    throw new Error(`No ${type} label with id ${labelId}`);
+  }
+  const trackRef = record2.LabelTrackRef;
+  if (typeof trackRef !== "string" || !trackRef) {
+    throw new Error(
+      `${type} label ${labelId} has no track \u2014 link its provider cluster instead (vw entity link <entity> --cluster <labelEntityId>), or let vw label tag ${type} ${labelId} <entity> resolve that for you`
+    );
+  }
+  return trackRef;
+}
+async function tagLabel(pb, type, labelId, entityId) {
+  const record2 = await labelMutator(pb, type).getById(labelId);
+  if (!record2) {
+    throw new Error(
+      `No ${type} label with id ${labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
+    );
+  }
+  const row = record2;
+  const trackRef = row.LabelTrackRef;
+  if (typeof trackRef === "string" && trackRef) {
+    const track = await new LabelTrackMutator(pb).setEntity(trackRef, entityId);
+    return {
+      type,
+      labelId,
+      via: "track",
+      targetId: track.id,
+      targetName: track.trackId
+    };
+  }
+  const clusterRef = row.LabelEntityRef;
+  if (typeof clusterRef === "string" && clusterRef) {
+    const cluster = await new LabelEntityMutator(pb).setEntity(
+      clusterRef,
+      entityId
+    );
+    return {
+      type,
+      labelId,
+      via: "cluster",
+      targetId: cluster.id,
+      targetName: cluster.canonicalName
+    };
+  }
+  throw new Error(
+    `${type} label ${labelId} has neither a track nor a provider cluster \u2014 nothing to attach an entity tag to`
+  );
+}
+async function resolveLinkTargets(pb, opts) {
+  const trackIds = [...opts.track ?? []];
+  const clusterIds = [...opts.cluster ?? []];
+  for (const pair of opts.label ?? []) {
+    trackIds.push(await trackOfLabelPair(pb, pair));
+  }
+  for (const [flag, value] of [
+    ["--speaker", opts.speaker],
+    ["--face", opts.face]
+  ]) {
+    if (!value) continue;
+    const [mediaId, providerId] = splitPair(value, flag);
+    trackIds.push((await trackByMediaAndTrackId(pb, mediaId, providerId)).id);
+  }
+  if (trackIds.length === 0 && clusterIds.length === 0) {
+    throw new Error(
+      "Provide at least one target: --track, --cluster, --label, --speaker, or --face"
+    );
+  }
+  return {
+    trackIds: [...new Set(trackIds)],
+    clusterIds: [...new Set(clusterIds)]
+  };
+}
+async function applyEntityLinks(pb, entityId, targets) {
+  const trackMutator = new LabelTrackMutator(pb);
+  const clusterMutator = new LabelEntityMutator(pb);
+  const tracks = await Promise.all(
+    targets.trackIds.map((id) => trackMutator.setEntity(id, entityId))
+  );
+  const clusters = await Promise.all(
+    targets.clusterIds.map((id) => clusterMutator.setEntity(id, entityId))
+  );
+  return { tracks, clusters };
+}
+async function getEntityAppearances(pb, entityId, opts = {}) {
+  const clauses = [trackEntityAttributionFilter(entityId)];
+  if (opts.media) {
+    clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
+  }
+  const result = await new LabelTrackMutator(pb).getList(
+    1,
+    opts.limit ?? 100,
+    clauses.join(" && "),
+    "MediaRef,start",
+    ["MediaRef.UploadRef", "LabelEntityRef"]
+  );
+  const appearances = result.items.map((track) => {
+    const t2 = track;
+    const labelType = t2.expand?.LabelEntityRef?.labelType;
+    return {
+      track: t2,
+      mediaName: mediaNameOf(t2),
+      labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? "",
+      via: t2.EntityRef === entityId ? "track" : "cluster"
+    };
+  });
+  return { appearances, totalItems: result.totalItems };
+}
+async function getEntityTaggedMedia(pb, entityId, limit = 100) {
+  const result = await new MediaTagMutator(pb).getList(
+    1,
+    limit,
+    `EntityRef = "${entityId}"`,
+    "-created",
+    ["MediaRef.UploadRef"]
+  );
+  const tagged = result.items.map((tag) => {
+    const row = tag;
+    const media = row.expand?.MediaRef;
+    return {
+      tagId: tag.id,
+      mediaId: tag.MediaRef,
+      mediaName: mediaNameOf(row),
+      mediaType: media ? String(media.mediaType) : "?",
+      duration: media?.duration ?? 0
+    };
+  });
+  return { tagged, totalItems: result.totalItems };
+}
+async function getEntityLabels(pb, entityId, opts = {}) {
+  const types = opts.types ?? Object.values(LabelType);
+  const limit = opts.limit ?? 100;
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const clauses = [labelAttributionFilter(type, entityId)];
+      if (opts.media) {
+        clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
+      }
+      const result = await labelMutator(pb, type).getList(
+        1,
+        limit,
+        clauses.join(" && "),
+        "MediaRef,start",
+        ["MediaRef.UploadRef", ...attributionExpands(type)]
+      );
+      return { type, result };
+    })
+  );
+  const hits = results.flatMap(
+    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
+  );
+  hits.sort(
+    (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef) || a.record.start - b.record.start
+  );
+  const totalItems = results.reduce(
+    (sum, { result }) => sum + result.totalItems,
+    0
+  );
+  return { hits, totalItems };
+}
+async function getEntityWords(pb, entityId, opts = {}) {
+  const clauses = [entityAttributionFilter(entityId)];
+  if (opts.media) {
+    clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
+  }
+  const result = await new LabelSpeakerMutator(pb).getList(
+    1,
+    opts.limit ?? 200,
+    clauses.join(" && "),
+    "MediaRef,start",
+    ["MediaRef.UploadRef"]
+  );
+  return {
+    utterances: result.items,
+    totalItems: result.totalItems
+  };
+}
+function formatEntityTranscript(utterances) {
+  const blocks = [];
+  let currentMedia = null;
+  for (const u of utterances) {
+    if (u.MediaRef !== currentMedia) {
+      blocks.push(`== ${mediaNameOf(u)} ==`);
+      currentMedia = u.MediaRef;
+    }
+    blocks.push(u.transcript);
+  }
+  return blocks.join("\n\n");
+}
+function distinctMedia(rows) {
+  const seen = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const id = row.MediaRef ?? "";
+    if (id && !seen.has(id)) seen.set(id, mediaNameOf(row));
+  }
+  return [...seen.entries()].map(([id, name]) => ({ id, name }));
+}
+
 // src/lib/media.ts
 function mediaClipMediaLabel(clip) {
   return clip.expand?.MediaRef?.expand?.UploadRef?.name ?? clip.MediaRef;
@@ -67356,6 +67736,18 @@ function registerTimelineClipSegmentCommands(clips) {
 }
 
 // src/commands/media.ts
+var tagColumns = [
+  { header: "ENTITY", value: (t2) => t2.expand?.EntityRef?.name ?? t2.EntityRef },
+  { header: "KIND", value: (t2) => String(t2.expand?.EntityRef?.kind ?? "?") },
+  { header: "ENTITY ID", value: (t2) => t2.EntityRef }
+];
+async function requireMedia2(pb, mediaId) {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found: ${mediaId}`);
+  }
+  return media;
+}
 function registerMediaCommands(program3) {
   const media = program3.command("media").description("Browse workspace media");
   withJsonOption(
@@ -67438,6 +67830,106 @@ function registerMediaCommands(program3) {
         }
         const label = updated.label ? ` "${updated.label}"` : "";
         success(`Updated media ${updated.id}${label}`);
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+  const mediaShow = media.command("show <mediaId>").description("Show one media item with its entity tags");
+  withJsonOption(mediaShow).action(async (mediaId, opts) => {
+    try {
+      const pb = await requireClient();
+      const found = await requireMedia2(pb, mediaId);
+      const tags = await new MediaTagMutator(pb).getByMedia(
+        found.id,
+        1,
+        100,
+        "EntityRef"
+      );
+      if (opts.json) {
+        printRecord({ ...found, tags: tags.items }, [], true);
+        return;
+      }
+      info(
+        `media ${found.id} "${mediaLabel(found)}" \u2014 ${found.mediaType} ${formatDuration(found.duration)} ${found.width}x${found.height}`
+      );
+      if (found.label) info(`label: ${found.label}`);
+      if (found.description) info(found.description);
+      if (tags.items.length === 0) {
+        info(
+          "no entity tags \u2014 vw media tag <mediaId> <entity> tags this media with an entity"
+        );
+        return;
+      }
+      info(
+        `tagged with ${tags.totalItems} ${tags.totalItems === 1 ? "entity" : "entities"}:`
+      );
+      printList(tags.items, tagColumns, {
+        totalItems: tags.totalItems,
+        hint: "vw media untag <mediaId> <entity> removes a tag"
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  const mediaTag = media.command("tag <mediaId> <entityNameOrId>").description(
+    'Tag a media item with an entity ("this media features X") \u2014 a whole-media link, unlike vw label tag which attributes one detection'
+  );
+  withJsonOption(mediaTag).action(
+    async (mediaId, entityNameOrId, opts) => {
+      try {
+        const pb = await requireClient();
+        const found = await requireMedia2(pb, mediaId);
+        const entity = await resolveEntity(
+          pb,
+          found.WorkspaceRef,
+          entityNameOrId
+        );
+        const tag = await new MediaTagMutator(pb).tag({
+          WorkspaceRef: found.WorkspaceRef,
+          MediaRef: found.id,
+          EntityRef: entity.id
+        });
+        if (opts.json) {
+          printRecord({ ...tag, entity }, [], true);
+          return;
+        }
+        success(
+          `Tagged media ${found.id} "${mediaLabel(found)}" \u2192 ${entity.kind} "${entity.name}"`
+        );
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+  const mediaUntag = media.command("untag <mediaId> <entityNameOrId>").description("Remove an entity tag from a media item (no-op if absent)");
+  withJsonOption(mediaUntag).action(
+    async (mediaId, entityNameOrId, opts) => {
+      try {
+        const pb = await requireClient();
+        const found = await requireMedia2(pb, mediaId);
+        const entity = await resolveEntity(
+          pb,
+          found.WorkspaceRef,
+          entityNameOrId
+        );
+        const removed = await new MediaTagMutator(pb).untag(
+          found.id,
+          entity.id
+        );
+        if (opts.json) {
+          printRecord({ removed, MediaRef: found.id, entity }, [], true);
+          return;
+        }
+        if (removed) {
+          success(
+            `Untagged media ${found.id} "${mediaLabel(found)}" \u2014 removed ${entity.kind} "${entity.name}"`
+          );
+        } else {
+          info(
+            `Media ${found.id} was not tagged with "${entity.name}" \u2014 nothing to do`
+          );
+        }
       } catch (err) {
         handleError(err);
       }
@@ -67732,269 +68224,6 @@ function registerDirectoryCommands(program3) {
   });
 }
 
-// src/lib/entity.ts
-function parseEntityKind(value) {
-  const kinds = Object.values(EntityKind);
-  if (!kinds.includes(value)) {
-    throw new InvalidArgumentError(
-      `Invalid entity kind "${value}". Valid kinds: ${kinds.join(", ")}`
-    );
-  }
-  return value;
-}
-function parseAliases(value) {
-  return value.split(",").map((a) => a.trim()).filter(Boolean);
-}
-async function resolveEntity(pb, workspaceId, ref) {
-  const mutator = new EntityMutator(pb);
-  const byId = await mutator.getById(ref);
-  if (byId && byId.WorkspaceRef === workspaceId) return byId;
-  const byName = await mutator.getByName(workspaceId, ref);
-  if (byName) return byName;
-  const fuzzy = await mutator.search(workspaceId, ref, 1, 5);
-  if (fuzzy.items.length === 1) return fuzzy.items[0];
-  if (fuzzy.items.length > 1) {
-    const candidates = fuzzy.items.map((e2) => `${e2.name} (${e2.kind}, ${e2.id})`).join(", ");
-    throw new Error(
-      `Entity "${ref}" is ambiguous \u2014 matches: ${candidates}. Use the id.`
-    );
-  }
-  throw new Error(
-    `No entity matching "${ref}" \u2014 vw entity list shows this workspace's entities`
-  );
-}
-function mediaNameOf(record2) {
-  const media = record2.expand?.MediaRef;
-  return media ? mediaLabel(media) : record2.MediaRef ?? "";
-}
-var linkTargetOptions = {
-  track: {
-    flags: "--track <ids>",
-    description: "comma-separated LabelTrack record ids",
-    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
-  },
-  cluster: {
-    flags: "--cluster <ids>",
-    description: "comma-separated LabelEntity (provider cluster) record ids \u2014 links every label in the cluster, across all media",
-    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
-  },
-  label: {
-    flags: "--label <pairs>",
-    description: "comma-separated type:labelId pairs (e.g. face:abc123) \u2014 links each label row's track",
-    parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
-  },
-  speaker: {
-    flags: "--speaker <mediaId:speakerId>",
-    description: "link one diarized speaker in one media (e.g. m1:speaker_0)"
-  },
-  face: {
-    flags: "--face <mediaId:trackId>",
-    description: "link one face track in one media"
-  }
-};
-function splitPair(value, flag) {
-  const idx = value.indexOf(":");
-  if (idx <= 0 || idx === value.length - 1) {
-    throw new Error(`${flag} expects <mediaId>:<providerId>, got "${value}"`);
-  }
-  return [value.slice(0, idx), value.slice(idx + 1)];
-}
-async function trackByMediaAndTrackId(pb, mediaId, trackId) {
-  const track = await new LabelTrackMutator(pb).getFirstByFilter(
-    pb.filter("MediaRef = {:media} && trackId = {:trackId}", {
-      media: mediaId,
-      trackId
-    }),
-    void 0,
-    "-created"
-  );
-  if (!track) {
-    throw new Error(
-      `No label track "${trackId}" in media ${mediaId} \u2014 vw label list -m ${mediaId} shows its labels`
-    );
-  }
-  return track;
-}
-async function trackOfLabelPair(pb, pair) {
-  const [typeArg, labelId] = splitPair(pair, "--label");
-  const type = parseLabelType(typeArg);
-  const record2 = await labelMutator(pb, type).getById(labelId);
-  if (!record2) {
-    throw new Error(`No ${type} label with id ${labelId}`);
-  }
-  const trackRef = record2.LabelTrackRef;
-  if (typeof trackRef !== "string" || !trackRef) {
-    throw new Error(
-      `${type} label ${labelId} has no track \u2014 link its provider cluster instead (vw entity link <entity> --cluster <labelEntityId>), or let vw label tag ${type} ${labelId} <entity> resolve that for you`
-    );
-  }
-  return trackRef;
-}
-async function tagLabel(pb, type, labelId, entityId) {
-  const record2 = await labelMutator(pb, type).getById(labelId);
-  if (!record2) {
-    throw new Error(
-      `No ${type} label with id ${labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
-    );
-  }
-  const row = record2;
-  const trackRef = row.LabelTrackRef;
-  if (typeof trackRef === "string" && trackRef) {
-    const track = await new LabelTrackMutator(pb).setEntity(trackRef, entityId);
-    return {
-      type,
-      labelId,
-      via: "track",
-      targetId: track.id,
-      targetName: track.trackId
-    };
-  }
-  const clusterRef = row.LabelEntityRef;
-  if (typeof clusterRef === "string" && clusterRef) {
-    const cluster = await new LabelEntityMutator(pb).setEntity(
-      clusterRef,
-      entityId
-    );
-    return {
-      type,
-      labelId,
-      via: "cluster",
-      targetId: cluster.id,
-      targetName: cluster.canonicalName
-    };
-  }
-  throw new Error(
-    `${type} label ${labelId} has neither a track nor a provider cluster \u2014 nothing to attach an entity tag to`
-  );
-}
-async function resolveLinkTargets(pb, opts) {
-  const trackIds = [...opts.track ?? []];
-  const clusterIds = [...opts.cluster ?? []];
-  for (const pair of opts.label ?? []) {
-    trackIds.push(await trackOfLabelPair(pb, pair));
-  }
-  for (const [flag, value] of [
-    ["--speaker", opts.speaker],
-    ["--face", opts.face]
-  ]) {
-    if (!value) continue;
-    const [mediaId, providerId] = splitPair(value, flag);
-    trackIds.push((await trackByMediaAndTrackId(pb, mediaId, providerId)).id);
-  }
-  if (trackIds.length === 0 && clusterIds.length === 0) {
-    throw new Error(
-      "Provide at least one target: --track, --cluster, --label, --speaker, or --face"
-    );
-  }
-  return {
-    trackIds: [...new Set(trackIds)],
-    clusterIds: [...new Set(clusterIds)]
-  };
-}
-async function applyEntityLinks(pb, entityId, targets) {
-  const trackMutator = new LabelTrackMutator(pb);
-  const clusterMutator = new LabelEntityMutator(pb);
-  const tracks = await Promise.all(
-    targets.trackIds.map((id) => trackMutator.setEntity(id, entityId))
-  );
-  const clusters = await Promise.all(
-    targets.clusterIds.map((id) => clusterMutator.setEntity(id, entityId))
-  );
-  return { tracks, clusters };
-}
-async function getEntityAppearances(pb, entityId, opts = {}) {
-  const clauses = [trackEntityAttributionFilter(entityId)];
-  if (opts.media) {
-    clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
-  }
-  const result = await new LabelTrackMutator(pb).getList(
-    1,
-    opts.limit ?? 100,
-    clauses.join(" && "),
-    "MediaRef,start",
-    ["MediaRef.UploadRef", "LabelEntityRef"]
-  );
-  const appearances = result.items.map((track) => {
-    const t2 = track;
-    const labelType = t2.expand?.LabelEntityRef?.labelType;
-    return {
-      track: t2,
-      mediaName: mediaNameOf(t2),
-      labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? "",
-      via: t2.EntityRef === entityId ? "track" : "cluster"
-    };
-  });
-  return { appearances, totalItems: result.totalItems };
-}
-async function getEntityLabels(pb, entityId, opts = {}) {
-  const types = opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 100;
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const clauses = [labelAttributionFilter(type, entityId)];
-      if (opts.media) {
-        clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
-      }
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        clauses.join(" && "),
-        "MediaRef,start",
-        ["MediaRef.UploadRef", ...attributionExpands(type)]
-      );
-      return { type, result };
-    })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  hits.sort(
-    (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef) || a.record.start - b.record.start
-  );
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
-async function getEntityWords(pb, entityId, opts = {}) {
-  const clauses = [entityAttributionFilter(entityId)];
-  if (opts.media) {
-    clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
-  }
-  const result = await new LabelSpeakerMutator(pb).getList(
-    1,
-    opts.limit ?? 200,
-    clauses.join(" && "),
-    "MediaRef,start",
-    ["MediaRef.UploadRef"]
-  );
-  return {
-    utterances: result.items,
-    totalItems: result.totalItems
-  };
-}
-function formatEntityTranscript(utterances) {
-  const blocks = [];
-  let currentMedia = null;
-  for (const u of utterances) {
-    if (u.MediaRef !== currentMedia) {
-      blocks.push(`== ${mediaNameOf(u)} ==`);
-      currentMedia = u.MediaRef;
-    }
-    blocks.push(u.transcript);
-  }
-  return blocks.join("\n\n");
-}
-function distinctMedia(rows) {
-  const seen = /* @__PURE__ */ new Map();
-  for (const row of rows) {
-    const id = row.MediaRef ?? "";
-    if (id && !seen.has(id)) seen.set(id, mediaNameOf(row));
-  }
-  return [...seen.entries()].map(([id, name]) => ({ id, name }));
-}
-
 // src/commands/label.ts
 function tagScopeLine(result) {
   return result.via === "track" ? `via its track (trackId ${result.targetName}) \u2014 identifies this instance across the whole media` : `via its provider cluster "${result.targetName}" \u2014 applies to every label in the cluster, workspace-wide`;
@@ -68194,6 +68423,12 @@ var appearanceColumns = [
   { header: "DUR", value: (a) => formatDuration(a.track.duration) },
   { header: "VIA", value: (a) => a.via }
 ];
+var taggedMediaColumns = [
+  { header: "MEDIA ID", value: (t2) => t2.mediaId },
+  { header: "NAME", value: (t2) => t2.mediaName },
+  { header: "TYPE", value: (t2) => t2.mediaType },
+  { header: "DURATION", value: (t2) => formatDuration(t2.duration) }
+];
 var utteranceColumns = [
   { header: "MEDIA", value: (u) => mediaNameOf(u) },
   { header: "START", value: (u) => `${u.start.toFixed(2)}s` },
@@ -68270,7 +68505,9 @@ function registerEntityCommands(program3) {
       handleError(err);
     }
   });
-  const show = entity.command("show <nameOrId>").description("Show one entity with its linked tracks and appearances").option("-w, --workspace <id>", "workspace id override");
+  const show = entity.command("show <nameOrId>").description(
+    "Show one entity with its linked tracks, appearances, and tagged media"
+  ).option("-w, --workspace <id>", "workspace id override");
   withJsonOption(show).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
@@ -68282,8 +68519,19 @@ function registerEntityCommands(program3) {
         { limit: 20 }
       );
       const media = distinctMedia(appearances2.map((a) => a.track));
+      const taggedMedia = await getEntityTaggedMedia(pb, found.id, 20);
       if (opts.json) {
-        printRecord({ ...found, appearances: appearances2, totalItems }, [], true);
+        printRecord(
+          {
+            ...found,
+            appearances: appearances2,
+            totalItems,
+            taggedMedia: taggedMedia.tagged,
+            taggedMediaTotal: taggedMedia.totalItems
+          },
+          [],
+          true
+        );
         return;
       }
       const aliases = Array.isArray(found.aliases) ? found.aliases : [];
@@ -68298,6 +68546,14 @@ function registerEntityCommands(program3) {
         totalItems,
         hint: "vw entity words/appearances <name|id> queries across all media"
       });
+      if (taggedMedia.tagged.length > 0) {
+        info("");
+        info(`tagged on ${taggedMedia.totalItems} media:`);
+        printList(taggedMedia.tagged, taggedMediaColumns, {
+          totalItems: taggedMedia.totalItems,
+          hint: "vw media untag <mediaId> <entity> removes a tag"
+        });
+      }
     } catch (err) {
       handleError(err);
     }
@@ -70494,7 +70750,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.4";
+    return "0.10.5";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

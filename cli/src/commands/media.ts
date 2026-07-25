@@ -1,11 +1,20 @@
 import type { Command } from 'commander';
-import { MediaClipMutator, MediaMutator } from '@project/shared';
+import {
+  MediaClipMutator,
+  MediaMutator,
+  MediaTagMutator,
+  type Entity,
+  type MediaTag,
+  type TypedPocketBase,
+} from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import {
+  mediaLabel,
   pickMedia,
   resolveWorkspaceId,
   type MediaWithUpload,
 } from '../lib/select.js';
+import { resolveEntity } from '../lib/entity.js';
 import {
   clipFieldOptions,
   createMediaClip,
@@ -29,7 +38,28 @@ import {
   printList,
   printRecord,
   success,
+  type Column,
 } from '../lib/output.js';
+
+/** A media tag with its entity expanded for display. */
+type MediaTagWithEntity = MediaTag & { expand?: { EntityRef?: Entity } };
+
+const tagColumns: Column<MediaTagWithEntity>[] = [
+  { header: 'ENTITY', value: (t) => t.expand?.EntityRef?.name ?? t.EntityRef },
+  { header: 'KIND', value: (t) => String(t.expand?.EntityRef?.kind ?? '?') },
+  { header: 'ENTITY ID', value: (t) => t.EntityRef },
+];
+
+async function requireMedia(
+  pb: TypedPocketBase,
+  mediaId: string
+): Promise<MediaWithUpload> {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found: ${mediaId}`);
+  }
+  return media as MediaWithUpload;
+}
 
 export function registerMediaCommands(program: Command): void {
   const media = program.command('media').description('Browse workspace media');
@@ -139,6 +169,119 @@ export function registerMediaCommands(program: Command): void {
         }
         const label = updated.label ? ` "${updated.label}"` : '';
         success(`Updated media ${updated.id}${label}`);
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+  const mediaShow = media
+    .command('show <mediaId>')
+    .description('Show one media item with its entity tags');
+  withJsonOption(mediaShow).action(async (mediaId: string, opts) => {
+    try {
+      const pb = await requireClient();
+      const found = await requireMedia(pb, mediaId);
+      const tags = await new MediaTagMutator(pb).getByMedia(
+        found.id,
+        1,
+        100,
+        'EntityRef'
+      );
+
+      if (opts.json) {
+        printRecord({ ...found, tags: tags.items }, [], true);
+        return;
+      }
+      info(
+        `media ${found.id} "${mediaLabel(found)}" — ${found.mediaType} ` +
+          `${formatDuration(found.duration)} ${found.width}x${found.height}`
+      );
+      if (found.label) info(`label: ${found.label}`);
+      if (found.description) info(found.description);
+      if (tags.items.length === 0) {
+        info(
+          'no entity tags — vw media tag <mediaId> <entity> tags this media with an entity'
+        );
+        return;
+      }
+      info(
+        `tagged with ${tags.totalItems} ${tags.totalItems === 1 ? 'entity' : 'entities'}:`
+      );
+      printList(tags.items as MediaTagWithEntity[], tagColumns, {
+        totalItems: tags.totalItems,
+        hint: 'vw media untag <mediaId> <entity> removes a tag',
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+  const mediaTag = media
+    .command('tag <mediaId> <entityNameOrId>')
+    .description(
+      'Tag a media item with an entity ("this media features X") — a whole-media link, unlike vw label tag which attributes one detection'
+    );
+  withJsonOption(mediaTag).action(
+    async (mediaId: string, entityNameOrId: string, opts) => {
+      try {
+        const pb = await requireClient();
+        const found = await requireMedia(pb, mediaId);
+        const entity = await resolveEntity(
+          pb,
+          found.WorkspaceRef,
+          entityNameOrId
+        );
+        const tag = await new MediaTagMutator(pb).tag({
+          WorkspaceRef: found.WorkspaceRef,
+          MediaRef: found.id,
+          EntityRef: entity.id,
+        });
+        if (opts.json) {
+          printRecord({ ...tag, entity }, [], true);
+          return;
+        }
+        success(
+          `Tagged media ${found.id} "${mediaLabel(found)}" → ` +
+            `${entity.kind} "${entity.name}"`
+        );
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+  const mediaUntag = media
+    .command('untag <mediaId> <entityNameOrId>')
+    .description('Remove an entity tag from a media item (no-op if absent)');
+  withJsonOption(mediaUntag).action(
+    async (mediaId: string, entityNameOrId: string, opts) => {
+      try {
+        const pb = await requireClient();
+        const found = await requireMedia(pb, mediaId);
+        const entity = await resolveEntity(
+          pb,
+          found.WorkspaceRef,
+          entityNameOrId
+        );
+        const removed = await new MediaTagMutator(pb).untag(
+          found.id,
+          entity.id
+        );
+        if (opts.json) {
+          printRecord({ removed, MediaRef: found.id, entity }, [], true);
+          return;
+        }
+        if (removed) {
+          success(
+            `Untagged media ${found.id} "${mediaLabel(found)}" — removed ` +
+              `${entity.kind} "${entity.name}"`
+          );
+        } else {
+          info(
+            `Media ${found.id} was not tagged with "${entity.name}" — nothing to do`
+          );
+        }
       } catch (err) {
         handleError(err);
       }

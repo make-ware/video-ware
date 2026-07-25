@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.5...video-ware-v0.10.6) (2026-07-25)
+
+
+### Bug Fixes
+
+* add banner for CLI ([d3b36b0](https://github.com/make-ware/video-ware/commit/d3b36b0c3531b54285b95b490082b3f085776437))
+* add infinite data pattern to media ([af39d2d](https://github.com/make-ware/video-ware/commit/af39d2d5a153ab3d8cd55e9c40392b0a5b33e920))
+* add infinite data to tasks page ([06e77ad](https://github.com/make-ware/video-ware/commit/06e77adc5a82ec8946c23a19fbb22a4c5d87d37b))
+* add infinite data to timeline ([4518a76](https://github.com/make-ware/video-ware/commit/4518a76ebbd3f55f108baebedcbcb9c451f4ebe6))
+* add media tag entity ([2b77705](https://github.com/make-ware/video-ware/commit/2b777057f72014f96f24a378d2063d0b86c3f976))
+* increase timeouts for chunked uploads ([da7102a](https://github.com/make-ware/video-ware/commit/da7102a69aa73b52602a2bedea4f09fcd0256b50))
+
 ## [0.10.5](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.4...video-ware-v0.10.5) (2026-07-24)
 
 

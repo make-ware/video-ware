@@ -10,7 +10,19 @@
 export const qk = {
   media: {
     all: ['media'] as const,
+    /** Prefix for every media list query — gap-heal / bulk-op invalidation. */
+    lists: ['media', 'list'] as const,
+    list: (args: {
+      workspaceId: string;
+      /** null = all directories, '' = workspace root, id = one directory. */
+      directoryId: string | null;
+      mediaType: string;
+      sort: string;
+      search: string;
+    }) => ['media', 'list', args] as const,
     detail: (id: string) => ['media', 'detail', id] as const,
+    neighbors: (workspaceId: string, mediaId: string) =>
+      ['media', 'neighbors', workspaceId, mediaId] as const,
   },
   clips: {
     library: (args: {

@@ -19,6 +19,7 @@ import type {
   LabelJob,
 } from '@project/shared';
 import { ProcessingProvider, ALL_LABEL_DETECTIONS } from '@project/shared';
+import type { ListResult } from 'pocketbase';
 
 /**
  * Media with preview assets
@@ -36,6 +37,22 @@ export type MediaWithPreviews<
   clips?: MediaClip[];
 };
 
+/** The canonical media list item shape served by `MediaService.listMedia`. */
+export type MediaListItem = MediaWithPreviews<
+  'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef'
+>;
+
+/** Server-side filters for `MediaService.listMedia`. */
+export interface MediaListQuery {
+  workspaceId: string;
+  /** null/undefined = all directories; '' = workspace root; id = directory. */
+  directoryId?: string | null;
+  /** 'all'/undefined = no type filter. */
+  mediaType?: string;
+  /** Matched against label, description, and UploadRef.name. */
+  search?: string;
+}
+
 /**
  * Media service that provides high-level media operations
  * Handles media retrieval with preview assets and metadata
@@ -47,6 +64,7 @@ export interface DeleteMediaResult {
 }
 
 export class MediaService {
+  private pb: TypedPocketBase;
   private mediaMutator: MediaMutator;
   private fileMutator: FileMutator;
   private mediaClipMutator: MediaClipMutator;
@@ -55,6 +73,7 @@ export class MediaService {
   private labelJobMutator: LabelJobMutator;
 
   constructor(pb: TypedPocketBase) {
+    this.pb = pb;
     this.mediaMutator = new MediaMutator(pb);
     this.fileMutator = new FileMutator(pb);
     this.mediaClipMutator = new MediaClipMutator(pb);
@@ -82,7 +101,7 @@ export class MediaService {
       return null;
     }
 
-    return this.enrichMediaWithPreviews(media);
+    return this.enrichMedia(media);
   }
 
   /**
@@ -106,12 +125,7 @@ export class MediaService {
       ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
 
-    // Enrich each media item with preview URLs
-    const enrichedMedia = await Promise.all(
-      result.items.map((media) => this.enrichMediaWithPreviews(media))
-    );
-
-    return enrichedMedia;
+    return result.items.map((media) => this.enrichMedia(media));
   }
 
   /**
@@ -131,9 +145,53 @@ export class MediaService {
       ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
 
-    return Promise.all(
-      result.items.map((media) => this.enrichMediaWithPreviews(media))
+    return result.items.map((media) => this.enrichMedia(media));
+  }
+
+  /**
+   * List media with server-side filters, sort, and the full pagination
+   * envelope preserved (unlike getMediaByWorkspace/getMediaByDirectory,
+   * which return bare arrays). User input is bound via pb.filter — never
+   * interpolated into the filter string.
+   */
+  async listMedia(
+    query: MediaListQuery,
+    page = 1,
+    perPage = 24,
+    sort = '-created'
+  ): Promise<ListResult<MediaListItem>> {
+    const clauses = [
+      this.pb.filter('WorkspaceRef = {:ws}', { ws: query.workspaceId }),
+    ];
+    if (query.directoryId !== null && query.directoryId !== undefined) {
+      clauses.push(
+        this.pb.filter('DirectoryRef = {:dir}', { dir: query.directoryId })
+      );
+    }
+    if (query.mediaType && query.mediaType !== 'all') {
+      clauses.push(
+        this.pb.filter('mediaType = {:type}', { type: query.mediaType })
+      );
+    }
+    const search = query.search?.trim();
+    if (search) {
+      clauses.push(
+        this.pb.filter(
+          '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})',
+          { q: search }
+        )
+      );
+    }
+
+    const result = await this.mediaMutator.getList(
+      page,
+      perPage,
+      clauses,
+      sort,
+      ['thumbnailFileRef', 'spriteFileRef', 'UploadRef']
     );
+
+    return { ...result, items: result.items.map((m) => this.enrichMedia(m)) };
   }
 
   /**
@@ -155,7 +213,7 @@ export class MediaService {
       return null;
     }
 
-    return this.enrichMediaWithPreviews(media);
+    return this.enrichMedia(media);
   }
 
   /**
@@ -269,13 +327,15 @@ export class MediaService {
   }
 
   /**
-   * Enrich media with preview URLs and clips
+   * Enrich media with preview URLs from its expanded File relations.
+   * Pure and synchronous so realtime handlers can enrich SSE records
+   * without side effects.
    * @param media The media record
-   * @returns Media with preview URLs and clips
+   * @returns Media with preview URLs
    */
-  private async enrichMediaWithPreviews<
+  enrichMedia<
     E extends keyof MediaRelations = 'thumbnailFileRef' | 'spriteFileRef',
-  >(media: Expanded<Media, MediaRelations, E>): Promise<MediaWithPreviews<E>> {
+  >(media: Expanded<Media, MediaRelations, E>): MediaWithPreviews<E> {
     const enriched = { ...media } as MediaWithPreviews<E>;
 
     // Get thumbnail URL from expand if available

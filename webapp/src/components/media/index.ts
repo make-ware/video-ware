@@ -11,3 +11,10 @@ export {
   getMediaTypeLabel,
   normalizeMediaType,
 } from './media-type-icon';
+export {
+  MEDIA_SORT_OPTIONS,
+  DEFAULT_MEDIA_SORT,
+  getMediaSortOption,
+  type MediaSortValue,
+  type MediaSortOption,
+} from './media-sort';

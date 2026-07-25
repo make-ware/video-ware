@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { useMedia } from '@/hooks/use-media';
+import { useMediaNeighbors } from '@/hooks/use-media-neighbors';
 import { Button } from '@/components/ui/button';
 
 interface MediaNavigationPanelProps {
@@ -17,12 +17,10 @@ export function MediaNavigationPanel({
   const params = useParams();
   const pathname = usePathname();
   const workspaceId = params.workspaceId as string;
-  const { media, isLoading } = useMedia();
-
-  // Find current index
-  const currentIndex = React.useMemo(() => {
-    return media.findIndex((m) => m.id === currentMediaId);
-  }, [media, currentMediaId]);
+  const { prevId, nextId, position, totalItems, isLoading } = useMediaNeighbors(
+    workspaceId,
+    currentMediaId
+  );
 
   // Capture the subpage suffix after the current media id (e.g.
   // "/labels/speakers", "/details", or "") so it can be preserved when
@@ -33,18 +31,14 @@ export function MediaNavigationPanel({
   }, [pathname, workspaceId, currentMediaId]);
 
   const handlePrev = () => {
-    if (currentIndex > 0) {
-      router.push(
-        `/ws/${workspaceId}/media/${media[currentIndex - 1].id}${subPath}`
-      );
+    if (prevId) {
+      router.push(`/ws/${workspaceId}/media/${prevId}${subPath}`);
     }
   };
 
   const handleNext = () => {
-    if (currentIndex < media.length - 1) {
-      router.push(
-        `/ws/${workspaceId}/media/${media[currentIndex + 1].id}${subPath}`
-      );
+    if (nextId) {
+      router.push(`/ws/${workspaceId}/media/${nextId}${subPath}`);
     }
   };
 
@@ -58,17 +52,13 @@ export function MediaNavigationPanel({
     );
   }
 
-  // Calculate current item number (1-based)
-  const currentNumber = currentIndex !== -1 ? currentIndex + 1 : 0;
-  const totalItems = media.length;
-
   return (
     <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 w-full shadow-sm">
       <div className="flex items-center justify-between py-2 px-4">
         <Button
           variant="ghost"
           onClick={handlePrev}
-          disabled={currentIndex <= 0}
+          disabled={!prevId}
           className="gap-2"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -76,13 +66,13 @@ export function MediaNavigationPanel({
         </Button>
 
         <span className="text-sm font-medium">
-          {currentNumber} / {totalItems}
+          {position} / {totalItems}
         </span>
 
         <Button
           variant="ghost"
           onClick={handleNext}
-          disabled={currentIndex < 0 || currentIndex >= media.length - 1}
+          disabled={!nextId}
           className="gap-2"
         >
           Next

@@ -28,7 +28,15 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { DirectorySelector } from '@/components/uploads/directory-selector';
-import { Film, FolderInput, FolderOpen, Trash2, X } from 'lucide-react';
+import {
+  Film,
+  FolderInput,
+  FolderOpen,
+  Loader2,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { MediaCard } from './media-card';
 import { MediaTypeIcon, getMediaTypeLabel } from './media-type-icon';
 import { useState } from 'react';
@@ -40,7 +48,15 @@ interface MediaGalleryProps {
   className?: string;
   directoryFilter?: string | null;
   mediaTypeFilter?: string;
+  /** True when a search query is active (drives the empty state copy). */
+  searchActive?: boolean;
   processingMedia?: Map<string, string>;
+  // Pagination (load-more) props
+  /** Server-side total; the header badge falls back to media.length. */
+  totalItems?: number;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  onLoadMore?: () => void;
   // Multi-select props
   selectedIds?: Set<string>;
   onSelectionClick?: (mediaId: string, e: React.MouseEvent) => void;
@@ -60,7 +76,12 @@ export function MediaGallery({
   className,
   directoryFilter,
   mediaTypeFilter,
+  searchActive = false,
   processingMedia,
+  totalItems,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  onLoadMore,
   selectedIds,
   onSelectionClick,
   onSelectAll,
@@ -136,7 +157,7 @@ export function MediaGallery({
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <span>Media Library</span>
-              <Badge variant="secondary">{media.length}</Badge>
+              <Badge variant="secondary">{totalItems ?? media.length}</Badge>
             </CardTitle>
 
             {/* Bulk action toolbar */}
@@ -203,7 +224,9 @@ export function MediaGallery({
             <Empty>
               <EmptyHeader>
                 <EmptyMediaIcon variant="icon">
-                  {typeFilterActive ? (
+                  {searchActive ? (
+                    <Search className="h-6 w-6" />
+                  ) : typeFilterActive ? (
                     <MediaTypeIcon
                       mediaType={mediaTypeFilter}
                       className="h-6 w-6"
@@ -215,40 +238,71 @@ export function MediaGallery({
                   )}
                 </EmptyMediaIcon>
                 <EmptyTitle>
-                  {typeFilterActive
-                    ? `No ${typeFilterLabel.toLowerCase()} here`
-                    : directoryFilter
-                      ? 'This folder is empty'
-                      : 'No media yet'}
+                  {searchActive
+                    ? 'No matches for your search'
+                    : typeFilterActive
+                      ? `No ${typeFilterLabel.toLowerCase()} here`
+                      : directoryFilter
+                        ? 'This folder is empty'
+                        : 'No media yet'}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {typeFilterActive
-                    ? 'Try a different media type or upload more files'
-                    : directoryFilter
-                      ? 'Upload files to this folder or move existing media here'
-                      : 'Upload videos to see them in your media library'}
+                  {searchActive
+                    ? 'Try a different search term or clear the filters'
+                    : typeFilterActive
+                      ? 'Try a different media type or upload more files'
+                      : directoryFilter
+                        ? 'Upload files to this folder or move existing media here'
+                        : 'Upload videos to see them in your media library'}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {media.map((item) => (
-                <MediaCard
-                  key={item.id}
-                  media={item}
-                  onClick={onMediaClick ? () => onMediaClick(item) : undefined}
-                  isSelected={selectedIds?.has(item.id) ?? false}
-                  isProcessing={processingMedia?.has(item.id) ?? false}
-                  processingLabel={processingMedia?.get(item.id)}
-                  showSelectionIndicator={hasSelection}
-                  onSelectionClick={
-                    onSelectionClick
-                      ? (e) => onSelectionClick(item.id, e)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {media.map((item) => (
+                  <MediaCard
+                    key={item.id}
+                    media={item}
+                    onClick={
+                      onMediaClick ? () => onMediaClick(item) : undefined
+                    }
+                    isSelected={selectedIds?.has(item.id) ?? false}
+                    isProcessing={processingMedia?.has(item.id) ?? false}
+                    processingLabel={processingMedia?.get(item.id)}
+                    showSelectionIndicator={hasSelection}
+                    onSelectionClick={
+                      onSelectionClick
+                        ? (e) => onSelectionClick(item.id, e)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+              {hasNextPage && onLoadMore && (
+                <div className="mt-6 flex flex-col items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={onLoadMore}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      'Load More'
+                    )}
+                  </Button>
+                  {totalItems !== undefined && (
+                    <span className="text-xs text-muted-foreground">
+                      Showing {media.length} of {totalItems}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

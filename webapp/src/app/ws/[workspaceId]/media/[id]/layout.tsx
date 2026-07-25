@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { useWorkspace } from '@/hooks/use-workspace';
-import { MediaProvider } from '@/contexts/media-context';
 import { MediaNavigationPanel } from '@/components/media/media-navigation-panel';
 
 export default function MediaDetailLayout({
@@ -16,9 +15,9 @@ export default function MediaDetailLayout({
   const id = params?.id as string;
 
   return (
-    <MediaProvider workspaceId={currentWorkspace?.id || ''}>
+    <>
       {currentWorkspace && id && <MediaNavigationPanel currentMediaId={id} />}
       {children}
-    </MediaProvider>
+    </>
   );
 }

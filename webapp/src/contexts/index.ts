@@ -6,6 +6,5 @@ export {
   UploadQueueContext,
   UploadQueueProvider,
 } from './upload-queue-context';
-export { MediaContext, MediaProvider } from './media-context';
 export { TaskContext, TaskProvider } from './task-context';
 export { PageMenuProvider } from './page-menu-context';

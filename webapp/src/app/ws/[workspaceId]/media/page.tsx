@@ -2,56 +2,89 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
-import { useMedia } from '@/hooks/use-media';
+import { useMediaList } from '@/hooks/use-media-list';
 import { useMultiSelect } from '@/hooks/use-multi-select';
 import { useProcessingMedia } from '@/hooks/use-processing-media';
 import { useRegisterPageMenu } from '@/hooks/use-page-menu';
 import type { PageMenuItem } from '@/contexts/page-menu-context';
-import { MediaProvider } from '@/contexts/media-context';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, Film, ListChecks, X } from 'lucide-react';
+import { AlertCircle, Film, ListChecks, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   MediaGallery,
   MediaTypeFilter,
-  mediaTypeFilterPredicate,
+  MEDIA_SORT_OPTIONS,
+  DEFAULT_MEDIA_SORT,
+  getMediaSortOption,
+  type MediaSortValue,
 } from '@/components/media';
 import { DirectoryBrowser } from '@/components/media/directory-browser';
 import type { Media } from '@project/shared';
 import { MediaMutator } from '@project/shared/mutator';
 import pb from '@/lib/pocketbase-client';
+import { qk } from '@/lib/query-keys';
+import { MediaService } from '@/services/media';
 import { toast } from 'sonner';
 
 function MediaPageContent() {
-  const {
-    media,
-    isLoading,
-    directoryFilter,
-    setDirectoryFilter,
-    bulkDeleteMedia,
-    refreshMedia,
-  } = useMedia();
   const { currentWorkspace } = useWorkspace();
   const processingMedia = useProcessingMedia(currentWorkspace?.id);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
+  const [directoryFilter, setDirectoryFilter] = useState<string | null>(
+    searchParams.get('dir')
+  );
   const [mediaTypeFilter, setMediaTypeFilter] = useState<string>(
     searchParams.get('type') ?? 'all'
   );
+  const [sort, setSort] = useState<MediaSortValue>(
+    getMediaSortOption(searchParams.get('sort')).value
+  );
+  // Search is transient (debounced input) and deliberately not URL-synced.
+  const [searchQuery, setSearchQuery] = useState('');
   const mediaMutator = useMemo(() => new MediaMutator(pb), []);
+  const mediaService = useMemo(() => new MediaService(pb), []);
 
-  // Build a URL that preserves both the directory and media-type filters
+  const {
+    items: media,
+    totalItems,
+    isLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+    removeFromCache,
+  } = useMediaList({
+    workspaceId: currentWorkspace?.id,
+    directoryFilter,
+    mediaTypeFilter,
+    searchQuery,
+    sort,
+  });
+
+  // Build a URL that preserves the directory, media-type, and sort params
   const buildMediaUrl = useCallback(
-    (dir: string | null, type: string) => {
+    (dir: string | null, type: string, sortValue: MediaSortValue) => {
       const params = new URLSearchParams();
-      if (dir) params.set('dir', dir);
+      // '' is the workspace root — only null (all directories) omits `dir`
+      if (dir !== null) params.set('dir', dir);
       if (type && type !== 'all') params.set('type', type);
+      if (sortValue !== DEFAULT_MEDIA_SORT) params.set('sort', sortValue);
       const qs = params.toString();
       return qs ? `${pathname}?${qs}` : pathname;
     },
@@ -68,19 +101,23 @@ function MediaPageContent() {
     if (typeParam !== mediaTypeFilter) {
       setMediaTypeFilter(typeParam);
     }
-  }, [searchParams, setDirectoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+    const sortParam = getMediaSortOption(searchParams.get('sort')).value;
+    if (sortParam !== sort) {
+      setSort(sortParam);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update URL when directory filter changes (replaceState avoids Next.js soft navigation/remount)
+  // Update URL when filters change (replaceState avoids Next.js soft navigation/remount)
   const handleDirectoryFilterChange = useCallback(
     (filter: string | null) => {
       setDirectoryFilter(filter);
       window.history.replaceState(
         null,
         '',
-        buildMediaUrl(filter, mediaTypeFilter)
+        buildMediaUrl(filter, mediaTypeFilter, sort)
       );
     },
-    [setDirectoryFilter, buildMediaUrl, mediaTypeFilter]
+    [buildMediaUrl, mediaTypeFilter, sort]
   );
 
   const handleMediaTypeFilterChange = useCallback(
@@ -89,21 +126,26 @@ function MediaPageContent() {
       window.history.replaceState(
         null,
         '',
-        buildMediaUrl(directoryFilter, type)
+        buildMediaUrl(directoryFilter, type, sort)
       );
     },
-    [buildMediaUrl, directoryFilter]
+    [buildMediaUrl, directoryFilter, sort]
   );
 
-  const filteredMedia = useMemo(() => {
-    const predicate = mediaTypeFilterPredicate(mediaTypeFilter);
-    return media.filter((m) => predicate(m.mediaType));
-  }, [media, mediaTypeFilter]);
-
-  const mediaIds = useMemo(
-    () => filteredMedia.map((m) => m.id),
-    [filteredMedia]
+  const handleSortChange = useCallback(
+    (value: string) => {
+      const sortValue = getMediaSortOption(value).value;
+      setSort(sortValue);
+      window.history.replaceState(
+        null,
+        '',
+        buildMediaUrl(directoryFilter, mediaTypeFilter, sortValue)
+      );
+    },
+    [buildMediaUrl, directoryFilter, mediaTypeFilter]
   );
+
+  const mediaIds = useMemo(() => media.map((m) => m.id), [media]);
 
   const {
     selectedIds,
@@ -133,8 +175,14 @@ function MediaPageContent() {
 
     setIsDeleting(true);
     try {
-      const result = await bulkDeleteMedia(Array.from(selectedIds));
+      const result = await mediaService.bulkDeleteMedia(
+        Array.from(selectedIds)
+      );
       clearSelection();
+      // Drop the deleted rows immediately; the invalidation trues up the
+      // server totals. SSE delete echoes then no-op (already absent).
+      removeFromCache(result.succeeded);
+      await queryClient.invalidateQueries({ queryKey: qk.media.lists });
 
       if (result.failed.length > 0) {
         toast.error(
@@ -150,7 +198,14 @@ function MediaPageContent() {
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, selectionCount, bulkDeleteMedia, clearSelection]);
+  }, [
+    selectedIds,
+    selectionCount,
+    mediaService,
+    clearSelection,
+    removeFromCache,
+    queryClient,
+  ]);
 
   const handleBulkMove = useCallback(
     async (directoryId: string | null) => {
@@ -165,7 +220,7 @@ function MediaPageContent() {
           )
         );
         clearSelection();
-        await refreshMedia();
+        await queryClient.invalidateQueries({ queryKey: qk.media.lists });
         toast.success(
           `Moved ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`
         );
@@ -175,7 +230,7 @@ function MediaPageContent() {
         setIsMoving(false);
       }
     },
-    [selectedIds, selectionCount, mediaMutator, clearSelection, refreshMedia]
+    [selectedIds, selectionCount, mediaMutator, clearSelection, queryClient]
   );
 
   // Contribute selection actions to the nav bar Edit menu.
@@ -225,29 +280,56 @@ function MediaPageContent() {
         </div>
       </div>
 
-      {/* Filters: directory browser + media type */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <DirectoryBrowser
-            workspaceId={currentWorkspace.id}
-            directoryFilter={directoryFilter}
-            onDirectoryFilterChange={handleDirectoryFilterChange}
+      {/* Filters: directory browser + search + sort + media type */}
+      <div className="mb-4 flex flex-col gap-3">
+        <DirectoryBrowser
+          workspaceId={currentWorkspace.id}
+          directoryFilter={directoryFilter}
+          onDirectoryFilterChange={handleDirectoryFilterChange}
+        />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search media..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 h-9"
+            />
+          </div>
+          <Select value={sort} onValueChange={handleSortChange}>
+            <SelectTrigger className="w-[150px] h-9">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              {MEDIA_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <MediaTypeFilter
+            value={mediaTypeFilter}
+            onChange={handleMediaTypeFilterChange}
+            className="w-[150px] h-9 text-sm"
           />
         </div>
-        <MediaTypeFilter
-          value={mediaTypeFilter}
-          onChange={handleMediaTypeFilterChange}
-        />
       </div>
 
       {/* Media */}
       <MediaGallery
-        media={filteredMedia}
+        media={media}
         isLoading={isLoading}
         onMediaClick={handleMediaClick}
         directoryFilter={directoryFilter}
         mediaTypeFilter={mediaTypeFilter}
+        searchActive={searchQuery.trim().length > 0}
         processingMedia={processingMedia}
+        totalItems={totalItems}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={loadMore}
         selectedIds={selectedIds}
         onSelectionClick={handleSelectionClick}
         onSelectAll={selectAll}
@@ -265,7 +347,6 @@ function MediaPageContent() {
 export default function MediaPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { currentWorkspace, isLoading: workspaceLoading } = useWorkspace();
-  const searchParams = useSearchParams();
 
   // Show loading state
   if (authLoading || workspaceLoading) {
@@ -310,12 +391,5 @@ export default function MediaPage() {
     );
   }
 
-  return (
-    <MediaProvider
-      workspaceId={currentWorkspace.id}
-      initialDirectoryFilter={searchParams.get('dir')}
-    >
-      <MediaPageContent />
-    </MediaProvider>
-  );
+  return <MediaPageContent />;
 }

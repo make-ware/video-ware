@@ -463,6 +463,218 @@ describe('moveTimelineClip', () => {
       moveTimelineClip(pb, 'a', { at: 2, timelineId: 'other' })
     ).rejects.toThrow(/belongs to timeline tl1/i);
   });
+
+  it('measures a composite by its effective duration when placing', async () => {
+    // mover: span 16s but effective 10s ([0,4] + [10,16]); neighbor at 10.
+    // Placing at 0 is flush against the neighbor — span math would see a
+    // phantom overlap and nudge to 15 (the relayout.py bug).
+    const clips = [
+      {
+        id: 'mover',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 16,
+        duration: 10,
+        timelineStart: 30,
+        meta: {
+          segments: [
+            { start: 0, end: 4 },
+            { start: 10, end: 16 },
+          ],
+        },
+      },
+      {
+        id: 'neighbor',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 1,
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 10,
+      },
+    ];
+    const pb = fakePb(clipStubs({ clips }));
+
+    const result = await moveTimelineClip(pb, 'mover', { at: 0 });
+
+    expect(result.placedAt).toBe(0);
+    expect(result.nudged).toBe(false);
+    expect(result.placedEnd).toBe(10);
+  });
+
+  it('resolves the composite footprint from the expanded MediaClip', async () => {
+    const clips = [
+      {
+        id: 'mover',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        MediaClipRef: 'mc1',
+        order: 0,
+        start: 0,
+        end: 16,
+        duration: 10,
+        timelineStart: 30,
+        expand: {
+          MediaClipRef: {
+            id: 'mc1',
+            clipData: {
+              segments: [
+                { start: 0, end: 4 },
+                { start: 10, end: 16 },
+              ],
+            },
+          },
+        },
+      },
+      {
+        id: 'neighbor',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 1,
+        start: 0,
+        end: 5,
+        duration: 5,
+        timelineStart: 10,
+      },
+    ];
+    const pb = fakePb(clipStubs({ clips }));
+
+    const result = await moveTimelineClip(pb, 'mover', { at: 0 });
+
+    expect(result.placedAt).toBe(0);
+    expect(result.nudged).toBe(false);
+    expect(result.placedEnd).toBe(10);
+  });
+
+  it('--ripple shifts later clips by the effective length, not the span', async () => {
+    // mover: span 18s, effective 5s ([0,2] + [15,18]).
+    const clips = [
+      {
+        id: 'mover',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 18,
+        duration: 5,
+        timelineStart: 40,
+        meta: {
+          segments: [
+            { start: 0, end: 2 },
+            { start: 15, end: 18 },
+          ],
+        },
+      },
+      {
+        id: 'later',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 1,
+        start: 0,
+        end: 2,
+        duration: 2,
+        timelineStart: 12,
+      },
+    ];
+    const pb = fakePb(clipStubs({ clips }));
+
+    const result = await moveTimelineClip(pb, 'mover', {
+      at: 10,
+      ripple: true,
+    });
+
+    expect(result.placedAt).toBe(10);
+    expect(result.placedEnd).toBe(15);
+    expect(result.shifted).toEqual([{ clipId: 'later', from: 12, to: 17 }]);
+  });
+
+  it('--overwrite writes the planner effective duration to composite victims', async () => {
+    // victim: span 12s, effective 4s ([0,2] + [10,12]) at timeline 0. Moving
+    // a 3s clip onto [3,6) keeps the victim's first 3 effective seconds —
+    // source window [0,11], effective duration 3 (NOT end - start = 11).
+    const clips = [
+      {
+        id: 'victim',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 0,
+        start: 0,
+        end: 12,
+        duration: 4,
+        timelineStart: 0,
+        meta: {
+          segments: [
+            { start: 0, end: 2 },
+            { start: 10, end: 12 },
+          ],
+        },
+      },
+      {
+        id: 'a',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        MediaRef: 'm1',
+        order: 1,
+        start: 0,
+        end: 3,
+        duration: 3,
+        timelineStart: 20,
+      },
+    ];
+    const stubs = clipStubs({ clips });
+    const pb = fakePb(stubs);
+
+    const result = await moveTimelineClip(pb, 'a', {
+      at: 3,
+      overwrite: true,
+    });
+
+    expect(result.trimmedClipIds).toEqual(['victim']);
+    expect(stubs.TimelineClips.update.mock.calls[0][0]).toBe('victim');
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      start: 0,
+      end: 11,
+      duration: 3,
+      timelineStart: 0,
+    });
+  });
+
+  it('keeps the span footprint for nested-timeline clips', async () => {
+    const clips = [
+      {
+        id: 'nested',
+        TimelineRef: 'tl1',
+        TimelineTrackRef: 'trk0',
+        SourceTimelineRef: 'child-tl',
+        order: 0,
+        start: 0,
+        end: 10,
+        duration: 10,
+        timelineStart: 30,
+        // Stale data — nested windows are timeline-linear, never an edit list.
+        meta: { segments: [{ start: 0, end: 2 }] },
+      },
+    ];
+    const pb = fakePb(clipStubs({ clips }));
+
+    const result = await moveTimelineClip(pb, 'nested', {
+      at: 0,
+      dryRun: true,
+    });
+
+    expect(result.placedAt).toBe(0);
+    expect(result.placedEnd).toBe(10);
+  });
 });
 
 describe('rippleTimelineClips', () => {

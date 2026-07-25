@@ -107,6 +107,16 @@ export function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/** Format a time position in exact seconds, e.g. "10.60s" (agents need precision). */
+export function secs(v: number): string {
+  return `${v.toFixed(2)}s`;
+}
+
+/** Format a time range in exact seconds, e.g. "1.80–31.10s". */
+export function range(start: number, end: number): string {
+  return `${start.toFixed(2)}–${end.toFixed(2)}s`;
+}
+
 /** Format a duration in seconds as `m:ss` (or `h:mm:ss`). */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';

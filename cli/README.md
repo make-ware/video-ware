@@ -70,6 +70,7 @@ vw media clip split <id>       # split the edit list at source time(s) (--at)
 vw media clip cut <id>         # remove a source range, e.g. an umm (--from/--to)
 vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
 vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
+vw media clip transcript <id>  # what the clip says — cut gaps trimmed at word level
 
 vw dir list                    # list directories + media counts (optional flat folders)
 vw dir show <dir>              # one directory and the media filed in it
@@ -79,7 +80,7 @@ vw dir move <dir> <id...>      # file media into a directory ("/" or "none" unfi
 vw dir delete <dir>            # delete (refuses non-empty; --force unfiles the media first)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
-vw label list                  # list labels for one media
+vw label list                  # list labels for one media (--from/--to window; --clip/--timeline-clip = only what the clip plays)
 vw label show <type> <id>      # show one label record (--clips lists linked clips)
 vw label clip <type> <id>      # create a media clip from a label
 
@@ -96,6 +97,7 @@ vw timeline show <id>          # inspect tracks, settings, and placed clips
 vw timeline doctor <id>        # health-check: overlaps, gaps, stale durations
 vw timeline inspect            # what plays on each track at --at <seconds>
 vw timeline insert             # append media/MediaClips/captions/timelines to a track (--at/--after to place)
+vw timeline compact <id>       # close gaps track-by-track (order preserved; --track scopes)
 vw timeline render             # render a timeline and wait for the output
 
 vw timeline track create       # add a track on the next layer up
@@ -115,6 +117,8 @@ vw timeline clips split <id>   # split the edit list at source time(s) (--at)
 vw timeline clips cut <id>     # remove a source range (--from/--to, --ripple)
 vw timeline clips trim <id>    # re-edge one edit-list segment (--segment -s -e)
 vw timeline clips slip <id>    # slip source content ±seconds (--by, --segment)
+vw timeline clips transcript <id>  # what the clip says — cut gaps trimmed at word level
+vw timeline clips map <id>     # translate a time: --source-time/--timeline-time/--offset
 
 vw job label                   # (dev) queue label detection for a media (-t limits types)
 vw job transcode               # (dev) queue transcode/preview regeneration (-a limits assets)
@@ -163,6 +167,8 @@ vw media clip cut MC_ID --from 12.3 --to 13.1     # drop an umm from the clip
 vw timeline clips segments TC_ID                  # inspect a placed clip's edit list
 vw timeline clips cut TC_ID --from 44.2 --to 45.0 --ripple   # cut + close the gap
 vw timeline clips trim TC_ID --segment 1 -s 45.4  # nudge one segment's edge
+vw timeline clips transcript TC_ID                # what the cut actually says (gaps trimmed)
+vw timeline compact TIMELINE_ID --track 1         # close gaps a batch of edits left behind
 
 # 5. Verify, then render
 vw timeline doctor TIMELINE_ID               # no overlaps/gaps/dangling refs?
@@ -275,9 +281,24 @@ deleting one never deletes media.
   follows the source's live duration until trimmed (`clips update -s/-e`);
   `timeline reflow` heals drift after the source changes, and renders flatten
   the nested tree automatically.
+- **Composite clips occupy their effective duration.** Everywhere placement
+  is computed — `insert`, `clips move` (collisions, `--overwrite` trims,
+  `--ripple` shifts), `clips ripple`, `compact`, duration healing — a clip
+  with an edit list takes up its gap-skipping playback length, never its
+  source span `end - start`. Table `SOURCE` columns show the outer span with
+  a ` ◆N` marker when an N-segment edit list governs playback; `DUR` is
+  always the effective length.
 - **`clips ripple <id> --by <±s>`** shifts a clip and everything after it on
   its track, preserving spacing — leftward shifts clamp at the previous
   clip. `clips remove --ripple` closes the gap the removed clip leaves.
+- **`timeline compact [id]` closes gaps; `timeline reflow` preserves them.**
+  Compact walks each track in order and re-places every clip flush after the
+  previous one (order preserved — fix play order first with `clips reorder`),
+  resolving leftover gaps/overlaps after a batch of segment edits; it is
+  idempotent, supports `--track`/`--dry-run`, and uses the same bulk-shift
+  concurrency guards as ripple. Reflow is the opposite contract: it heals
+  nested-timeline drift while keeping every gap where it is. Overlay tracks
+  often keep gaps on purpose — scope compact with `--track`.
 - **`--dry-run`** on `insert`, `clips move`, and `clips ripple` prints the
   full plan (placement, trims, removals, shifts) without writing anything.
 - **Soft outcomes are structured warnings.** Every edit op returns a
@@ -372,9 +393,101 @@ tiny clips.
 - **`--json` result fields:** `converted` means an edit list was created on
   a previously-plain clip; `collapsed` means the edit left one segment and
   the list was removed (plain start/end again).
-- **Preview caveat:** the webapp preview player currently plays composite
-  clips straight through (gaps included); renders skip the gaps. Use
-  `timeline render` to hear the final cut.
+- Both the webapp preview player and the render skip edit-list gaps — what
+  you preview is what renders.
+
+### The three time domains
+
+Composite clips make three distinct time bases meet; every command names
+them consistently so agents never conflate them:
+
+- **`src` (source-media seconds)** — positions in the media file. Stored
+  segments, transcript/label times, and all segment-edit inputs live here.
+- **`clip` (clip-effective seconds)** — the gap-skipping playback offset;
+  `0` is the clip's first visible frame. A composite's effective duration is
+  the sum of its windowed segments, not `end - start`.
+- **`tl` (timeline seconds)** — absolute position on the timeline. For a
+  placed clip, `tl = placement start + clip offset`.
+
+Every clip-showing command (`clips show/list`, `timeline show/inspect`,
+`media clip list`, `segments`, `transcript`) embeds one canonical `times`
+block in its JSON:
+
+```jsonc
+"times": {
+  "timeline":  { "start": 4.2, "end": 14.8, "duration": 10.6 }, // placed clips only
+  "source":    { "start": 1.8, "end": 31.1, "span": 29.3 },     // trim window (outer span)
+  "effective": { "duration": 10.6 },                            // gap-skipping playback length
+  "segments":  { "count": 4, "source": "meta" },                // 'meta'|'mediaClip'|'clipData'|'trim'
+  "composite": true                                             // count >= 2 governs playback
+}
+```
+
+`segments` is omitted for caption and nested-timeline clips (their windows
+are already linear); `count: 1, source: "meta"` is a mask over a composite
+source MediaClip; `composite` is true only when 2+ segments govern playback.
+
+**Point translations — `vw timeline clips map <id>`** answers "where does
+this moment land" through the edit list, from any one of the three domains:
+
+```bash
+vw timeline clips map TC_ID --source-time 92.4   # label hit → timeline position
+vw timeline clips map TC_ID --timeline-time 14.9 # playhead → source position
+vw timeline clips map TC_ID --offset 6.1         # clip offset → both
+```
+
+The result reports the moment in all three domains plus the edit-list
+segment it falls in (`segment` IDX matches the `segments` command). A source
+time inside a cut gap reports `inGap` + the gap range and collapses to the
+boundary the playhead skips to; inputs outside the played content clamp
+(`clamped: true`).
+
+**Batch translations — `regions` in `clips show --json`**: each placed
+media clip carries its continuous playback runs
+`[{ index, timelineStart, timelineEnd, sourceStart, sourceEnd }]` — the
+complete piecewise-linear source↔timeline mapping in one call (segments that
+touch in source time coalesce into one run, so `regions.length` may be
+smaller than `segments.count`).
+
+### Clip transcripts (edit-list aware)
+
+`vw media clip transcript <id>` / `vw timeline clips transcript <id>` answer
+"what does this clip actually say" — utterances are trimmed to the clip's
+**windowed edit list at word level**, so text sitting in a cut gap never
+appears and a 40s mid-take cut can't mislead an audit:
+
+```
+Clip TC_ID — transcript from speaker labels (2 segment(s), effective 10.20s, span 1.80–52.00s of media M_ID)
+  timeline: 30.00–40.20s (track layer 1) — edit list source: meta
+  [src 2.10–6.60s | clip 0.30–4.80s | tl 30.30–34.80s] Speaker 1 (Erik): we should open on the premise
+  ── cut: 40.00s of source removed ──
+  [src 46.80–48.30s | clip 5.00–6.50s | tl 35.00–36.50s] Speaker 1 (Erik): and end on the ask
+  (2 utterance(s) hidden entirely by cuts; 87 word(s) omitted — `segments` shows the gaps)
+```
+
+- **Speaker labels are preferred** (diarized, usually the better
+  transcription); speech labels are the automatic fallback when no speaker
+  rows overlap. `--type speaker|speech` forces one source.
+- **Word keep rule:** a word is kept iff it overlaps a kept segment — a word
+  straddling a cut edge counts as inside (partially audible), matching the
+  caption/render rule, so transcript, subtitles, and render agree.
+- An utterance spanning a cut splits into per-segment parts; its `text`
+  joins them with `[cut N.Ns]` markers (source seconds removed).
+- `--full-text` prints only the flowing speaker-labeled text (one utterance
+  per line) — the audit surface for "does each beat open on its own
+  premise". `--json` returns the full structure; `--words` adds per-word
+  timing arrays (omitted by default to keep payloads small).
+- Utterances without stored word timings fall back to evenly-spread
+  estimates and are flagged (`estimatedTimings`, plus a stderr `⚠`) — cut
+  filtering on those is approximate.
+
+**Labels through the same lens:** `clips show --labels` /
+`timeline inspect --labels` intersect overlapping labels with the windowed
+edit list — labels wholly inside cut gaps are dropped (reported as a
+`hiddenInCutGaps` count) and survivors carry `played` ranges projected into
+clip and timeline time. `vw label list` accepts `--from/--to` (source-time
+window) and `--clip <mediaClipId>` / `--timeline-clip <id>` to list only the
+labels a clip actually plays.
 
 ### Examples
 
@@ -408,6 +521,8 @@ vw label search hello -t speech,text           # transcript/on-screen-text match
 vw label search --face-id F123 --json          # exact faceId match, full records
 vw label search dog -m MEDIA_ID --min-confidence 0.8
 vw label list -m MEDIA_ID -t speech            # one media's speech labels, by start time
+vw label list -m MEDIA_ID --from 40 --to 60    # only labels overlapping 40–60s
+vw label list --timeline-clip TC_ID -t speaker # only what the placed clip plays (gaps hidden)
 vw label show face LABEL_ID --clips            # one label + clips created from it
 vw label clip speech LABEL_ID                  # clip from the label's time range
 vw label clip face LABEL_ID --label "Hero face"
@@ -425,6 +540,9 @@ vw timeline clips list -t TIMELINE_ID --track 2
 vw timeline clips move CLIP_ID --track 1 --at 8 --overwrite
 vw timeline clips ripple CLIP_ID --by=-2.5    # pull clip + later clips left
 vw timeline clips remove CLIP_ID --ripple     # delete and close the gap
+vw timeline clips transcript CLIP_ID --full-text  # audit what the cut says
+vw timeline clips map CLIP_ID --source-time 92.4  # label hit → timeline position
+vw timeline compact TIMELINE_ID --dry-run     # preview the gap-closing moves
 vw timeline doctor TIMELINE_ID                # verify layout invariants
 vw timeline inspect -t TIMELINE_ID --at 6 --labels
 vw timeline render -t TIMELINE_ID --resolution 1280x720 --download out.mp4
@@ -535,8 +653,31 @@ document on stdout with nothing else:
   (and `entity labels`) items are `{ "type": "<labelType>", "record": {...} }`
   wrappers, plus `attributedEntity: { id, name, kind, via }` when the label
   is attributed to an entity; `timeline clips list` items carry the clip
-  plus computed `timelineStart`/`timelineEnd`, `labelHint`, `kind`, and
-  `layer`
+  plus computed `timelineStart`/`timelineEnd`, `labelHint`, `kind`, `layer`,
+  and the canonical `times` block; `media clip list` items carry `times` too
+- **the canonical `times` block** (see *The three time domains*) appears on
+  every clip-shaped JSON output: `{ timeline?, source, effective, segments?,
+  composite }`. **Breaking:** `segments --json` `times` now uses this shape —
+  the old `{start, end, duration}` values live on as `times.source.start/end`
+  and `times.effective.duration`; the inspection also gains `placement` for
+  timeline clips
+- `clips show` → `{ clip, placement, times, regions?, labels? }`; `regions`
+  is the piecewise source↔timeline mapping table (placed media clips only)
+- `clips map` → `{ clipId, timelineId, layer, input: { domain, value },
+  point: { timeline, offset, source, segment }, inGap, gap?, clamped,
+  composite, times }`
+- `clips transcript` / `media clip transcript` → `{ clipId, domain, mediaId,
+  labelType: "speaker"|"speech"|null, labelTypeSelected, editListSource,
+  segments, gaps, times, placement?, utterances, totals, text }`; utterances
+  carry `speaker { speakerId?, label, entity? }`, per-part `src/clip/tl`
+  ranges, `omittedWords`, and `estimatedTimings`; `totals` counts kept words,
+  omitted words, and utterances hidden entirely by cuts
+- `--labels` blocks → `{ provenance, overlapping, hiddenInCutGaps }`;
+  `overlapping` rows carry `played: [{ sourceStart, sourceEnd, clipStart,
+  clipEnd, timelineStart?, timelineEnd? }]` — only what the clip actually
+  plays (gap-only labels are dropped and counted)
+- `timeline compact` → `{ timelineId, tracks: [{ trackId, layer, moves,
+  closedGapSeconds }], moveCount, applied, dryRun, warnings }`
 - `label show` → the raw record (plus `attributedEntity` when attributed,
   and a `links` array with `--clips`)
 - `label clip` → the raw created clip record (`clipData.sourceId` holds the

@@ -24,7 +24,14 @@ import {
   withJsonOption,
   withStrictOption,
 } from '../lib/options.js';
-import { info, printRecord, success, table } from '../lib/output.js';
+import {
+  info,
+  printRecord,
+  range,
+  secs,
+  success,
+  table,
+} from '../lib/output.js';
 import { withConflictRetry } from '../lib/conflict.js';
 import { editResultHelp } from '../lib/help.js';
 import {
@@ -41,9 +48,6 @@ import {
  * transcript. Timeline variants additionally accept -t/--ripple.
  */
 
-const secs = (v: number) => `${v.toFixed(2)}s`;
-const range = (start: number, end: number) =>
-  `${start.toFixed(2)}–${end.toFixed(2)}s`;
 const signed = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}s`;
 
 /** `-w` is accepted on every clip command so agents can pass it uniformly. */
@@ -187,9 +191,15 @@ function reportInspection(
       : inspection.source;
   info(
     `Clip ${clipId} — ${inspection.segments.length} segment(s), ` +
-      `effective ${secs(inspection.times.duration)}, ` +
-      `span ${range(inspection.times.start, inspection.times.end)}`
+      `effective ${secs(inspection.times.effective.duration)}, ` +
+      `span ${range(inspection.times.source.start, inspection.times.source.end)}`
   );
+  if (inspection.placement) {
+    info(
+      `  timeline: ${range(inspection.placement.timelineStart, inspection.placement.timelineEnd)} ` +
+        `(track layer ${inspection.placement.layer})`
+    );
+  }
   info(
     `  media ${inspection.mediaId} (${secs(inspection.mediaDuration)}) — edit list source: ${sourceHint}`
   );

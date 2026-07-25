@@ -598,7 +598,15 @@ N }\`. All times are seconds.
   \`height\` describe the source.
 - **MediaClip** — a reusable, named sub-range of one media; \`start\`/\`end\`
   are positions in the source media. Created by hand
-  (\`vw media clip create\`) or from a label (\`vw label clip\`).
+  (\`vw media clip create\`) or from a label (\`vw label clip\`). A clip may
+  carry an **edit list** (\`clipData.segments\` here, \`meta.segments\` on
+  timeline clips): 2+ \`{start, end}\` source ranges that fine-tune the cut
+  (umms removed in place). Such a "composite" clip plays only its segments —
+  its effective duration is their sum, not \`end - start\`, and text/labels
+  inside the gaps are NOT part of the cut. Read composites through
+  \`vw ... segments <id>\` (the list), \`vw ... transcript <id>\` (what the
+  cut says, gap words trimmed), and \`vw timeline clips map <id>\`
+  (source ↔ timeline time translation) — never by their outer trim alone.
 - **Labels** — machine annotations of a media, one file per label under a
   per-type folder: \`speech\` (transcripts), \`speaker\` (diarized
   per-speaker utterances; each carries a \`speakerId\` and word timings),
@@ -621,7 +629,10 @@ N }\`. All times are seconds.
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
   track's clips carry computed \`timelineStart\`/\`timelineEnd\` (position on
   the timeline) while \`clip.start\`/\`clip.end\` are the trim window in the
-  source media.
+  source media. Each placed clip also embeds a canonical \`times\` block
+  (\`timeline\`/\`source\`/\`effective\`/\`segments\`/\`composite\`) — when
+  \`composite\` is true, the source span is larger than what plays; use the
+  \`effective\` duration and the segment commands above.
 
 Timeline placement semantics: every clip sits at an explicit
 \`timelineStart\`. \`vw timeline insert\` appends to the end of the target

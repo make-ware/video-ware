@@ -16116,9 +16116,9 @@ var require_util = __commonJS({
       return !headerCharRegex.test(characters);
     }
     var rangeHeaderRegex = /^bytes (\d+)-(\d+)\/(\d+)?$/;
-    function parseRangeHeader(range4) {
-      if (range4 == null || range4 === "") return { start: 0, end: null, size: null };
-      const m = range4 ? range4.match(rangeHeaderRegex) : null;
+    function parseRangeHeader(range2) {
+      if (range2 == null || range2 === "") return { start: 0, end: null, size: null };
+      const m = range2 ? range2.match(rangeHeaderRegex) : null;
       return m ? {
         start: parseInt(m[1]),
         end: m[2] ? parseInt(m[2]) : null,
@@ -25529,8 +25529,8 @@ var require_retry_handler = __commonJS({
         }
         if (this.end == null) {
           if (statusCode === 206) {
-            const range4 = parseRangeHeader(headers["content-range"]);
-            if (range4 == null) {
+            const range2 = parseRangeHeader(headers["content-range"]);
+            if (range2 == null) {
               this.headersSent = true;
               this.handler.onResponseStart?.(
                 controller,
@@ -25540,7 +25540,7 @@ var require_retry_handler = __commonJS({
               );
               return;
             }
-            const { start, size, end = size ? size - 1 : null } = range4;
+            const { start, size, end = size ? size - 1 : null } = range2;
             assert2(
               start != null && Number.isFinite(start),
               "content-range mismatch"
@@ -43097,6 +43097,12 @@ function printRecord(record2, conciseLines, json2) {
 function truncate(text, max = 60) {
   return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
 }
+function secs(v) {
+  return `${v.toFixed(2)}s`;
+}
+function range(start, end) {
+  return `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
+}
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const total = Math.round(seconds);
@@ -59477,6 +59483,17 @@ function sourceTimeAtCompositeOffset(segments, offset) {
   }
   return mapping[mapping.length - 1].sourceEnd;
 }
+function compositeOffsetAtSourceTime(segments, sourceTime) {
+  const mapping = buildCompositeTimeMapping(segments);
+  if (mapping.length === 0) return sourceTime;
+  if (sourceTime <= mapping[0].sourceStart) return 0;
+  for (const mapped of mapping) {
+    if (sourceTime <= mapped.sourceEnd) {
+      return mapped.compositeStart + Math.max(0, sourceTime - mapped.sourceStart);
+    }
+  }
+  return mapping[mapping.length - 1].compositeEnd;
+}
 function expandCompositeToSegments(compositeSegments, usageSourceStart, usageDuration, timelineStart) {
   const result = [];
   const usageSourceEnd = usageSourceStart + usageDuration;
@@ -60219,16 +60236,16 @@ function getClipRanges(trackClips) {
 function findNonOverlappingTimelineStart(trackClips, desiredTime, newClipDuration, excludeClipId) {
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const relevantRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range4 }) => range4.end > range4.start).map(({ range: range4 }) => range4).sort((a, b) => a.start - b.start);
+  const relevantRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range2 }) => range2.end > range2.start).map(({ range: range2 }) => range2).sort((a, b) => a.start - b.start);
   if (relevantRanges.length === 0) {
     return Math.max(0, desiredTime);
   }
   let candidateTime = Math.max(0, desiredTime);
-  for (const range4 of relevantRanges) {
+  for (const range2 of relevantRanges) {
     const newEnd = candidateTime + newClipDuration;
-    const overlaps = candidateTime < range4.end && newEnd > range4.start;
+    const overlaps = candidateTime < range2.end && newEnd > range2.start;
     if (overlaps) {
-      candidateTime = range4.end;
+      candidateTime = range2.end;
     }
   }
   return candidateTime;
@@ -60277,7 +60294,7 @@ function planRippleDelete(trackClips, deletedClipIds) {
   const deletedIds = new Set(deletedClipIds);
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const deletedRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => deletedIds.has(clip.id)).map(({ range: range4 }) => range4);
+  const deletedRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => deletedIds.has(clip.id)).map(({ range: range2 }) => range2);
   const moves = [];
   sorted.forEach((clip, i2) => {
     if (deletedIds.has(clip.id)) return;
@@ -60296,13 +60313,13 @@ function planRippleInsert(trackClips, insertStart, insertDuration, excludeClipId
   if (insertDuration <= OVERLAP_EPSILON) return [];
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const affected = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range4 }) => range4.end > range4.start).filter(({ range: range4 }) => range4.end > insertStart + OVERLAP_EPSILON);
+  const affected = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range2 }) => range2.end > range2.start).filter(({ range: range2 }) => range2.end > insertStart + OVERLAP_EPSILON);
   if (affected.length === 0) return [];
-  const firstStart = Math.min(...affected.map(({ range: range4 }) => range4.start));
+  const firstStart = Math.min(...affected.map(({ range: range2 }) => range2.start));
   const delta = firstStart < insertStart - OVERLAP_EPSILON ? insertStart + insertDuration - firstStart : insertDuration;
-  return affected.map(({ clip, range: range4 }) => ({
+  return affected.map(({ clip, range: range2 }) => ({
     clipId: clip.id,
-    timelineStart: range4.start + delta
+    timelineStart: range2.start + delta
   }));
 }
 function computeClipPlacement(trackClips, selectedClipId, newClipDuration) {
@@ -60373,6 +60390,68 @@ function buildPlaybackTracks(clips, tracks) {
 }
 function findActiveClip(placed, time3) {
   return placed.find((p) => time3 >= p.globalStart && time3 < p.globalEnd);
+}
+var PLAYBACK_CONTINUITY_EPSILON = 1e-3;
+function regionSourceEnd(region) {
+  return region.sourceStart + (region.timelineEnd - region.timelineStart);
+}
+function clipPlaybackRegions(placed) {
+  const { clip, globalStart, globalEnd } = placed;
+  const wholeClip = {
+    key: clip.id,
+    timelineStart: globalStart,
+    timelineEnd: globalEnd,
+    sourceStart: clip.start
+  };
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (!segments || segments.length === 0) return [wholeClip];
+  const windowed = [
+    ...windowCompositeSegments(segments, clip.start, clip.end)
+  ].sort((a, b) => a.start - b.start);
+  const regions = [];
+  let offset = 0;
+  for (const seg of windowed) {
+    const duration3 = seg.end - seg.start;
+    if (duration3 <= 0) continue;
+    const last = regions[regions.length - 1];
+    if (last && Math.abs(seg.start - regionSourceEnd(last)) <= PLAYBACK_CONTINUITY_EPSILON) {
+      last.timelineEnd += duration3;
+    } else {
+      regions.push({
+        key: `${clip.id}#${regions.length}`,
+        timelineStart: globalStart + offset,
+        timelineEnd: globalStart + offset + duration3,
+        sourceStart: seg.start
+      });
+    }
+    offset += duration3;
+  }
+  if (regions.length === 0) return [wholeClip];
+  regions[regions.length - 1].timelineEnd = globalEnd;
+  return regions;
+}
+function clipSourceTimeAtOffset(clip, offset) {
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return sourceTimeAtCompositeOffset(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      offset
+    );
+  }
+  return offset + clip.start;
+}
+function clipOffsetAtSourceTime(clip, sourceTime) {
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return compositeOffsetAtSourceTime(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      sourceTime
+    );
+  }
+  return Math.min(
+    Math.max(0, sourceTime - clip.start),
+    Math.max(0, clip.end - clip.start)
+  );
 }
 function computeTimelineDuration(clips, tracks) {
   let max = 0;
@@ -61133,6 +61212,130 @@ function clampSegmentsToWindow(segments, start, end, bounds) {
   })).filter((seg) => seg.end - seg.start > 0);
   return normalizeSegments(pieces, bounds);
 }
+var isSpeakerShaped = (w) => typeof w?.text === "string" && typeof w?.start === "number" && typeof w?.end === "number";
+var isSpeechShaped = (w) => typeof w?.word === "string" && typeof w?.startTime === "number" && typeof w?.endTime === "number";
+function normalizeUtteranceWords(u) {
+  const raw = Array.isArray(u.words) ? u.words : [];
+  if (raw.length > 0 && raw.every(isSpeakerShaped)) {
+    return {
+      words: raw.map((w) => ({
+        text: w.text,
+        start: w.start,
+        end: w.end,
+        ...w.speakerId !== void 0 ? { speakerId: w.speakerId } : {}
+      })),
+      estimated: false
+    };
+  }
+  if (raw.length > 0 && raw.every(isSpeechShaped)) {
+    return {
+      words: raw.map((w) => ({
+        text: w.word,
+        start: w.startTime,
+        end: w.endTime,
+        ...w.confidence !== void 0 ? { confidence: w.confidence } : {}
+      })),
+      estimated: false
+    };
+  }
+  const text = u.transcript?.trim();
+  if (!text) return { words: [], estimated: true };
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const per = Math.max(u.end - u.start, 0) / tokens.length;
+  return {
+    words: tokens.map((token, i2) => ({
+      text: token,
+      start: u.start + i2 * per,
+      end: u.start + (i2 + 1) * per
+    })),
+    estimated: true
+  };
+}
+function overlapsSegments(start, end, segments) {
+  return segments.some((s2) => end > s2.start && start < s2.end);
+}
+function cutMarker(seconds) {
+  return `[cut ${seconds.toFixed(1)}s]`;
+}
+function buildClipTranscript(utterances, segments) {
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const result = [];
+  let keptWords = 0;
+  let omittedTotal = 0;
+  let droppedUtterances = 0;
+  for (const u of utterances) {
+    const { words, estimated } = normalizeUtteranceWords(u);
+    const bySegment = /* @__PURE__ */ new Map();
+    let omitted = 0;
+    for (const word of words) {
+      const index = sorted.findIndex(
+        (s2) => word.end > s2.start && word.start < s2.end
+      );
+      if (index === -1) {
+        omitted++;
+        continue;
+      }
+      const bucket = bySegment.get(index);
+      if (bucket) bucket.push(word);
+      else bySegment.set(index, [word]);
+    }
+    omittedTotal += omitted;
+    if (bySegment.size === 0) {
+      if (words.length > 0) droppedUtterances++;
+      continue;
+    }
+    const parts = [...bySegment.entries()].sort(([a], [b]) => a - b).map(([segmentIndex, segWords]) => {
+      const sourceStart = Math.min(...segWords.map((w) => w.start));
+      const sourceEnd = Math.max(...segWords.map((w) => w.end));
+      return {
+        segmentIndex,
+        text: segWords.map((w) => w.text).join(" "),
+        sourceStart: roundToMs(sourceStart),
+        sourceEnd: roundToMs(sourceEnd),
+        clipStart: roundToMs(
+          compositeOffsetAtSourceTime(sorted, sourceStart)
+        ),
+        clipEnd: roundToMs(compositeOffsetAtSourceTime(sorted, sourceEnd)),
+        words: segWords
+      };
+    });
+    const pieces = [];
+    for (let i2 = 0; i2 < parts.length; i2++) {
+      if (i2 > 0) {
+        let removed = 0;
+        for (let k = parts[i2 - 1].segmentIndex; k < parts[i2].segmentIndex; k++) {
+          removed += Math.max(0, sorted[k + 1].start - sorted[k].end);
+        }
+        pieces.push(cutMarker(removed));
+      }
+      pieces.push(parts[i2].text);
+    }
+    keptWords += words.length - omitted;
+    result.push({
+      id: u.id,
+      ...u.speakerId !== void 0 ? { speakerId: u.speakerId } : {},
+      ...u.speakerTag !== void 0 ? { speakerTag: u.speakerTag } : {},
+      ...u.confidence !== void 0 ? { confidence: u.confidence } : {},
+      text: pieces.join(" "),
+      sourceStart: parts[0].sourceStart,
+      sourceEnd: parts[parts.length - 1].sourceEnd,
+      clipStart: parts[0].clipStart,
+      clipEnd: parts[parts.length - 1].clipEnd,
+      parts,
+      omittedWords: omitted,
+      estimatedTimings: estimated
+    });
+  }
+  return {
+    utterances: result,
+    totals: {
+      utterances: result.length,
+      keptWords,
+      omittedWords: omittedTotal,
+      droppedUtterances
+    }
+  };
+}
 var TIMELINE_EPSILON = 1e-6;
 var MICRO_GAP_THRESHOLD = 0.1;
 var LEVEL_ORDER = {
@@ -61140,7 +61343,7 @@ var LEVEL_ORDER = {
   warning: 1,
   info: 2
 };
-var secs = (v) => `${v.toFixed(2)}s`;
+var secs2 = (v) => `${v.toFixed(2)}s`;
 var millis = (v) => `${Math.max(1, Math.round(v * 1e3))}ms`;
 function clusterOverlappingRanges(items, rangeOf) {
   const sorted = [...items].sort((a, b) => rangeOf(a).start - rangeOf(b).start);
@@ -61230,7 +61433,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
         clipIds: cluster.map((c) => c.clip.id),
         start,
         end,
-        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs(start)} and ${secs(end)} \u2014 same-track overlaps are invalid`
+        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs2(start)} and ${secs2(end)} \u2014 same-track overlaps are invalid`
       });
     }
     for (const gap of findRangeGaps(placed, rangeOf)) {
@@ -61246,14 +61449,14 @@ function collectTimelineDoctorFindings(input, options = {}) {
           level: "warning",
           code: "micro-gap",
           ...shared,
-          message: `track ${track.layer}: ${millis(width)} micro-gap at ${secs(gap.start)}\u2013${secs(gap.end)} \u2014 clips are nearly touching; this is usually unintended`
+          message: `track ${track.layer}: ${millis(width)} micro-gap at ${secs2(gap.start)}\u2013${secs2(gap.end)} \u2014 clips are nearly touching; this is usually unintended`
         });
       } else {
         findings.push({
           level: "info",
           code: "track-gap",
           ...shared,
-          message: `track ${track.layer}: ${secs(width)} gap at ${secs(gap.start)}\u2013${secs(gap.end)}`
+          message: `track ${track.layer}: ${secs2(width)} gap at ${secs2(gap.start)}\u2013${secs2(gap.end)}`
         });
       }
     }
@@ -61266,7 +61469,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
           code: "stale-clip-duration",
           layer: track.layer,
           clipIds: [clip.id],
-          message: `clip ${clip.id}: stored duration ${secs(clip.duration)} \u2260 effective duration (${secs(effective)})`
+          message: `clip ${clip.id}: stored duration ${secs2(clip.duration)} \u2260 effective duration (${secs2(effective)})`
         });
       }
       if (clip.MediaRef && !clip.expand?.MediaRef) {
@@ -61305,7 +61508,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
         level: "warning",
         code: "stale-timeline-duration",
         clipIds: [],
-        message: `stored duration ${secs(input.storedDuration)} \u2260 computed ${secs(computed)} \u2014 self-heals on the next clip mutation`
+        message: `stored duration ${secs2(input.storedDuration)} \u2260 computed ${secs2(computed)} \u2014 self-heals on the next clip mutation`
       });
     }
   }
@@ -63137,317 +63340,75 @@ import {
 } from "fs";
 import { join as join2 } from "path";
 
-// src/lib/label.ts
-function parseLabelType(value) {
-  const types = Object.values(LabelType);
-  if (!types.includes(value)) {
-    throw new Error(
-      `Invalid label type "${value}". Valid types: ${types.join(", ")}`
-    );
+// src/lib/clip-times.ts
+function timelineEditListOf(clip) {
+  const metaSegments = clip.meta?.segments;
+  if (metaSegments && metaSegments.length > 0) {
+    return { segments: metaSegments, source: "meta" };
   }
-  return value;
+  const mediaClip = clip.expand?.MediaClipRef;
+  const segments = getCompositeSegments(mediaClip);
+  if (segments && segments.length > 0) {
+    return { segments, source: "mediaClip" };
+  }
+  return { segments: [{ start: clip.start, end: clip.end }], source: "trim" };
 }
-function parseLabelTypes(value) {
-  return value.split(",").map((t2) => parseLabelType(t2.trim()));
-}
-function textField(record2, key) {
-  const value = record2[key];
-  if (typeof value === "string") return value;
-  return value == null ? "" : String(value);
-}
-function attributedEntityOf(record2) {
-  return record2.expand?.LabelTrackRef?.expand?.EntityRef ?? record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
-}
-function attributedEntitySummaryOf(record2) {
-  const viaTrack = record2.expand?.LabelTrackRef?.expand?.EntityRef;
-  const entity = viaTrack ?? record2.expand?.LabelEntityRef?.expand?.EntityRef;
-  if (!entity) return null;
+var round = (v) => roundToMs(v);
+function sourceWindowOf(clip) {
   return {
-    id: entity.id,
-    name: entity.name,
-    kind: entity.kind,
-    via: viaTrack ? "track" : "cluster"
+    start: round(clip.start),
+    end: round(clip.end),
+    span: round(clip.end - clip.start)
   };
 }
-function toLabelHit(type, record2) {
-  const attributedEntity = attributedEntitySummaryOf(record2);
-  return attributedEntity ? { type, record: record2, attributedEntity } : { type, record: record2 };
+function timelineClipTimes(clip, placement) {
+  const times = {
+    source: sourceWindowOf(clip),
+    effective: { duration: round(getClipTimelineDuration(clip)) },
+    composite: false
+  };
+  if (placement) {
+    times.timeline = {
+      start: round(placement.timelineStart),
+      end: round(placement.timelineEnd),
+      duration: round(placement.timelineEnd - placement.timelineStart)
+    };
+  }
+  if (!clip.CaptionRef && !clip.SourceTimelineRef) {
+    const editList = timelineEditListOf(clip);
+    times.segments = {
+      count: editList.segments.length,
+      source: editList.source
+    };
+    times.composite = editList.segments.length >= 2;
+  }
+  return times;
 }
-var LABEL_TYPE_CONFIG = {
-  [LabelType.OBJECT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.SHOT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.PERSON]: {
-    queryFields: ["upperBodyColor", "lowerBodyColor"],
-    snippet: (r2) => [
-      textField(r2, "personId"),
-      textField(r2, "upperBodyColor"),
-      textField(r2, "lowerBodyColor")
-    ].filter(Boolean).join(" ")
-  },
-  [LabelType.SPEECH]: {
-    queryFields: ["transcript"],
-    snippet: (r2) => textField(r2, "transcript")
-  },
-  [LabelType.SPEAKER]: {
-    queryFields: ["transcript", "speakerId"],
-    snippet: (r2) => [
-      speakerTranscriptLabel(
-        textField(r2, "speakerId"),
-        attributedEntityOf(r2)?.name
-      ),
-      textField(r2, "transcript")
-    ].filter(Boolean).join(": ")
-  },
-  [LabelType.FACE]: {
-    queryFields: ["faceId"],
-    snippet: (r2) => textField(r2, "faceId") || textField(r2, "faceHash")
-  },
-  [LabelType.SEGMENT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.TEXT]: {
-    queryFields: ["text"],
-    snippet: (r2) => textField(r2, "text")
-  }
-};
-var ID_FLAGS = {
-  faceId: { type: LabelType.FACE, field: "faceId", flag: "--face-id" },
-  personId: { type: LabelType.PERSON, field: "personId", flag: "--person-id" },
-  trackId: {
-    type: LabelType.OBJECT,
-    field: "originalTrackId",
-    flag: "--track-id"
-  }
-};
-function labelMutator(pb, type) {
-  switch (type) {
-    case LabelType.OBJECT:
-      return new LabelObjectMutator(pb);
-    case LabelType.SHOT:
-      return new LabelShotMutator(pb);
-    case LabelType.PERSON:
-      return new LabelPersonMutator(pb);
-    case LabelType.SPEECH:
-      return new LabelSpeechMutator(pb);
-    case LabelType.SPEAKER:
-      return new LabelSpeakerMutator(pb);
-    case LabelType.FACE:
-      return new LabelFaceMutator(pb);
-    case LabelType.SEGMENT:
-      return new LabelSegmentMutator(pb);
-    case LabelType.TEXT:
-      return new LabelTextMutator(pb);
-  }
+function mediaClipTimes(clip) {
+  const segments = getCompositeSegments(clip);
+  return {
+    source: sourceWindowOf(clip),
+    effective: {
+      duration: round(
+        calculateEffectiveDuration(clip.start, clip.end, segments)
+      )
+    },
+    segments: segments ? { count: segments.length, source: "clipData" } : { count: 1, source: "trim" },
+    composite: (segments?.length ?? 0) >= 2
+  };
 }
-function confidenceOf(hit) {
-  const field = LABEL_TYPE_META[hit.type].confidenceField;
-  const value = hit.record[field];
-  return typeof value === "number" ? value : 0;
-}
-function labelMediaName(hit) {
-  const media = hit.record.expand?.MediaRef;
-  return media ? mediaLabel(media) : hit.record.MediaRef;
-}
-var hitColumns = (withMedia) => [
-  { header: "TYPE", value: (h) => h.type },
-  { header: "ID", value: (h) => h.record.id },
-  ...withMedia ? [{ header: "MEDIA", value: (h) => labelMediaName(h) }] : [],
-  { header: "START", value: (h) => `${h.record.start.toFixed(2)}s` },
-  { header: "END", value: (h) => `${h.record.end.toFixed(2)}s` },
-  { header: "CONF", value: (h) => confidenceOf(h).toFixed(2) },
-  {
-    header: "ENTITY",
-    value: (h) => attributedEntityOf(h.record)?.name ?? ""
-  },
-  {
-    header: withMedia ? "MATCH" : "TEXT",
-    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record))
-  }
-];
-var labelSearchOptions = {
-  types: {
-    flags: "-t, --types <types>",
-    description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
-    parse: parseLabelTypes
-  },
-  media: {
-    flags: "-m, --media <id>",
-    description: "restrict results to one media"
-  },
-  faceId: {
-    flags: "--face-id <id>",
-    description: "exact faceId match (implies --types face)"
-  },
-  personId: {
-    flags: "--person-id <id>",
-    description: "exact personId match (implies --types person)"
-  },
-  trackId: {
-    flags: "--track-id <id>",
-    description: "exact object track id match (implies --types object)"
-  },
-  minConfidence: {
-    flags: "--min-confidence <n>",
-    description: "minimum confidence (0..1)",
-    parse: parseFloat
-  },
-  limit: {
-    flags: "-n, --limit <count>",
-    description: "max results per label type (default: 20)",
-    parse: (v) => parseInt(v, 10)
-  }
-};
-async function searchLabels(pb, opts) {
-  const idFlags = Object.keys(ID_FLAGS).filter(
-    (key) => opts[key] !== void 0
-  );
-  if (!opts.query && idFlags.length === 0 && !opts.entityId) {
-    throw new Error(
-      "Provide a search query, --entity, or an exact-id flag (--face-id, --person-id, --track-id)"
-    );
-  }
-  const impliedTypes = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
-  if (opts.types && impliedTypes.length > 0) {
-    const sameSet = opts.types.length === impliedTypes.length && impliedTypes.every((t2) => opts.types.includes(t2));
-    if (!sameSet) {
-      throw new Error(
-        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${impliedTypes.join(",")})`
-      );
-    }
-  }
-  const types = impliedTypes.length > 0 ? impliedTypes : opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 20;
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const config2 = LABEL_TYPE_CONFIG[type];
-      const meta3 = LABEL_TYPE_META[type];
-      const clauses = ["WorkspaceRef = {:ws}"];
-      const params = {
-        ws: opts.workspaceId
-      };
-      if (opts.media) {
-        clauses.push("MediaRef = {:media}");
-        params.media = opts.media;
-      }
-      if (opts.query) {
-        clauses.push(
-          `(${config2.queryFields.map((f) => `${f} ~ {:q}`).join(" || ")})`
-        );
-        params.q = opts.query;
-      }
-      for (const key of idFlags) {
-        if (ID_FLAGS[key].type === type) {
-          clauses.push(`${ID_FLAGS[key].field} = {:${key}}`);
-          params[key] = opts[key];
-        }
-      }
-      if (opts.minConfidence !== void 0) {
-        clauses.push(`${meta3.confidenceField} >= {:minConfidence}`);
-        params.minConfidence = opts.minConfidence;
-      }
-      if (opts.entityId) {
-        clauses.push(labelAttributionFilter(type, opts.entityId));
-      }
-      const filter = pb.filter(clauses.join(" && "), params);
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        filter,
-        `-${meta3.confidenceField}`,
-        ["MediaRef.UploadRef", ...attributionExpands(type)]
-      );
-      return { type, result };
-    })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  hits.sort((a, b) => confidenceOf(b) - confidenceOf(a));
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
-async function listLabels(pb, opts) {
-  const types = opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 100;
-  const clauses = ["MediaRef = {:media}"];
-  const params = { media: opts.mediaId };
-  if (opts.window) {
-    clauses.push("start < {:wEnd} && end > {:wStart}");
-    params.wStart = opts.window.start;
-    params.wEnd = opts.window.end;
-  }
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const typeClauses = opts.entityId ? [...clauses, labelAttributionFilter(type, opts.entityId)] : clauses;
-      const filter = pb.filter(typeClauses.join(" && "), params);
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        filter,
-        "start",
-        attributionExpands(type)
-      );
-      return { type, result };
-    })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
-async function getLabel(pb, type, labelId) {
-  return labelMutator(pb, type).getById(labelId, attributionExpands(type));
-}
-var clipMetaOptions = {
-  label: {
-    flags: "--label <text>",
-    description: "clip name shown in the editor (searchable)"
-  },
-  description: {
-    flags: "--description <text>",
-    description: "clip notes shown in the editor (searchable)"
-  }
-};
-async function createClipFromLabel(pb, opts) {
-  const labelRecord = await getLabel(pb, opts.type, opts.labelId);
-  if (!labelRecord) {
-    throw new Error(
-      `No ${opts.type} label with id ${opts.labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
-    );
-  }
-  const mutator = new MediaClipMutator(pb);
-  let clip = await mutator.createFromLabel(labelRecord, opts.type, "cli");
-  const patch = {};
-  if (opts.label !== void 0) patch.label = opts.label;
-  if (opts.description !== void 0) patch.description = opts.description;
-  if (Object.keys(patch).length > 0) {
-    clip = await mutator.update(clip.id, patch);
-  }
-  return { clip, label: labelRecord };
+function compositeMarker(times) {
+  return times.composite ? ` \u25C6${times.segments?.count ?? 0}` : "";
 }
 
 // src/lib/warnings.ts
-var secs2 = (v) => `${v.toFixed(2)}s`;
+var secs3 = (v) => `${v.toFixed(2)}s`;
 var signed = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
 function nudgedWarning(requestedAt, placedAt, clipIds) {
   return {
     level: "warning",
     code: "nudged",
-    message: `requested ${secs2(requestedAt)} \u2014 nudged to ${secs2(placedAt)} past existing clips (use --ripple to make room at the exact time)`,
+    message: `requested ${secs3(requestedAt)} \u2014 nudged to ${secs3(placedAt)} past existing clips (use --ripple to make room at the exact time)`,
     clipIds,
     data: { requestedAt, placedAt }
   };
@@ -63968,9 +63929,9 @@ async function insertClip(pb, opts) {
     const sorted = getSortedTrackClips(trackClips);
     const ranges = getClipRanges(trackClips);
     let furthestEnd = -1;
-    ranges.forEach((range4, i2) => {
-      if (range4.end > furthestEnd) {
-        furthestEnd = range4.end;
+    ranges.forEach((range2, i2) => {
+      if (range2.end > furthestEnd) {
+        furthestEnd = range2.end;
         afterClip = sorted[i2];
       }
     });
@@ -64194,18 +64155,16 @@ function assertOnTimeline(clip, timelineId) {
   }
 }
 async function resolveTimelineEditList(pb, clip) {
-  const metaSegments = clip.meta?.segments;
-  if (metaSegments && metaSegments.length > 0) {
-    return { segments: metaSegments, source: "meta" };
+  const sync = timelineEditListOf(clip);
+  if (sync.source !== "trim" || !clip.MediaClipRef || clip.expand?.MediaClipRef) {
+    return sync;
   }
-  if (clip.MediaClipRef) {
-    const mediaClip = clip.expand?.MediaClipRef ?? await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
-    const segments = getCompositeSegments(mediaClip);
-    if (segments && segments.length > 0) {
-      return { segments, source: "mediaClip" };
-    }
+  const mediaClip = await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
+  const segments = getCompositeSegments(mediaClip);
+  if (segments && segments.length > 0) {
+    return { segments, source: "mediaClip" };
   }
-  return { segments: [{ start: clip.start, end: clip.end }], source: "trim" };
+  return sync;
 }
 var clipUpdateOptions = {
   label: {
@@ -64383,7 +64342,7 @@ async function moveTimelineClip(pb, clipId, opts) {
   const currentTrack = trackList.find((t2) => t2.id === clip.TimelineTrackRef) ?? trackList.find((t2) => t2.layer === 0) ?? trackList[0];
   const destTrack = opts.track ? await resolveTrackRef(pb, timelineId, opts.track) : currentTrack;
   const allClips = await clipMutator.getByTimeline(timelineId);
-  const duration3 = clip.end - clip.start;
+  const duration3 = getClipTimelineDuration(clip);
   const patch = { TimelineTrackRef: destTrack.id };
   let placedAt;
   let nudged = false;
@@ -64446,7 +64405,9 @@ async function moveTimelineClip(pb, clipId, opts) {
           {
             start: trim.start,
             end: trim.end,
-            duration: trim.end - trim.start,
+            // effective length from the planner — for composites this is
+            // the windowed gap-skipping sum, not end - start
+            duration: trim.duration,
             timelineStart: trim.timelineStart
           },
           victim ? { expectedUpdated: victim.updated, snapshot: victim } : void 0
@@ -64614,10 +64575,10 @@ async function rippleDownstreamClips(pb, clip, by, opts) {
       downstreamCount: downstream.length
     };
   }
-  const shifted = downstream.map(({ clip: c, range: range4 }) => ({
+  const shifted = downstream.map(({ clip: c, range: range2 }) => ({
     clipId: c.id,
-    from: range4.start,
-    to: roundToMs(range4.start + applied)
+    from: range2.start,
+    to: roundToMs(range2.start + applied)
   }));
   if (!opts.dryRun) {
     const clipMutator = new TimelineClipMutator(pb);
@@ -64671,10 +64632,10 @@ async function rippleTimelineClips(pb, clipId, opts) {
       ]
     };
   }
-  const shifted = group.map(({ clip: c, range: range4 }) => ({
+  const shifted = group.map(({ clip: c, range: range2 }) => ({
     clipId: c.id,
-    from: range4.start,
-    to: range4.start + by
+    from: range2.start,
+    to: range2.start + by
   }));
   const warnings = [];
   if (by !== opts.by) {
@@ -64834,6 +64795,342 @@ async function reorderTimelineClips(pb, timelineId, orderedIds) {
   return { clips: reordered, noop: false, warnings: [] };
 }
 
+// src/lib/label.ts
+function parseLabelType(value) {
+  const types = Object.values(LabelType);
+  if (!types.includes(value)) {
+    throw new Error(
+      `Invalid label type "${value}". Valid types: ${types.join(", ")}`
+    );
+  }
+  return value;
+}
+function parseLabelTypes(value) {
+  return value.split(",").map((t2) => parseLabelType(t2.trim()));
+}
+function textField(record2, key) {
+  const value = record2[key];
+  if (typeof value === "string") return value;
+  return value == null ? "" : String(value);
+}
+function attributedEntityOf(record2) {
+  return record2.expand?.LabelTrackRef?.expand?.EntityRef ?? record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
+}
+function attributedEntitySummaryOf(record2) {
+  const viaTrack = record2.expand?.LabelTrackRef?.expand?.EntityRef;
+  const entity = viaTrack ?? record2.expand?.LabelEntityRef?.expand?.EntityRef;
+  if (!entity) return null;
+  return {
+    id: entity.id,
+    name: entity.name,
+    kind: entity.kind,
+    via: viaTrack ? "track" : "cluster"
+  };
+}
+function toLabelHit(type, record2) {
+  const attributedEntity = attributedEntitySummaryOf(record2);
+  return attributedEntity ? { type, record: record2, attributedEntity } : { type, record: record2 };
+}
+var LABEL_TYPE_CONFIG = {
+  [LabelType.OBJECT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.SHOT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.PERSON]: {
+    queryFields: ["upperBodyColor", "lowerBodyColor"],
+    snippet: (r2) => [
+      textField(r2, "personId"),
+      textField(r2, "upperBodyColor"),
+      textField(r2, "lowerBodyColor")
+    ].filter(Boolean).join(" ")
+  },
+  [LabelType.SPEECH]: {
+    queryFields: ["transcript"],
+    snippet: (r2) => textField(r2, "transcript")
+  },
+  [LabelType.SPEAKER]: {
+    queryFields: ["transcript", "speakerId"],
+    snippet: (r2) => [
+      speakerTranscriptLabel(
+        textField(r2, "speakerId"),
+        attributedEntityOf(r2)?.name
+      ),
+      textField(r2, "transcript")
+    ].filter(Boolean).join(": ")
+  },
+  [LabelType.FACE]: {
+    queryFields: ["faceId"],
+    snippet: (r2) => textField(r2, "faceId") || textField(r2, "faceHash")
+  },
+  [LabelType.SEGMENT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.TEXT]: {
+    queryFields: ["text"],
+    snippet: (r2) => textField(r2, "text")
+  }
+};
+var ID_FLAGS = {
+  faceId: { type: LabelType.FACE, field: "faceId", flag: "--face-id" },
+  personId: { type: LabelType.PERSON, field: "personId", flag: "--person-id" },
+  trackId: {
+    type: LabelType.OBJECT,
+    field: "originalTrackId",
+    flag: "--track-id"
+  }
+};
+function labelMutator(pb, type) {
+  switch (type) {
+    case LabelType.OBJECT:
+      return new LabelObjectMutator(pb);
+    case LabelType.SHOT:
+      return new LabelShotMutator(pb);
+    case LabelType.PERSON:
+      return new LabelPersonMutator(pb);
+    case LabelType.SPEECH:
+      return new LabelSpeechMutator(pb);
+    case LabelType.SPEAKER:
+      return new LabelSpeakerMutator(pb);
+    case LabelType.FACE:
+      return new LabelFaceMutator(pb);
+    case LabelType.SEGMENT:
+      return new LabelSegmentMutator(pb);
+    case LabelType.TEXT:
+      return new LabelTextMutator(pb);
+  }
+}
+function confidenceOf(hit) {
+  const field = LABEL_TYPE_META[hit.type].confidenceField;
+  const value = hit.record[field];
+  return typeof value === "number" ? value : 0;
+}
+function labelMediaName(hit) {
+  const media = hit.record.expand?.MediaRef;
+  return media ? mediaLabel(media) : hit.record.MediaRef;
+}
+var hitColumns = (withMedia) => [
+  { header: "TYPE", value: (h) => h.type },
+  { header: "ID", value: (h) => h.record.id },
+  ...withMedia ? [{ header: "MEDIA", value: (h) => labelMediaName(h) }] : [],
+  { header: "START", value: (h) => `${h.record.start.toFixed(2)}s` },
+  { header: "END", value: (h) => `${h.record.end.toFixed(2)}s` },
+  { header: "CONF", value: (h) => confidenceOf(h).toFixed(2) },
+  {
+    header: "ENTITY",
+    value: (h) => attributedEntityOf(h.record)?.name ?? ""
+  },
+  {
+    header: withMedia ? "MATCH" : "TEXT",
+    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record))
+  }
+];
+var labelSearchOptions = {
+  types: {
+    flags: "-t, --types <types>",
+    description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+    parse: parseLabelTypes
+  },
+  media: {
+    flags: "-m, --media <id>",
+    description: "restrict results to one media"
+  },
+  faceId: {
+    flags: "--face-id <id>",
+    description: "exact faceId match (implies --types face)"
+  },
+  personId: {
+    flags: "--person-id <id>",
+    description: "exact personId match (implies --types person)"
+  },
+  trackId: {
+    flags: "--track-id <id>",
+    description: "exact object track id match (implies --types object)"
+  },
+  minConfidence: {
+    flags: "--min-confidence <n>",
+    description: "minimum confidence (0..1)",
+    parse: parseFloat
+  },
+  limit: {
+    flags: "-n, --limit <count>",
+    description: "max results per label type (default: 20)",
+    parse: (v) => parseInt(v, 10)
+  }
+};
+async function searchLabels(pb, opts) {
+  const idFlags = Object.keys(ID_FLAGS).filter(
+    (key) => opts[key] !== void 0
+  );
+  if (!opts.query && idFlags.length === 0 && !opts.entityId) {
+    throw new Error(
+      "Provide a search query, --entity, or an exact-id flag (--face-id, --person-id, --track-id)"
+    );
+  }
+  const impliedTypes = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
+  if (opts.types && impliedTypes.length > 0) {
+    const sameSet = opts.types.length === impliedTypes.length && impliedTypes.every((t2) => opts.types.includes(t2));
+    if (!sameSet) {
+      throw new Error(
+        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${impliedTypes.join(",")})`
+      );
+    }
+  }
+  const types = impliedTypes.length > 0 ? impliedTypes : opts.types ?? Object.values(LabelType);
+  const limit = opts.limit ?? 20;
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const config2 = LABEL_TYPE_CONFIG[type];
+      const meta3 = LABEL_TYPE_META[type];
+      const clauses = ["WorkspaceRef = {:ws}"];
+      const params = {
+        ws: opts.workspaceId
+      };
+      if (opts.media) {
+        clauses.push("MediaRef = {:media}");
+        params.media = opts.media;
+      }
+      if (opts.query) {
+        clauses.push(
+          `(${config2.queryFields.map((f) => `${f} ~ {:q}`).join(" || ")})`
+        );
+        params.q = opts.query;
+      }
+      for (const key of idFlags) {
+        if (ID_FLAGS[key].type === type) {
+          clauses.push(`${ID_FLAGS[key].field} = {:${key}}`);
+          params[key] = opts[key];
+        }
+      }
+      if (opts.minConfidence !== void 0) {
+        clauses.push(`${meta3.confidenceField} >= {:minConfidence}`);
+        params.minConfidence = opts.minConfidence;
+      }
+      if (opts.entityId) {
+        clauses.push(labelAttributionFilter(type, opts.entityId));
+      }
+      const filter = pb.filter(clauses.join(" && "), params);
+      const result = await labelMutator(pb, type).getList(
+        1,
+        limit,
+        filter,
+        `-${meta3.confidenceField}`,
+        ["MediaRef.UploadRef", ...attributionExpands(type)]
+      );
+      return { type, result };
+    })
+  );
+  const hits = results.flatMap(
+    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
+  );
+  hits.sort((a, b) => confidenceOf(b) - confidenceOf(a));
+  const totalItems = results.reduce(
+    (sum, { result }) => sum + result.totalItems,
+    0
+  );
+  return { hits, totalItems };
+}
+async function listLabels(pb, opts) {
+  const types = opts.types ?? Object.values(LabelType);
+  const limit = opts.limit ?? 100;
+  const clauses = ["MediaRef = {:media}"];
+  const params = { media: opts.mediaId };
+  if (opts.window?.end !== void 0) {
+    clauses.push("start < {:wEnd}");
+    params.wEnd = opts.window.end;
+  }
+  if (opts.window?.start !== void 0) {
+    clauses.push("end > {:wStart}");
+    params.wStart = opts.window.start;
+  }
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const typeClauses = opts.entityId ? [...clauses, labelAttributionFilter(type, opts.entityId)] : clauses;
+      const filter = pb.filter(typeClauses.join(" && "), params);
+      const result = await labelMutator(pb, type).getList(
+        1,
+        limit,
+        filter,
+        "start",
+        attributionExpands(type)
+      );
+      return { type, result };
+    })
+  );
+  const hits = results.flatMap(
+    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
+  );
+  const totalItems = results.reduce(
+    (sum, { result }) => sum + result.totalItems,
+    0
+  );
+  return { hits, totalItems };
+}
+async function clipEditListFilter(pb, ref) {
+  if (ref.clip) {
+    const clip2 = await new MediaClipMutator(pb).getById(ref.clip);
+    if (!clip2) throw new Error(`Media clip not found: ${ref.clip}`);
+    const existing = getCompositeSegments(clip2);
+    const list = existing?.length ? existing : [{ start: clip2.start, end: clip2.end }];
+    return {
+      mediaId: clip2.MediaRef,
+      segments: windowCompositeSegments(list, clip2.start, clip2.end),
+      source: existing?.length ? "clipData" : "trim"
+    };
+  }
+  const clipId = ref.timelineClip;
+  if (!clipId) {
+    throw new Error("Pass a MediaClip id (--clip) or TimelineClip id.");
+  }
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) throw new Error(`Timeline clip not found: ${clipId}`);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 captions and nested timelines have no labels.`
+    );
+  }
+  const editList = await resolveTimelineEditList(pb, clip);
+  return {
+    mediaId: clip.MediaRef,
+    segments: windowCompositeSegments(editList.segments, clip.start, clip.end),
+    source: editList.source
+  };
+}
+async function getLabel(pb, type, labelId) {
+  return labelMutator(pb, type).getById(labelId, attributionExpands(type));
+}
+var clipMetaOptions = {
+  label: {
+    flags: "--label <text>",
+    description: "clip name shown in the editor (searchable)"
+  },
+  description: {
+    flags: "--description <text>",
+    description: "clip notes shown in the editor (searchable)"
+  }
+};
+async function createClipFromLabel(pb, opts) {
+  const labelRecord = await getLabel(pb, opts.type, opts.labelId);
+  if (!labelRecord) {
+    throw new Error(
+      `No ${opts.type} label with id ${opts.labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
+    );
+  }
+  const mutator = new MediaClipMutator(pb);
+  let clip = await mutator.createFromLabel(labelRecord, opts.type, "cli");
+  const patch = {};
+  if (opts.label !== void 0) patch.label = opts.label;
+  if (opts.description !== void 0) patch.description = opts.description;
+  if (Object.keys(patch).length > 0) {
+    clip = await mutator.update(clip.id, patch);
+  }
+  return { clip, label: labelRecord };
+}
+
 // src/lib/timeline-inspect.ts
 function toClipInfo(placed) {
   const clip = placed.clip;
@@ -64842,7 +65139,11 @@ function toClipInfo(placed) {
     timelineStart: placed.globalStart,
     timelineEnd: placed.globalEnd,
     labelHint: timelineClipLabelHint(clip),
-    kind: clip.CaptionRef ? "caption" : clip.SourceTimelineRef ? "timeline" : "media"
+    kind: clip.CaptionRef ? "caption" : clip.SourceTimelineRef ? "timeline" : "media",
+    times: timelineClipTimes(clip, {
+      timelineStart: placed.globalStart,
+      timelineEnd: placed.globalEnd
+    })
   };
 }
 function placedClipsOf(track) {
@@ -64911,7 +65212,12 @@ async function inspectAtTime(pb, opts) {
       isLocked: record2?.isLocked ?? false,
       active: active ? {
         ...toClipInfo(active),
-        sourceTime: active.clip.start + (opts.at - active.globalStart),
+        // Mapped through the clip's windowed edit list — a composite
+        // reports the source time actually playing, never a gap time.
+        sourceTime: clipSourceTimeAtOffset(
+          active.clip,
+          opts.at - active.globalStart
+        ),
         remaining: active.globalEnd - opts.at
       } : null,
       nextStart: next ? next.globalStart : null
@@ -64921,6 +65227,81 @@ async function inspectAtTime(pb, opts) {
     at: opts.at,
     computedDuration: computeTimelineDuration(clips, trackRecords),
     tracks
+  };
+}
+async function mapClipTime(pb, clipId, input) {
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Timeline clip not found: ${clipId}`);
+  }
+  assertOnTimeline(clip, input.timelineId);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 time mapping applies to media-backed clips, not captions or nested timelines.`
+    );
+  }
+  const media = await new MediaMutator(pb).getById(clip.MediaRef);
+  if (!media) {
+    throw new Error(`Media not found for clip ${clipId}: ${clip.MediaRef}`);
+  }
+  const editList = await resolveTimelineEditList(pb, clip);
+  const segments = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  if (!entry) {
+    throw new Error(`Clip ${clipId} is not placed on its timeline's tracks.`);
+  }
+  const placement = {
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  };
+  const times = timelineClipTimes(clip, placement);
+  const effective = times.effective.duration;
+  let offset;
+  let clamped = false;
+  let inGap = false;
+  let gap;
+  if (input.domain === "source") {
+    offset = clipOffsetAtSourceTime(clip, input.value);
+    for (let i2 = 0; i2 < segments.length - 1; i2++) {
+      if (input.value > segments[i2].end && input.value < segments[i2 + 1].start) {
+        inGap = true;
+        gap = { start: segments[i2].end, end: segments[i2 + 1].start };
+        break;
+      }
+    }
+  } else {
+    const rawOffset = input.domain === "timeline" ? input.value - placement.timelineStart : input.value;
+    offset = Math.min(Math.max(0, rawOffset), effective);
+    clamped = Math.abs(offset - rawOffset) > TIMELINE_EPSILON;
+  }
+  const source = clipSourceTimeAtOffset(clip, offset);
+  if (input.domain === "source" && !inGap) {
+    clamped = Math.abs(source - input.value) > TIMELINE_EPSILON;
+  }
+  const segIndex = editList.source === "trim" ? -1 : segments.findIndex(
+    (s2) => source >= s2.start - TIMELINE_EPSILON && source <= s2.end + TIMELINE_EPSILON
+  );
+  return {
+    clipId,
+    timelineId: clip.TimelineRef,
+    layer: track.layer,
+    input,
+    point: {
+      timeline: roundToMs(placement.timelineStart + offset),
+      offset: roundToMs(offset),
+      source: roundToMs(source),
+      segment: segIndex >= 0 ? {
+        index: segIndex,
+        start: segments[segIndex].start,
+        end: segments[segIndex].end
+      } : null
+    },
+    inGap,
+    ...gap ? { gap } : {},
+    clamped,
+    composite: times.composite,
+    times
   };
 }
 function provenanceExpands() {
@@ -64933,7 +65314,8 @@ function provenanceExpands() {
     ];
   });
 }
-async function clipLabelDetail(pb, clip, limitPerType = 10) {
+async function clipLabelDetail(pb, clip, opts = {}) {
+  const limitPerType = opts.limitPerType ?? 10;
   const provenance = [];
   if (clip.MediaClipRef) {
     const links = await new MediaClipLabelMutator(pb).getByClip(
@@ -64958,16 +65340,49 @@ async function clipLabelDetail(pb, clip, limitPerType = 10) {
       });
     }
   }
-  let overlapping = [];
+  const overlapping = [];
+  let hiddenInCutGaps = 0;
   if (clip.MediaRef) {
     const { hits } = await listLabels(pb, {
       mediaId: clip.MediaRef,
       limit: limitPerType,
       window: { start: clip.start, end: clip.end }
     });
-    overlapping = hits;
+    const editList = await resolveTimelineEditList(pb, clip);
+    const windowed = [
+      ...windowCompositeSegments(editList.segments, clip.start, clip.end)
+    ].sort((a, b) => a.start - b.start);
+    const placedStart = opts.placement?.timelineStart;
+    for (const hit of hits) {
+      const record2 = hit.record;
+      const played = windowed.filter((s2) => record2.end > s2.start && record2.start < s2.end).map((s2) => {
+        const sourceStart = Math.max(record2.start, s2.start);
+        const sourceEnd = Math.min(record2.end, s2.end);
+        const clipStart = roundToMs(
+          compositeOffsetAtSourceTime(windowed, sourceStart)
+        );
+        const clipEnd = roundToMs(
+          compositeOffsetAtSourceTime(windowed, sourceEnd)
+        );
+        return {
+          sourceStart: roundToMs(sourceStart),
+          sourceEnd: roundToMs(sourceEnd),
+          clipStart,
+          clipEnd,
+          ...placedStart !== void 0 ? {
+            timelineStart: roundToMs(placedStart + clipStart),
+            timelineEnd: roundToMs(placedStart + clipEnd)
+          } : {}
+        };
+      });
+      if (played.length === 0) {
+        hiddenInCutGaps++;
+        continue;
+      }
+      overlapping.push({ ...hit, played });
+    }
   }
-  return { provenance, overlapping };
+  return { provenance, overlapping, hiddenInCutGaps };
 }
 
 // src/lib/export.ts
@@ -65339,7 +65754,15 @@ N }\`. All times are seconds.
   \`height\` describe the source.
 - **MediaClip** \u2014 a reusable, named sub-range of one media; \`start\`/\`end\`
   are positions in the source media. Created by hand
-  (\`vw media clip create\`) or from a label (\`vw label clip\`).
+  (\`vw media clip create\`) or from a label (\`vw label clip\`). A clip may
+  carry an **edit list** (\`clipData.segments\` here, \`meta.segments\` on
+  timeline clips): 2+ \`{start, end}\` source ranges that fine-tune the cut
+  (umms removed in place). Such a "composite" clip plays only its segments \u2014
+  its effective duration is their sum, not \`end - start\`, and text/labels
+  inside the gaps are NOT part of the cut. Read composites through
+  \`vw ... segments <id>\` (the list), \`vw ... transcript <id>\` (what the
+  cut says, gap words trimmed), and \`vw timeline clips map <id>\`
+  (source \u2194 timeline time translation) \u2014 never by their outer trim alone.
 - **Labels** \u2014 machine annotations of a media, one file per label under a
   per-type folder: \`speech\` (transcripts), \`speaker\` (diarized
   per-speaker utterances; each carries a \`speakerId\` and word timings),
@@ -65362,7 +65785,10 @@ N }\`. All times are seconds.
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
   track's clips carry computed \`timelineStart\`/\`timelineEnd\` (position on
   the timeline) while \`clip.start\`/\`clip.end\` are the trim window in the
-  source media.
+  source media. Each placed clip also embeds a canonical \`times\` block
+  (\`timeline\`/\`source\`/\`effective\`/\`segments\`/\`composite\`) \u2014 when
+  \`composite\` is true, the source span is larger than what plays; use the
+  \`effective\` duration and the segment commands above.
 
 Timeline placement semantics: every clip sits at an explicit
 \`timelineStart\`. \`vw timeline insert\` appends to the end of the target
@@ -67180,7 +67606,7 @@ async function inspectMediaClipSegments(pb, clipId) {
   );
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: mediaClipTimes(clip),
     source: existing?.length ? "clipData" : "trim",
     gaps: segmentGaps(segments),
     mediaId: media.id,
@@ -67201,13 +67627,22 @@ async function inspectTimelineClipSegments(pb, clipId, timelineId) {
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const editList = await resolveTimelineEditList(pb, clip);
   const segments = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  const placement = entry ? {
+    layer: track.layer,
+    trackId: track.id,
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  } : void 0;
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: timelineClipTimes(clip, placement),
     source: editList.source,
     gaps: segmentGaps(segments),
     mediaId: media.id,
-    mediaDuration: media.duration
+    mediaDuration: media.duration,
+    ...placement ? { placement } : {}
   };
 }
 
@@ -67295,8 +67730,6 @@ Checks (reported most severe first):
   message, clipIds, layer?, start?, end? }], errors, warnings, ok }.`;
 
 // src/commands/clip-segments.ts
-var secs3 = (v) => `${v.toFixed(2)}s`;
-var range = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 var signed3 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
 var workspaceOption = (cmd) => cmd.option(
   "-w, --workspace <id>",
@@ -67306,7 +67739,7 @@ var effectiveOf = (segments) => segments.reduce((total, s2) => total + Math.max(
 function describeOp(op) {
   switch (op.kind) {
     case "split":
-      return `Split at ${op.at.map(secs3).join(", ")}:`;
+      return `Split at ${op.at.map(secs).join(", ")}:`;
     case "cut":
       return `Cut ${range(op.from, op.to)} from`;
     case "trim":
@@ -67323,7 +67756,7 @@ function reportEdit(clipId, op, result, opts) {
       noopMessage(result.warnings) ?? "Nothing to write \u2014 the edit list is unchanged."
     );
   } else {
-    const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed3(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs3(effectiveOf(result.before))} \u2192 ${secs3(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
+    const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed3(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs(effectiveOf(result.before))} \u2192 ${secs(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
     if (result.dryRun) {
       info(`Dry run \u2014 nothing written. Would have: ${summary}`);
     } else {
@@ -67346,7 +67779,7 @@ function reportEdit(clipId, op, result, opts) {
     if ("rippled" in result) {
       for (const shift of result.rippled) {
         info(
-          `  rippled: ${shift.clipId} ${secs3(shift.from)} \u2192 ${secs3(shift.to)}`
+          `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
         );
       }
     }
@@ -67361,7 +67794,7 @@ function reportClear(clipId, result, opts) {
     info(noopMessage(result.warnings) ?? "Nothing to clear \u2014 no edit list.");
   } else {
     const removed = result.removed ?? [];
-    const summary = `Cleared the edit list of clip ${clipId} (${removed.length} segment${removed.length === 1 ? "" : "s"} removed) \u2014 effective ${secs3(effectiveOf(removed))} \u2192 ${secs3(result.times.duration)}`;
+    const summary = `Cleared the edit list of clip ${clipId} (${removed.length} segment${removed.length === 1 ? "" : "s"} removed) \u2014 effective ${secs(effectiveOf(removed))} \u2192 ${secs(result.times.duration)}`;
     if (result.dryRun) {
       info(`Dry run \u2014 nothing written. Would have: ${summary}`);
     } else {
@@ -67375,7 +67808,7 @@ function reportClear(clipId, result, opts) {
     if ("rippled" in result) {
       for (const shift of result.rippled) {
         info(
-          `  rippled: ${shift.clipId} ${secs3(shift.from)} \u2192 ${secs3(shift.to)}`
+          `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
         );
       }
     }
@@ -67390,10 +67823,15 @@ function reportInspection(clipId, inspection, json2) {
   }
   const sourceHint = inspection.source === "trim" ? "trim window \u2014 no edit list yet; an edit leaving 2+ segments creates one" : inspection.source;
   info(
-    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs3(inspection.times.duration)}, span ${range(inspection.times.start, inspection.times.end)}`
+    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs(inspection.times.effective.duration)}, span ${range(inspection.times.source.start, inspection.times.source.end)}`
   );
+  if (inspection.placement) {
+    info(
+      `  timeline: ${range(inspection.placement.timelineStart, inspection.placement.timelineEnd)} (track layer ${inspection.placement.layer})`
+    );
+  }
   info(
-    `  media ${inspection.mediaId} (${secs3(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
+    `  media ${inspection.mediaId} (${secs(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
   );
   const gapAfter = new Map(
     inspection.gaps.map((g) => [g.afterIndex, g.seconds])
@@ -67402,14 +67840,14 @@ function reportInspection(clipId, inspection, json2) {
     inspection.segments.map((seg, index) => ({ seg, index })),
     [
       { header: "IDX", value: (r2) => String(r2.index) },
-      { header: "START", value: (r2) => secs3(r2.seg.start) },
-      { header: "END", value: (r2) => secs3(r2.seg.end) },
-      { header: "DUR", value: (r2) => secs3(r2.seg.end - r2.seg.start) },
+      { header: "START", value: (r2) => secs(r2.seg.start) },
+      { header: "END", value: (r2) => secs(r2.seg.end) },
+      { header: "DUR", value: (r2) => secs(r2.seg.end - r2.seg.start) },
       {
         header: "GAP-AFTER",
         value: (r2) => {
           const gap = gapAfter.get(r2.index);
-          return gap !== void 0 ? secs3(gap) : "";
+          return gap !== void 0 ? secs(gap) : "";
         }
       }
     ]
@@ -67748,13 +68186,322 @@ function registerTimelineClipSegmentCommands(clips) {
   });
 }
 
+// src/lib/clip-transcript.ts
+function segmentGapsOf(segments) {
+  const gaps = [];
+  for (let i2 = 0; i2 < segments.length - 1; i2++) {
+    const gap = roundToMs(segments[i2 + 1].start - segments[i2].end);
+    if (gap > 0) gaps.push({ afterIndex: i2, seconds: gap });
+  }
+  return gaps;
+}
+async function fetchUtterances(pb, type, mediaId, window2) {
+  const mutator = labelMutator(pb, type);
+  const filter = pb.filter(
+    "MediaRef = {:media} && start < {:wEnd} && end > {:wStart}",
+    { media: mediaId, wEnd: window2.end, wStart: window2.start }
+  );
+  const rows = [];
+  let page = 1;
+  for (; ; ) {
+    const result = await mutator.getList(
+      page,
+      200,
+      filter,
+      "start",
+      attributionExpands(type)
+    );
+    rows.push(...result.items);
+    if (page >= result.totalPages || result.items.length === 0) break;
+    page++;
+  }
+  return rows;
+}
+function speakerOf(record2, labelType) {
+  const fields = record2;
+  const entity = attributedEntitySummaryOf(record2) ?? void 0;
+  if (labelType === "speaker") {
+    const speakerId = typeof fields.speakerId === "string" ? fields.speakerId : void 0;
+    if (!speakerId) return void 0;
+    return {
+      speakerId,
+      label: speakerTranscriptLabel(speakerId, entity?.name),
+      ...entity ? { entity } : {}
+    };
+  }
+  if (entity) return { label: entity.name, entity };
+  const speakerTag = fields.speakerTag;
+  if (typeof speakerTag === "number") {
+    return { label: `Speaker tag ${speakerTag}` };
+  }
+  return void 0;
+}
+async function transcriptFor(pb, ctx, opts) {
+  const window2 = {
+    start: Math.min(...ctx.windowed.map((s2) => s2.start)),
+    end: Math.max(...ctx.windowed.map((s2) => s2.end))
+  };
+  let labelType;
+  let rows;
+  if (opts.type) {
+    rows = await fetchUtterances(
+      pb,
+      opts.type === "speaker" ? LabelType.SPEAKER : LabelType.SPEECH,
+      ctx.mediaId,
+      window2
+    );
+    labelType = rows.length > 0 ? opts.type : null;
+  } else {
+    rows = await fetchUtterances(pb, LabelType.SPEAKER, ctx.mediaId, window2);
+    labelType = "speaker";
+    if (rows.length === 0) {
+      rows = await fetchUtterances(pb, LabelType.SPEECH, ctx.mediaId, window2);
+      labelType = rows.length > 0 ? "speech" : null;
+    }
+  }
+  const transcript = buildClipTranscript(
+    rows,
+    ctx.windowed
+  );
+  const byId = new Map(rows.map((r2) => [r2.id, r2]));
+  const placedStart = ctx.placement?.timelineStart;
+  const utterances = transcript.utterances.map(
+    (u) => {
+      const record2 = byId.get(u.id);
+      const speaker = record2 && labelType ? speakerOf(record2, labelType) : void 0;
+      return {
+        ...u,
+        parts: u.parts.map((part) => ({
+          ...opts.words ? part : { ...part, words: void 0 },
+          ...placedStart !== void 0 ? {
+            timelineStart: roundToMs(placedStart + part.clipStart),
+            timelineEnd: roundToMs(placedStart + part.clipEnd)
+          } : {}
+        })),
+        ...speaker ? { speaker } : {},
+        ...placedStart !== void 0 ? {
+          timelineStart: roundToMs(placedStart + u.clipStart),
+          timelineEnd: roundToMs(placedStart + u.clipEnd)
+        } : {}
+      };
+    }
+  );
+  const text = utterances.map((u) => u.speaker ? `${u.speaker.label}: ${u.text}` : u.text).join("\n");
+  return {
+    clipId: ctx.clipId,
+    domain: ctx.domain,
+    mediaId: ctx.mediaId,
+    labelType,
+    labelTypeSelected: opts.type ? "forced" : "auto",
+    editListSource: ctx.editListSource,
+    segments: ctx.windowed,
+    gaps: segmentGapsOf(ctx.windowed),
+    times: ctx.times,
+    ...ctx.placement ? { placement: ctx.placement } : {},
+    utterances,
+    totals: transcript.totals,
+    text
+  };
+}
+async function requireMedia2(pb, clipId, mediaId) {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found for clip ${clipId}: ${mediaId}`);
+  }
+  return media;
+}
+async function mediaClipTranscript(pb, clipId, opts = {}) {
+  const clip = await new MediaClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
+  const existing = getCompositeSegments(clip);
+  const normalized = normalizeSegments(
+    existing?.length ? existing : [{ start: clip.start, end: clip.end }],
+    mediaBounds(media)
+  );
+  return transcriptFor(
+    pb,
+    {
+      clipId,
+      domain: "mediaClip",
+      mediaId: media.id,
+      editListSource: existing?.length ? "clipData" : "trim",
+      windowed: windowCompositeSegments(normalized, clip.start, clip.end),
+      times: mediaClipTimes(clip)
+    },
+    opts
+  );
+}
+async function timelineClipTranscript(pb, clipId, opts = {}) {
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Timeline clip not found: ${clipId}`);
+  }
+  assertOnTimeline(clip, opts.timelineId);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 transcripts apply to media-backed clips, not captions or nested timelines.`
+    );
+  }
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
+  const editList = await resolveTimelineEditList(pb, clip);
+  const normalized = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  const placement = entry ? {
+    timelineId: clip.TimelineRef,
+    layer: track.layer,
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  } : void 0;
+  return transcriptFor(
+    pb,
+    {
+      clipId,
+      domain: "timelineClip",
+      mediaId: media.id,
+      editListSource: editList.source,
+      windowed: windowCompositeSegments(normalized, clip.start, clip.end),
+      times: timelineClipTimes(clip, placement),
+      ...placement ? { placement } : {}
+    },
+    opts
+  );
+}
+
+// src/commands/clip-transcript.ts
+var workspaceOption2 = (cmd) => cmd.option(
+  "-w, --workspace <id>",
+  "workspace id (accepted for flag consistency; clips are addressed by id)"
+);
+function parseTranscriptType(value) {
+  if (value !== "speaker" && value !== "speech") {
+    throw new Error(`Invalid --type "${value}" \u2014 use speaker or speech.`);
+  }
+  return value;
+}
+function transcriptCommand(parent) {
+  return withJsonOption(
+    workspaceOption2(
+      parent.command("transcript <clipId>").description(
+        "What the clip actually says: transcript trimmed to the clip's edit list at word level (cut gaps omitted)"
+      ).option(
+        "--type <speaker|speech>",
+        "force the label source (default: speaker labels, falling back to speech)",
+        parseTranscriptType
+      ).option(
+        "--full-text",
+        "print only the flowing speaker-labeled text (audit mode)"
+      ).option("--words", "include per-word timing arrays in --json output")
+    )
+  );
+}
+function partPrefix(part, clipStart, clipEnd, timelineStart, timelineEnd) {
+  const pieces = [
+    `src ${range(part.sourceStart, part.sourceEnd)}`,
+    `clip ${range(clipStart, clipEnd)}`,
+    ...timelineStart !== void 0 && timelineEnd !== void 0 ? [`tl ${range(timelineStart, timelineEnd)}`] : []
+  ];
+  return `[${pieces.join(" | ")}]`;
+}
+function reportTranscript(result, opts) {
+  if (opts.json) {
+    printRecord(result, [], true);
+    return;
+  }
+  const estimated = result.utterances.filter((u) => u.estimatedTimings).length;
+  if (estimated > 0) {
+    warn(
+      `word timings estimated for ${estimated} utterance(s) \u2014 cut filtering is approximate`
+    );
+  }
+  if (opts.fullText) {
+    if (result.text) info(result.text);
+    else info("(no transcript content overlaps this clip)");
+    return;
+  }
+  const sourceLabel = result.labelType ? `${result.labelType} labels` : "no labels";
+  info(
+    `Clip ${result.clipId} \u2014 transcript from ${sourceLabel} (${result.segments.length} segment(s), effective ${secs(result.times.effective.duration)}, span ${range(result.times.source.start, result.times.source.end)} of media ${result.mediaId})`
+  );
+  if (result.placement) {
+    info(
+      `  timeline: ${range(result.placement.timelineStart, result.placement.timelineEnd)} (track layer ${result.placement.layer}) \u2014 edit list source: ${result.editListSource}`
+    );
+  } else {
+    info(`  edit list source: ${result.editListSource}`);
+  }
+  if (result.labelType === null) {
+    info(
+      `  no speaker/speech labels overlap this clip's played content \u2014 queue detection with \`vw job label -m ${result.mediaId} -t speaker,speech\``
+    );
+    return;
+  }
+  if (result.utterances.length === 0) {
+    info("  (every overlapping utterance falls inside cut gaps)");
+  }
+  const flat = result.utterances.flatMap((u) => u.parts.map((part) => ({ u, part }))).sort((a, b) => a.part.clipStart - b.part.clipStart);
+  let prevSegment;
+  for (const { u, part } of flat) {
+    if (prevSegment !== void 0 && part.segmentIndex > prevSegment) {
+      const removed = result.gaps.filter(
+        (g) => g.afterIndex >= prevSegment && g.afterIndex < part.segmentIndex
+      ).reduce((sum, g) => sum + g.seconds, 0);
+      if (removed > 0) {
+        info(`  \u2500\u2500 cut: ${secs(removed)} of source removed \u2500\u2500`);
+      }
+    }
+    prevSegment = Math.max(prevSegment ?? part.segmentIndex, part.segmentIndex);
+    const speaker = u.speaker ? `${u.speaker.label}: ` : "";
+    info(
+      `  ${partPrefix(part, part.clipStart, part.clipEnd, part.timelineStart, part.timelineEnd)} ${speaker}${part.text}`
+    );
+  }
+  const { droppedUtterances, omittedWords } = result.totals;
+  if (droppedUtterances > 0 || omittedWords > 0) {
+    const hidden = droppedUtterances > 0 ? `${droppedUtterances} utterance(s) hidden entirely by cuts; ` : "";
+    info(
+      `  (${hidden}${omittedWords} word(s) omitted \u2014 \`segments\` shows the gaps)`
+    );
+  }
+}
+async function runTranscript(clipId, opts, domain2) {
+  const pb = await requireClient();
+  const shared = { type: opts.type, words: opts.words };
+  const result = domain2 === "media" ? await mediaClipTranscript(pb, clipId, shared) : await timelineClipTranscript(pb, clipId, {
+    ...shared,
+    timelineId: opts.timeline
+  });
+  reportTranscript(result, opts);
+}
+function registerMediaClipTranscriptCommand(clip) {
+  transcriptCommand(clip).action(async (clipId, opts) => {
+    try {
+      await runTranscript(clipId, opts, "media");
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+function registerTimelineClipTranscriptCommand(clips) {
+  transcriptCommand(clips).option("-t, --timeline <id>", "timeline id (validated when passed)").action(async (clipId, opts) => {
+    try {
+      await runTranscript(clipId, opts, "timeline");
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+
 // src/commands/media.ts
 var tagColumns = [
   { header: "ENTITY", value: (t2) => t2.expand?.EntityRef?.name ?? t2.EntityRef },
   { header: "KIND", value: (t2) => String(t2.expand?.EntityRef?.kind ?? "?") },
   { header: "ENTITY ID", value: (t2) => t2.EntityRef }
 ];
-async function requireMedia2(pb, mediaId) {
+async function requireMedia3(pb, mediaId) {
   const media = await new MediaMutator(pb).getById(mediaId);
   if (!media) {
     throw new Error(`Media not found: ${mediaId}`);
@@ -67852,7 +68599,7 @@ function registerMediaCommands(program3) {
   withJsonOption(mediaShow).action(async (mediaId, opts) => {
     try {
       const pb = await requireClient();
-      const found = await requireMedia2(pb, mediaId);
+      const found = await requireMedia3(pb, mediaId);
       const tags = await new MediaTagMutator(pb).getByMedia(
         found.id,
         1,
@@ -67892,7 +68639,7 @@ function registerMediaCommands(program3) {
     async (mediaId, entityNameOrId, opts) => {
       try {
         const pb = await requireClient();
-        const found = await requireMedia2(pb, mediaId);
+        const found = await requireMedia3(pb, mediaId);
         const entity = await resolveEntity(
           pb,
           found.WorkspaceRef,
@@ -67920,7 +68667,7 @@ function registerMediaCommands(program3) {
     async (mediaId, entityNameOrId, opts) => {
       try {
         const pb = await requireClient();
-        const found = await requireMedia2(pb, mediaId);
+        const found = await requireMedia3(pb, mediaId);
         const entity = await resolveEntity(
           pb,
           found.WorkspaceRef,
@@ -67997,8 +68744,12 @@ function registerMediaCommands(program3) {
         searchQuery: opts.search,
         directoryId
       });
+      const rows = result.items.map((c) => ({
+        ...c,
+        times: mediaClipTimes(c)
+      }));
       printList(
-        result.items,
+        rows,
         [
           { header: "ID", value: (c) => c.id },
           { header: "LABEL", value: (c) => c.label ?? "" },
@@ -68006,7 +68757,12 @@ function registerMediaCommands(program3) {
           { header: "TYPE", value: (c) => String(c.type) },
           { header: "START", value: (c) => `${c.start.toFixed(2)}s` },
           { header: "END", value: (c) => `${c.end.toFixed(2)}s` },
-          { header: "DURATION", value: (c) => formatDuration(c.duration) }
+          {
+            // Effective gap-skipping length; ` ◆N` marks an N-segment
+            // composite whose START–END span is larger than it plays.
+            header: "DURATION",
+            value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`
+          }
         ],
         { json: opts.json, totalItems: result.totalItems }
       );
@@ -68058,6 +68814,7 @@ function registerMediaCommands(program3) {
     }
   });
   registerMediaClipSegmentCommands(clip);
+  registerMediaClipTranscriptCommand(clip);
 }
 
 // src/commands/directory.ts
@@ -68283,12 +69040,55 @@ function registerLabelCommands(program3) {
     "-n, --limit <count>",
     "max results per label type (default: 100)",
     (v) => parseInt(v, 10)
+  ).option(
+    "--from <seconds>",
+    "only labels overlapping at/after this source time",
+    parseSeconds
+  ).option(
+    "--to <seconds>",
+    "only labels overlapping before this source time",
+    parseSeconds
+  ).option(
+    "--clip <mediaClipId>",
+    "filter to a MediaClip's played edit list (labels inside cut gaps hidden)"
+  ).option(
+    "--timeline-clip <id>",
+    "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)"
   );
   withJsonOption(list).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      if (opts.clip && opts.timelineClip) {
+        throw new Error("Pass --clip or --timeline-clip, not both.");
+      }
+      const clipScoped = Boolean(opts.clip || opts.timelineClip);
+      if (clipScoped && (opts.from !== void 0 || opts.to !== void 0)) {
+        throw new Error(
+          "--from/--to cannot be combined with --clip/--timeline-clip \u2014 the clip supplies its own window."
+        );
+      }
+      let editList;
       let mediaId = opts.media;
+      let window2;
+      if (clipScoped) {
+        editList = await clipEditListFilter(pb, {
+          clip: opts.clip,
+          timelineClip: opts.timelineClip
+        });
+        if (mediaId && mediaId !== editList.mediaId) {
+          throw new Error(
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${mediaId} \u2014 drop -m.`
+          );
+        }
+        mediaId = editList.mediaId;
+        window2 = {
+          start: Math.min(...editList.segments.map((s2) => s2.start)),
+          end: Math.max(...editList.segments.map((s2) => s2.end))
+        };
+      } else if (opts.from !== void 0 || opts.to !== void 0) {
+        window2 = { start: opts.from, end: opts.to };
+      }
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       if (!mediaId) {
         mediaId = (await pickMedia(pb, workspaceId)).id;
       }
@@ -68297,13 +69097,38 @@ function registerLabelCommands(program3) {
         mediaId,
         types: opts.types,
         entityId,
-        limit: opts.limit
+        limit: opts.limit,
+        ...window2 ? { window: window2 } : {}
       });
-      printList(hits, hitColumns(false), {
+      let shown = hits;
+      let hidden = 0;
+      if (editList) {
+        shown = hits.filter(
+          (h) => overlapsSegments(h.record.start, h.record.end, editList.segments)
+        );
+        hidden = hits.length - shown.length;
+      }
+      if (opts.json && editList) {
+        printRecord(
+          {
+            items: shown,
+            totalItems,
+            editList: { segments: editList.segments, source: editList.source },
+            hiddenInCutGaps: hidden
+          },
+          [],
+          true
+        );
+        return;
+      }
+      printList(shown, hitColumns(false), {
         json: opts.json,
         totalItems,
         hint: "vw label show <type> <id> shows one record"
       });
+      if (!opts.json && hidden > 0) {
+        info(`(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`);
+      }
     } catch (err) {
       handleError(err);
     }
@@ -69078,6 +69903,119 @@ function registerCaptionCommands(program3) {
   });
 }
 
+// src/lib/timeline-compact.ts
+async function compactTimeline(pb, timelineId, opts = {}) {
+  const timeline = await new TimelineMutator(pb).getById(timelineId);
+  if (!timeline) {
+    throw new Error(`Timeline not found: ${timelineId}`);
+  }
+  const trackList = (await new TimelineTrackMutator(pb).getByTimeline(timelineId)).items;
+  if (trackList.length === 0) {
+    trackList.push(await ensureDefaultTrack(pb, timelineId));
+  }
+  const clipMutator = new TimelineClipMutator(pb);
+  const allClips = await clipMutator.getByTimeline(timelineId);
+  const lanes = opts.track ? [await resolveTrackRef(pb, timelineId, opts.track)] : [...trackList].sort((a, b) => a.layer - b.layer);
+  const tracks = [];
+  const writes = [];
+  for (const track of lanes) {
+    const laneClips = clipsOnTrack(allClips, trackList, track.id);
+    const sorted = getSortedTrackClips(laneClips);
+    const ranges = getClipRanges(laneClips);
+    const moves = [];
+    let closedGapSeconds = 0;
+    let cursor = 0;
+    let prevOriginalEnd = 0;
+    sorted.forEach((clip, i2) => {
+      const range2 = ranges[i2];
+      const to = roundToMs(cursor);
+      const duration3 = range2.end - range2.start;
+      const gap = range2.start - prevOriginalEnd;
+      if (gap > TIMELINE_EPSILON) closedGapSeconds += gap;
+      prevOriginalEnd = Math.max(prevOriginalEnd, range2.end);
+      const needsPin = clip.timelineStart === void 0 || clip.timelineStart === null || !clip.TimelineTrackRef;
+      if (Math.abs(range2.start - to) > TIMELINE_EPSILON || needsPin) {
+        moves.push({ clipId: clip.id, from: range2.start, to });
+        writes.push({
+          clipId: clip.id,
+          to,
+          ...clip.TimelineTrackRef ? {} : { trackRef: track.id },
+          snapshot: clip
+        });
+      }
+      cursor = to + duration3;
+    });
+    if (moves.length > 0) {
+      tracks.push({
+        trackId: track.id ?? null,
+        layer: track.layer,
+        moves,
+        closedGapSeconds: roundToMs(closedGapSeconds)
+      });
+    }
+  }
+  const warnings = [];
+  if (writes.length === 0) {
+    return {
+      timelineId,
+      tracks: [],
+      moveCount: 0,
+      applied: false,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice("every clip is already flush \u2014 nothing to write", [])
+      ]
+    };
+  }
+  if (opts.dryRun) {
+    return {
+      timelineId,
+      tracks,
+      moveCount: writes.length,
+      applied: false,
+      dryRun: true,
+      warnings
+    };
+  }
+  await assertShiftTargetsUnchanged(
+    pb,
+    timelineId,
+    writes.map((w) => w.snapshot)
+  );
+  let written = 0;
+  try {
+    for (const write of writes) {
+      await clipMutator.updateWithGuard(
+        write.clipId,
+        {
+          timelineStart: write.to,
+          ...write.trackRef ? { TimelineTrackRef: write.trackRef } : {}
+        },
+        { expectedUpdated: write.snapshot.updated, snapshot: write.snapshot }
+      );
+      written++;
+    }
+  } catch (err) {
+    throw partialShiftError(err, written, writes.length, timelineId);
+  }
+  const check3 = await syncTimelineAfterWrite(
+    pb,
+    timelineId,
+    writes.map((w) => w.clipId)
+  );
+  warnings.push(
+    ...check3.conflicts.map((f) => postWriteOverlapWarning(f, timelineId))
+  );
+  return {
+    timelineId,
+    tracks,
+    moveCount: writes.length,
+    applied: true,
+    dryRun: false,
+    warnings
+  };
+}
+
 // src/lib/timeline-reflow.ts
 async function planTimelineReflow2(pb, timelineId, clips, tracks) {
   const nestedTimelines = await fetchNestedTimelineMap(
@@ -69566,9 +70504,7 @@ function registerTimelineTrackCommands(timeline) {
 }
 
 // src/commands/timeline-clips.ts
-var range2 = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
-var secs5 = (v) => `${v.toFixed(2)}s`;
-var workspaceOption2 = (cmd) => cmd.option(
+var workspaceOption3 = (cmd) => cmd.option(
   "-w, --workspace <id>",
   "workspace id (accepted for flag consistency; clips are addressed by id)"
 );
@@ -69601,12 +70537,16 @@ function registerTimelineClipCommands(timeline) {
           { header: "ORDER", value: (r2) => String(r2.clip.order) },
           {
             header: "TIMELINE",
-            value: (r2) => range2(r2.timelineStart, r2.timelineEnd)
+            value: (r2) => range(r2.timelineStart, r2.timelineEnd)
           },
-          { header: "SOURCE", value: (r2) => range2(r2.clip.start, r2.clip.end) },
+          {
+            // Outer source span; ` ◆N` marks a composite (DUR is effective).
+            header: "SOURCE",
+            value: (r2) => range(r2.clip.start, r2.clip.end) + compositeMarker(r2.times)
+          },
           {
             header: "DUR",
-            value: (r2) => formatDuration(r2.timelineEnd - r2.timelineStart)
+            value: (r2) => secs(r2.timelineEnd - r2.timelineStart)
           },
           { header: "KIND", value: (r2) => r2.kind },
           { header: "LABEL", value: (r2) => truncate(r2.labelHint, 40) }
@@ -69622,7 +70562,7 @@ function registerTimelineClipCommands(timeline) {
     }
   });
   withJsonOption(
-    workspaceOption2(
+    workspaceOption3(
       clips.command("show <clipId>").description("Show a timeline clip with its computed placement").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
         "--labels",
         "include label detail (provenance + overlapping labels)"
@@ -69648,7 +70588,23 @@ function registerTimelineClipCommands(timeline) {
         const found = track.clips.find((c) => c.clip.id === clipId);
         if (found) placement = { ...found, layer: track.layer };
       }
-      const labels = opts.labels ? await clipLabelDetail(pb, clip) : void 0;
+      const labels = opts.labels ? await clipLabelDetail(
+        pb,
+        clip,
+        placement ? { placement: { timelineStart: placement.timelineStart } } : {}
+      ) : void 0;
+      const times = placement?.times ?? timelineClipTimes(clip);
+      const regions = placement && clip.MediaRef ? clipPlaybackRegions({
+        clip,
+        globalStart: placement.timelineStart,
+        globalEnd: placement.timelineEnd
+      }).map((region, index) => ({
+        index,
+        timelineStart: roundToMs(region.timelineStart),
+        timelineEnd: roundToMs(region.timelineEnd),
+        sourceStart: roundToMs(region.sourceStart),
+        sourceEnd: roundToMs(regionSourceEnd(region))
+      })) : void 0;
       if (opts.json) {
         printRecord(
           {
@@ -69660,6 +70616,8 @@ function registerTimelineClipCommands(timeline) {
               kind: placement.kind,
               labelHint: placement.labelHint
             } : null,
+            times,
+            ...regions ? { regions } : {},
             ...labels ? { labels } : {}
           },
           [],
@@ -69673,14 +70631,23 @@ function registerTimelineClipCommands(timeline) {
       if (placement) {
         const trackName = placement.layer;
         info(
-          `  timeline: ${range2(placement.timelineStart, placement.timelineEnd)} (track layer ${trackName})`
+          `  timeline: ${range(placement.timelineStart, placement.timelineEnd)} (track layer ${trackName})`
         );
       }
       info(
-        `  source: ${range2(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef}`
+        `  source: ${range(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef}`
       );
+      if (times.composite && times.segments) {
+        info(
+          `  composite: ${times.segments.count} segments (source: ${times.segments.source}) \u2014 effective ${secs(times.effective.duration)} of ${secs(times.source.span)} span; \`vw timeline clips segments ${clip.id}\``
+        );
+      } else if (times.segments?.source === "meta") {
+        info(
+          "  edit-list mask: 1 segment (masks the source MediaClip's edit list)"
+        );
+      }
       const gain = clip.meta?.gain;
-      const stored = clip.timelineStart !== void 0 && clip.timelineStart !== null ? `   timelineStart: ${secs5(clip.timelineStart)}` : "   (no stored position \u2014 legacy clip; `clips move` pins it)";
+      const stored = clip.timelineStart !== void 0 && clip.timelineStart !== null ? `   timelineStart: ${secs(clip.timelineStart)}` : "   (no stored position \u2014 legacy clip; `clips move` pins it)";
       info(
         `  order: ${clip.order}${stored}${gain !== void 0 ? `   gain: ${gain}` : ""}`
       );
@@ -69693,7 +70660,7 @@ function registerTimelineClipCommands(timeline) {
   });
   const update = withForceOption(
     withStrictOption(
-      workspaceOption2(
+      workspaceOption3(
         clips.command("update <clipId>").description(
           "Update a timeline clip (label, description, trim, gain)"
         ).option("-t, --timeline <id>", "timeline id (validated when passed)").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
@@ -69724,7 +70691,7 @@ function registerTimelineClipCommands(timeline) {
           info(noopMessage(result.warnings) ?? "Nothing to write.");
         } else {
           success(
-            `Updated clip ${result.clip.id} (${range2(result.clip.start, result.clip.end)}, ${formatDuration(result.clip.duration)})`
+            `Updated clip ${result.clip.id} (${range(result.clip.start, result.clip.end)}, ${formatDuration(result.clip.duration)})`
           );
         }
         printOpWarnings(result.warnings);
@@ -69737,7 +70704,7 @@ function registerTimelineClipCommands(timeline) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption2(
+        workspaceOption3(
           clips.command("move <clipId>").description(
             "Move a clip to another track and/or timeline position"
           ).option(
@@ -69786,7 +70753,7 @@ function registerTimelineClipCommands(timeline) {
       if (opts.json) {
         printRecord(result, [], true);
       } else {
-        const where = `${range2(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
+        const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
         if (result.noop) {
           info(noopMessage(result.warnings) ?? "Nothing to write.");
         } else if (result.dryRun) {
@@ -69805,7 +70772,7 @@ function registerTimelineClipCommands(timeline) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption2(
+        workspaceOption3(
           clips.command("ripple <clipId>").description(
             "Shift a clip and everything after it on its track by \xB1seconds"
           ).requiredOption(
@@ -69849,7 +70816,7 @@ function registerTimelineClipCommands(timeline) {
           );
         }
         for (const shift of result.shifted) {
-          info(`  ${shift.clipId}: ${secs5(shift.from)} \u2192 ${secs5(shift.to)}`);
+          info(`  ${shift.clipId}: ${secs(shift.from)} \u2192 ${secs(shift.to)}`);
         }
       }
       printOpWarnings(result.warnings);
@@ -69860,7 +70827,7 @@ function registerTimelineClipCommands(timeline) {
   });
   withJsonOption(
     withStrictOption(
-      workspaceOption2(
+      workspaceOption3(
         clips.command("remove <clipId>").description("Remove a clip from its timeline").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
           "--ripple",
           "shift later clips on the track left to close the gap"
@@ -69888,7 +70855,7 @@ function registerTimelineClipCommands(timeline) {
         );
         for (const shift of result.shifted) {
           info(
-            `  rippled: ${shift.clipId} ${secs5(shift.from)} \u2192 ${secs5(shift.to)}`
+            `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
           );
         }
       }
@@ -69900,7 +70867,7 @@ function registerTimelineClipCommands(timeline) {
   });
   withJsonOption(
     withStrictOption(
-      workspaceOption2(
+      workspaceOption3(
         clips.command("reorder <clipIds...>").description(
           "Replace the clip order: pass every clip id in the new sequence"
         ).requiredOption("-t, --timeline <id>", "timeline id").addHelpText("after", editResultHelp({ noop: true }))
@@ -69934,12 +70901,83 @@ function registerTimelineClipCommands(timeline) {
       handleError(err);
     }
   });
+  withJsonOption(
+    workspaceOption3(
+      clips.command("map <clipId>").description(
+        "Translate a time through a clip: source-media time \u2194 clip-effective offset \u2194 timeline time (edit-list aware)"
+      ).option("-t, --timeline <id>", "timeline id (validated when passed)").option(
+        "--source-time <seconds>",
+        "locate a source-media time (gap times report the cut and collapse to its boundary)",
+        parseSeconds
+      ).option(
+        "--timeline-time <seconds>",
+        "locate an absolute timeline time",
+        parseSeconds
+      ).option(
+        "--offset <seconds>",
+        "locate a clip-effective offset (0 = first visible frame)",
+        parseSeconds
+      )
+    )
+  ).action(async (clipId, opts) => {
+    try {
+      const pb = await requireClient();
+      const candidates = [
+        { domain: "source", value: opts.sourceTime },
+        { domain: "timeline", value: opts.timelineTime },
+        { domain: "offset", value: opts.offset }
+      ];
+      const inputs = candidates.filter((i2) => i2.value !== void 0);
+      if (inputs.length !== 1) {
+        throw new Error(
+          "Pass exactly one of --source-time, --timeline-time, or --offset."
+        );
+      }
+      const { domain: domain2, value } = inputs[0];
+      const result = await mapClipTime(pb, clipId, {
+        domain: domain2,
+        value,
+        timelineId: opts.timeline
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      const placed = result.times.timeline;
+      info(
+        `Clip ${result.clipId} on timeline ${result.timelineId} (track layer ${result.layer}${placed ? `, ${range(placed.start, placed.end)}` : ""})`
+      );
+      if (result.inGap && result.gap) {
+        info(
+          `  source ${secs(value)} falls in a cut gap (${range(result.gap.start, result.gap.end)}) \u2014 this moment is not played`
+        );
+        info(
+          `  collapses to: source ${secs(result.point.source)}  =  offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      } else {
+        info(
+          `  source ${secs(result.point.source)}  =  offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      }
+      if (result.point.segment) {
+        info(
+          `  segment ${result.point.segment.index} (${range(result.point.segment.start, result.point.segment.end)})`
+        );
+      }
+      if (result.clamped) {
+        warn(
+          `input ${secs(value)} is outside the clip's played content \u2014 clamped to the nearest edge`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
   registerTimelineClipSegmentCommands(clips);
+  registerTimelineClipTranscriptCommand(clips);
 }
 
 // src/commands/timeline.ts
-var secs6 = (v) => `${v.toFixed(2)}s`;
-var range3 = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 function trackHeaderLine(overview) {
   const track = overview.track;
   if (!track) {
@@ -69961,15 +70999,17 @@ var showClipColumns = [
   { header: "CLIP", value: (c) => c.clip.id },
   {
     header: "TIMELINE",
-    value: (c) => range3(c.timelineStart, c.timelineEnd)
+    value: (c) => range(c.timelineStart, c.timelineEnd)
   },
   {
+    // Outer source span; ` ◆N` marks a composite whose edit list skips gaps
+    // inside it (the DUR column is the effective playback length).
     header: "SOURCE",
-    value: (c) => range3(c.clip.start, c.clip.end)
+    value: (c) => range(c.clip.start, c.clip.end) + compositeMarker(c.times)
   },
   {
     header: "DUR",
-    value: (c) => formatDuration(c.timelineEnd - c.timelineStart)
+    value: (c) => secs(c.timelineEnd - c.timelineStart)
   },
   { header: "KIND", value: (c) => c.kind },
   {
@@ -69981,17 +71021,17 @@ function reportPlacement(result) {
   const would = result.dryRun ? "would be " : "";
   for (const trim of result.trims) {
     info(
-      `  ${would}trimmed: ${trim.clipId} \u2192 source ${range3(trim.start, trim.end)}, timeline ${secs6(trim.timelineStart)}`
+      `  ${would}trimmed: ${trim.clipId} \u2192 source ${range(trim.start, trim.end)}, timeline ${secs(trim.timelineStart)}`
     );
   }
   for (const shift of result.shifted) {
     info(
-      `  ${would}rippled: ${shift.clipId} ${secs6(shift.from)} \u2192 ${secs6(shift.to)}`
+      `  ${would}rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
     );
   }
 }
 function placementPhrase(result) {
-  const where = `${range3(result.placedAt, result.placedEnd)} on track ${result.track.layer}`;
+  const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer}`;
   const afterHint = result.afterClip ? `after "${truncate(
     timelineClipLabelHint(result.afterClip),
     40
@@ -70019,16 +71059,24 @@ function printLabelDetail(detail) {
     }
   }
   if (detail.overlapping.length > 0) {
-    info("  overlapping labels in the source window:");
+    info("  overlapping labels in the played content:");
     for (const hit of detail.overlapping) {
       const r2 = hit.record;
       const snippet = LABEL_TYPE_CONFIG[hit.type].snippet(r2);
+      const first = hit.played[0];
+      const plays = first ? first.timelineStart !== void 0 && first.timelineEnd !== void 0 ? `  plays tl ${range(first.timelineStart, first.timelineEnd)}` : `  plays clip ${range(first.clipStart, first.clipEnd)}` : "";
+      const more = hit.played.length > 1 ? ` +${hit.played.length - 1} more` : "";
       info(
-        `    ${hit.type}  ${r2.id}  ${range3(r2.start, r2.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` + withWho(snippet, hit.attributedEntity?.name)
+        `    ${hit.type}  ${r2.id}  ${range(r2.start, r2.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` + withWho(snippet, hit.attributedEntity?.name) + plays + more
       );
     }
   }
-  if (detail.provenance.length === 0 && detail.overlapping.length === 0) {
+  if (detail.hiddenInCutGaps > 0) {
+    info(
+      `  (${detail.hiddenInCutGaps} label(s) inside cut gaps hidden \u2014 not played by this clip)`
+    );
+  }
+  if (detail.provenance.length === 0 && detail.overlapping.length === 0 && detail.hiddenInCutGaps === 0) {
     info("  (no labels found for this clip)");
   }
 }
@@ -70192,7 +71240,9 @@ function registerTimelineCommands(program3) {
           if (track.active) {
             labelDetails.set(
               track.active.clip.id,
-              await clipLabelDetail(pb, track.active.clip)
+              await clipLabelDetail(pb, track.active.clip, {
+                placement: { timelineStart: track.active.timelineStart }
+              })
             );
           }
         }
@@ -70214,7 +71264,7 @@ function registerTimelineCommands(program3) {
         );
         return;
       }
-      info(`At ${secs6(result.at)} of ${secs6(result.computedDuration)}:`);
+      info(`At ${secs(result.at)} of ${secs(result.computedDuration)}:`);
       table(result.tracks, [
         { header: "LAYER", value: (t2) => String(t2.layer) },
         {
@@ -70231,24 +71281,25 @@ function registerTimelineCommands(program3) {
         },
         {
           header: "TIMELINE",
-          value: (t2) => t2.active ? range3(t2.active.timelineStart, t2.active.timelineEnd) : "\u2014"
+          value: (t2) => t2.active ? range(t2.active.timelineStart, t2.active.timelineEnd) : "\u2014"
         },
         {
+          // ` ◆` marks a source time mapped through a composite's edit list.
           header: "SOURCE@T",
-          value: (t2) => t2.active ? secs6(t2.active.sourceTime) : "\u2014"
+          value: (t2) => t2.active ? secs(t2.active.sourceTime) + (t2.active.times.composite ? " \u25C6" : "") : "\u2014"
         },
         {
           header: "REMAINING",
-          value: (t2) => t2.active ? secs6(t2.active.remaining) : "\u2014"
+          value: (t2) => t2.active ? secs(t2.active.remaining) : "\u2014"
         },
         {
           header: "NEXT",
-          value: (t2) => t2.nextStart !== null ? secs6(t2.nextStart) : "\u2014"
+          value: (t2) => t2.nextStart !== null ? secs(t2.nextStart) : "\u2014"
         }
       ]);
       if (result.at >= result.computedDuration) {
         info(
-          `(${secs6(opts.at)} is at or beyond the computed duration \u2014 all tracks idle)`
+          `(${secs(opts.at)} is at or beyond the computed duration \u2014 all tracks idle)`
         );
       }
       if (opts.labels) {
@@ -70449,9 +71500,9 @@ function registerTimelineCommands(program3) {
         info(`${scope}: ${plan.changes.length} clip change(s)`);
         for (const change of plan.changes) {
           const parts = [
-            change.timelineStart !== void 0 ? `at ${secs6(change.timelineStart)}` : "",
-            change.start !== void 0 && change.end !== void 0 ? `window ${range3(change.start, change.end)}` : "",
-            change.duration !== void 0 ? `duration ${secs6(change.duration)}` : "",
+            change.timelineStart !== void 0 ? `at ${secs(change.timelineStart)}` : "",
+            change.start !== void 0 && change.end !== void 0 ? `window ${range(change.start, change.end)}` : "",
+            change.duration !== void 0 ? `duration ${secs(change.duration)}` : "",
             change.meta ? "meta" : ""
           ];
           info(`  ${change.clipId}  ${parts.filter(Boolean).join("  ")}`);
@@ -70464,6 +71515,68 @@ function registerTimelineCommands(program3) {
           `Dry run \u2014 ${result.changeCount} clip change(s) pending; re-run without --dry-run to apply.`
         );
       }
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  withJsonOption(
+    withStrictOption(
+      timeline.command("compact [timelineId]").description(
+        "Close gaps track-by-track: re-place each clip flush after the previous one, order preserved (contrast: reflow heals nested drift and PRESERVES gaps)"
+      ).option(
+        "-t, --timeline <id>",
+        "timeline id (alternative to positional)"
+      ).option("-w, --workspace <id>", "workspace id override").option(
+        "--track <layer|id>",
+        "compact only this track (overlay tracks often keep gaps on purpose)"
+      ).option("--dry-run", "print the moves without writing anything").option(
+        "--force",
+        "re-apply over a concurrent edit to clip positions instead of aborting"
+      ).addHelpText("after", editResultHelp({ noop: true, conflict: true }))
+    )
+  ).action(async (timelineIdArg, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+      const result = await withConflictRetry(
+        () => compactTimeline(pb, timelineId, {
+          track: opts.track,
+          dryRun: opts.dryRun
+        }),
+        { patchKeys: ["timelineStart"], force: opts.force }
+      );
+      if (opts.json) {
+        printRecord(result, [], true);
+      } else if (result.moveCount === 0) {
+        info(noopMessage(result.warnings) ?? "Nothing to compact.");
+      } else {
+        for (const track of result.tracks) {
+          info(
+            `TRACK ${track.layer}: ${track.moves.length} move(s), ${secs(track.closedGapSeconds)} of gap closed`
+          );
+          for (const move of track.moves) {
+            info(`  ${move.clipId}: ${secs(move.from)} \u2192 ${secs(move.to)}`);
+          }
+        }
+        if (result.applied) {
+          success(`Compacted ${result.moveCount} clip(s).`);
+        } else {
+          info(
+            `Dry run \u2014 ${result.moveCount} move(s) pending; re-run without --dry-run to apply.`
+          );
+        }
+      }
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
     } catch (err) {
       handleError(err);
     }

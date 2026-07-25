@@ -3,6 +3,7 @@ import type { TimelineTrackRecord } from '../schema/timeline-track.js';
 import type { MediaClip } from '../schema/media-clip.js';
 import {
   calculateEffectiveDuration,
+  compositeOffsetAtSourceTime,
   getCompositeSegments,
   sourceTimeAtCompositeOffset,
   windowCompositeSegments,
@@ -828,7 +829,9 @@ export function clipSourceTimeAtOffset(
   clip: TimelineClip,
   offset: number
 ): number {
-  const segments = getClipSegments(clip);
+  // Nested-timeline clips trim the child's own time axis — timeline-linear,
+  // never routed through an edit list (same guard as clipPlaybackRegions).
+  const segments = clip.SourceTimelineRef ? undefined : getClipSegments(clip);
   if (segments && segments.length > 0) {
     return sourceTimeAtCompositeOffset(
       windowCompositeSegments(segments, clip.start, clip.end),
@@ -836,6 +839,31 @@ export function clipSourceTimeAtOffset(
     );
   }
   return offset + clip.start;
+}
+
+/**
+ * Inverse of clipSourceTimeAtOffset: the on-timeline offset from the clip's
+ * start at which a source-media time plays. Composite clips map through the
+ * windowed edit list, so a source time inside a cut gap collapses to the
+ * boundary offset shared by the segments around it
+ * (compositeOffsetAtSourceTime semantics); out-of-window times clamp to the
+ * nearest edge. Nested-timeline clips are timeline-linear.
+ */
+export function clipOffsetAtSourceTime(
+  clip: TimelineClip,
+  sourceTime: number
+): number {
+  const segments = clip.SourceTimelineRef ? undefined : getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return compositeOffsetAtSourceTime(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      sourceTime
+    );
+  }
+  return Math.min(
+    Math.max(0, sourceTime - clip.start),
+    Math.max(0, clip.end - clip.start)
+  );
 }
 
 /**

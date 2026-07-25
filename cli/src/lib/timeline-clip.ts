@@ -14,6 +14,7 @@ import {
   deriveClipTimes,
   findNonOverlappingTimelineStart,
   getClipRanges,
+  getClipTimelineDuration,
   getCompositeSegments,
   getSortedTrackClips,
   planOverwriteAtTime,
@@ -31,6 +32,7 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import { mediaLabel, type MediaWithUpload } from './select.js';
+import { timelineEditListOf } from './clip-times.js';
 import {
   parseSeconds,
   parseUnitInterval,
@@ -125,21 +127,22 @@ export async function resolveTimelineEditList(
   pb: TypedPocketBase,
   clip: TimelineClip
 ): Promise<{ segments: CompositeSegment[]; source: TimelineEditListSource }> {
-  const metaSegments = clip.meta?.segments;
-  if (metaSegments && metaSegments.length > 0) {
-    return { segments: metaSegments, source: 'meta' };
+  const sync = timelineEditListOf(clip);
+  if (
+    sync.source !== 'trim' ||
+    !clip.MediaClipRef ||
+    (clip as TimelineClipExpanded).expand?.MediaClipRef
+  ) {
+    return sync;
   }
-  if (clip.MediaClipRef) {
-    const mediaClip =
-      (clip as TimelineClipExpanded).expand?.MediaClipRef ??
-      (await new MediaClipMutator(pb).getById(clip.MediaClipRef)) ??
-      undefined;
-    const segments = getCompositeSegments(mediaClip);
-    if (segments && segments.length > 0) {
-      return { segments, source: 'mediaClip' };
-    }
+  // MediaClipRef present but not expanded — fetch to check for a composite.
+  const mediaClip =
+    (await new MediaClipMutator(pb).getById(clip.MediaClipRef)) ?? undefined;
+  const segments = getCompositeSegments(mediaClip);
+  if (segments && segments.length > 0) {
+    return { segments, source: 'mediaClip' };
   }
-  return { segments: [{ start: clip.start, end: clip.end }], source: 'trim' };
+  return sync;
 }
 
 export interface UpdateTimelineClipOptions {
@@ -456,7 +459,10 @@ export async function moveTimelineClip(
     : currentTrack;
 
   const allClips = await clipMutator.getByTimeline(timelineId);
-  const duration = clip.end - clip.start;
+  // The clip's timeline footprint — composites occupy their gap-skipping
+  // effective duration, not the source-time span (relies on the mutator's
+  // default MediaClipRef expansion for clipData.segments resolution).
+  const duration = getClipTimelineDuration(clip);
 
   const patch: Partial<TimelineClip> = { TimelineTrackRef: destTrack.id };
   let placedAt: number;
@@ -537,7 +543,9 @@ export async function moveTimelineClip(
           {
             start: trim.start,
             end: trim.end,
-            duration: trim.end - trim.start,
+            // effective length from the planner — for composites this is
+            // the windowed gap-skipping sum, not end - start
+            duration: trim.duration,
             timelineStart: trim.timelineStart,
           },
           victim
@@ -656,7 +664,7 @@ export interface RippleShift {
  * conflicts must surface while zero writes have landed, where a re-plan is
  * a clean re-application of the caller's intent.
  */
-async function assertShiftTargetsUnchanged(
+export async function assertShiftTargetsUnchanged(
   pb: TypedPocketBase,
   timelineId: string,
   planned: TimelineClip[]
@@ -689,7 +697,7 @@ async function assertShiftTargetsUnchanged(
  * re-running the op would double-shift the clips already written, so the
  * conflict must NOT propagate as a retryable RecordConflictError.
  */
-function partialShiftError(
+export function partialShiftError(
   err: unknown,
   written: number,
   total: number,
@@ -717,7 +725,7 @@ export interface LaneEntry {
  * implicit layer-0 lane is materialized for legacy timelines), and the
  * lane's clips zipped with their computed timeline ranges in lane order.
  */
-async function resolveClipLane(
+export async function resolveClipLane(
   pb: TypedPocketBase,
   clip: TimelineClip
 ): Promise<{ track: TimelineTrackRecord; entries: LaneEntry[] }> {

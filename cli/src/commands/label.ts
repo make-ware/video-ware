@@ -1,9 +1,10 @@
 import type { Command } from 'commander';
-import { MediaClipLabelMutator } from '@project/shared';
+import { MediaClipLabelMutator, overlapsSegments } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { pickMedia, resolveWorkspaceId } from '../lib/select.js';
 import {
   attributedEntitySummaryOf,
+  clipEditListFilter,
   clipMetaOptions,
   confidenceOf,
   createClipFromLabel,
@@ -15,12 +16,19 @@ import {
   parseLabelType,
   parseLabelTypes,
   searchLabels,
+  type ClipEditListFilter,
   type LabelHit,
 } from '../lib/label.js';
 import { resolveEntity, tagLabel } from '../lib/entity.js';
-import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import {
+  applyOptions,
+  parseSeconds,
+  pickOptions,
+  withJsonOption,
+} from '../lib/options.js';
 import {
   formatDuration,
+  info,
   printList,
   printRecord,
   success,
@@ -100,13 +108,62 @@ export function registerLabelCommands(program: Command): void {
       '-n, --limit <count>',
       'max results per label type (default: 100)',
       (v) => parseInt(v, 10)
+    )
+    .option(
+      '--from <seconds>',
+      'only labels overlapping at/after this source time',
+      parseSeconds
+    )
+    .option(
+      '--to <seconds>',
+      'only labels overlapping before this source time',
+      parseSeconds
+    )
+    .option(
+      '--clip <mediaClipId>',
+      "filter to a MediaClip's played edit list (labels inside cut gaps hidden)"
+    )
+    .option(
+      '--timeline-clip <id>',
+      "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)"
     );
   withJsonOption(list).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
 
+      if (opts.clip && opts.timelineClip) {
+        throw new Error('Pass --clip or --timeline-clip, not both.');
+      }
+      const clipScoped = Boolean(opts.clip || opts.timelineClip);
+      if (clipScoped && (opts.from !== undefined || opts.to !== undefined)) {
+        throw new Error(
+          '--from/--to cannot be combined with --clip/--timeline-clip — the clip supplies its own window.'
+        );
+      }
+
+      let editList: ClipEditListFilter | undefined;
       let mediaId = opts.media as string | undefined;
+      let window: { start?: number; end?: number } | undefined;
+      if (clipScoped) {
+        editList = await clipEditListFilter(pb, {
+          clip: opts.clip,
+          timelineClip: opts.timelineClip,
+        });
+        if (mediaId && mediaId !== editList.mediaId) {
+          throw new Error(
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${mediaId} — drop -m.`
+          );
+        }
+        mediaId = editList.mediaId;
+        window = {
+          start: Math.min(...editList.segments.map((s) => s.start)),
+          end: Math.max(...editList.segments.map((s) => s.end)),
+        };
+      } else if (opts.from !== undefined || opts.to !== undefined) {
+        window = { start: opts.from, end: opts.to };
+      }
+
+      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       if (!mediaId) {
         mediaId = (await pickMedia(pb, workspaceId)).id;
       }
@@ -119,12 +176,41 @@ export function registerLabelCommands(program: Command): void {
         types: opts.types,
         entityId,
         limit: opts.limit,
+        ...(window ? { window } : {}),
       });
-      printList(hits, hitColumns(false), {
+
+      // Edit-list scope means "what plays": drop gap-only labels in memory
+      // (the PB window is the outer span — the correct coarse filter).
+      let shown = hits;
+      let hidden = 0;
+      if (editList) {
+        shown = hits.filter((h) =>
+          overlapsSegments(h.record.start, h.record.end, editList!.segments)
+        );
+        hidden = hits.length - shown.length;
+      }
+
+      if (opts.json && editList) {
+        printRecord(
+          {
+            items: shown,
+            totalItems,
+            editList: { segments: editList.segments, source: editList.source },
+            hiddenInCutGaps: hidden,
+          },
+          [],
+          true
+        );
+        return;
+      }
+      printList(shown, hitColumns(false), {
         json: opts.json,
         totalItems,
         hint: 'vw label show <type> <id> shows one record',
       });
+      if (!opts.json && hidden > 0) {
+        info(`(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`);
+      }
     } catch (err) {
       handleError(err);
     }

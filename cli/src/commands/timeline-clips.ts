@@ -1,5 +1,10 @@
 import type { Command } from 'commander';
-import { TimelineClipMutator } from '@project/shared';
+import {
+  TimelineClipMutator,
+  clipPlaybackRegions,
+  regionSourceEnd,
+  roundToMs,
+} from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveTrackRef } from '../lib/timeline.js';
 import {
@@ -15,7 +20,9 @@ import {
 import {
   clipLabelDetail,
   getTimelineOverview,
+  mapClipTime,
   type InspectClipInfo,
+  type MapDomain,
 } from '../lib/timeline-inspect.js';
 import {
   applyOptions,
@@ -31,9 +38,13 @@ import {
   info,
   printList,
   printRecord,
+  range,
+  secs,
   success,
   truncate,
+  warn,
 } from '../lib/output.js';
+import { compositeMarker, timelineClipTimes } from '../lib/clip-times.js';
 import { withConflictRetry } from '../lib/conflict.js';
 import { editResultHelp } from '../lib/help.js';
 import {
@@ -42,11 +53,8 @@ import {
   printOpWarnings,
 } from '../lib/warnings.js';
 import { registerTimelineClipSegmentCommands } from './clip-segments.js';
+import { registerTimelineClipTranscriptCommand } from './clip-transcript.js';
 import { printLabelDetail, reportPlacement } from './timeline.js';
-
-const range = (start: number, end: number) =>
-  `${start.toFixed(2)}–${end.toFixed(2)}s`;
-const secs = (v: number) => `${v.toFixed(2)}s`;
 
 /** `-w` is accepted on every clip command so agents can pass it uniformly. */
 const workspaceOption = (cmd: Command): Command =>
@@ -100,10 +108,15 @@ export function registerTimelineClipCommands(timeline: Command): void {
             header: 'TIMELINE',
             value: (r) => range(r.timelineStart, r.timelineEnd),
           },
-          { header: 'SOURCE', value: (r) => range(r.clip.start, r.clip.end) },
+          {
+            // Outer source span; ` ◆N` marks a composite (DUR is effective).
+            header: 'SOURCE',
+            value: (r) =>
+              range(r.clip.start, r.clip.end) + compositeMarker(r.times),
+          },
           {
             header: 'DUR',
-            value: (r) => formatDuration(r.timelineEnd - r.timelineStart),
+            value: (r) => secs(r.timelineEnd - r.timelineStart),
           },
           { header: 'KIND', value: (r) => r.kind },
           { header: 'LABEL', value: (r) => truncate(r.labelHint, 40) },
@@ -152,7 +165,32 @@ export function registerTimelineClipCommands(timeline: Command): void {
         if (found) placement = { ...found, layer: track.layer };
       }
 
-      const labels = opts.labels ? await clipLabelDetail(pb, clip) : undefined;
+      const labels = opts.labels
+        ? await clipLabelDetail(
+            pb,
+            clip,
+            placement
+              ? { placement: { timelineStart: placement.timelineStart } }
+              : {}
+          )
+        : undefined;
+      const times = placement?.times ?? timelineClipTimes(clip);
+      // Continuous playback runs — the batch source↔timeline translation
+      // table (touching segments coalesce, so runs can be < segment count).
+      const regions =
+        placement && clip.MediaRef
+          ? clipPlaybackRegions({
+              clip,
+              globalStart: placement.timelineStart,
+              globalEnd: placement.timelineEnd,
+            }).map((region, index) => ({
+              index,
+              timelineStart: roundToMs(region.timelineStart),
+              timelineEnd: roundToMs(region.timelineEnd),
+              sourceStart: roundToMs(region.sourceStart),
+              sourceEnd: roundToMs(regionSourceEnd(region)),
+            }))
+          : undefined;
 
       if (opts.json) {
         printRecord(
@@ -167,6 +205,8 @@ export function registerTimelineClipCommands(timeline: Command): void {
                   labelHint: placement.labelHint,
                 }
               : null,
+            times,
+            ...(regions ? { regions } : {}),
             ...(labels ? { labels } : {}),
           },
           [],
@@ -193,6 +233,17 @@ export function registerTimelineClipCommands(timeline: Command): void {
           clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef
         }`
       );
+      if (times.composite && times.segments) {
+        info(
+          `  composite: ${times.segments.count} segments (source: ${times.segments.source}) — ` +
+            `effective ${secs(times.effective.duration)} of ${secs(times.source.span)} span; ` +
+            `\`vw timeline clips segments ${clip.id}\``
+        );
+      } else if (times.segments?.source === 'meta') {
+        info(
+          "  edit-list mask: 1 segment (masks the source MediaClip's edit list)"
+        );
+      }
       const gain = clip.meta?.gain;
       const stored =
         clip.timelineStart !== undefined && clip.timelineStart !== null
@@ -492,5 +543,95 @@ export function registerTimelineClipCommands(timeline: Command): void {
     }
   });
 
+  withJsonOption(
+    workspaceOption(
+      clips
+        .command('map <clipId>')
+        .description(
+          'Translate a time through a clip: source-media time ↔ ' +
+            'clip-effective offset ↔ timeline time (edit-list aware)'
+        )
+        .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+        .option(
+          '--source-time <seconds>',
+          'locate a source-media time (gap times report the cut and collapse to its boundary)',
+          parseSeconds
+        )
+        .option(
+          '--timeline-time <seconds>',
+          'locate an absolute timeline time',
+          parseSeconds
+        )
+        .option(
+          '--offset <seconds>',
+          'locate a clip-effective offset (0 = first visible frame)',
+          parseSeconds
+        )
+    )
+  ).action(async (clipId: string, opts) => {
+    try {
+      const pb = await requireClient();
+      const candidates: Array<{ domain: MapDomain; value?: number }> = [
+        { domain: 'source', value: opts.sourceTime },
+        { domain: 'timeline', value: opts.timelineTime },
+        { domain: 'offset', value: opts.offset },
+      ];
+      const inputs = candidates.filter((i) => i.value !== undefined);
+      if (inputs.length !== 1) {
+        throw new Error(
+          'Pass exactly one of --source-time, --timeline-time, or --offset.'
+        );
+      }
+      const { domain, value } = inputs[0] as {
+        domain: MapDomain;
+        value: number;
+      };
+      const result = await mapClipTime(pb, clipId, {
+        domain,
+        value,
+        timelineId: opts.timeline,
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      const placed = result.times.timeline;
+      info(
+        `Clip ${result.clipId} on timeline ${result.timelineId} ` +
+          `(track layer ${result.layer}${placed ? `, ${range(placed.start, placed.end)}` : ''})`
+      );
+      if (result.inGap && result.gap) {
+        info(
+          `  source ${secs(value)} falls in a cut gap ` +
+            `(${range(result.gap.start, result.gap.end)}) — this moment is not played`
+        );
+        info(
+          `  collapses to: source ${secs(result.point.source)}  =  ` +
+            `offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      } else {
+        info(
+          `  source ${secs(result.point.source)}  =  ` +
+            `offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      }
+      if (result.point.segment) {
+        info(
+          `  segment ${result.point.segment.index} ` +
+            `(${range(result.point.segment.start, result.point.segment.end)})`
+        );
+      }
+      if (result.clamped) {
+        warn(
+          `input ${secs(value)} is outside the clip's played content — ` +
+            'clamped to the nearest edge'
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
   registerTimelineClipSegmentCommands(clips);
+  registerTimelineClipTranscriptCommand(clips);
 }

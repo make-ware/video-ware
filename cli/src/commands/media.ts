@@ -30,7 +30,13 @@ import {
   type MediaClipWithMedia,
 } from '../lib/media.js';
 import { isRootDirRef, resolveDirectory } from '../lib/directory.js';
+import {
+  compositeMarker,
+  mediaClipTimes,
+  type ClipTimes,
+} from '../lib/clip-times.js';
 import { registerMediaClipSegmentCommands } from './clip-segments.js';
+import { registerMediaClipTranscriptCommand } from './clip-transcript.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
@@ -365,8 +371,12 @@ export function registerMediaCommands(program: Command): void {
             directoryId,
           });
 
+      const rows = (result.items as MediaClipWithMedia[]).map((c) => ({
+        ...c,
+        times: mediaClipTimes(c),
+      })) as Array<MediaClipWithMedia & { times: ClipTimes }>;
       printList(
-        result.items as MediaClipWithMedia[],
+        rows,
         [
           { header: 'ID', value: (c) => c.id },
           { header: 'LABEL', value: (c) => c.label ?? '' },
@@ -374,7 +384,13 @@ export function registerMediaCommands(program: Command): void {
           { header: 'TYPE', value: (c) => String(c.type) },
           { header: 'START', value: (c) => `${c.start.toFixed(2)}s` },
           { header: 'END', value: (c) => `${c.end.toFixed(2)}s` },
-          { header: 'DURATION', value: (c) => formatDuration(c.duration) },
+          {
+            // Effective gap-skipping length; ` ◆N` marks an N-segment
+            // composite whose START–END span is larger than it plays.
+            header: 'DURATION',
+            value: (c) =>
+              `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`,
+          },
         ],
         { json: opts.json, totalItems: result.totalItems }
       );
@@ -436,4 +452,5 @@ export function registerMediaCommands(program: Command): void {
   });
 
   registerMediaClipSegmentCommands(clip);
+  registerMediaClipTranscriptCommand(clip);
 }

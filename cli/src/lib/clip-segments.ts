@@ -5,7 +5,6 @@ import {
   TimelineClipMutator,
   calculateEffectiveDuration,
   cutSegments,
-  deriveClipTimes,
   finalizeSegments,
   getCompositeSegments,
   normalizeSegments,
@@ -22,12 +21,18 @@ import {
 import { mediaBounds, syncTimelineAfterWrite } from './timeline.js';
 import {
   assertOnTimeline,
+  resolveClipLane,
   resolveTimelineEditList,
   rippleDownstreamClips,
   type RippleShift,
   type TimelineClipExpanded,
   type TimelineEditListSource,
 } from './timeline-clip.js';
+import {
+  mediaClipTimes,
+  timelineClipTimes,
+  type ClipTimes,
+} from './clip-times.js';
 import {
   clampedWarning,
   noopNotice,
@@ -713,12 +718,20 @@ export async function clearTimelineClipSegments(
 
 export interface SegmentsInspection {
   segments: CompositeSegment[];
-  times: SegmentTimes;
+  /** Canonical clip time semantics — the same shape `clips show` reports. */
+  times: ClipTimes;
   /** 'clipData' = composite MediaClip; 'meta'/'mediaClip'/'trim' = timeline clip sources. */
   source: 'clipData' | TimelineEditListSource;
   gaps: Array<{ afterIndex: number; seconds: number }>;
   mediaId: string;
   mediaDuration: number;
+  /** Timeline variant only: the clip's computed lane placement. */
+  placement?: {
+    layer: number;
+    trackId: string;
+    timelineStart: number;
+    timelineEnd: number;
+  };
 }
 
 /** Read-only view of a MediaClip's edit list for `media clip segments`. */
@@ -738,7 +751,7 @@ export async function inspectMediaClipSegments(
   );
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: mediaClipTimes(clip),
     source: existing?.length ? 'clipData' : 'trim',
     gaps: segmentGaps(segments),
     mediaId: media.id,
@@ -766,12 +779,23 @@ export async function inspectTimelineClipSegments(
   const media = await requireMedia(pb, clipId, clip.MediaRef);
   const editList = await resolveTimelineEditList(pb, clip);
   const segments = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e) => e.clip.id === clipId);
+  const placement = entry
+    ? {
+        layer: track.layer,
+        trackId: track.id,
+        timelineStart: entry.range.start,
+        timelineEnd: entry.range.end,
+      }
+    : undefined;
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: timelineClipTimes(clip, placement),
     source: editList.source,
     gaps: segmentGaps(segments),
     mediaId: media.id,
     mediaDuration: media.duration,
+    ...(placement ? { placement } : {}),
   };
 }

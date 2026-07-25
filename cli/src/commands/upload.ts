@@ -2,43 +2,35 @@ import type { Command } from 'commander';
 import {
   UploadMutator,
   UploadStatus,
-  type Media,
   type TypedPocketBase,
   type Upload,
 } from '@project/shared';
 import { isRootDirRef, resolveDirectory } from '../lib/directory.js';
 import { withJsonOption } from '../lib/options.js';
-import { error, info, printList, success } from '../lib/output.js';
+import { error, info, success } from '../lib/output.js';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
   DEFAULT_CHUNK_SIZE,
   chunkPlan,
+  fetchUploadPage,
   formatBytes,
-  listUploads,
-  mediaByUpload,
   mediaTypeForFile,
-  parseUploadStatus,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
   uploadFile,
+  uploadListSpec,
   validateReplacementFile,
   validateUploadFile,
   type ValidatedUploadFile,
 } from '../lib/upload.js';
+import { runList, withListOptions } from '../lib/list/index.js';
 
 interface UploadCommandOptions {
   workspace?: string;
   directory?: string;
   appUrl?: string;
-  json?: boolean;
-}
-
-interface UploadListOptions {
-  workspace?: string;
-  status?: string;
-  limit?: number;
   json?: boolean;
 }
 
@@ -202,51 +194,27 @@ export function registerUploadCommands(program: Command): void {
     }
   });
 
-  withJsonOption(
+  withListOptions(
     upload
       .command('list')
       .alias('ls')
       .description(
         'List uploads in the active workspace by original file name, with the media ingested from each'
-      )
-      .option('-w, --workspace <id>', 'workspace id override')
-      .option(
-        '--status <status>',
-        'filter by upload status (queued, uploading, uploaded, processing, ready, failed)'
-      )
-      .option('-n, --limit <count>', 'max results (default: 200)', (v) =>
-        parseInt(v, 10)
-      )
-  ).action(async (opts: UploadListOptions) => {
+      ),
+    uploadListSpec
+  ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const status = opts.status ? parseUploadStatus(opts.status) : undefined;
-      const result = await listUploads(pb, workspaceId, {
-        status,
-        limit: opts.limit,
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: uploadListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchUploadPage(pb, query),
       });
-      // The MEDIA column is a display-only convenience; skip the extra query
-      // in --json mode, where scripts key off the upload id directly (which
-      // `vw upload replace` now accepts).
-      const media = opts.json
-        ? new Map<string, Media>()
-        : await mediaByUpload(pb, workspaceId);
-      printList(
-        result.items,
-        [
-          { header: 'ID', value: (u) => u.id },
-          { header: 'NAME', value: (u) => u.name },
-          { header: 'STATUS', value: (u) => String(u.status) },
-          { header: 'SIZE', value: (u) => formatBytes(u.size) },
-          { header: 'MEDIA', value: (u) => media.get(u.id)?.id ?? '—' },
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: 'pass an id to `vw upload replace`',
-        }
-      );
     } catch (err) {
       handleError(err);
     }

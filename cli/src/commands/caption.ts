@@ -1,43 +1,25 @@
 import type { Command } from 'commander';
-import { CaptionMutator, type Caption, type CaptionCue } from '@project/shared';
+import { CaptionMutator, type CaptionCue } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
   captionCreateOptions,
   captionLabel,
+  captionListSpec,
   captionStyleOptions,
   captionTypeOf,
   captionUpdateOptions,
   createCaption,
   deleteCaption,
+  fetchCaptionPage,
   updateCaption,
 } from '../lib/caption.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
-import {
-  info,
-  printList,
-  printRecord,
-  success,
-  truncate,
-} from '../lib/output.js';
+import { info, printRecord, success, truncate } from '../lib/output.js';
+import { runList, withListOptions } from '../lib/list/index.js';
 
 /** Exact seconds — captions are short, so `m:ss` rounding hides detail. */
 const secs = (v: number) => `${v.toFixed(2)}s`;
-
-/** Shared column layout for `caption list`. */
-const captionColumns = [
-  { header: 'ID', value: (c: Caption) => c.id },
-  { header: 'TYPE', value: (c: Caption) => captionTypeOf(c) },
-  { header: 'NAME', value: (c: Caption) => truncate(c.name ?? '', 24) },
-  { header: 'TEXT', value: (c: Caption) => truncate(c.text ?? '', 40) },
-  { header: 'DUR', value: (c: Caption) => secs(c.duration) },
-  {
-    header: 'CUES',
-    value: (c: Caption) =>
-      String(((c.cues ?? []) as CaptionCue[]).length || '—'),
-  },
-  { header: 'MEDIA', value: (c: Caption) => c.MediaRef ?? '' },
-];
 
 export function registerCaptionCommands(program: Command): void {
   const caption = program
@@ -87,30 +69,24 @@ export function registerCaptionCommands(program: Command): void {
   });
 
   // --- list -----------------------------------------------------------------
-  withJsonOption(
+  withListOptions(
     caption
       .command('list')
       .alias('ls')
-      .description('List captions in the active workspace')
-      .option('-w, --workspace <id>', 'workspace id override')
-      .option(
-        '--all',
-        'include media-attached transcript captions (default: ad-hoc only)'
-      )
+      .description('List captions in the active workspace'),
+    captionListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const result = await new CaptionMutator(pb).getByWorkspace(
-        workspaceId,
-        !opts.all,
-        1,
-        200
-      );
-      printList(result.items, captionColumns, {
-        json: opts.json,
-        totalItems: result.totalItems,
-        hint: '`vw timeline insert --caption <id>` places one on a track',
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: captionListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchCaptionPage(pb, query),
       });
     } catch (err) {
       handleError(err);

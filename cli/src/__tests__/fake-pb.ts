@@ -25,12 +25,24 @@ export function fakePb(collections: Record<string, Stub>): TypedPocketBase {
   } as unknown as TypedPocketBase;
 }
 
-export function listResult(items: any[]) {
+/**
+ * A PocketBase `ListResult` envelope. `totalItems` defaults to the number of
+ * items given (a single complete page); pass it explicitly — with `perPage` —
+ * to describe one page of a larger result set, which is what the pagination
+ * helpers need to exercise.
+ */
+export function listResult(
+  items: any[],
+  opts: { page?: number; perPage?: number; totalItems?: number } = {}
+) {
+  const page = opts.page ?? 1;
+  const perPage = opts.perPage ?? Math.max(items.length, 1);
+  const totalItems = opts.totalItems ?? items.length;
   return {
-    page: 1,
-    perPage: 200,
-    totalItems: items.length,
-    totalPages: 1,
+    page,
+    perPage,
+    totalItems,
+    totalPages: Math.max(1, Math.ceil(totalItems / perPage)),
     items,
   };
 }

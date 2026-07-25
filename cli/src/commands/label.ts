@@ -1,27 +1,28 @@
 import type { Command } from 'commander';
 import { MediaClipLabelMutator } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
-import { pickMedia, resolveWorkspaceId } from '../lib/select.js';
+import { resolveWorkspaceId } from '../lib/select.js';
 import {
   attributedEntitySummaryOf,
   clipMetaOptions,
   confidenceOf,
   createClipFromLabel,
   getLabel,
-  hitColumns,
   LABEL_TYPE_CONFIG,
-  labelSearchOptions,
-  listLabels,
+  labelHitCompare,
+  labelListSpec,
+  labelMergeSources,
+  labelPerTypeClauses,
+  labelSearchSpec,
   parseLabelType,
-  parseLabelTypes,
-  searchLabels,
+  resolveLabelTypes,
   type LabelHit,
 } from '../lib/label.js';
 import { resolveEntity, tagLabel } from '../lib/entity.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import { runMergedList, withListOptions } from '../lib/list/index.js';
 import {
   formatDuration,
-  printList,
   printRecord,
   success,
   truncate,
@@ -46,84 +47,77 @@ export function registerLabelCommands(program: Command): void {
       'Search and browse media labels (speech, objects, faces, …) and create clips from them'
     );
 
-  const search = label
-    .command('search [query]')
-    .alias('find')
-    .description(
-      'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
-    )
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option(
-      '--entity <nameOrId>',
-      'only labels attributed to this entity (tagged track or cluster)'
-    );
-  applyOptions(search, labelSearchOptions);
-  withJsonOption(search).action(async (query: string | undefined, opts) => {
+  withListOptions(
+    label
+      .command('search [query]')
+      .alias('find')
+      .description(
+        'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
+      ),
+    labelSearchSpec,
+    { merged: true }
+  ).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const entityId = opts.entity
-        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
+      // The positional query is the --search filter, so both spellings
+      // compose with the other flags identically.
+      const merged = { ...opts, search: opts.search ?? query };
+      const entityId = merged.entity
+        ? (await resolveEntity(pb, workspaceId, merged.entity)).id
         : undefined;
-      const { hits, totalItems } = await searchLabels(pb, {
-        workspaceId,
-        query,
-        entityId,
-        ...pickOptions(opts, labelSearchOptions),
-      });
-      printList(hits, hitColumns(true), {
-        json: opts.json,
-        totalItems,
-        hint: 'vw label show <type> <id> shows one record, vw label clip <type> <id> creates a clip',
+      const types = resolveLabelTypes(merged);
+
+      await runMergedList({
+        spec: labelSearchSpec,
+        opts: merged,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved) => labelHitCompare(resolved.sort),
+        narrowWith: '-t <type>, -m <mediaId>',
+        sources: (resolved) =>
+          labelMergeSources(pb, {
+            types,
+            baseFilter: resolved.filter,
+            sort: resolved.sort,
+            perType: labelPerTypeClauses(pb, { ...merged, entityId }),
+            expand: ['MediaRef.UploadRef'],
+          }),
       });
     } catch (err) {
       handleError(err);
     }
   });
 
-  const list = label
-    .command('list')
-    .alias('ls')
-    .description('List labels for one media')
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'source media id')
-    .option(
-      '-t, --types <types>',
-      'comma-separated label types (default: all)',
-      parseLabelTypes
-    )
-    .option(
-      '--entity <nameOrId>',
-      'only labels attributed to this entity (tagged track or cluster)'
-    )
-    .option(
-      '-n, --limit <count>',
-      'max results per label type (default: 100)',
-      (v) => parseInt(v, 10)
-    );
-  withJsonOption(list).action(async (opts) => {
+  withListOptions(
+    label.command('list').alias('ls').description('List labels for one media'),
+    labelListSpec,
+    { merged: true }
+  ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-
-      let mediaId = opts.media as string | undefined;
-      if (!mediaId) {
-        mediaId = (await pickMedia(pb, workspaceId)).id;
-      }
       const entityId = opts.entity
         ? (await resolveEntity(pb, workspaceId, opts.entity)).id
         : undefined;
+      const types = resolveLabelTypes(opts);
 
-      const { hits, totalItems } = await listLabels(pb, {
-        mediaId,
-        types: opts.types,
-        entityId,
-        limit: opts.limit,
-      });
-      printList(hits, hitColumns(false), {
-        json: opts.json,
-        totalItems,
-        hint: 'vw label show <type> <id> shows one record',
+      await runMergedList({
+        spec: labelListSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved) => labelHitCompare(resolved.sort),
+        narrowWith: '-t <type>',
+        sources: (resolved) =>
+          labelMergeSources(pb, {
+            types,
+            baseFilter: resolved.filter,
+            sort: resolved.sort,
+            perType: labelPerTypeClauses(pb, { ...opts, entityId }),
+          }),
       });
     } catch (err) {
       handleError(err);

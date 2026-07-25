@@ -43,18 +43,36 @@ export class TimelineClipMutator extends BaseMutator<
   }
 
   /**
-   * Get timeline clips by timeline
+   * Get timeline clips by timeline.
+   *
+   * Every caller treats the result as the complete timeline — durations,
+   * overlap checks, reflow, and rendering are all computed from it — so this
+   * walks every page rather than capping. A previous single-page bound of 500
+   * silently dropped clips past it, which read as a shorter timeline instead
+   * of an error.
+   *
    * @param timelineId The timeline ID
-   * @returns List of timeline clips sorted by order
+   * @returns Every timeline clip, sorted by order
    */
   async getByTimeline(timelineId: string): Promise<TimelineClip[]> {
-    const result = await this.getList(
+    const perPage = 500;
+    const first = await this.getList(
       1,
-      500, // Get all clips (reasonable max)
+      perPage,
       `TimelineRef = "${timelineId}"`,
       'order' // Explicit sort by order
     );
-    return result.items;
+    const clips = [...first.items];
+    for (let page = 2; page <= first.totalPages; page++) {
+      const next = await this.getList(
+        page,
+        perPage,
+        `TimelineRef = "${timelineId}"`,
+        'order'
+      );
+      clips.push(...next.items);
+    }
+    return clips;
   }
 
   /**

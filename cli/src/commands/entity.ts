@@ -5,22 +5,36 @@ import { resolveWorkspaceId } from '../lib/select.js';
 import {
   applyEntityLinks,
   distinctMedia,
+  entityAppearancesSpec,
+  entityLabelsSpec,
+  entityListSpec,
+  entityWordsSpec,
+  fetchEntityAppearancePage,
+  fetchEntityPage,
+  fetchEntityWordsPage,
   formatEntityTranscript,
   getEntityAppearances,
-  getEntityLabels,
   getEntityTaggedMedia,
-  getEntityWords,
   linkTargetOptions,
-  mediaNameOf,
   parseAliases,
   parseEntityKind,
   resolveEntity,
   resolveLinkTargets,
   type EntityAppearance,
   type EntityTaggedMedia,
-  type EntityUtterance,
 } from '../lib/entity.js';
-import { hitColumns, parseLabelTypes } from '../lib/label.js';
+import {
+  fetchAll,
+  runList,
+  runMergedList,
+  withListOptions,
+} from '../lib/list/index.js';
+import {
+  labelHitCompare,
+  labelMergeSources,
+  labelPerTypeClauses,
+  resolveLabelTypes,
+} from '../lib/label.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
@@ -28,7 +42,6 @@ import {
   printList,
   printRecord,
   success,
-  truncate,
   type Column,
 } from '../lib/output.js';
 
@@ -47,13 +60,6 @@ const taggedMediaColumns: Column<EntityTaggedMedia>[] = [
   { header: 'NAME', value: (t) => t.mediaName },
   { header: 'TYPE', value: (t) => t.mediaType },
   { header: 'DURATION', value: (t) => formatDuration(t.duration) },
-];
-
-const utteranceColumns: Column<EntityUtterance>[] = [
-  { header: 'MEDIA', value: (u) => mediaNameOf(u) },
-  { header: 'START', value: (u) => `${u.start.toFixed(2)}s` },
-  { header: 'END', value: (u) => `${u.end.toFixed(2)}s` },
-  { header: 'TEXT', value: (u) => truncate(u.transcript, 70) },
 ];
 
 export function registerEntityCommands(program: Command): void {
@@ -103,44 +109,27 @@ export function registerEntityCommands(program: Command): void {
     }
   });
 
-  const list = entity
-    .command('list [query]')
-    .alias('ls')
-    .description("List (or fuzzy-search) the workspace's entities")
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option(
-      '-k, --kind <kind>',
-      `only this kind (${Object.values(EntityKind).join(', ')})`,
-      parseEntityKind
-    );
-  withJsonOption(list).action(async (query: string | undefined, opts) => {
+  withListOptions(
+    entity
+      .command('list [query]')
+      .alias('ls')
+      .description("List (or fuzzy-search) the workspace's entities"),
+    entityListSpec
+  ).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const mutator = new EntityMutator(pb);
-      const result = query
-        ? await mutator.search(workspaceId, query)
-        : await mutator.getByWorkspace(workspaceId, opts.kind);
-      const items = opts.kind
-        ? result.items.filter((e) => e.kind === opts.kind)
-        : result.items;
-      printList(
-        items,
-        [
-          { header: 'ID', value: (e) => e.id },
-          { header: 'KIND', value: (e) => String(e.kind) },
-          { header: 'NAME', value: (e) => e.name },
-          {
-            header: 'DESCRIPTION',
-            value: (e) => truncate(e.description ?? '', 50),
-          },
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: 'vw entity show <name|id> shows links and appearances',
-        }
-      );
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: entityListSpec,
+        // The positional query is the --search filter, so both forms compose
+        // with --kind and page identically.
+        opts: { ...opts, search: opts.search ?? query },
+        ctx,
+        fetchPage: (resolved) => fetchEntityPage(pb, resolved),
+      });
     } catch (err) {
       handleError(err);
     }
@@ -257,100 +246,106 @@ export function registerEntityCommands(program: Command): void {
     }
   });
 
-  const words = entity
-    .command('words <nameOrId>')
-    .description(
-      'Everything the entity said across media (diarized speaker labels)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'restrict to one media')
-    .option('--text', 'print a plain transcript instead of a table')
-    .option('-n, --limit <count>', 'max utterances (default: 200)', (v) =>
-      parseInt(v, 10)
-    );
-  withJsonOption(words).action(async (nameOrId: string, opts) => {
+  withListOptions(
+    entity
+      .command('words <nameOrId>')
+      .description(
+        'Everything the entity said across media (diarized speaker labels)'
+      )
+      .option('-w, --workspace <id>', 'workspace id override')
+      .option('--text', 'print a plain transcript instead of a table'),
+    entityWordsSpec
+  ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const { utterances, totalItems } = await getEntityWords(pb, found.id, {
-        media: opts.media,
-        limit: opts.limit,
-      });
+
+      // --text is a whole-transcript rendering, not a table: it walks every
+      // page so the transcript is complete regardless of the page size.
       if (opts.text) {
+        const utterances = await fetchAll((page) =>
+          fetchEntityWordsPage(pb, found.id, {
+            page,
+            perPage: 200,
+            filter: opts.media
+              ? pb.filter('MediaRef = {:m}', { m: opts.media })
+              : '',
+            sort: 'MediaRef,start',
+          })
+        );
         info(formatEntityTranscript(utterances));
         return;
       }
-      printList(utterances, utteranceColumns, {
-        json: opts.json,
-        totalItems,
-        hint: 'add --text for a plain transcript',
+
+      await runList({
+        spec: entityWordsSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchEntityWordsPage(pb, found.id, query),
       });
     } catch (err) {
       handleError(err);
     }
   });
 
-  const labels = entity
-    .command('labels <nameOrId>')
-    .description(
-      'Every label attributed to the entity across media, all label types (tagged tracks and clusters)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'restrict to one media')
-    .option(
-      '-t, --types <types>',
-      'comma-separated label types (default: all)',
-      parseLabelTypes
-    )
-    .option(
-      '-n, --limit <count>',
-      'max rows per label type (default: 100)',
-      (v) => parseInt(v, 10)
-    );
-  withJsonOption(labels).action(async (nameOrId: string, opts) => {
+  withListOptions(
+    entity
+      .command('labels <nameOrId>')
+      .description(
+        'Every label attributed to the entity across media, all label types (tagged tracks and clusters)'
+      )
+      .option('-w, --workspace <id>', 'workspace id override'),
+    entityLabelsSpec,
+    { merged: true }
+  ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const { hits, totalItems } = await getEntityLabels(pb, found.id, {
-        types: opts.types,
-        media: opts.media,
-        limit: opts.limit,
-      });
-      printList(hits, hitColumns(true), {
-        json: opts.json,
-        totalItems,
-        hint: 'vw label clip <type> <labelId> turns a label into a clip',
+      const types = resolveLabelTypes(opts);
+
+      await runMergedList({
+        spec: entityLabelsSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        compare: (resolved) => labelHitCompare(resolved.sort),
+        narrowWith: '-t <type>, -m <mediaId>',
+        sources: (resolved) =>
+          labelMergeSources(pb, {
+            types,
+            baseFilter: resolved.filter,
+            sort: resolved.sort,
+            perType: labelPerTypeClauses(pb, {
+              ...opts,
+              entityId: found.id,
+            }),
+            expand: ['MediaRef.UploadRef'],
+          }),
       });
     } catch (err) {
       handleError(err);
     }
   });
 
-  const appearances = entity
-    .command('appearances <nameOrId>')
-    .description(
-      'When the entity is on screen / speaking, per media (linked track ranges)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override')
-    .option('-m, --media <id>', 'restrict to one media')
-    .option('-n, --limit <count>', 'max tracks (default: 100)', (v) =>
-      parseInt(v, 10)
-    );
-  withJsonOption(appearances).action(async (nameOrId: string, opts) => {
+  withListOptions(
+    entity
+      .command('appearances <nameOrId>')
+      .description(
+        'When the entity is on screen / speaking, per media (linked track ranges)'
+      )
+      .option('-w, --workspace <id>', 'workspace id override'),
+    entityAppearancesSpec
+  ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const result = await getEntityAppearances(pb, found.id, {
-        media: opts.media,
-        limit: opts.limit,
-      });
-      printList(result.appearances, appearanceColumns, {
-        json: opts.json,
-        totalItems: result.totalItems,
-        hint: 'vw label clip <type> <labelId> turns a label into a clip',
+      await runList({
+        spec: entityAppearancesSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchEntityAppearancePage(pb, found.id, query),
       });
     } catch (err) {
       handleError(err);

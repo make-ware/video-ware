@@ -1,7 +1,15 @@
 import type { Command } from 'commander';
-import { TimelineClipMutator } from '@project/shared';
+import type { ListResult } from 'pocketbase';
+import { TimelineClipMutator, type TypedPocketBase } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
+import { pickTimeline, resolveWorkspaceId } from '../lib/select.js';
 import { resolveTrackRef } from '../lib/timeline.js';
+import {
+  listFilter,
+  runList,
+  withListOptions,
+  type ListSpec,
+} from '../lib/list/index.js';
 import {
   clipUpdateOptions,
   moveTimelineClip,
@@ -29,7 +37,6 @@ import {
 import {
   formatDuration,
   info,
-  printList,
   printRecord,
   success,
   truncate,
@@ -48,6 +55,61 @@ const range = (start: number, end: number) =>
   `${start.toFixed(2)}–${end.toFixed(2)}s`;
 const secs = (v: number) => `${v.toFixed(2)}s`;
 
+/**
+ * A timeline's clips as display rows, optionally windowed.
+ *
+ * The whole timeline is always read: a clip's computed timeline position
+ * depends on the clips before it on its track, so there is no correct
+ * single-page query. `perPage`/`page` therefore slice the computed rows, and
+ * `totalItems` stays the true clip count so the footer never understates it.
+ */
+async function fetchTimelineClipRows(
+  pb: TypedPocketBase,
+  opts: {
+    timelineId: string;
+    workspaceId?: string;
+    track?: string;
+    page: number;
+    perPage: number;
+    all: boolean;
+  }
+): Promise<ListResult<ClipRow>> {
+  const overview = await getTimelineOverview(pb, opts.timelineId);
+  if (opts.workspaceId && overview.timeline.WorkspaceRef !== opts.workspaceId) {
+    throw new Error(
+      `Timeline ${opts.timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspaceId}.`
+    );
+  }
+
+  let tracks = overview.tracks;
+  if (opts.track) {
+    const target = await resolveTrackRef(pb, opts.timelineId, opts.track);
+    tracks = tracks.filter((t) => t.track?.id === target.id);
+  }
+
+  const rows: ClipRow[] = tracks.flatMap((t) =>
+    t.clips.map((c) => ({ ...c, layer: t.layer }))
+  );
+
+  if (opts.all) {
+    return {
+      page: 1,
+      perPage: rows.length,
+      totalItems: rows.length,
+      totalPages: 1,
+      items: rows,
+    };
+  }
+  const start = (opts.page - 1) * opts.perPage;
+  return {
+    page: opts.page,
+    perPage: opts.perPage,
+    totalItems: rows.length,
+    totalPages: Math.max(1, Math.ceil(rows.length / opts.perPage)),
+    items: rows.slice(start, start + opts.perPage),
+  };
+}
+
 /** `-w` is accepted on every clip command so agents can pass it uniformly. */
 const workspaceOption = (cmd: Command): Command =>
   cmd.option(
@@ -57,63 +119,84 @@ const workspaceOption = (cmd: Command): Command =>
 
 type ClipRow = InspectClipInfo & { layer: number };
 
+/**
+ * `timeline clips list`. A structure list: positions are computed from the
+ * whole timeline (a clip's timeline start depends on every clip before it), so
+ * the timeline is always fetched entire and `unpaged` makes the default output
+ * the complete set. `--limit`/`--page` then window that computed view rather
+ * than the query — see `fetchTimelineClipRows`.
+ */
+const timelineClipListSpec: ListSpec<ClipRow> = {
+  command: 'timeline clips list',
+  workspaceScoped: false,
+  unpaged: true,
+  required: ['timeline'],
+  filters: {
+    timeline: listFilter({
+      flags: '-t, --timeline <id>',
+      description: 'the timeline whose clips to list',
+      clause: () => null,
+      // Resolved lazily: the picker only runs when -t is missing on a TTY, so
+      // a scripted `-t <id>` call never needs an active workspace at all.
+      pick: async ({ pb }) =>
+        (await pickTimeline(pb, await resolveWorkspaceId(pb))).id,
+    }),
+    track: listFilter({
+      flags: '--track <layer|id>',
+      description: 'restrict to one track (layer number or record id)',
+      clause: () => null,
+    }),
+  },
+  columns: [
+    { header: 'ID', value: (r) => r.clip.id },
+    { header: 'TRACK', value: (r) => String(r.layer) },
+    { header: 'ORDER', value: (r) => String(r.clip.order) },
+    {
+      header: 'TIMELINE',
+      value: (r) => range(r.timelineStart, r.timelineEnd),
+    },
+    { header: 'SOURCE', value: (r) => range(r.clip.start, r.clip.end) },
+    {
+      header: 'DUR',
+      value: (r) => formatDuration(r.timelineEnd - r.timelineStart),
+    },
+    { header: 'KIND', value: (r) => r.kind },
+    { header: 'LABEL', value: (r) => truncate(r.labelHint, 40) },
+  ],
+  hint: '`vw timeline clips show <id>` for one clip',
+};
+
 export function registerTimelineClipCommands(timeline: Command): void {
   const clips = timeline
     .command('clips')
     .description('List and edit the clips placed on a timeline');
 
-  withJsonOption(
+  withListOptions(
     clips
       .command('list')
       .alias('ls')
       .description("List a timeline's clips with computed positions")
-      .requiredOption('-t, --timeline <id>', 'timeline id')
-      .option('-w, --workspace <id>', 'workspace id (validated when passed)')
-      .option('--track <layer|id>', 'restrict to one track')
+      .option('-w, --workspace <id>', 'workspace id (validated when passed)'),
+    timelineClipListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const overview = await getTimelineOverview(pb, opts.timeline);
-      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
-        throw new Error(
-          `Timeline ${opts.timeline} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
-        );
-      }
-
-      let tracks = overview.tracks;
-      if (opts.track) {
-        const target = await resolveTrackRef(pb, opts.timeline, opts.track);
-        tracks = tracks.filter((t) => t.track?.id === target.id);
-      }
-
-      const rows: ClipRow[] = tracks.flatMap((t) =>
-        t.clips.map((c) => ({ ...c, layer: t.layer }))
-      );
-
-      printList(
-        rows,
-        [
-          { header: 'ID', value: (r) => r.clip.id },
-          { header: 'TRACK', value: (r) => String(r.layer) },
-          { header: 'ORDER', value: (r) => String(r.clip.order) },
-          {
-            header: 'TIMELINE',
-            value: (r) => range(r.timelineStart, r.timelineEnd),
-          },
-          { header: 'SOURCE', value: (r) => range(r.clip.start, r.clip.end) },
-          {
-            header: 'DUR',
-            value: (r) => formatDuration(r.timelineEnd - r.timelineStart),
-          },
-          { header: 'KIND', value: (r) => r.kind },
-          { header: 'LABEL', value: (r) => truncate(r.labelHint, 40) },
-        ],
-        {
-          json: opts.json,
-          totalItems: rows.length,
-          hint: '`vw timeline clips show <id>` for one clip',
-        }
-      );
+      await runList({
+        spec: timelineClipListSpec,
+        opts,
+        // `-w` is a validation check against the timeline's own workspace
+        // (in fetchTimelineClipRows), not a filter, so it stays out of ctx.
+        ctx: { pb },
+        fetchPage: (query) =>
+          fetchTimelineClipRows(pb, {
+            timelineId: opts.timeline,
+            workspaceId: opts.workspace,
+            track: opts.track,
+            page: query.page,
+            perPage: query.perPage,
+            all: query.all,
+          }),
+      });
     } catch (err) {
       handleError(err);
     }

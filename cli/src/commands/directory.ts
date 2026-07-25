@@ -1,10 +1,12 @@
 import type { Command } from 'commander';
-import { MediaMutator, type Directory } from '@project/shared';
+import { MediaMutator } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId, type MediaWithUpload } from '../lib/select.js';
 import {
   createDirectory,
   deleteDirectory,
+  directoryListSpec,
+  fetchDirectoryPage,
   listDirectories,
   mediaCountsByDirectory,
   renameDirectory,
@@ -12,16 +14,8 @@ import {
 } from '../lib/directory.js';
 import { mediaColumns, moveMedia } from '../lib/media.js';
 import { withJsonOption } from '../lib/options.js';
-import {
-  info,
-  printList,
-  printRecord,
-  success,
-  type Column,
-} from '../lib/output.js';
-
-/** A directory row enriched for display: how many media it holds. */
-type DirectoryRow = Directory & { mediaCount: number };
+import { info, printList, printRecord, success } from '../lib/output.js';
+import { runList, withListOptions } from '../lib/list/index.js';
 
 export function registerDirectoryCommands(program: Command): void {
   const directory = program
@@ -31,53 +25,34 @@ export function registerDirectoryCommands(program: Command): void {
       'Optional, flat media folders (e.g. per shoot or location) — purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media’s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
     );
 
-  withJsonOption(
+  withListOptions(
     directory
       .command('list')
       .alias('ls')
-      .description('List directories in the active workspace with media counts')
-      .option('-w, --workspace <id>', 'workspace id override')
+      .description(
+        'List directories in the active workspace with media counts'
+      ),
+    directoryListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const [result, counts] = await Promise.all([
-        listDirectories(pb, workspaceId),
-        mediaCountsByDirectory(pb, workspaceId),
-      ]);
-      const rows: DirectoryRow[] = result.items.map((d) => ({
-        ...d,
-        mediaCount: counts.byDirectory.get(d.id) ?? 0,
-      }));
-
-      if (opts.json) {
-        printRecord(
-          {
-            items: rows,
-            totalItems: result.totalItems,
-            unfiledMedia: counts.root,
-            totalMedia: counts.total,
-          },
-          [],
-          true
-        );
-        return;
-      }
-
-      const columns: Column<DirectoryRow>[] = [
-        { header: 'ID', value: (d) => d.id },
-        { header: 'NAME', value: (d) => d.name },
-        { header: 'MEDIA', value: (d) => String(d.mediaCount) },
-      ];
-      printList(rows, columns, {
-        totalItems: result.totalItems,
-        hint: 'vw media list -d <dir> filters, vw dir move <dir> <mediaId…> files media',
+      await runList({
+        spec: directoryListSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchDirectoryPage(pb, query),
       });
-      info(
-        rows.length === 0
-          ? `Directories are optional — all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.`
-          : `${counts.root} of ${counts.total} media are unfiled (workspace root) — vw media list -d / lists them.`
-      );
+      // The unfiled-media tally is about the workspace, not this page, so it
+      // sits after the list rather than in its footer.
+      if (!opts.json) {
+        const counts = await mediaCountsByDirectory(pb, workspaceId);
+        info(
+          counts.byDirectory.size === 0
+            ? `Directories are optional — all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.`
+            : `${counts.root} of ${counts.total} media are unfiled (workspace root) — vw media list -d / lists them.`
+        );
+      }
     } catch (err) {
       handleError(err);
     }

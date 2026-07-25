@@ -1,16 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ClipType, LabelType } from '@project/shared';
+import { ClipType, LabelType, type TypedPocketBase } from '@project/shared';
 import {
   attributedEntityOf,
   attributedEntitySummaryOf,
   createClipFromLabel,
   getLabel,
+  LABEL_SORT_START,
+  labelHitCompare,
+  labelListSpec,
+  labelMergeSources,
+  labelPerTypeClauses,
+  labelSearchSpec,
   listLabels,
   parseLabelType,
   parseLabelTypes,
-  searchLabels,
+  resolveLabelTypes,
   type LabelRecord,
 } from '../lib/label.js';
+import { fetchMergedPage, resolveListQuery } from '../lib/list/index.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
 
 /** getList stub returning the given items for every query. */
@@ -60,23 +67,52 @@ describe('parseLabelType', () => {
   });
 });
 
-describe('searchLabels', () => {
+/**
+ * Run `label search`'s pipeline without its printing: resolve the query,
+ * build one merge source per label type, and slice the merged window — what
+ * `runMergedList` does around it.
+ */
+async function searchLabelHits(
+  pb: TypedPocketBase,
+  opts: Record<string, unknown>
+) {
+  const query = await resolveListQuery(labelSearchSpec, opts, {
+    pb,
+    workspaceId: 'ws1',
+  });
+  const merged = await fetchMergedPage({
+    sources: labelMergeSources(pb, {
+      types: resolveLabelTypes(opts),
+      baseFilter: query.filter,
+      sort: query.sort,
+      perType: labelPerTypeClauses(pb, opts),
+      expand: ['MediaRef.UploadRef'],
+    }),
+    compare: labelHitCompare(query.sort),
+    page: query.page,
+    perPage: query.perPage,
+  });
+  return { hits: merged.items, totalItems: merged.totalItems };
+}
+
+describe('label search fan-out', () => {
   it('searches speech transcripts with a bound workspace-scoped filter', async () => {
     const speech = listStub([
       { id: 'sp1', MediaRef: 'm1', start: 1, end: 2, confidence: 0.9 },
     ]);
     const pb = fakePb(allLabelCollections({ LabelSpeech: speech }));
 
-    const { hits, totalItems } = await searchLabels(pb, {
-      workspaceId: 'ws1',
-      query: 'hello',
+    const { hits, totalItems } = await searchLabelHits(pb, {
+      search: 'hello',
       types: [LabelType.SPEECH],
     });
 
     expect(speech.getList).toHaveBeenCalledOnce();
     const [page, perPage, options] = speech.getList.mock.calls[0];
     expect(page).toBe(1);
-    expect(perPage).toBe(20);
+    // Each source is read to the window depth (page × --limit), so -n now
+    // bounds total rows rather than rows per label type.
+    expect(perPage).toBe(100);
     expect(options.filter).toContain('WorkspaceRef = ws1');
     expect(options.filter).toContain('transcript ~ hello');
     expect(options.sort).toBe('-confidence');
@@ -109,9 +145,8 @@ describe('searchLabels', () => {
     ]);
     const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
 
-    const { hits } = await searchLabels(pb, {
-      workspaceId: 'ws1',
-      query: 'hello',
+    const { hits } = await searchLabelHits(pb, {
+      search: 'hello',
       types: [LabelType.SPEAKER],
     });
 
@@ -137,9 +172,8 @@ describe('searchLabels', () => {
     ]);
     const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
 
-    const { hits } = await searchLabels(pb, {
-      workspaceId: 'ws1',
-      query: 'hello',
+    const { hits } = await searchLabelHits(pb, {
+      search: 'hello',
       types: [LabelType.SPEAKER],
     });
 
@@ -156,8 +190,7 @@ describe('searchLabels', () => {
     ]);
     const pb = fakePb(allLabelCollections({ LabelFaces: faces }));
 
-    const { hits } = await searchLabels(pb, {
-      workspaceId: 'ws1',
+    const { hits } = await searchLabelHits(pb, {
       faceId: 'F1',
       minConfidence: 0.5,
     });
@@ -176,7 +209,7 @@ describe('searchLabels', () => {
     const collections = allLabelCollections();
     const pb = fakePb(collections);
 
-    await searchLabels(pb, { workspaceId: 'ws1', query: 'sunset' });
+    await searchLabelHits(pb, { search: 'sunset' });
 
     for (const stub of Object.values(collections)) {
       expect(stub.getList).toHaveBeenCalledOnce();
@@ -187,9 +220,8 @@ describe('searchLabels', () => {
     const speech = listStub();
     const pb = fakePb(allLabelCollections({ LabelSpeech: speech }));
 
-    await searchLabels(pb, {
-      workspaceId: 'ws1',
-      query: 'hello',
+    await searchLabelHits(pb, {
+      search: 'hello',
       types: [LabelType.SPEECH],
       media: 'm1',
     });
@@ -205,9 +237,8 @@ describe('searchLabels', () => {
       })
     );
 
-    const { hits, totalItems } = await searchLabels(pb, {
-      workspaceId: 'ws1',
-      query: 'dog',
+    const { hits, totalItems } = await searchLabelHits(pb, {
+      search: 'dog',
       types: [LabelType.SPEECH, LabelType.OBJECT],
     });
 
@@ -215,10 +246,30 @@ describe('searchLabels', () => {
     expect(totalItems).toBe(2);
   });
 
+  it('orders chronologically under --sort start, per source and merged', async () => {
+    const speech = listStub([{ id: 'sp1', MediaRef: 'm1', start: 9 }]);
+    const objects = listStub([{ id: 'ob1', MediaRef: 'm1', start: 2 }]);
+    const pb = fakePb(
+      allLabelCollections({ LabelSpeech: speech, LabelObjects: objects })
+    );
+
+    const { hits } = await searchLabelHits(pb, {
+      search: 'dog',
+      sort: 'start',
+      types: [LabelType.SPEECH, LabelType.OBJECT],
+    });
+
+    // The per-collection sort and the merge comparator must agree, or a
+    // source's "top K" would not be the top K.
+    expect(speech.getList.mock.calls[0][2].sort).toBe('start,MediaRef');
+    expect(objects.getList.mock.calls[0][2].sort).toBe('start,MediaRef');
+    expect(hits.map((h) => h.record.id)).toEqual(['ob1', 'sp1']);
+  });
+
   it('requires a query, an entity, or an exact-id flag', async () => {
     const pb = fakePb(allLabelCollections());
-    await expect(searchLabels(pb, { workspaceId: 'ws1' })).rejects.toThrow(
-      /query, --entity, or an exact-id flag/i
+    await expect(searchLabelHits(pb, {})).rejects.toThrow(
+      /needs at least one of: --search, --entity, --face-id, --person-id, --track-id/
     );
   });
 
@@ -226,9 +277,10 @@ describe('searchLabels', () => {
     const speaker = listStub();
     const pb = fakePb(allLabelCollections({ LabelSpeaker: speaker }));
 
-    // No query needed — the entity is the selector.
-    await searchLabels(pb, {
-      workspaceId: 'ws1',
+    // No query needed — the entity is the selector. `entity` satisfies the
+    // requirement; `entityId` is the id the command resolved it to.
+    await searchLabelHits(pb, {
+      entity: 'Erik',
       entityId: 'e1',
       types: [LabelType.SPEAKER],
     });
@@ -242,8 +294,8 @@ describe('searchLabels', () => {
     const shots = listStub();
     const pb = fakePb(allLabelCollections({ LabelShots: shots }));
 
-    await searchLabels(pb, {
-      workspaceId: 'ws1',
+    await searchLabelHits(pb, {
+      entity: 'Erik',
       entityId: 'e1',
       types: [LabelType.SHOT],
     });
@@ -259,12 +311,31 @@ describe('searchLabels', () => {
   it('rejects an id flag conflicting with explicit --types', async () => {
     const pb = fakePb(allLabelCollections());
     await expect(
-      searchLabels(pb, {
-        workspaceId: 'ws1',
-        faceId: 'F1',
-        types: [LabelType.SPEECH],
-      })
+      searchLabelHits(pb, { faceId: 'F1', types: [LabelType.SPEECH] })
     ).rejects.toThrow(/conflicts with --face-id/i);
+  });
+});
+
+describe('labelListSpec', () => {
+  it('requires -m off a TTY instead of prompting', async () => {
+    await expect(
+      resolveListQuery(
+        labelListSpec,
+        {},
+        { pb: fakePb({}), workspaceId: 'ws1' },
+        { isTTY: false }
+      )
+    ).rejects.toThrow(/label list needs -m, --media <id>/);
+  });
+
+  it('scopes to the given media, chronological by default', async () => {
+    const query = await resolveListQuery(
+      labelListSpec,
+      { media: 'm1' },
+      { pb: fakePb({}), workspaceId: 'ws1' }
+    );
+    expect(query.filter).toBe('MediaRef = m1');
+    expect(query.sort).toBe(LABEL_SORT_START);
   });
 });
 

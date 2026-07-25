@@ -70,6 +70,57 @@ export function editResultHelp(sections: EditHelpSections = {}): string {
   return `\n${parts.join('\n\n')}`;
 }
 
+/**
+ * The `--help` epilogue every list command shares, attached automatically by
+ * `withListOptions`. Mirrors `editResultHelp` for the edit commands: the
+ * paging/filtering contract is uniform, so it is documented once here rather
+ * than restated per command. The README's "Lists" section carries the same
+ * contract — keep both in sync.
+ */
+export function listResultHelp(
+  spec: {
+    command: string;
+    unpaged?: boolean;
+    defaultLimit?: number;
+    filters?: Record<string, unknown>;
+  },
+  config: { merged?: boolean } = {}
+): string {
+  const filterCount = Object.keys(spec.filters ?? {}).length;
+  const parts = [
+    `Results:
+  Prints one page as a table, then a footer saying where you are and how to
+  reach the rest — \`(1–100 of 3412 — next page: vw … --page 2)\`, or
+  \`end of results\` on the last page. ${
+    spec.unpaged
+      ? 'Every row is fetched by default; -n/--page ask for a window instead.'
+      : `Page size is ${spec.defaultLimit ?? 100} (-n/--limit); --all walks every page.`
+  }`,
+  ];
+
+  if (filterCount > 0) {
+    parts.push(`Narrowing beats paging:
+  While more pages remain, the footer also lists the filters you have not
+  used. Applying one is almost always better than walking pages — it is
+  fewer requests and a smaller result to read.`);
+  }
+
+  parts.push(`JSON:
+  --json prints { items, totalItems, page, perPage, totalPages, hasMore,
+  nextPage, nextCommand, appliedFilters, availableFilters } and nothing else
+  on stdout. Agents should follow \`nextCommand\` while \`hasMore\` is true, or
+  narrow using \`availableFilters\`.`);
+
+  if (config.merged) {
+    parts.push(`Merged results:
+  This command queries several collections and presents the union, so a page
+  costs \`page × --limit\` rows from each. Depth is capped (--max-depth,
+  default 500); past it, narrow to a single type instead of paging deeper.`);
+  }
+
+  return `\n${parts.join('\n\n')}`;
+}
+
 /** `timeline doctor` findings taxonomy and exit-code contract. */
 export const DOCTOR_HELP = `
 Checks (reported most severe first):

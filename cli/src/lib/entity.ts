@@ -17,15 +17,26 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import {
+  LABEL_LIST_SORTS,
   attributionExpands,
+  hitColumns,
   labelAttributionFilter,
   labelMutator,
   parseLabelType,
+  parseLabelTypes,
   toLabelHit,
   type LabelHit,
 } from './label.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import type { OptionGroupOf } from './options.js';
+import type { ListResult } from 'pocketbase';
+import { formatDuration, truncate } from './output.js';
+import {
+  ENTITY_SORTS,
+  LABEL_RANGE_SORTS,
+  listFilter,
+  type ListSpec,
+} from './list/index.js';
 
 /** Validate an entity kind string against the EntityKind enum. */
 export function parseEntityKind(value: string): EntityKind {
@@ -341,6 +352,160 @@ export interface EntityAppearance {
 }
 
 /**
+ * `entity list` (and its optional positional query). Kind and search are both
+ * server-side filters, so the footer's total always matches the rows shown —
+ * the previous version filtered by kind in JS while reporting the unfiltered
+ * server total.
+ */
+export const entityListSpec: ListSpec<Entity> = {
+  command: 'entity list',
+  sorts: ENTITY_SORTS,
+  filters: {
+    kind: listFilter({
+      flags: '-k, --kind <kind>',
+      description: `only this kind (${Object.values(EntityKind).join(', ')})`,
+      parse: (raw) => parseEntityKind(raw),
+      clause: (kind) => ({ expr: 'kind = {:k}', params: { k: kind } }),
+    }),
+    search: listFilter({
+      flags: '--search <text>',
+      description: "match the entity's name, aliases, or description",
+      clause: (q) => ({
+        expr: '(name ~ {:q} || aliases ~ {:q} || description ~ {:q})',
+        params: { q },
+      }),
+    }),
+  },
+  columns: [
+    { header: 'ID', value: (e) => e.id },
+    { header: 'KIND', value: (e) => String(e.kind) },
+    { header: 'NAME', value: (e) => e.name },
+    { header: 'DESCRIPTION', value: (e) => truncate(e.description ?? '', 50) },
+  ],
+  hint: '`vw entity show <name|id>` shows links and appearances',
+};
+
+/** Fetch one page of entities for `entityListSpec`. */
+export function fetchEntityPage(
+  pb: TypedPocketBase,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<Entity>> {
+  return new EntityMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
+}
+
+/** A media-scoped filter shared by the entity sub-listings. */
+export const entityMediaFilter = listFilter({
+  flags: '-m, --media <id>',
+  description: 'restrict to one media',
+  clause: (id) => ({ expr: 'MediaRef = {:m}', params: { m: id } }),
+});
+
+/**
+ * `entity appearances` — when an entity is on screen or speaking, per media.
+ *
+ * Entity-scoped rather than workspace-scoped: the attribution filter depends
+ * on the entity resolved from the positional argument, so the fetcher ANDs it
+ * in (see `fetchEntityAppearancePage`) and the spec declares only what the
+ * caller can vary.
+ */
+export const entityAppearancesSpec: ListSpec<LabelTrack, EntityAppearance> = {
+  command: 'entity appearances',
+  workspaceScoped: false,
+  sorts: LABEL_RANGE_SORTS,
+  filters: { media: entityMediaFilter },
+  toRows: (tracks) => tracks.map(toEntityAppearance),
+  columns: [
+    { header: 'MEDIA', value: (a) => a.mediaName },
+    { header: 'TYPE', value: (a) => a.labelType || '?' },
+    { header: 'TRACK', value: (a) => a.track.trackId },
+    { header: 'START', value: (a) => `${a.track.start.toFixed(2)}s` },
+    { header: 'END', value: (a) => `${a.track.end.toFixed(2)}s` },
+    { header: 'DUR', value: (a) => formatDuration(a.track.duration) },
+    { header: 'VIA', value: (a) => a.via },
+  ],
+  hint: '`vw label clip <type> <labelId>` turns a label into a clip',
+};
+
+/** Fetch one page of an entity's appearances. */
+export function fetchEntityAppearancePage(
+  pb: TypedPocketBase,
+  entityId: string,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<LabelTrack>> {
+  return new LabelTrackMutator(pb).getList(
+    query.page,
+    query.perPage,
+    andFilters(trackEntityAttributionFilter(entityId), query.filter),
+    query.sort,
+    ['MediaRef.UploadRef', 'LabelEntityRef']
+  ) as Promise<ListResult<LabelTrack>>;
+}
+
+/**
+ * `entity words` — everything an entity said, across media. Entity-scoped in
+ * the same way as `entity appearances`.
+ */
+export const entityWordsSpec: ListSpec<EntityUtterance> = {
+  command: 'entity words',
+  workspaceScoped: false,
+  sorts: LABEL_RANGE_SORTS,
+  filters: { media: entityMediaFilter },
+  columns: [
+    { header: 'MEDIA', value: (u) => mediaNameOf(u) },
+    { header: 'START', value: (u) => `${u.start.toFixed(2)}s` },
+    { header: 'END', value: (u) => `${u.end.toFixed(2)}s` },
+    { header: 'TEXT', value: (u) => truncate(u.transcript, 70) },
+  ],
+  hint: 'add --text for a plain transcript',
+};
+
+/** Fetch one page of an entity's utterances. */
+export function fetchEntityWordsPage(
+  pb: TypedPocketBase,
+  entityId: string,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<EntityUtterance>> {
+  return new LabelSpeakerMutator(pb).getList(
+    query.page,
+    query.perPage,
+    andFilters(entityAttributionFilter(entityId), query.filter),
+    query.sort,
+    ['MediaRef.UploadRef']
+  ) as Promise<ListResult<EntityUtterance>>;
+}
+
+/** Combine a required scope clause with the resolved filter, if any. */
+function andFilters(scope: string, filter: string): string {
+  return filter ? `(${scope}) && (${filter})` : scope;
+}
+
+/**
+ * Map a LabelTrack to its display shape for `entity appearances`.
+ *
+ * `via` needs no entity id: `trackEntityAttributionFilter` encodes the
+ * track-over-cluster precedence as
+ * `EntityRef = id || (EntityRef = "" && cluster = id)`, so every row it
+ * returns has `EntityRef` either set to the entity asked about or empty.
+ */
+function toEntityAppearance(track: LabelTrack): EntityAppearance {
+  const t = track as EntityAppearance['track'];
+  const labelType = t.expand?.LabelEntityRef?.labelType;
+  return {
+    track: t,
+    mediaName: mediaNameOf(t),
+    labelType: Array.isArray(labelType)
+      ? labelType.join(',')
+      : (labelType ?? ''),
+    via: t.EntityRef ? 'track' : 'cluster',
+  };
+}
+
+/**
  * Where (and when) an entity appears across the workspace's media: every
  * track attributed to it, one appearance range each.
  */
@@ -417,6 +582,35 @@ export async function getEntityTaggedMedia(
   });
   return { tagged, totalItems: result.totalItems };
 }
+
+/**
+ * `entity labels` — every label attributed to an entity, across every label
+ * collection. A fan-out like `label search`, but the selector is the entity
+ * from the positional argument rather than a query, so the attribution clause
+ * is supplied per type by the command.
+ */
+export const entityLabelsSpec: ListSpec<LabelHit> = {
+  command: 'entity labels',
+  workspaceScoped: false,
+  sorts: LABEL_LIST_SORTS,
+  filters: {
+    media: entityMediaFilter,
+    types: listFilter({
+      flags: '-t, --types <types>',
+      description: `comma-separated label types (${Object.values(LabelType).join(', ')}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null,
+    }),
+    minConfidence: listFilter({
+      flags: '--min-confidence <n>',
+      description: 'minimum confidence (0..1)',
+      parse: parseFloat,
+      clause: () => null,
+    }),
+  },
+  columns: hitColumns(true),
+  hint: '`vw label clip <type> <labelId>` turns a label into a clip',
+};
 
 export interface EntityLabelsOptions {
   /** Label types to include. Defaults to all types. */

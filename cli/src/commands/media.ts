@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
 import {
-  MediaClipMutator,
   MediaMutator,
   MediaTagMutator,
   type Entity,
@@ -19,19 +18,18 @@ import {
   clipFieldOptions,
   createMediaClip,
   deleteMediaClip,
-  mediaClipMediaLabel,
+  fetchMediaClipPage,
+  fetchMediaPage,
+  mediaClipListSpec,
   mediaClipUpdateOptions,
-  mediaColumns,
   mediaFieldOptions,
-  parseClipType,
-  searchMedia,
+  mediaListSpec,
   updateMedia,
   updateMediaClip,
-  type MediaClipWithMedia,
 } from '../lib/media.js';
-import { isRootDirRef, resolveDirectory } from '../lib/directory.js';
 import { registerMediaClipSegmentCommands } from './clip-segments.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import { runList, withListOptions } from '../lib/list/index.js';
 import {
   formatDuration,
   info,
@@ -64,83 +62,52 @@ async function requireMedia(
 export function registerMediaCommands(program: Command): void {
   const media = program.command('media').description('Browse workspace media');
 
-  withJsonOption(
+  withListOptions(
     media
       .command('list')
       .alias('ls')
       .description(
-        'List media in the active workspace (all of it unless -d filters to one directory)'
-      )
-      .option('-w, --workspace <id>', 'workspace id override')
-      .option(
-        '-d, --directory <dir>',
-        'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
-      )
+        'List media in the active workspace (narrow with --search/--type/-d)'
+      ),
+    mediaListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const mutator = new MediaMutator(pb);
-      const result =
-        opts.directory === undefined
-          ? await mutator.getByWorkspace(workspaceId, 1, 200, 'DirectoryRef')
-          : isRootDirRef(opts.directory)
-            ? await mutator.getByWorkspaceRoot(
-                workspaceId,
-                1,
-                200,
-                'DirectoryRef'
-              )
-            : await mutator.getByDirectory(
-                (await resolveDirectory(pb, workspaceId, opts.directory)).id,
-                1,
-                200,
-                'DirectoryRef'
-              );
-      const items = result.items as MediaWithUpload[];
-      printList(items, mediaColumns(items), {
-        json: opts.json,
-        totalItems: result.totalItems,
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: mediaListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchMediaPage(pb, query),
       });
     } catch (err) {
       handleError(err);
     }
   });
 
-  withJsonOption(
+  // `media search <query>` is `media list --search <query>`: the same spec with
+  // the query supplied positionally, kept as its own command for discoverability.
+  withListOptions(
     media
       .command('search <query>')
       .alias('find')
-      .description('Search workspace media by filename, label, or description')
-      .option('-w, --workspace <id>', 'workspace id override')
-      .option(
-        '-d, --directory <dir>',
-        'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
-      )
-      .option('-n, --limit <count>', 'max results (default: 50)', (v) =>
-        parseInt(v, 10)
-      )
+      .description('Search workspace media by filename, label, or description'),
+    { ...mediaListSpec, command: 'media search' }
   ).action(async (query: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const directoryId =
-        opts.directory === undefined
-          ? undefined
-          : isRootDirRef(opts.directory)
-            ? null
-            : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
-      const result = await searchMedia(
+      const ctx = {
         pb,
-        workspaceId,
-        query,
-        opts.limit ?? 50,
-        directoryId
-      );
-      const items = result.items as MediaWithUpload[];
-      printList(items, mediaColumns(items), {
-        json: opts.json,
-        totalItems: result.totalItems,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: { ...mediaListSpec, command: 'media search' },
+        opts: { ...opts, search: opts.search ?? query },
+        ctx,
+        fetchPage: (resolved) => fetchMediaPage(pb, resolved),
       });
     } catch (err) {
       handleError(err);
@@ -324,60 +291,30 @@ export function registerMediaCommands(program: Command): void {
     }
   });
 
-  withJsonOption(
+  withListOptions(
     clip
       .command('list')
       .alias('ls')
-      .description('List media clips in the active workspace')
-      .option('-w, --workspace <id>', 'workspace id override')
-      .option('-m, --media <id>', 'filter to a single source media')
-      .option('--type <type>', 'filter by clip type')
-      .option(
-        '--search <query>',
-        'filter by clip label, description, type, or media filename'
-      )
-      .option(
-        '-d, --directory <dir>',
-        'optional filter: only clips whose source media is in this directory (name or id; "/" = unfiled media)'
-      )
+      .description('List media clips in the active workspace'),
+    mediaClipListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const mutator = new MediaClipMutator(pb);
       if (opts.media && opts.directory !== undefined) {
         throw new Error(
           '-m already pins one media (and its directory) — drop -d or -m.'
         );
       }
-      const directoryId =
-        opts.directory === undefined
-          ? undefined
-          : isRootDirRef(opts.directory)
-            ? 'root'
-            : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
-
-      const result = opts.media
-        ? await mutator.getByMedia(opts.media, 1, 200)
-        : await mutator.getByWorkspace(workspaceId, 1, 200, {
-            type: opts.type ? parseClipType(opts.type) : undefined,
-            searchQuery: opts.search,
-            directoryId,
-          });
-
-      printList(
-        result.items as MediaClipWithMedia[],
-        [
-          { header: 'ID', value: (c) => c.id },
-          { header: 'LABEL', value: (c) => c.label ?? '' },
-          { header: 'MEDIA', value: (c) => mediaClipMediaLabel(c) },
-          { header: 'TYPE', value: (c) => String(c.type) },
-          { header: 'START', value: (c) => `${c.start.toFixed(2)}s` },
-          { header: 'END', value: (c) => `${c.end.toFixed(2)}s` },
-          { header: 'DURATION', value: (c) => formatDuration(c.duration) },
-        ],
-        { json: opts.json, totalItems: result.totalItems }
-      );
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+      };
+      await runList({
+        spec: mediaClipListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchMediaClipPage(pb, query),
+      });
     } catch (err) {
       handleError(err);
     }

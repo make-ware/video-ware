@@ -10,13 +10,14 @@ import {
   type TrackWithClipCount,
 } from '../lib/timeline-track.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import { pickTimeline, resolveWorkspaceId } from '../lib/select.js';
 import {
-  info,
-  printList,
-  printRecord,
-  success,
-  truncate,
-} from '../lib/output.js';
+  listFilter,
+  runList,
+  withListOptions,
+  type ListSpec,
+} from '../lib/list/index.js';
+import { info, printRecord, success, truncate } from '../lib/output.js';
 
 function trackFlags(row: TrackWithClipCount): string {
   const flags = [
@@ -25,6 +26,40 @@ function trackFlags(row: TrackWithClipCount): string {
   ].filter(Boolean);
   return flags.join(',');
 }
+
+/**
+ * `timeline track list`. A structure list like `timeline clips list`: a
+ * timeline holds at most MAX_TIMELINE_TRACKS tracks and each row's CLIPS count
+ * is derived from the whole timeline, so it is always fetched entire.
+ */
+const timelineTrackListSpec: ListSpec<TrackWithClipCount> = {
+  command: 'timeline track list',
+  workspaceScoped: false,
+  unpaged: true,
+  required: ['timeline'],
+  filters: {
+    timeline: listFilter({
+      flags: '-t, --timeline <id>',
+      description: 'the timeline whose tracks to list',
+      clause: () => null,
+      // Resolved lazily: the picker only runs when -t is missing on a TTY, so
+      // a scripted `-t <id>` call never needs an active workspace at all.
+      pick: async ({ pb }) =>
+        (await pickTimeline(pb, await resolveWorkspaceId(pb))).id,
+    }),
+  },
+  columns: [
+    { header: 'ID', value: (r) => r.track.id },
+    { header: 'LAYER', value: (r) => String(r.track.layer) },
+    { header: 'NAME', value: (r) => r.track.name ?? '' },
+    { header: 'LABEL', value: (r) => truncate(r.track.label ?? '', 30) },
+    { header: 'VOL', value: (r) => r.track.volume.toFixed(2) },
+    { header: 'OPACITY', value: (r) => r.track.opacity.toFixed(2) },
+    { header: 'FLAGS', value: (r) => trackFlags(r) },
+    { header: 'CLIPS', value: (r) => String(r.clipCount) },
+  ],
+  hint: 'address tracks by layer number or id',
+};
 
 export function registerTimelineTrackCommands(timeline: Command): void {
   const track = timeline
@@ -60,34 +95,30 @@ export function registerTimelineTrackCommands(timeline: Command): void {
     }
   );
 
-  withJsonOption(
+  withListOptions(
     track
       .command('list')
       .alias('ls')
-      .description("List a timeline's tracks (layer ascending)")
-      .requiredOption('-t, --timeline <id>', 'timeline id')
+      .description("List a timeline's tracks (layer ascending)"),
+    timelineTrackListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const result = await listTracks(pb, opts.timeline);
-      printList(
-        result.items,
-        [
-          { header: 'ID', value: (r) => r.track.id },
-          { header: 'LAYER', value: (r) => String(r.track.layer) },
-          { header: 'NAME', value: (r) => r.track.name ?? '' },
-          { header: 'LABEL', value: (r) => truncate(r.track.label ?? '', 30) },
-          { header: 'VOL', value: (r) => r.track.volume.toFixed(2) },
-          { header: 'OPACITY', value: (r) => r.track.opacity.toFixed(2) },
-          { header: 'FLAGS', value: (r) => trackFlags(r) },
-          { header: 'CLIPS', value: (r) => String(r.clipCount) },
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: 'address tracks by layer number or id',
-        }
-      );
+      await runList({
+        spec: timelineTrackListSpec,
+        opts,
+        ctx: { pb },
+        fetchPage: async () => {
+          const result = await listTracks(pb, opts.timeline);
+          return {
+            page: 1,
+            perPage: result.items.length,
+            totalItems: result.totalItems,
+            totalPages: 1,
+            items: result.items,
+          };
+        },
+      });
     } catch (err) {
       handleError(err);
     }

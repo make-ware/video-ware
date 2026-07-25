@@ -7,6 +7,7 @@
  * synchronous preview enrichment of SSE records.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,6 +19,7 @@ import {
 import type { LiveListSpec } from '@/utils/live-list';
 import { MediaService, type MediaListItem } from '@/services/media';
 import { mediaTypeFilterPredicate } from '@/components/media/media-type-filter';
+import { mediaEntityFilterPredicate } from '@/components/media/media-entity-filter';
 import {
   getMediaSortOption,
   type MediaSortValue,
@@ -31,6 +33,8 @@ export interface UseMediaListArgs {
   directoryFilter: string | null;
   /** 'all' | 'video' | 'audio' | 'image'. */
   mediaTypeFilter: string;
+  /** null = all entities; id = tagged with or appearing as that entity. */
+  entityFilter: string | null;
   /** Raw input; debounced 300ms internally. */
   searchQuery: string;
   sort: MediaSortValue;
@@ -46,9 +50,16 @@ export function buildMediaMatches(args: {
   workspaceId: string;
   directoryId: string | null;
   mediaType: string;
+  entityId: string | null;
+  /** Media linked to `entityId`; undefined while it loads (clause passes). */
+  entityLinkedIds?: Set<string>;
   search: string;
 }): (record: MediaListItem) => boolean {
   const typePredicate = mediaTypeFilterPredicate(args.mediaType);
+  const entityPredicate = mediaEntityFilterPredicate(
+    args.entityId,
+    args.entityLinkedIds
+  );
   const search = args.search.trim().toLowerCase();
   return (record) => {
     if (record.WorkspaceRef !== args.workspaceId) return false;
@@ -59,6 +70,7 @@ export function buildMediaMatches(args: {
       return false;
     }
     if (!typePredicate(record.mediaType)) return false;
+    if (!entityPredicate(record.id)) return false;
     if (search) {
       const haystacks = [
         record.label,
@@ -76,8 +88,14 @@ export function buildMediaMatches(args: {
 export function useMediaList(
   args: UseMediaListArgs
 ): UseLiveInfiniteListResult<MediaListItem> {
-  const { workspaceId, directoryFilter, mediaTypeFilter, searchQuery, sort } =
-    args;
+  const {
+    workspaceId,
+    directoryFilter,
+    mediaTypeFilter,
+    entityFilter,
+    searchQuery,
+    sort,
+  } = args;
   const { isAuthenticated } = useAuth();
   const mediaService = useMemo(() => new MediaService(pb), []);
 
@@ -89,18 +107,36 @@ export function useMediaList(
 
   const sortOption = getMediaSortOption(sort);
 
+  // The entity clause lives on other collections, so a Media SSE record can't
+  // be tested against it — mirror it with the entity's linked-media id set.
+  const { data: entityLinkedIds } = useQuery({
+    queryKey: qk.media.entityLinkedIds(entityFilter ?? ''),
+    enabled: !!entityFilter && isAuthenticated,
+    queryFn: () => mediaService.listMediaIdsLinkedToEntity(entityFilter ?? ''),
+  });
+
   const spec = useMemo<LiveListSpec<MediaListItem>>(
     () => ({
       matches: buildMediaMatches({
         workspaceId: workspaceId ?? '',
         directoryId: directoryFilter,
         mediaType: mediaTypeFilter,
+        entityId: entityFilter,
+        entityLinkedIds,
         search: debouncedSearch,
       }),
       compare: sortOption.compare,
       canCompare: sortOption.canCompare,
     }),
-    [workspaceId, directoryFilter, mediaTypeFilter, debouncedSearch, sortOption]
+    [
+      workspaceId,
+      directoryFilter,
+      mediaTypeFilter,
+      entityFilter,
+      entityLinkedIds,
+      debouncedSearch,
+      sortOption,
+    ]
   );
 
   // Server-side filter stays coarse and stable (the workspace) so filter /
@@ -129,6 +165,7 @@ export function useMediaList(
       workspaceId: workspaceId ?? '',
       directoryId: directoryFilter,
       mediaType: mediaTypeFilter,
+      entityId: entityFilter,
       sort: sortOption.value,
       search: debouncedSearch,
     }),
@@ -139,6 +176,7 @@ export function useMediaList(
           workspaceId: workspaceId ?? '',
           directoryId: directoryFilter,
           mediaType: mediaTypeFilter,
+          entityId: entityFilter,
           search: debouncedSearch,
         },
         page,

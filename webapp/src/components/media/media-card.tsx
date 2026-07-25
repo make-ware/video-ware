@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import Image from 'next/image';
-import type { Media, MediaRelations, Expanded } from '@project/shared';
+import type {
+  Media,
+  MediaRelations,
+  Expanded,
+  MediaEntityLink,
+} from '@project/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,6 +15,7 @@ import pb from '@/lib/pocketbase-client';
 import { MediaType } from '@project/shared';
 import { SpriteAnimator } from '../sprite/sprite-animator';
 import { MediaTypeBadge, MediaTypeIcon } from './media-type-icon';
+import { MediaEntityChips } from './media-entity-chips';
 
 interface MediaCardProps<
   E extends keyof MediaRelations = keyof MediaRelations,
@@ -23,6 +29,10 @@ interface MediaCardProps<
   processingLabel?: string;
   showSelectionIndicator?: boolean;
   onSelectionClick?: (e: React.MouseEvent) => void;
+  /** Entities attached to this media (MediaEntities view); chips when present. */
+  entityLinks?: MediaEntityLink[];
+  /** Entity id → palette index, shared across the gallery for stable colors. */
+  colorIndexById?: Map<string, number>;
 }
 
 export function MediaCard({
@@ -35,6 +45,8 @@ export function MediaCard({
   processingLabel,
   showSelectionIndicator = false,
   onSelectionClick,
+  entityLinks,
+  colorIndexById,
 }: MediaCardProps) {
   const [isHovering, setIsHovering] = useState(false);
 
@@ -271,6 +283,15 @@ export function MediaCard({
               </Badge>
             )}
           </div>
+        )}
+
+        {/* Entities attached to this media — tags and detected appearances */}
+        {!compact && entityLinks && entityLinks.length > 0 && (
+          <MediaEntityChips
+            workspaceId={media.WorkspaceRef}
+            links={entityLinks}
+            colorIndexById={colorIndexById}
+          />
         )}
 
         {/* Codec info */}

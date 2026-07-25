@@ -97,6 +97,8 @@ export function WorkspaceLibrary({
     workspaceId: currentWorkspace?.id,
     directoryFilter,
     mediaTypeFilter: mediaMediaType,
+    // The library browses everything; entity filtering lives on the media page.
+    entityFilter: null,
     searchQuery: mediaSearch,
     sort: mediaSort,
   });

@@ -1,10 +1,16 @@
 export { MediaGallery } from './media-gallery';
+export { MediaEntityChips } from './media-entity-chips';
 export { MediaCard } from './media-card';
 export {
   MediaTypeFilter,
   MEDIA_TYPE_OPTIONS,
   mediaTypeFilterPredicate,
 } from './media-type-filter';
+export {
+  MediaEntityFilter,
+  MEDIA_ENTITY_FILTER_ALL,
+  mediaEntityFilterPredicate,
+} from './media-entity-filter';
 export {
   MediaTypeBadge,
   MediaTypeIcon,

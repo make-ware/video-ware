@@ -17,9 +17,14 @@ export const qk = {
       /** null = all directories, '' = workspace root, id = one directory. */
       directoryId: string | null;
       mediaType: string;
+      /** null = no entity filter, id = tagged with / appearing as that entity. */
+      entityId: string | null;
       sort: string;
       search: string;
     }) => ['media', 'list', args] as const,
+    /** Media linked to an entity — the client mirror of the entity filter. */
+    entityLinkedIds: (entityId: string) =>
+      ['media', 'entity-linked-ids', entityId] as const,
     detail: (id: string) => ['media', 'detail', id] as const,
     neighbors: (workspaceId: string, mediaId: string) =>
       ['media', 'neighbors', workspaceId, mediaId] as const,
@@ -112,6 +117,11 @@ export const qk = {
   },
   labelTracks: {
     byMedia: (id: string) => ['label-tracks', id] as const,
+  },
+  mediaEntities: {
+    all: ['media-entities'] as const,
+    /** Entity links for one page of media cards, keyed by the sorted id set. */
+    byMediaIds: (idsKey: string) => ['media-entities', idsKey] as const,
   },
   mediaTags: {
     all: ['media-tags'] as const,

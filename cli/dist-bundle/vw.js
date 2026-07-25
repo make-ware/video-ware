@@ -58702,6 +58702,19 @@ var MediaClipCollection = defineCollection({
     "CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)"
   ]
 });
+var MediaEntityLinkSchema = external_exports.object({
+  id: external_exports.string(),
+  name: external_exports.string(),
+  kind: external_exports.string(),
+  tagged: external_exports.number(),
+  links: external_exports.number()
+});
+var MediaEntitiesSchema = external_exports.object({
+  /** Owning workspace (stored as the workspace id; used for filtering). */
+  WorkspaceRef: external_exports.string(),
+  /** Entities attached to this media. */
+  entities: external_exports.array(MediaEntityLinkSchema)
+}).extend(baseSchema);
 var MediaTagSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media" }),
@@ -70750,7 +70763,7 @@ function registerJobCommands(program3) {
 // src/cli.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.5";
+    return "0.10.6";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

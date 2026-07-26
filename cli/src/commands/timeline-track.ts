@@ -14,6 +14,7 @@ import { pickTimeline, resolveWorkspaceId } from '../lib/select.js';
 import {
   listFilter,
   runList,
+  windowItems,
   withListOptions,
   type ListSpec,
 } from '../lib/list/index.js';
@@ -108,15 +109,13 @@ export function registerTimelineTrackCommands(timeline: Command): void {
         spec: timelineTrackListSpec,
         opts,
         ctx: { pb },
-        fetchPage: async () => {
-          const result = await listTracks(pb, opts.timeline);
-          return {
-            page: 1,
-            perPage: result.items.length,
-            totalItems: result.totalItems,
-            totalPages: 1,
-            items: result.items,
-          };
+        // `query.values.timeline`, not `opts.timeline`: when the timeline came
+        // from the interactive picker it exists only on the resolved query.
+        // Rows are derived whole (CLIPS counts need the full timeline), then
+        // `--limit`/`--page` window that view like `timeline clips list`.
+        fetchPage: async (query) => {
+          const result = await listTracks(pb, query.values.timeline as string);
+          return windowItems(result.items, query);
         },
       });
     } catch (err) {

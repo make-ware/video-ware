@@ -54,6 +54,7 @@ export {
   fetchMergedAll,
   fetchMergedPage,
   maxMergedPage,
+  windowItems,
   type MergeSource,
   type MergedPage,
   type PageRequest,

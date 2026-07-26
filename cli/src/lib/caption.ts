@@ -78,6 +78,9 @@ export function captionTypeOf(caption: Caption): CaptionType {
 export const captionListSpec: ListSpec<Caption> = {
   command: 'caption list',
   sorts: CAPTION_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   baseFilter: (opts) =>
     opts.includeTranscripts || opts.media ? null : { expr: 'MediaRef = ""' },
   filters: {

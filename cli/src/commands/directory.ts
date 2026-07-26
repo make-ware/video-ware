@@ -1,16 +1,17 @@
 import type { Command } from 'commander';
-import { MediaMutator } from '@project/shared';
+import { MediaMutator, type TypedPocketBase } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId, type MediaWithUpload } from '../lib/select.js';
 import {
   createDirectory,
   deleteDirectory,
-  directoryListSpec,
   fetchDirectoryPage,
   listDirectories,
+  makeDirectoryListSpec,
   mediaCountsByDirectory,
   renameDirectory,
   resolveDirectoryIn,
+  type DirectoryMediaCounts,
 } from '../lib/directory.js';
 import { mediaColumns, moveMedia } from '../lib/media.js';
 import { withJsonOption } from '../lib/options.js';
@@ -24,6 +25,18 @@ export function registerDirectoryCommands(program: Command): void {
     .description(
       'Optional, flat media folders (e.g. per shoot or location) — purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media’s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
     );
+
+  // The counts query is a full media scan of the workspace, needed three
+  // times per `directory list` (MEDIA column, unfiled-media summary, --json
+  // envelope). Memoized so one invocation scans exactly once — a CLI process
+  // runs a single command, so the memo cannot go stale.
+  let countsPromise: Promise<DirectoryMediaCounts> | undefined;
+  const countsOnce = (
+    pb: TypedPocketBase,
+    workspaceId: string
+  ): Promise<DirectoryMediaCounts> =>
+    (countsPromise ??= mediaCountsByDirectory(pb, workspaceId));
+  const directoryListSpec = makeDirectoryListSpec(countsOnce);
 
   withListOptions(
     directory
@@ -42,11 +55,17 @@ export function registerDirectoryCommands(program: Command): void {
         opts,
         ctx: { pb, workspaceId },
         fetchPage: (query) => fetchDirectoryPage(pb, query),
+        // Workspace-wide counts scripts have always read from this envelope —
+        // kept top-level alongside the pagination keys.
+        jsonExtras: async () => {
+          const counts = await countsOnce(pb, workspaceId);
+          return { unfiledMedia: counts.root, totalMedia: counts.total };
+        },
       });
       // The unfiled-media tally is about the workspace, not this page, so it
       // sits after the list rather than in its footer.
       if (!opts.json) {
-        const counts = await mediaCountsByDirectory(pb, workspaceId);
+        const counts = await countsOnce(pb, workspaceId);
         info(
           counts.byDirectory.size === 0
             ? `Directories are optional — all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.`

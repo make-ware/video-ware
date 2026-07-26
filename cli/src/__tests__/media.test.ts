@@ -77,9 +77,9 @@ describe('mediaListSpec', () => {
     );
   });
 
-  it('defaults to 100 rows, newest first', async () => {
+  it('defaults to the pre-pagination 200 rows, newest first', async () => {
     const query = await filterFor({});
-    expect(query.perPage).toBe(100);
+    expect(query.perPage).toBe(200);
     expect(query.page).toBe(1);
     expect(query.sort).toBe('-created');
   });

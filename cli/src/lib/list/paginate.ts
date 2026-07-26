@@ -3,14 +3,14 @@
  * that is really N lists merged.
  *
  * The merged case exists because `label search`/`label list`/`entity labels`
- * fan out one query per label type (11 collections) and present the union.
- * A merged page 2 is not `page=2` on each sub-query, so instead each source
- * is asked for its own top `page × perPage` rows and the merge is sliced:
- * the global top-K is always contained in the union of the per-source top-K,
- * so any window inside that depth is exact.
+ * fan out one query per label type (the 8 `LabelType` collections) and present
+ * the union. A merged page 2 is not `page=2` on each sub-query, so instead
+ * each source is asked for its own top `page × perPage` rows and the merge is
+ * sliced: the global top-K is always contained in the union of the per-source
+ * top-K, so any window inside that depth is exact.
  *
  * That over-fetch is why depth is bounded rather than page count — at
- * `perPage = 100` across 11 types, page 1 already reads 1 100 records. Past
+ * `perPage = 100` across 8 types, page 1 already reads 800 records. Past
  * the bound the answer is to narrow to one type (which needs no merge and
  * pages without limit), not to fetch deeper.
  */
@@ -56,6 +56,37 @@ export async function fetchAllPages<T>(
     totalItems: first.totalItems,
     totalPages: 1,
     items,
+  };
+}
+
+/**
+ * Window an already-loaded row set into a `ListResult` page.
+ *
+ * For structure lists that are always computed whole (a timeline's tracks or
+ * clips): the fetcher derives every row, and the requested `--limit`/`--page`
+ * window slices that view. `totalItems` stays the full count so the footer and
+ * `--json` envelope never understate what exists.
+ */
+export function windowItems<T>(
+  rows: readonly T[],
+  window: { page: number; perPage: number; all: boolean }
+): ListResult<T> {
+  if (window.all) {
+    return {
+      page: 1,
+      perPage: rows.length,
+      totalItems: rows.length,
+      totalPages: 1,
+      items: [...rows],
+    };
+  }
+  const start = (window.page - 1) * window.perPage;
+  return {
+    page: window.page,
+    perPage: window.perPage,
+    totalItems: rows.length,
+    totalPages: Math.max(1, Math.ceil(rows.length / window.perPage)),
+    items: rows.slice(start, start + window.perPage),
   };
 }
 

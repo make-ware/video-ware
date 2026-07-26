@@ -55,32 +55,44 @@ export type DirectoryRow = Directory & { mediaCount: number };
  * `directory list`. Directories are flat and few, so the whole set is fetched
  * and each row carries its media count — the count comes from a separate
  * aggregate query, so it is not a sortable field.
+ *
+ * A factory rather than a constant: the counts query is a full media scan of
+ * the workspace, and the command also needs it for the unfiled-media summary
+ * and the `--json` envelope's `unfiledMedia`/`totalMedia`. The caller passes
+ * a memoized getter so one invocation scans exactly once.
  */
-export const directoryListSpec: ListSpec<Directory, DirectoryRow> = {
-  command: 'directory list',
-  sorts: DIRECTORY_SORTS,
-  unpaged: true,
-  filters: {
-    search: listFilter({
-      flags: '--search <text>',
-      description: 'match the directory name',
-      clause: (q) => ({ expr: 'name ~ {:q}', params: { q } }),
-    }),
-  },
-  toRows: async (items, { pb, workspaceId }) => {
-    const counts = await mediaCountsByDirectory(pb, workspaceId!);
-    return items.map((dir) => ({
-      ...dir,
-      mediaCount: counts.byDirectory.get(dir.id) ?? 0,
-    }));
-  },
-  columns: [
-    { header: 'ID', value: (d) => d.id },
-    { header: 'NAME', value: (d) => d.name },
-    { header: 'MEDIA', value: (d) => String(d.mediaCount) },
-  ],
-  hint: '`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId…>` files media',
-};
+export function makeDirectoryListSpec(
+  counts: (
+    pb: TypedPocketBase,
+    workspaceId: string
+  ) => Promise<DirectoryMediaCounts>
+): ListSpec<Directory, DirectoryRow> {
+  return {
+    command: 'directory list',
+    sorts: DIRECTORY_SORTS,
+    unpaged: true,
+    filters: {
+      search: listFilter({
+        flags: '--search <text>',
+        description: 'match the directory name',
+        clause: (q) => ({ expr: 'name ~ {:q}', params: { q } }),
+      }),
+    },
+    toRows: async (items, { pb, workspaceId }) => {
+      const resolved = await counts(pb, workspaceId!);
+      return items.map((dir) => ({
+        ...dir,
+        mediaCount: resolved.byDirectory.get(dir.id) ?? 0,
+      }));
+    },
+    columns: [
+      { header: 'ID', value: (d) => d.id },
+      { header: 'NAME', value: (d) => d.name },
+      { header: 'MEDIA', value: (d) => String(d.mediaCount) },
+    ],
+    hint: '`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId…>` files media',
+  };
+}
 
 /** Fetch one page of directories for `directoryListSpec`. */
 export function fetchDirectoryPage(

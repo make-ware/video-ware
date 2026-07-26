@@ -8,9 +8,10 @@
  * window; the CLI needs only the server-side `pbSort`, so the two stay separate
  * files and only the vocabulary is shared.
  *
- * Every option ends in a stable tiebreak (`-created`) so equal primary keys
- * don't produce a different order between two requests — otherwise a record
- * can appear on both page 1 and page 2, or on neither.
+ * Every option ends in a stable tiebreak (`-created`, or `id` where whole
+ * batches can share a created stamp) so equal primary keys don't produce a
+ * different order between two requests — otherwise a record can appear on
+ * both page 1 and page 2, or on neither.
  */
 import type { SortRegistry } from './spec.js';
 
@@ -98,22 +99,26 @@ export const WORKSPACE_SORTS: SortRegistry = [
  * Time-ranged label rows (`entity words`, `entity appearances`, and the label
  * listings): grouped by media then chronological, which is how a reader
  * consumes them.
+ *
+ * The tiebreak here is `id`, not `-created`: label rows are bulk-inserted by
+ * the worker, so whole batches share one `created` stamp — and aligned words
+ * or simultaneous detections routinely share `MediaRef`+`start` too. Only a
+ * unique key makes the order total, which OFFSET paging requires.
  */
 export const LABEL_RANGE_SORTS: SortRegistry = [
   {
     value: 'media',
     description: 'grouped by media, then chronological',
-    pbSort: 'MediaRef,start',
+    pbSort: 'MediaRef,start,id',
   },
-  { value: 'start', description: 'chronological', pbSort: 'start,MediaRef' },
+  {
+    value: 'start',
+    description: 'chronological',
+    pbSort: 'start,MediaRef,id',
+  },
   {
     value: 'duration',
     description: 'longest first',
-    pbSort: '-duration,MediaRef,start',
+    pbSort: '-duration,MediaRef,start,id',
   },
-];
-
-export const TIMELINE_TRACK_SORTS: SortRegistry = [
-  { value: 'layer', description: 'layer ascending', pbSort: 'layer' },
-  { value: 'recent', description: 'newest first', pbSort: '-created' },
 ];

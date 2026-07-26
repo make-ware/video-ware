@@ -56,20 +56,19 @@ export class TimelineClipMutator extends BaseMutator<
    */
   async getByTimeline(timelineId: string): Promise<TimelineClip[]> {
     const perPage = 500;
-    const first = await this.getList(
-      1,
-      perPage,
-      `TimelineRef = "${timelineId}"`,
-      'order' // Explicit sort by order
-    );
+    // `id` tiebreak: `order` uniqueness per timeline is only an app-level
+    // convention (max(order)+1 on insert), so two clips can tie — without a
+    // total order the OFFSET boundary between pages could duplicate or drop
+    // one of them.
+    const sort = 'order,id';
+    const filter = `TimelineRef = "${timelineId}"`;
+    // Page walk duplicated from the CLI's `fetchAllPages`
+    // (cli/src/lib/list/paginate.ts) — shared/ cannot import cli/, so keep the
+    // two in sync until a shared isomorphic helper exists.
+    const first = await this.getList(1, perPage, filter, sort);
     const clips = [...first.items];
     for (let page = 2; page <= first.totalPages; page++) {
-      const next = await this.getList(
-        page,
-        perPage,
-        `TimelineRef = "${timelineId}"`,
-        'order'
-      );
+      const next = await this.getList(page, perPage, filter, sort);
       clips.push(...next.items);
     }
     return clips;

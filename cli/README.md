@@ -671,7 +671,7 @@ and the footers below.
 
 | Flag | Meaning |
 | --- | --- |
-| `-n, --limit <count>` | rows per page (default **100**, max 500) |
+| `-n, --limit <count>` | rows per page (default **100**; 200 on `media list`, `media clip list`, `caption list`, `timeline list`, `upload list` — their pre-pagination page size; max 500) |
 | `--page <n>` | which page to show (default 1) |
 | `--sort <field>` | ordering; the valid names are listed in each command's `--help` |
 | `--all` | fetch every page instead of one |
@@ -719,6 +719,27 @@ query all eight label collections and present the union, so one page costs
 `page × --limit` rows *from each*. Depth is capped (`--max-depth`, default 500
 rows per collection); past it the command says so and points at `-t <type>` — a
 single label type needs no merge and pages without a bound.
+
+### Migration notes (breaking changes)
+
+Scripts written against the pre-pagination CLI should check two flags whose
+meaning changed — both fail silently (fewer or different rows, no error):
+
+- **`caption list --all` no longer includes transcript captions.** `--all` now
+  means "fetch every page" on every list, like everywhere else in the CLI. The
+  old behavior — including media-attached transcript captions — moved to
+  `--include-transcripts`. A saved `vw caption list --all` now pages through
+  ad-hoc captions only; add `--include-transcripts` to get the old result set.
+- **`--limit` on merged label lists now caps the merged total, not each
+  type.** `label search`/`label list`/`entity labels` previously applied
+  `--limit` (default 20) *per label type*, so `--limit 50` could return up to
+  50 × 8 rows. It now bounds the merged page, so `--limit 50` returns at most
+  50 rows across all types; page or `--all` for the rest, or narrow with
+  `-t <type>`.
+
+Default page sizes are otherwise preserved: lists that previously read a fixed
+200 rows (`media list`, `media clip list`, `caption list`, `timeline list`,
+`upload list`) keep 200 as their default `--limit`.
 
 ## JSON output for agents
 

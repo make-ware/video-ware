@@ -37,15 +37,17 @@ const workspaceListSpec: ListSpec<Workspace> = {
       }),
     }),
   },
-  columns: [
-    {
-      header: ' ',
-      value: (w) => (w.id === loadConfig().workspaceId ? '*' : ''),
-    },
-    { header: 'ID', value: (w) => w.id },
-    { header: 'NAME', value: (w) => w.name },
-    { header: 'SLUG', value: (w) => w.slug ?? '' },
-  ],
+  // A function so the config file is read once per render, not once per row
+  // (`loadConfig` is a synchronous disk read).
+  columns: () => {
+    const activeId = loadConfig().workspaceId;
+    return [
+      { header: ' ', value: (w) => (w.id === activeId ? '*' : '') },
+      { header: 'ID', value: (w) => w.id },
+      { header: 'NAME', value: (w) => w.name },
+      { header: 'SLUG', value: (w) => w.slug ?? '' },
+    ];
+  },
   hint: '`vw workspace use <id>` switches the active workspace',
 };
 

@@ -14,6 +14,7 @@ import { resolveTrackRef } from '../lib/timeline.js';
 import {
   listFilter,
   runList,
+  windowItems,
   withListOptions,
   type ListSpec,
 } from '../lib/list/index.js';
@@ -103,23 +104,7 @@ async function fetchTimelineClipRows(
     t.clips.map((c) => ({ ...c, layer: t.layer }))
   );
 
-  if (opts.all) {
-    return {
-      page: 1,
-      perPage: rows.length,
-      totalItems: rows.length,
-      totalPages: 1,
-      items: rows,
-    };
-  }
-  const start = (opts.page - 1) * opts.perPage;
-  return {
-    page: opts.page,
-    perPage: opts.perPage,
-    totalItems: rows.length,
-    totalPages: Math.max(1, Math.ceil(rows.length / opts.perPage)),
-    items: rows.slice(start, start + opts.perPage),
-  };
+  return windowItems(rows, opts);
 }
 
 type ClipRow = InspectClipInfo & { layer: number };
@@ -195,10 +180,12 @@ export function registerTimelineClipCommands(timeline: Command): void {
         // `-w` is validated against the timeline's own workspace (in
         // fetchTimelineClipRows), not used as a filter, so it stays out of ctx.
         ctx: { pb },
+        // `query.values`, not `opts`: a timeline resolved through the
+        // interactive picker exists only on the resolved query.
         fetchPage: (query) =>
           fetchTimelineClipRows(pb, {
-            timelineId: opts.timeline,
-            track: opts.track,
+            timelineId: query.values.timeline as string,
+            track: query.values.track as string | undefined,
             page: query.page,
             perPage: query.perPage,
             all: query.all,

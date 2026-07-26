@@ -125,6 +125,9 @@ const mediaSearchFilter = listFilter({
 export const mediaListSpec: ListSpec<MediaWithUpload> = {
   command: 'media list',
   sorts: MEDIA_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     directory: directoryFilter('DirectoryRef'),
     type: listFilter({
@@ -160,6 +163,8 @@ export type MediaClipRow = MediaClipWithMedia & { times: ClipTimes };
 export const mediaClipListSpec: ListSpec<MediaClipWithMedia, MediaClipRow> = {
   command: 'media clip list',
   sorts: MEDIA_CLIP_SORTS,
+  // Pre-pagination page size — see mediaListSpec.
+  defaultLimit: 200,
   filters: {
     media: listFilter({
       flags: '-m, --media <id>',

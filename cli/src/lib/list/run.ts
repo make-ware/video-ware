@@ -52,6 +52,12 @@ interface RunListBase<T, TRow> {
   isTTY?: boolean;
   /** Narrowing that only holds in memory; forces every page to be fetched. */
   refine?: ListRefinement<T>;
+  /**
+   * Extra top-level keys merged into the `--json` envelope, computed only
+   * when `--json` is set — e.g. `directory list`'s workspace-wide media
+   * counts, which scripts read alongside `items`.
+   */
+  jsonExtras?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 
 export interface RunListArgs<T, TRow> extends RunListBase<T, TRow> {
@@ -92,6 +98,7 @@ async function present<T, TRow>(args: {
   totalItems: number;
   totalPages: number;
   refine?: ListRefinement<T>;
+  jsonExtras?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
 }): Promise<void> {
   const { spec, ctx, query, refine } = args;
 
@@ -124,6 +131,7 @@ async function present<T, TRow>(args: {
         {
           ...listEnvelope(spec, rows, view, query.applied),
           ...(refine?.extras?.(dropped) ?? {}),
+          ...((await args.jsonExtras?.()) ?? {}),
         },
         null,
         2
@@ -164,6 +172,7 @@ export async function runList<T, TRow = T>(
     totalItems: result.totalItems,
     totalPages: result.totalPages,
     refine: args.refine,
+    jsonExtras: args.jsonExtras,
   });
 }
 
@@ -200,6 +209,7 @@ export async function runMergedList<T, TRow = T>(
     totalItems: merged.totalItems,
     totalPages: merged.totalPages,
     refine: args.refine,
+    jsonExtras: args.jsonExtras,
   });
 }
 

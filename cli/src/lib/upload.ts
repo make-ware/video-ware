@@ -97,6 +97,9 @@ export function parseUploadStatus(value: string): UploadStatus {
 export const uploadListSpec: ListSpec<Upload, UploadRow> = {
   command: 'upload list',
   sorts: UPLOAD_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     status: listFilter({
       flags: '--status <status>',
@@ -166,6 +169,15 @@ export async function attachUploadMedia(
   });
 }
 
+/**
+ * Ids per list request — keeps the `UploadRef = ... || ...` filter proxy-safe,
+ * matching `MEDIA_IDS_PER_REQUEST` in shared/src/mutators/media-entities.ts:
+ * a page can hold up to `MAX_LIST_LIMIT` (500) uploads, and a single OR filter
+ * over that many ids would outgrow the query-string limits of proxies sitting
+ * in front of PocketBase.
+ */
+const UPLOAD_IDS_PER_REQUEST = 100;
+
 /** Map the given upload ids to the Media ingested from each, where one exists. */
 export async function mediaByUploadIds(
   pb: TypedPocketBase,
@@ -173,13 +185,24 @@ export async function mediaByUploadIds(
 ): Promise<Map<string, Media>> {
   const map = new Map<string, Media>();
   if (uploadIds.length === 0) return map;
-  const filter = uploadIds
-    .map((id) => pb.filter('UploadRef = {:u}', { u: id }))
-    .join(' || ');
-  const items = await fetchAll((page) =>
-    new MediaMutator(pb).getList(page, 200, filter)
+  const chunks: string[][] = [];
+  for (let i = 0; i < uploadIds.length; i += UPLOAD_IDS_PER_REQUEST) {
+    chunks.push([...uploadIds.slice(i, i + UPLOAD_IDS_PER_REQUEST)]);
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAll((page) =>
+        new MediaMutator(pb).getList(
+          page,
+          200,
+          chunk
+            .map((id) => pb.filter('UploadRef = {:u}', { u: id }))
+            .join(' || ')
+        )
+      )
+    )
   );
-  for (const media of items) {
+  for (const media of results.flat()) {
     if (media.UploadRef) map.set(media.UploadRef, media);
   }
   return map;

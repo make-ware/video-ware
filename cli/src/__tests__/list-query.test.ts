@@ -220,6 +220,8 @@ describe('resolveListQuery — filter composition', () => {
     };
     const query = await resolveListQuery(parsed, { min: '21' }, ctx);
     expect(query.filter).toBe('v >= 42');
+    // `values` carries the parsed value, keyed like `applied`.
+    expect(query.values.min).toBe(42);
   });
 
   it('awaits an async clause (name → id lookups)', async () => {
@@ -313,6 +315,18 @@ describe('resolveListQuery — required filters', () => {
   it('runs the interactive picker on a TTY instead of failing', async () => {
     const query = await resolveListQuery(requiring, {}, ctx, { isTTY: true });
     expect(query.filter).toContain('MediaRef = picked1');
+  });
+
+  it('exposes the picked value on query.values — opts never learns it', async () => {
+    // Fetchers that read a required id directly (timeline track/clips lists)
+    // must find a picker-resolved value here; commander's opts bag is never
+    // written back to.
+    const opts: Record<string, unknown> = {};
+    const query = await resolveListQuery(requiring, opts, ctx, {
+      isTTY: true,
+    });
+    expect(query.values.media).toBe('picked1');
+    expect(opts.media).toBeUndefined();
   });
 
   it('fails on a TTY when the filter has no picker', async () => {

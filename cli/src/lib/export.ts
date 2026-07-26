@@ -6,7 +6,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { ListResult } from 'pocketbase';
 import {
   EntityMutator,
   LabelEntityMutator,
@@ -30,6 +29,7 @@ import {
 } from './label.js';
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import { getTimelineOverview } from './timeline-inspect.js';
+import { fetchAll } from './list/paginate.js';
 
 /**
  * `vw workspace export`: dump a workspace's media, media clips, labels, and
@@ -141,18 +141,6 @@ export interface TimelineIndexEntry {
   duration: number;
   trackCount: number;
   clipCount: number;
-}
-
-/** Fetch every page of a paginated list. */
-async function fetchAll<T>(
-  getPage: (page: number) => Promise<ListResult<T>>
-): Promise<T[]> {
-  const first = await getPage(1);
-  const items = [...first.items];
-  for (let page = 2; page <= first.totalPages; page++) {
-    items.push(...(await getPage(page)).items);
-  }
-  return items;
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {

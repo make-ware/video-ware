@@ -1,95 +1,163 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ClipType, type TypedPocketBase } from '@project/shared';
+import { ClipType } from '@project/shared';
 import {
   createMediaClip,
   deleteMediaClip,
+  fetchMediaPage,
+  mediaClipListSpec,
   mediaColumns,
+  mediaListSpec,
   moveMedia,
   parseClipType,
-  searchMedia,
   updateMedia,
   updateMediaClip,
 } from '../lib/media.js';
 import type { MediaWithUpload } from '../lib/select.js';
+import { resolveListQuery } from '../lib/list/index.js';
+import { fakePb, listResult, type Stub } from './fake-pb.js';
 
-type Stub = Record<string, any>;
+describe('mediaListSpec', () => {
+  const directories = (
+    rows = [{ id: 'd1', name: 'trips', WorkspaceRef: 'ws1' }]
+  ) => ({ getList: vi.fn(async () => listResult(rows)) });
 
-function fakePb(collections: Record<string, Stub>): TypedPocketBase {
-  return {
-    authStore: { record: { id: 'user1' }, token: 'tok' },
-    autoCancellation: () => {},
-    // Echo a deterministic, already-substituted filter string for assertions.
-    filter: (tpl: string, params: Record<string, unknown>) =>
-      Object.entries(params).reduce(
-        (acc, [k, v]) => acc.replaceAll(`{:${k}}`, String(v)),
-        tpl
-      ),
-    collection: (name: string) => {
-      const c = collections[name];
-      if (!c) throw new Error(`unexpected collection: ${name}`);
-      return c;
-    },
-  } as unknown as TypedPocketBase;
-}
+  /** Resolve the spec's query, returning the composed filter string. */
+  async function filterFor(
+    opts: Record<string, unknown>,
+    collections: Record<string, Stub> = {}
+  ) {
+    const pb = fakePb({ Directories: directories(), ...collections });
+    const query = await resolveListQuery(mediaListSpec, opts, {
+      pb,
+      workspaceId: 'ws1',
+    });
+    return query;
+  }
 
-function listResult(items: any[]) {
-  return {
-    page: 1,
-    perPage: 200,
-    totalItems: items.length,
-    totalPages: 1,
-    items,
-  };
-}
+  it('scopes to the workspace with no filters applied', async () => {
+    const query = await filterFor({});
+    expect(query.filter).toBe('WorkspaceRef = ws1');
+    expect(query.applied).toEqual([]);
+  });
 
-describe('searchMedia', () => {
-  it('filters media by workspace and bound label/description/filename', async () => {
+  it('binds a search over label, description, and source filename', async () => {
+    const query = await filterFor({ search: 'beach' });
+    expect(query.filter).toContain('WorkspaceRef = ws1');
+    expect(query.filter).toContain('label ~ beach');
+    expect(query.filter).toContain('description ~ beach');
+    expect(query.filter).toContain('UploadRef.name ~ beach');
+    expect(query.filter).not.toContain('DirectoryRef');
+  });
+
+  it('resolves a directory name to its id', async () => {
+    const query = await filterFor({ directory: 'trips' });
+    expect(query.filter).toContain('DirectoryRef = d1');
+  });
+
+  it('narrows to unfiled media for the root ref', async () => {
+    const query = await filterFor({ directory: '/' });
+    expect(query.filter).toContain('DirectoryRef = ""');
+  });
+
+  it('combines a directory, a type, and a search', async () => {
+    const query = await filterFor({
+      directory: 'trips',
+      type: 'video',
+      search: 'beach',
+    });
+    expect(query.filter).toContain('DirectoryRef = d1');
+    expect(query.filter).toContain('mediaType = video');
+    expect(query.filter).toContain('label ~ beach');
+    expect(query.applied).toEqual(['directory', 'type', 'search']);
+  });
+
+  it('rejects an unknown media type', async () => {
+    await expect(filterFor({ type: 'hologram' })).rejects.toThrow(
+      /Invalid media type "hologram". Valid types: video, audio, image/
+    );
+  });
+
+  it('defaults to the pre-pagination 200 rows, newest first', async () => {
+    const query = await filterFor({});
+    expect(query.perPage).toBe(200);
+    expect(query.page).toBe(1);
+    expect(query.sort).toBe('-created');
+  });
+
+  it('offers the webapp’s sort names', async () => {
+    expect((await filterFor({ sort: 'name' })).sort).toBe(
+      'UploadRef.name,-created'
+    );
+    expect((await filterFor({ sort: 'duration' })).sort).toBe(
+      '-duration,-created'
+    );
+    expect((await filterFor({ sort: 'media_time' })).sort).toBe(
+      '-mediaDate,-created'
+    );
+  });
+});
+
+describe('fetchMediaPage', () => {
+  it('passes the resolved query through to the mutator with expands', async () => {
     const getList = vi.fn(
-      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
-        listResult([{ id: 'm1' }])
+      async (
+        _page: number,
+        _perPage: number,
+        _opts: { filter?: string; sort?: string; expand?: string }
+      ) => listResult([{ id: 'm1' }])
     );
     const pb = fakePb({ Media: { getList } });
 
-    const result = await searchMedia(pb, 'ws1', 'beach', 25);
+    await fetchMediaPage(pb, {
+      page: 3,
+      perPage: 25,
+      filter: 'WorkspaceRef = ws1',
+      sort: '-duration,-created',
+    });
 
-    expect(result.items).toHaveLength(1);
-    expect(getList).toHaveBeenCalledOnce();
     const [page, perPage, options] = getList.mock.calls[0];
-    expect(page).toBe(1);
+    expect(page).toBe(3);
     expect(perPage).toBe(25);
-    expect(options.filter).toContain('WorkspaceRef = ws1');
-    expect(options.filter).toContain('label ~ beach');
-    expect(options.filter).toContain('description ~ beach');
-    expect(options.filter).toContain('UploadRef.name ~ beach');
-    expect(options.filter).not.toContain('DirectoryRef');
+    expect(options.filter).toBe('WorkspaceRef = ws1');
+    expect(options.sort).toBe('-duration,-created');
+    expect(options.expand).toContain('DirectoryRef');
+  });
+});
+
+describe('mediaClipListSpec', () => {
+  it('reaches through the media relation for a directory filter', async () => {
+    const pb = fakePb({
+      Directories: {
+        getList: vi.fn(async () =>
+          listResult([{ id: 'd1', name: 'trips', WorkspaceRef: 'ws1' }])
+        ),
+      },
+    });
+    const query = await resolveListQuery(
+      mediaClipListSpec,
+      { directory: 'trips' },
+      { pb, workspaceId: 'ws1' }
+    );
+    expect(query.filter).toContain('MediaRef.DirectoryRef = d1');
   });
 
-  it('narrows to a directory when one is passed', async () => {
-    const getList = vi.fn(
-      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
-        listResult([{ id: 'm1' }])
+  it('filters to one source media', async () => {
+    const query = await resolveListQuery(
+      mediaClipListSpec,
+      { media: 'm1' },
+      { pb: fakePb({}), workspaceId: 'ws1' }
     );
-    const pb = fakePb({ Media: { getList } });
-
-    await searchMedia(pb, 'ws1', 'beach', 50, 'd1');
-
-    const [, , options] = getList.mock.calls[0];
-    expect(options.filter).toContain('DirectoryRef = d1');
-    expect(options.filter).toContain('label ~ beach');
+    expect(query.filter).toContain('MediaRef = m1');
   });
 
-  it('narrows to unfiled media when directoryId is null', async () => {
-    const getList = vi.fn(
-      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
-        listResult([])
+  it('searches the clip and its source filename', async () => {
+    const query = await resolveListQuery(
+      mediaClipListSpec,
+      { search: 'hero' },
+      { pb: fakePb({}), workspaceId: 'ws1' }
     );
-    const pb = fakePb({ Media: { getList } });
-
-    await searchMedia(pb, 'ws1', 'beach', 50, null);
-
-    const [, , options] = getList.mock.calls[0];
-    expect(options.filter).toContain('DirectoryRef = ""');
-    expect(options.filter).toContain('label ~ beach');
+    expect(query.filter).toContain('label ~ hero');
+    expect(query.filter).toContain('MediaRef.UploadRef.name ~ hero');
   });
 });
 

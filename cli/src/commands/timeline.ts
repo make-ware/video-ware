@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { TaskStatus, TimelineMutator, type ClipTrim } from '@project/shared';
+import { TaskStatus, type ClipTrim } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { pickMedia, pickTimeline, resolveWorkspaceId } from '../lib/select.js';
 import {
@@ -8,11 +8,14 @@ import {
   insertClip,
   insertClips,
   insertOptions,
+  fetchTimelinePage,
   timelineCreateOptions,
+  timelineListSpec,
   timelineUpdateOptions,
   updateTimeline,
   type InsertClipResult,
 } from '../lib/timeline.js';
+import { runList, withListOptions } from '../lib/list/index.js';
 import {
   timelineClipLabelHint,
   type RippleShift,
@@ -57,7 +60,6 @@ import {
   error,
   formatDuration,
   info,
-  printList,
   printRecord,
   range,
   secs,
@@ -214,35 +216,22 @@ export function registerTimelineCommands(program: Command): void {
     .alias('tl')
     .description('Work with timelines');
 
-  withJsonOption(
+  withListOptions(
     timeline
       .command('list')
       .alias('ls')
-      .description('List timelines in the active workspace')
+      .description('List timelines in the active workspace'),
+    timelineListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const result = await new TimelineMutator(pb).getByWorkspace(
-        workspaceId,
-        1,
-        200
-      );
-      printList(
-        result.items,
-        [
-          { header: 'ID', value: (t) => t.id },
-          { header: 'NAME', value: (t) => t.name },
-          { header: 'LABEL', value: (t) => truncate(t.label ?? '', 30) },
-          { header: 'DURATION', value: (t) => formatDuration(t.duration) },
-          { header: 'VERSION', value: (t) => String(t.version ?? 1) },
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: '`vw timeline show <id>` for tracks and clips',
-        }
-      );
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
+      await runList({
+        spec: timelineListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchTimelinePage(pb, query),
+      });
     } catch (err) {
       handleError(err);
     }

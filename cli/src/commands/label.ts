@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { MediaClipLabelMutator, overlapsSegments } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
-import { pickMedia, resolveWorkspaceId } from '../lib/select.js';
+import { resolveWorkspaceId } from '../lib/select.js';
 import {
   attributedEntitySummaryOf,
   clipEditListFilter,
@@ -9,27 +9,22 @@ import {
   confidenceOf,
   createClipFromLabel,
   getLabel,
-  hitColumns,
   LABEL_TYPE_CONFIG,
-  labelSearchOptions,
-  listLabels,
+  labelHitCompare,
+  labelListSpec,
+  labelMergeSources,
+  labelPerTypeClauses,
+  labelSearchSpec,
   parseLabelType,
-  parseLabelTypes,
-  searchLabels,
+  resolveLabelTypes,
   type ClipEditListFilter,
   type LabelHit,
 } from '../lib/label.js';
 import { resolveEntity, tagLabel } from '../lib/entity.js';
-import {
-  applyOptions,
-  parseSeconds,
-  pickOptions,
-  withJsonOption,
-} from '../lib/options.js';
+import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
+import { runMergedList, withListOptions } from '../lib/list/index.js';
 import {
   formatDuration,
-  info,
-  printList,
   printRecord,
   success,
   truncate,
@@ -54,78 +49,54 @@ export function registerLabelCommands(program: Command): void {
       'Search and browse media labels (speech, objects, faces, …) and create clips from them'
     );
 
-  const search = label
-    .command('search [query]')
-    .alias('find')
-    .description(
-      'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
-    )
-    .option(
-      '--entity <nameOrId>',
-      'only labels attributed to this entity (tagged track or cluster)'
-    );
-  applyOptions(search, labelSearchOptions);
-  withJsonOption(search).action(async (query: string | undefined, opts) => {
+  withListOptions(
+    label
+      .command('search [query]')
+      .alias('find')
+      .description(
+        'Search workspace labels by text (transcript/entity), exact id, or attributed entity'
+      ),
+    labelSearchSpec,
+    { merged: true }
+  ).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
-      const entityId = opts.entity
-        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
+      // The positional query is the --search filter, so both spellings
+      // compose with the other flags identically.
+      const merged = { ...opts, search: opts.search ?? query };
+      const entityId = merged.entity
+        ? (await resolveEntity(pb, workspaceId, merged.entity)).id
         : undefined;
-      const { hits, totalItems } = await searchLabels(pb, {
-        workspaceId,
-        query,
-        entityId,
-        ...pickOptions(opts, labelSearchOptions),
-      });
-      printList(hits, hitColumns(true), {
-        json: opts.json,
-        totalItems,
-        hint: 'vw label show <type> <id> shows one record, vw label clip <type> <id> creates a clip',
+      const types = resolveLabelTypes(merged);
+
+      await runMergedList({
+        spec: labelSearchSpec,
+        opts: merged,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved) => labelHitCompare(resolved.sort),
+        narrowWith: '-t <type>, -m <mediaId>',
+        sources: (resolved) =>
+          labelMergeSources(pb, {
+            types,
+            baseFilter: resolved.filter,
+            sort: resolved.sort,
+            perType: labelPerTypeClauses(pb, { ...merged, entityId }),
+            expand: ['MediaRef.UploadRef'],
+          }),
       });
     } catch (err) {
       handleError(err);
     }
   });
 
-  const list = label
-    .command('list')
-    .alias('ls')
-    .description('List labels for one media')
-    .option('-m, --media <id>', 'source media id')
-    .option(
-      '-t, --types <types>',
-      'comma-separated label types (default: all)',
-      parseLabelTypes
-    )
-    .option(
-      '--entity <nameOrId>',
-      'only labels attributed to this entity (tagged track or cluster)'
-    )
-    .option(
-      '-n, --limit <count>',
-      'max results per label type (default: 100)',
-      (v) => parseInt(v, 10)
-    )
-    .option(
-      '--from <seconds>',
-      'only labels overlapping at/after this source time',
-      parseSeconds
-    )
-    .option(
-      '--to <seconds>',
-      'only labels overlapping before this source time',
-      parseSeconds
-    )
-    .option(
-      '--clip <mediaClipId>',
-      "filter to a MediaClip's played edit list (labels inside cut gaps hidden)"
-    )
-    .option(
-      '--timeline-clip <id>',
-      "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)"
-    );
-  withJsonOption(list).action(async (opts) => {
+  withListOptions(
+    label.command('list').alias('ls').description('List labels for one media'),
+    labelListSpec,
+    { merged: true }
+  ).action(async (opts) => {
     try {
       const pb = await requireClient();
 
@@ -139,76 +110,64 @@ export function registerLabelCommands(program: Command): void {
         );
       }
 
+      // A clip scope resolves to exactly what the spec's own flags express: the
+      // clip's media, and its outer span as the coarse window. Only the cut
+      // gaps inside that span need the in-memory refinement below.
       let editList: ClipEditListFilter | undefined;
-      let mediaId = opts.media as string | undefined;
-      let window: { start?: number; end?: number } | undefined;
+      const scope: Record<string, unknown> = {};
       if (clipScoped) {
         editList = await clipEditListFilter(pb, {
           clip: opts.clip,
           timelineClip: opts.timelineClip,
         });
-        if (mediaId && mediaId !== editList.mediaId) {
+        if (opts.media && opts.media !== editList.mediaId) {
           throw new Error(
-            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${mediaId} — drop -m.`
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${opts.media} — drop -m.`
           );
         }
-        mediaId = editList.mediaId;
-        window = {
-          start: Math.min(...editList.segments.map((s) => s.start)),
-          end: Math.max(...editList.segments.map((s) => s.end)),
-        };
-      } else if (opts.from !== undefined || opts.to !== undefined) {
-        window = { start: opts.from, end: opts.to };
+        scope.media = editList.mediaId;
+        scope.from = Math.min(...editList.segments.map((s) => s.start));
+        scope.to = Math.max(...editList.segments.map((s) => s.end));
       }
+      const merged = { ...opts, ...scope };
 
       const workspaceId = await resolveWorkspaceId(pb);
-      if (!mediaId) {
-        mediaId = (await pickMedia(pb, workspaceId)).id;
-      }
-      const entityId = opts.entity
-        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
+      const entityId = merged.entity
+        ? (await resolveEntity(pb, workspaceId, merged.entity)).id
         : undefined;
+      const types = resolveLabelTypes(merged);
 
-      const { hits, totalItems } = await listLabels(pb, {
-        mediaId,
-        types: opts.types,
-        entityId,
-        limit: opts.limit,
-        ...(window ? { window } : {}),
-      });
-
-      // Edit-list scope means "what plays": drop gap-only labels in memory
-      // (the PB window is the outer span — the correct coarse filter).
-      let shown = hits;
-      let hidden = 0;
-      if (editList) {
-        shown = hits.filter((h) =>
-          overlapsSegments(h.record.start, h.record.end, editList!.segments)
-        );
-        hidden = hits.length - shown.length;
-      }
-
-      if (opts.json && editList) {
-        printRecord(
-          {
-            items: shown,
-            totalItems,
-            editList: { segments: editList.segments, source: editList.source },
+      const segments = editList?.segments;
+      await runMergedList({
+        spec: labelListSpec,
+        opts: merged,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved) => labelHitCompare(resolved.sort),
+        narrowWith: '-t <type>',
+        // Edit-list scope means "what plays": the server window is the outer
+        // span, so labels landing entirely in a cut gap can only go here.
+        refine: segments && {
+          filter: (hits) =>
+            hits.filter((h) =>
+              overlapsSegments(h.record.start, h.record.end, segments)
+            ),
+          extras: (hidden) => ({
+            editList: { segments, source: editList!.source },
             hiddenInCutGaps: hidden,
-          },
-          [],
-          true
-        );
-        return;
-      }
-      printList(shown, hitColumns(false), {
-        json: opts.json,
-        totalItems,
-        hint: 'vw label show <type> <id> shows one record',
+          }),
+          note: (hidden) =>
+            `(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`,
+        },
+        sources: (resolved) =>
+          labelMergeSources(pb, {
+            types,
+            baseFilter: resolved.filter,
+            sort: resolved.sort,
+            perType: labelPerTypeClauses(pb, { ...merged, entityId }),
+          }),
       });
-      if (!opts.json && hidden > 0) {
-        info(`(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`);
-      }
     } catch (err) {
       handleError(err);
     }

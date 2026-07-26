@@ -3,6 +3,7 @@ import {
   ClipType,
   MediaClipMutator,
   MediaMutator,
+  MediaType,
   TimelineClipMutator,
   clampSegmentsToWindow,
   finalizeSegments,
@@ -21,8 +22,19 @@ import {
   type MediaWithUpload,
 } from './select.js';
 import { isRootDirRef, resolveDirectory } from './directory.js';
+import {
+  compositeMarker,
+  mediaClipTimes,
+  type ClipTimes,
+} from './clip-times.js';
 import type { OptionGroupOf } from './options.js';
 import { formatDuration, type Column } from './output.js';
+import {
+  MEDIA_CLIP_SORTS,
+  MEDIA_SORTS,
+  listFilter,
+  type ListSpec,
+} from './list/index.js';
 
 /** MediaClip expanded with its source media (and that media's upload). */
 export type MediaClipWithMedia = MediaClip & {
@@ -59,40 +71,156 @@ export function mediaColumns(
   return columns;
 }
 
+/** Validate a media type string against the MediaType enum. */
+export function parseMediaType(value: string): MediaType {
+  const types = Object.values(MediaType) as string[];
+  if (!types.includes(value)) {
+    throw new Error(
+      `Invalid media type "${value}". Valid types: ${types.join(', ')}`
+    );
+  }
+  return value as MediaType;
+}
+
 /**
- * Search a workspace's media by its label, description, or source upload
- * filename, optionally narrowed to a single directory (`directoryId: null`
- * means unfiled media only — no directory set). Mirrors the webapp's
- * metadata search: the free-text `query` is bound via `pb.filter` to avoid
- * filter-string injection.
+ * Narrow a list to one directory, or to unfiled media at the workspace root.
+ * Shared by `media list` and `media clip list` (whose clips follow their
+ * parent media's directory), so the `/`-means-root convention is declared
+ * once.
  */
-export async function searchMedia(
+const directoryFilter = (field: string) =>
+  listFilter({
+    flags: '-d, --directory <dir>',
+    description:
+      'only this directory (name or id; "/" = unfiled media at the workspace root)',
+    clause: async (ref, { pb, workspaceId }) =>
+      isRootDirRef(ref)
+        ? { expr: `${field} = ""` }
+        : {
+            expr: `${field} = {:dir}`,
+            params: { dir: (await resolveDirectory(pb, workspaceId!, ref)).id },
+          },
+  });
+
+/**
+ * Free-text search over a media's editor-facing metadata and its source
+ * filename — the same fields the webapp's media search matches
+ * (`use-media-list.ts`), bound through `pb.filter` so a query can never
+ * inject filter syntax.
+ */
+const mediaSearchFilter = listFilter({
+  flags: '--search <text>',
+  description: "match the media's label, description, or source filename",
+  clause: (q) => ({
+    expr: '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})',
+    params: { q },
+  }),
+});
+
+/**
+ * `media list` / `media search`. Both are the same query — `search` is one
+ * more filter — so `vw media search foo` is exactly
+ * `vw media list --search foo`.
+ */
+export const mediaListSpec: ListSpec<MediaWithUpload> = {
+  command: 'media list',
+  sorts: MEDIA_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    directory: directoryFilter('DirectoryRef'),
+    type: listFilter({
+      flags: '--type <mediaType>',
+      description: `only this media type (${Object.values(MediaType).join(', ')})`,
+      parse: parseMediaType,
+      clause: (type) => ({ expr: 'mediaType = {:t}', params: { t: type } }),
+    }),
+    search: mediaSearchFilter,
+  },
+  columns: (rows) => mediaColumns(rows),
+  hint: '`vw media show <id>` for one record with its entity tags',
+};
+
+/** Fetch one page of media for `mediaListSpec`. */
+export function fetchMediaPage(
   pb: TypedPocketBase,
-  workspaceId: string,
-  query: string,
-  perPage = 50,
-  directoryId?: string | null
-): Promise<ListResult<Media>> {
-  const search =
-    '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})';
-  const filter =
-    directoryId === null
-      ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = "" && ${search}`, {
-          ws: workspaceId,
-          q: query,
-        })
-      : directoryId
-        ? pb.filter(
-            `WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`,
-            { ws: workspaceId, dir: directoryId, q: query }
-          )
-        : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
-            ws: workspaceId,
-            q: query,
-          });
-  return new MediaMutator(pb).getList(1, perPage, filter, undefined, [
-    'DirectoryRef',
-  ]);
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<MediaWithUpload>> {
+  return new MediaMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort,
+    ['DirectoryRef', 'UploadRef']
+  ) as Promise<ListResult<MediaWithUpload>>;
+}
+
+/** A listed clip with its derived time semantics, for the ◆N marker. */
+export type MediaClipRow = MediaClipWithMedia & { times: ClipTimes };
+
+/** `media clip list` — clips are addressed per media or across the workspace. */
+export const mediaClipListSpec: ListSpec<MediaClipWithMedia, MediaClipRow> = {
+  command: 'media clip list',
+  sorts: MEDIA_CLIP_SORTS,
+  // Pre-pagination page size — see mediaListSpec.
+  defaultLimit: 200,
+  filters: {
+    media: listFilter({
+      flags: '-m, --media <id>',
+      description: 'only clips of this source media',
+      clause: (id) => ({ expr: 'MediaRef = {:m}', params: { m: id } }),
+    }),
+    // A clip has no directory of its own — it follows its parent media, so the
+    // filter reaches through the relation.
+    directory: directoryFilter('MediaRef.DirectoryRef'),
+    type: listFilter({
+      flags: '--type <type>',
+      description: `only this clip type (${Object.values(ClipType).join(', ')})`,
+      parse: parseClipType,
+      clause: (type) => ({ expr: 'type = {:t}', params: { t: type } }),
+    }),
+    search: listFilter({
+      flags: '--search <query>',
+      description: "match the clip's label, description, or source filename",
+      clause: (q) => ({
+        expr:
+          '(label ~ {:q} || description ~ {:q} || ' +
+          'MediaRef.UploadRef.name ~ {:q})',
+        params: { q },
+      }),
+    }),
+  },
+  toRows: (clips) => clips.map((c) => ({ ...c, times: mediaClipTimes(c) })),
+  columns: [
+    { header: 'ID', value: (c) => c.id },
+    { header: 'LABEL', value: (c) => c.label ?? '' },
+    { header: 'MEDIA', value: (c) => mediaClipMediaLabel(c) },
+    { header: 'TYPE', value: (c) => String(c.type) },
+    { header: 'START', value: (c) => `${c.start.toFixed(2)}s` },
+    { header: 'END', value: (c) => `${c.end.toFixed(2)}s` },
+    {
+      // Effective gap-skipping length; ` ◆N` marks an N-segment composite
+      // whose START–END span is larger than it plays.
+      header: 'DURATION',
+      value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`,
+    },
+  ],
+  hint: '`vw media clip segments <id>` shows a composite clip’s edit list',
+};
+
+/** Fetch one page of media clips for `mediaClipListSpec`. */
+export function fetchMediaClipPage(
+  pb: TypedPocketBase,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<MediaClipWithMedia>> {
+  return new MediaClipMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort,
+    ['MediaRef.UploadRef']
+  ) as Promise<ListResult<MediaClipWithMedia>>;
 }
 
 /** Validate a clip type string against the ClipType enum. */

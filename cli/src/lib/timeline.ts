@@ -1,4 +1,5 @@
 import { InvalidArgumentError } from 'commander';
+import type { ListResult } from 'pocketbase';
 import {
   CaptionMutator,
   MAX_TIMELINE_TRACKS,
@@ -51,6 +52,8 @@ import {
   parseUnitInterval,
   type OptionGroupOf,
 } from './options.js';
+import { formatDuration, truncate } from './output.js';
+import { TIMELINE_SORTS, listFilter, type ListSpec } from './list/index.js';
 
 /**
  * Timeline orchestration for the CLI, built directly on @project/shared
@@ -95,6 +98,52 @@ export function parseTrackNames(value: string): string[] {
     throw new InvalidArgumentError('expected comma-separated track names');
   }
   return names;
+}
+
+/** `timeline list` — the workspace's timelines. */
+export const timelineListSpec: ListSpec<Timeline> = {
+  command: 'timeline list',
+  sorts: TIMELINE_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    search: listFilter({
+      flags: '--search <text>',
+      description: "match the timeline's name, label, or description",
+      clause: (q) => ({
+        expr: '(name ~ {:q} || label ~ {:q} || description ~ {:q})',
+        params: { q },
+      }),
+    }),
+    orientation: listFilter({
+      flags: '--orientation <o>',
+      description: `only this orientation (${Object.values(TimelineOrientation).join(', ')})`,
+      parse: (raw) => parseOrientation(raw),
+      clause: (o) => ({ expr: 'orientation = {:o}', params: { o } }),
+    }),
+  },
+  columns: [
+    { header: 'ID', value: (t) => t.id },
+    { header: 'NAME', value: (t) => t.name },
+    { header: 'LABEL', value: (t) => truncate(t.label ?? '', 30) },
+    { header: 'DURATION', value: (t) => formatDuration(t.duration) },
+    { header: 'VERSION', value: (t) => String(t.version ?? 1) },
+  ],
+  hint: '`vw timeline show <id>` for tracks and clips',
+};
+
+/** Fetch one page of timelines for `timelineListSpec`. */
+export function fetchTimelinePage(
+  pb: TypedPocketBase,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<Timeline>> {
+  return new TimelineMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
 }
 
 export interface CreateTimelineOptions {

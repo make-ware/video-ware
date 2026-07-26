@@ -26,11 +26,17 @@ import {
 // so CLI callers keep importing them from this module.
 import { attributionExpands, labelAttributionFilter } from '@project/shared';
 export { attributionExpands, labelAttributionFilter };
-import { mediaLabel, type MediaWithUpload } from './select.js';
+import { mediaLabel, pickMedia, type MediaWithUpload } from './select.js';
 import { resolveTimelineEditList } from './timeline-clip.js';
 import type { EditListSource } from './clip-times.js';
-import type { OptionGroupOf } from './options.js';
+import { parseSeconds, type OptionGroupOf } from './options.js';
 import { truncate, type Column } from './output.js';
+import {
+  listFilter,
+  type ListSpec,
+  type MergeSource,
+  type SortRegistry,
+} from './list/index.js';
 
 /**
  * A label row, possibly expanded with its media (and that media's upload)
@@ -280,6 +286,395 @@ export const hitColumns = (withMedia: boolean): Column<LabelHit>[] => [
   },
 ];
 
+/**
+ * Sorting a label fan-out is not one PocketBase sort string: confidence lives
+ * under a different field name in every label collection
+ * (`LABEL_TYPE_META[type].confidenceField`). So the label specs' `pbSort`
+ * carries a *logical* key, which `labelPbSort` turns into a per-collection
+ * sort and `labelHitCompare` turns into the matching merge comparator. The two
+ * must always agree — a source sorted differently from the merge would make
+ * its "top K" not the top K, and the merge-slice would silently lose rows.
+ */
+export const LABEL_SORT_CONFIDENCE = 'confidence';
+export const LABEL_SORT_START = 'start';
+export const LABEL_SORT_MEDIA = 'media';
+
+/** `label search` — best matches first. */
+export const LABEL_SEARCH_SORTS: SortRegistry = [
+  {
+    value: 'confidence',
+    description: 'most confident first',
+    pbSort: LABEL_SORT_CONFIDENCE,
+  },
+  { value: 'start', description: 'chronological', pbSort: LABEL_SORT_START },
+  {
+    value: 'media',
+    description: 'grouped by media, then chronological',
+    pbSort: LABEL_SORT_MEDIA,
+  },
+];
+
+/** `label list` / `entity labels` — chronological reading order first. */
+export const LABEL_LIST_SORTS: SortRegistry = [
+  { value: 'start', description: 'chronological', pbSort: LABEL_SORT_START },
+  {
+    value: 'media',
+    description: 'grouped by media, then chronological',
+    pbSort: LABEL_SORT_MEDIA,
+  },
+  {
+    value: 'confidence',
+    description: 'most confident first',
+    pbSort: LABEL_SORT_CONFIDENCE,
+  },
+];
+
+/**
+ * One collection's sort string for a logical label sort key.
+ *
+ * Each string ends in `id`, mirroring `labelHitCompare`'s id tiebreak: the
+ * per-source query must itself be a total order, because `fetchMergedPage`
+ * re-reads each source's top K on every page request — two rows tied on the
+ * primary keys could otherwise swap sides of that cutoff between requests,
+ * duplicating or dropping a row before the client-side comparator ever runs.
+ */
+export function labelPbSort(type: LabelType, logical: string): string {
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return `-${LABEL_TYPE_META[type].confidenceField},id`;
+    case LABEL_SORT_MEDIA:
+      return 'MediaRef,start,id';
+    default:
+      return 'start,MediaRef,id';
+  }
+}
+
+/**
+ * The merge comparator matching `labelPbSort`. Every ordering ends in an id
+ * tiebreak so distinct rows never compare equal: without a total order a
+ * merged page boundary is ambiguous and a row can land on two pages or none.
+ */
+export function labelHitCompare(
+  logical: string
+): (a: LabelHit, b: LabelHit) => number {
+  const byId = (a: LabelHit, b: LabelHit) =>
+    a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0;
+  const byMedia = (a: LabelHit, b: LabelHit) =>
+    a.record.MediaRef.localeCompare(b.record.MediaRef);
+  const byStart = (a: LabelHit, b: LabelHit) => a.record.start - b.record.start;
+
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return (a, b) => confidenceOf(b) - confidenceOf(a) || byId(a, b);
+    case LABEL_SORT_MEDIA:
+      return (a, b) => byMedia(a, b) || byStart(a, b) || byId(a, b);
+    default:
+      return (a, b) => byStart(a, b) || byMedia(a, b) || byId(a, b);
+  }
+}
+
+/** AND a set of clauses, parenthesising each when more than one applies. */
+function andClauses(clauses: readonly string[]): string {
+  const parts = clauses.filter((c) => c.length > 0);
+  if (parts.length <= 1) return parts[0] ?? '';
+  return parts.map((c) => `(${c})`).join(' && ');
+}
+
+export interface LabelSourceOptions {
+  /** Collections to query — one merge source each. */
+  types: readonly LabelType[];
+  /** The type-agnostic, already-bound filter from the resolved query. */
+  baseFilter: string;
+  /** Logical sort key (the resolved query's `sort`). */
+  sort: string;
+  /**
+   * Clauses that can only be written per collection: the free-text query
+   * (each type searches different fields), entity attribution, exact-id
+   * flags, and minimum confidence.
+   */
+  perType?: (type: LabelType) => string[];
+  /** Expands to request in addition to each type's attribution expands. */
+  expand?: readonly string[];
+}
+
+/**
+ * One merge source per label type, each yielding `LabelHit`s already tagged
+ * with their type and attributed entity. `runMergedList` reads the requested
+ * depth from every source and slices the merge (see list/paginate.ts).
+ */
+export function labelMergeSources(
+  pb: TypedPocketBase,
+  opts: LabelSourceOptions
+): MergeSource<LabelHit>[] {
+  return opts.types.map((type) => ({
+    key: type,
+    fetchPage: async ({ page, perPage }) => {
+      const result = await labelMutator(pb, type).getList(
+        page,
+        perPage,
+        andClauses([opts.baseFilter, ...(opts.perType?.(type) ?? [])]),
+        labelPbSort(type, opts.sort),
+        [...(opts.expand ?? []), ...attributionExpands(type)]
+      );
+      return {
+        ...result,
+        items: result.items.map((record) => toLabelHit(type, record)),
+      };
+    },
+  }));
+}
+
+/** The `--min-confidence` clause for one collection. */
+export function minConfidenceClause(
+  pb: TypedPocketBase,
+  type: LabelType,
+  min: number
+): string {
+  return pb.filter(`${LABEL_TYPE_META[type].confidenceField} >= {:min}`, {
+    min,
+  });
+}
+
+/** The free-text clause for one collection (its own searchable fields). */
+export function queryFieldsClause(
+  pb: TypedPocketBase,
+  type: LabelType,
+  query: string
+): string {
+  const fields = LABEL_TYPE_CONFIG[type].queryFields;
+  return pb.filter(fields.map((f) => `${f} ~ {:q}`).join(' || '), { q: query });
+}
+
+/** The exact-id clause for one collection, when an id flag targets it. */
+export function idFlagClauses(
+  pb: TypedPocketBase,
+  type: LabelType,
+  opts: Record<string, unknown>
+): string[] {
+  return (Object.keys(ID_FLAGS) as IdFlagKey[])
+    .filter((key) => opts[key] !== undefined && ID_FLAGS[key].type === type)
+    .map((key) =>
+      pb.filter(`${ID_FLAGS[key].field} = {:v}`, {
+        v: String(opts[key]),
+      })
+    );
+}
+
+/**
+ * Which collections a label query should span: an exact-id flag pins the type
+ * it belongs to, otherwise `--types` (or every type). A `--types` that
+ * disagrees with an id flag is a mistake worth reporting rather than silently
+ * resolving one way.
+ */
+export function resolveLabelTypes(opts: {
+  types?: readonly LabelType[];
+  faceId?: unknown;
+  personId?: unknown;
+  trackId?: unknown;
+}): LabelType[] {
+  const idFlags = (Object.keys(ID_FLAGS) as IdFlagKey[]).filter(
+    (key) => opts[key] !== undefined
+  );
+  const implied = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
+
+  if (opts.types && implied.length > 0) {
+    const sameSet =
+      opts.types.length === implied.length &&
+      implied.every((t) => opts.types!.includes(t));
+    if (!sameSet) {
+      throw new Error(
+        `--types ${opts.types.join(',')} conflicts with ${idFlags
+          .map((key) => ID_FLAGS[key].flag)
+          .join('/')} (implies --types ${implied.join(',')})`
+      );
+    }
+  }
+  if (implied.length > 0) return implied;
+  return [...(opts.types ?? Object.values(LabelType))];
+}
+
+/**
+ * The per-collection clauses for a label fan-out: everything whose field name
+ * or shape varies by label type. The type-agnostic parts (workspace scope,
+ * `MediaRef`) come from the spec's own filters instead.
+ */
+export function labelPerTypeClauses(
+  pb: TypedPocketBase,
+  opts: {
+    /** Free-text query, matched against each type's own search fields. */
+    search?: string;
+    minConfidence?: number;
+    /** Resolved Entity record id (already looked up from a name). */
+    entityId?: string;
+    faceId?: string;
+    personId?: string;
+    trackId?: string;
+  }
+): (type: LabelType) => string[] {
+  return (type) => [
+    ...(opts.search ? [queryFieldsClause(pb, type, opts.search)] : []),
+    ...idFlagClauses(pb, type, opts as Record<string, unknown>),
+    ...(opts.minConfidence !== undefined
+      ? [minConfidenceClause(pb, type, opts.minConfidence)]
+      : []),
+    // A record id from resolveEntity, and the shared attribution filters are
+    // string templates rather than bound params — safe to embed directly.
+    ...(opts.entityId ? [labelAttributionFilter(type, opts.entityId)] : []),
+  ];
+}
+
+/** The exact-id flags, shared by the label list specs. */
+const labelIdFilters = {
+  faceId: listFilter({
+    flags: '--face-id <id>',
+    description: 'exact faceId match (implies --types face)',
+    clause: () => null,
+  }),
+  personId: listFilter({
+    flags: '--person-id <id>',
+    description: 'exact personId match (implies --types person)',
+    clause: () => null,
+  }),
+  trackId: listFilter({
+    flags: '--track-id <id>',
+    description: 'exact object track id match (implies --types object)',
+    clause: () => null,
+  }),
+};
+
+/**
+ * `label search` — across every label collection in the workspace.
+ *
+ * Most of these filters declare `clause: () => null`: their real clause can
+ * only be written per collection (see `labelPerTypeClauses`), and `--types`
+ * selects which collections to query at all rather than filtering rows. They
+ * still belong in the spec, which owns flag registration, `--help`, the
+ * requirement below, and the footer's "narrow instead" list.
+ *
+ * A bare `label search` would scan every label in the workspace, so it
+ * requires something to search for.
+ */
+export const labelSearchSpec: ListSpec<LabelHit> = {
+  command: 'label search',
+  sorts: LABEL_SEARCH_SORTS,
+  requireOneOf: ['search', 'entity', 'faceId', 'personId', 'trackId'],
+  filters: {
+    search: listFilter({
+      flags: '--search <text>',
+      description:
+        "free-text match against each label type's searchable fields " +
+        '(transcript, entity, text, …)',
+      clause: () => null,
+    }),
+    types: listFilter({
+      flags: '-t, --types <types>',
+      description: `comma-separated label types (${Object.values(LabelType).join(', ')}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null,
+    }),
+    media: listFilter({
+      flags: '-m, --media <id>',
+      description: 'restrict results to one media',
+      clause: (id) => ({ expr: 'MediaRef = {:m}', params: { m: id } }),
+    }),
+    entity: listFilter({
+      flags: '--entity <nameOrId>',
+      description:
+        'only labels attributed to this entity (tagged track or cluster)',
+      clause: () => null,
+    }),
+    ...labelIdFilters,
+    minConfidence: listFilter({
+      flags: '--min-confidence <n>',
+      description: 'minimum confidence (0..1)',
+      parse: parseFloat,
+      clause: () => null,
+    }),
+  },
+  columns: hitColumns(true),
+  hint: '`vw label show <type> <id>` shows one record, `vw label clip <type> <id>` creates a clip',
+};
+
+/**
+ * `label list` — one media's labels. Requires `-m` rather than defaulting to a
+ * workspace-wide scan; on a TTY it offers the media picker instead.
+ *
+ * `--clip`/`--timeline-clip` scope the list to what a clip actually plays.
+ * Those two can't be expressed as a clause: the clip supplies the media, and
+ * "overlaps a played segment" is a predicate over its whole edit list. The
+ * command resolves the clip up front, feeds `media` and the outer span
+ * (`--from`/`--to`) back through this spec, and hides the gap-only rows with a
+ * `ListRefinement` — so the flags still live here, where `--help` and the
+ * footer's "narrow instead" list can see them.
+ */
+export const labelListSpec: ListSpec<LabelHit> = {
+  command: 'label list',
+  workspaceScoped: false,
+  sorts: LABEL_LIST_SORTS,
+  required: ['media'],
+  filters: {
+    media: listFilter({
+      flags: '-m, --media <id>',
+      description: 'the media whose labels to list',
+      clause: (id) => ({ expr: 'MediaRef = {:m}', params: { m: id } }),
+      pick: async ({ pb, workspaceId }) =>
+        (await pickMedia(pb, workspaceId!)).id,
+    }),
+    clip: listFilter({
+      flags: '--clip <mediaClipId>',
+      description:
+        "filter to a MediaClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null,
+    }),
+    timelineClip: listFilter({
+      flags: '--timeline-clip <id>',
+      description:
+        "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null,
+    }),
+    from: listFilter({
+      flags: '--from <seconds>',
+      description: 'only labels overlapping at/after this source time',
+      parse: parseSeconds,
+      clause: (start) => ({
+        expr: 'end > {:wStart}',
+        params: { wStart: start },
+      }),
+    }),
+    to: listFilter({
+      flags: '--to <seconds>',
+      description: 'only labels overlapping before this source time',
+      parse: parseSeconds,
+      clause: (end) => ({ expr: 'start < {:wEnd}', params: { wEnd: end } }),
+    }),
+    types: listFilter({
+      flags: '-t, --types <types>',
+      description: `comma-separated label types (${Object.values(LabelType).join(', ')}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null,
+    }),
+    entity: listFilter({
+      flags: '--entity <nameOrId>',
+      description:
+        'only labels attributed to this entity (tagged track or cluster)',
+      clause: () => null,
+    }),
+    search: listFilter({
+      flags: '--search <text>',
+      description: "free-text match against each label type's fields",
+      clause: () => null,
+    }),
+    minConfidence: listFilter({
+      flags: '--min-confidence <n>',
+      description: 'minimum confidence (0..1)',
+      parse: parseFloat,
+      clause: () => null,
+    }),
+  },
+  columns: hitColumns(false),
+  hint: '`vw label show <type> <id>` shows one record',
+};
+
 export interface SearchLabelsOptions {
   workspaceId: string;
   /** Free-text query matched against each type's search fields. */
@@ -336,103 +731,6 @@ export const labelSearchOptions = {
     parse: (v: string) => parseInt(v, 10),
   },
 } satisfies OptionGroupOf<SearchLabelsOptions>;
-
-/**
- * Search a workspace's label collections. Fans out one bound-filter query per
- * label type (field names come from LABEL_TYPE_CONFIG, values are bound via
- * pb.filter), then merges hits best-confidence-first.
- */
-export async function searchLabels(
-  pb: TypedPocketBase,
-  opts: SearchLabelsOptions
-): Promise<{ hits: LabelHit[]; totalItems: number }> {
-  const idFlags = (Object.keys(ID_FLAGS) as IdFlagKey[]).filter(
-    (key) => opts[key] !== undefined
-  );
-
-  if (!opts.query && idFlags.length === 0 && !opts.entityId) {
-    throw new Error(
-      'Provide a search query, --entity, or an exact-id flag ' +
-        '(--face-id, --person-id, --track-id)'
-    );
-  }
-
-  const impliedTypes = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
-  if (opts.types && impliedTypes.length > 0) {
-    const sameSet =
-      opts.types.length === impliedTypes.length &&
-      impliedTypes.every((t) => opts.types!.includes(t));
-    if (!sameSet) {
-      throw new Error(
-        `--types ${opts.types.join(',')} conflicts with ${idFlags
-          .map((key) => ID_FLAGS[key].flag)
-          .join('/')} (implies --types ${impliedTypes.join(',')})`
-      );
-    }
-  }
-  const types =
-    impliedTypes.length > 0
-      ? impliedTypes
-      : (opts.types ?? Object.values(LabelType));
-
-  const limit = opts.limit ?? 20;
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const config = LABEL_TYPE_CONFIG[type];
-      const meta = LABEL_TYPE_META[type];
-      const clauses: string[] = ['WorkspaceRef = {:ws}'];
-      const params: Record<string, string | number> = {
-        ws: opts.workspaceId,
-      };
-
-      if (opts.media) {
-        clauses.push('MediaRef = {:media}');
-        params.media = opts.media;
-      }
-      if (opts.query) {
-        clauses.push(
-          `(${config.queryFields.map((f) => `${f} ~ {:q}`).join(' || ')})`
-        );
-        params.q = opts.query;
-      }
-      for (const key of idFlags) {
-        if (ID_FLAGS[key].type === type) {
-          clauses.push(`${ID_FLAGS[key].field} = {:${key}}`);
-          params[key] = opts[key]!;
-        }
-      }
-      if (opts.minConfidence !== undefined) {
-        clauses.push(`${meta.confidenceField} >= {:minConfidence}`);
-        params.minConfidence = opts.minConfidence;
-      }
-      if (opts.entityId) {
-        // Record-id from resolveEntity, so safe to embed directly (the
-        // shared attribution filters are string templates, not bound).
-        clauses.push(labelAttributionFilter(type, opts.entityId));
-      }
-
-      const filter = pb.filter(clauses.join(' && '), params);
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        filter,
-        `-${meta.confidenceField}`,
-        ['MediaRef.UploadRef', ...attributionExpands(type)]
-      );
-      return { type, result };
-    })
-  );
-
-  const hits: LabelHit[] = results.flatMap(({ type, result }) =>
-    result.items.map((record) => toLabelHit(type, record))
-  );
-  hits.sort((a, b) => confidenceOf(b) - confidenceOf(a));
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
 
 export interface ListLabelsOptions {
   mediaId: string;

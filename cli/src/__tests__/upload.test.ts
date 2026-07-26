@@ -4,20 +4,24 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MediaType, UploadStatus, type Upload } from '@project/shared';
 import {
+  attachUploadMedia,
   chunkPlan,
   describeNetworkError,
+  fetchUploadPage,
   formatBytes,
-  listUploads,
   mediaByUpload,
+  mediaByUploadIds,
   mediaTypeForFile,
   parseUploadStatus,
   replaceUploadFile,
   resolveAppUrl,
   resolveReplaceTarget,
   uploadFile,
+  uploadListSpec,
   validateReplacementFile,
   validateUploadFile,
 } from '../lib/upload.js';
+import { resolveListQuery } from '../lib/list/index.js';
 import { fakePb, listResult } from './fake-pb.js';
 
 // The real module pins undici agents to HTTP/1.1; in tests, chunk PUTs
@@ -722,35 +726,124 @@ describe('parseUploadStatus', () => {
   });
 });
 
-describe('listUploads', () => {
-  it('lists a workspace newest-first with no status filter', async () => {
+describe('uploadListSpec', () => {
+  async function queryFor(opts: Record<string, unknown>) {
+    return resolveListQuery(uploadListSpec, opts, {
+      pb: fakePb({}),
+      workspaceId: 'ws1',
+    });
+  }
+
+  it('scopes to the workspace, newest first, at the pre-pagination 200 rows', async () => {
+    const query = await queryFor({});
+    expect(query.filter).toBe('WorkspaceRef = ws1');
+    expect(query.sort).toBe('-created');
+    expect(query.perPage).toBe(200);
+  });
+
+  it('narrows to a status', async () => {
+    const query = await queryFor({ status: UploadStatus.FAILED });
+    expect(query.filter).toBe('(WorkspaceRef = ws1) && (status = failed)');
+  });
+
+  it('rejects an unknown status through the filter parser', async () => {
+    await expect(queryFor({ status: 'done' })).rejects.toThrow(
+      /invalid upload status/i
+    );
+  });
+
+  it('searches the uploaded file name', async () => {
+    const query = await queryFor({ search: 'beach' });
+    expect(query.filter).toBe('(WorkspaceRef = ws1) && (name ~ beach)');
+  });
+
+  it('sorts by size and status', async () => {
+    expect((await queryFor({ sort: 'size' })).sort).toBe('-size,-created');
+    expect((await queryFor({ sort: 'status' })).sort).toBe('status,-created');
+  });
+});
+
+describe('fetchUploadPage', () => {
+  it('passes the resolved page, filter, and sort to the mutator', async () => {
     const getList = vi.fn(
-      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
-        listResult([{ id: 'up1', name: 'a.mp4' }])
+      async (
+        _page: number,
+        _perPage: number,
+        _opts: { filter?: string; sort?: string }
+      ) => listResult([{ id: 'up1', name: 'a.mp4' }])
     );
     const pb = fakePb({ Uploads: { getList } });
 
-    const result = await listUploads(pb, 'ws1');
+    const result = await fetchUploadPage(pb, {
+      page: 2,
+      perPage: 50,
+      filter: 'WorkspaceRef = ws1',
+      sort: '-size,-created',
+    });
 
     expect(result.items).toEqual([{ id: 'up1', name: 'a.mp4' }]);
     const [page, perPage, options] = getList.mock.calls[0];
-    expect(page).toBe(1);
-    expect(perPage).toBe(200);
+    expect(page).toBe(2);
+    expect(perPage).toBe(50);
     expect(options.filter).toBe('WorkspaceRef = ws1');
+    expect(options.sort).toBe('-size,-created');
+  });
+});
+
+describe('attachUploadMedia', () => {
+  it('attaches the media id ingested from each upload', async () => {
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([
+          { id: 'm1', UploadRef: 'up1' },
+          { id: 'm2', UploadRef: 'up2' },
+          { id: 'm3' }, // no source upload — skipped
+        ])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    const rows = await attachUploadMedia(pb, [
+      { id: 'up1', name: 'a.mp4' },
+      { id: 'up2', name: 'b.mp4' },
+      { id: 'up3', name: 'c.mp4' },
+    ] as never);
+
+    expect(rows.map((r) => r.mediaId)).toEqual(['m1', 'm2', undefined]);
+    // Queried by the page's upload ids, not workspace-wide, so a workspace
+    // with more media than one page cannot read as "not yet ingested".
+    expect(getList.mock.calls[0][2].filter).toBe(
+      'UploadRef = up1 || UploadRef = up2 || UploadRef = up3'
+    );
   });
 
-  it('narrows to a status and honours the limit', async () => {
+  it('makes no query for an empty page', async () => {
+    const getList = vi.fn();
+    const pb = fakePb({ Media: { getList } });
+    expect(await attachUploadMedia(pb, [])).toEqual([]);
+    expect(getList).not.toHaveBeenCalled();
+  });
+});
+
+describe('mediaByUploadIds', () => {
+  it('chunks the id filter so a 500-row page stays proxy-safe', async () => {
+    // A single `UploadRef = ... || ...` filter over hundreds of ids would
+    // outgrow the query-string limits of proxies in front of PocketBase.
     const getList = vi.fn(
       async (_page: number, _perPage: number, _opts: { filter?: string }) =>
         listResult([])
     );
-    const pb = fakePb({ Uploads: { getList } });
+    const pb = fakePb({ Media: { getList } });
 
-    await listUploads(pb, 'ws1', { status: UploadStatus.FAILED, limit: 5 });
+    await mediaByUploadIds(
+      pb,
+      Array.from({ length: 250 }, (_, i) => `up${i}`)
+    );
 
-    const [, perPage, options] = getList.mock.calls[0];
-    expect(perPage).toBe(5);
-    expect(options.filter).toBe('WorkspaceRef = ws1 && status = failed');
+    expect(getList).toHaveBeenCalledTimes(3); // 100 + 100 + 50
+    const clauseCounts = getList.mock.calls.map(
+      (call) => call[2].filter!.split(' || ').length
+    );
+    expect(clauseCounts).toEqual([100, 100, 50]);
   });
 });
 
@@ -769,6 +862,23 @@ describe('mediaByUpload', () => {
 
     expect(map.get('up1')?.id).toBe('m1');
     expect(map.get('up2')?.id).toBe('m2');
+    expect(map.size).toBe(2);
+  });
+
+  it('walks every page so a large workspace maps completely', async () => {
+    const getList = vi.fn(async (page: number) =>
+      listResult(
+        page === 1
+          ? [{ id: 'm1', UploadRef: 'up1' }]
+          : [{ id: 'm2', UploadRef: 'up2' }],
+        { page, perPage: 1, totalItems: 2 }
+      )
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    const map = await mediaByUpload(pb, 'ws1', 1);
+
+    expect(getList).toHaveBeenCalledTimes(2);
     expect(map.size).toBe(2);
   });
 });

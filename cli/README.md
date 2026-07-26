@@ -58,7 +58,7 @@ vw upload create <file...>     # upload video/audio/image files as new media (de
 vw upload list                 # list uploads by original file name (--status filters; --json for scripts)
 vw upload replace <id> <file>  # overwrite the stored original of a media OR upload id with an updated source (--force)
 
-vw media list                  # list media (-d/--directory optionally filters; "/" = unfiled)
+vw media list                  # list media (--search/--type/-d narrow it; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
 vw media update <id>           # set label/description, move into a directory (--directory)
 vw media clip create           # create a media clip (sub-range of a media)
@@ -80,7 +80,7 @@ vw dir move <dir> <id...>      # file media into a directory ("/" or "none" unfi
 vw dir delete <dir>            # delete (refuses non-empty; --force unfiles the media first)
 
 vw label search [query]        # search workspace labels (speech, objects, faces, …)
-vw label list                  # list labels for one media (--from/--to window; --clip/--timeline-clip = only what the clip plays)
+vw label list -m <mediaId>     # list labels for one media (--from/--to window; --clip/--timeline-clip = only what the clip plays)
 vw label show <type> <id>      # show one label record (--clips lists linked clips)
 vw label clip <type> <id>      # create a media clip from a label
 
@@ -614,7 +614,7 @@ vw caption create --text "Custom" --style '{"fontSize":72,"bold":true,"outline":
                                                           # full style as JSON (flags override)
 
 vw caption list                                          # ad-hoc captions in the workspace
-vw caption list --all                                    # include media transcript captions
+vw caption list --include-transcripts                    # include media transcript captions
 vw caption show cap_xxx                                  # text, cues, and resolved style
 vw caption update cap_xxx --text "Chapter 1: Departure"  # updates every clip that uses it
 vw caption update cap_xxx --type title                   # re-base style on the title preset
@@ -662,18 +662,128 @@ MediaClip (type mapped from the label type) **and** writes a `MediaClipLabels`
 join row, so the clip back-references its source label even after the clip is
 edited. `vw label show <type> <labelId> --clips` walks that edge in reverse.
 
+## Lists: filtering, sorting, pagination
+
+Every `list`/`search` command shares one contract, so what you learn on one
+applies to all of them. The flags are registered from a single declarative spec
+per list (`cli/src/lib/list/`), which is also what generates the `--help` text
+and the footers below.
+
+| Flag | Meaning |
+| --- | --- |
+| `-n, --limit <count>` | rows per page (default **100**; 200 on `media list`, `media clip list`, `caption list`, `timeline list`, `upload list` — their pre-pagination page size; max 500) |
+| `--page <n>` | which page to show (default 1) |
+| `--sort <field>` | ordering; the valid names are listed in each command's `--help` |
+| `--all` | fetch every page instead of one |
+| `--json` | machine-readable output, nothing else on stdout |
+| `-w, --workspace <id>` | workspace override (on workspace-scoped lists) |
+
+A page ends with a footer saying where you are and how to reach the rest:
+
+```
+$ vw media list
+ID     NAME        TYPE   DURATION
+…
+(1–100 of 3412 — next page: vw media list --page 2)
+(narrow instead: --type <mediaType>, --search <text>, -d/--directory <dir>)
+(add --json for full records; `vw media show <id>` for one record)
+```
+
+On the last page the first line reads `end of results` (or `all results shown`
+when a single page held everything), so "is there more?" never requires
+guessing.
+
+**Narrowing beats paging.** The second line appears only while pages remain,
+and lists the filters you have *not* used. Applying one is nearly always better
+than walking pages — fewer requests, and a smaller result to read. That is also
+why a few lists require a filter up front rather than scanning a whole
+workspace:
+
+- `vw label search` needs a query, `--entity`, or an exact-id flag
+- `vw label list` needs `-m <mediaId>` (in a terminal it offers a picker
+  instead; off a TTY it fails with the flag name, so an agent gets an error
+  rather than a hanging prompt)
+- `vw timeline clips list` / `vw timeline track list` need `-t <timelineId>`
+
+Sort names match the webapp's sort menus (`recent`, `name`, `duration`,
+`media_time`), so `--sort recent` means the same thing in both.
+
+**Whole-object lists.** `vw timeline clips list` and `vw timeline track list`
+describe one timeline's structure, which callers read entire — a clip's
+computed timeline position depends on the clips before it. They therefore
+return everything by default; `-n`/`--page` window that view when you want a
+slice.
+
+**Merged lists.** `vw label search`, `vw label list`, and `vw entity labels`
+query all eight label collections and present the union, so one page costs
+`page × --limit` rows *from each*. Depth is capped (`--max-depth`, default 500
+rows per collection); past it the command says so and points at `-t <type>` — a
+single label type needs no merge and pages without a bound.
+
+### Migration notes (breaking changes)
+
+Scripts written against the pre-pagination CLI should check two flags whose
+meaning changed — both fail silently (fewer or different rows, no error):
+
+- **`caption list --all` no longer includes transcript captions.** `--all` now
+  means "fetch every page" on every list, like everywhere else in the CLI. The
+  old behavior — including media-attached transcript captions — moved to
+  `--include-transcripts`. A saved `vw caption list --all` now pages through
+  ad-hoc captions only; add `--include-transcripts` to get the old result set.
+- **`--limit` on merged label lists now caps the merged total, not each
+  type.** `label search`/`label list`/`entity labels` previously applied
+  `--limit` (default 20) *per label type*, so `--limit 50` could return up to
+  50 × 8 rows. It now bounds the merged page, so `--limit 50` returns at most
+  50 rows across all types; page or `--all` for the rest, or narrow with
+  `-t <type>`.
+
+Default page sizes are otherwise preserved: lists that previously read a fixed
+200 rows (`media list`, `media clip list`, `caption list`, `timeline list`,
+`upload list`) keep 200 as their default `--limit`.
+
 ## JSON output for agents
 
-List/search commands print a concise table by default and end with a
-`(… add --json for full records)` hint. Add `--json` to get a machine-readable
-document on stdout with nothing else:
+List/search commands print a concise table by default and end with the footer
+above. Add `--json` to get a machine-readable document on stdout with nothing
+else:
 
-- lists → `{ "items": [...], "totalItems": N }` — `label search`/`label list`
-  (and `entity labels`) items are `{ "type": "<labelType>", "record": {...} }`
-  wrappers, plus `attributedEntity: { id, name, kind, via }` when the label
-  is attributed to an entity; `timeline clips list` items carry the clip
-  plus computed `timelineStart`/`timelineEnd`, `labelHint`, `kind`, `layer`,
-  and the canonical `times` block; `media clip list` items carry `times` too
+- lists → the page plus its cursor:
+
+  ```json
+  {
+    "items": [...],
+    "totalItems": 3412,
+    "page": 1,
+    "perPage": 100,
+    "totalPages": 35,
+    "hasMore": true,
+    "nextPage": 2,
+    "nextCommand": "vw media list --json --page 2",
+    "appliedFilters": [],
+    "availableFilters": ["directory", "type", "search"]
+  }
+  ```
+
+  Follow `nextCommand` while `hasMore` is true (it is the invoking command line
+  with `--page` replaced, so your other flags are preserved), or narrow using
+  `availableFilters` — usually the better move. `hasMore` is `false` and
+  `nextPage`/`nextCommand` are `null` on the last page and under `--all`.
+  `items`/`totalItems` keep their pre-pagination meaning, so existing scripts
+  that read only those two keys are unaffected.
+
+  `label search`/`label list` (and `entity labels`) items are
+  `{ "type": "<labelType>", "record": {...} }` wrappers, plus
+  `attributedEntity: { id, name, kind, via }` when the label is attributed to
+  an entity; `timeline clips list` items carry the clip plus computed
+  `timelineStart`/`timelineEnd`, `labelHint`, `kind`, `layer`, and the
+  canonical `times` block; `media clip list` items carry `times` too;
+  `upload list` items carry `mediaId` when the upload has been ingested
+- `label list --clip/--timeline-clip` adds `editList: { segments, source }`
+  and `hiddenInCutGaps` to the envelope. A clip's outer span is the server-side
+  window, but "overlaps a played segment" can only be decided in memory, so
+  this scope always reads every page — `totalItems` is the count of labels that
+  actually play, not the count the window matched. `-n`/`--page` still window
+  what is shown, applied to the surviving rows
 - **the canonical `times` block** (see *The three time domains*) appears on
   every clip-shaped JSON output: `{ timeline?, source, effective, segments?,
   composite }`. **Breaking:** `segments --json` `times` now uses this shape —

@@ -60176,20 +60176,28 @@ var TimelineClipMutator = class extends BaseMutator {
     return TimelineClipInputSchema.parse(input);
   }
   /**
-   * Get timeline clips by timeline
+   * Get timeline clips by timeline.
+   *
+   * Every caller treats the result as the complete timeline — durations,
+   * overlap checks, reflow, and rendering are all computed from it — so this
+   * walks every page rather than capping. A previous single-page bound of 500
+   * silently dropped clips past it, which read as a shorter timeline instead
+   * of an error.
+   *
    * @param timelineId The timeline ID
-   * @returns List of timeline clips sorted by order
+   * @returns Every timeline clip, sorted by order
    */
   async getByTimeline(timelineId) {
-    const result = await this.getList(
-      1,
-      500,
-      // Get all clips (reasonable max)
-      `TimelineRef = "${timelineId}"`,
-      "order"
-      // Explicit sort by order
-    );
-    return result.items;
+    const perPage = 500;
+    const sort = "order,id";
+    const filter = `TimelineRef = "${timelineId}"`;
+    const first = await this.getList(1, perPage, filter, sort);
+    const clips = [...first.items];
+    for (let page = 2; page <= first.totalPages; page++) {
+      const next = await this.getList(page, perPage, filter, sort);
+      clips.push(...next.items);
+    }
+    return clips;
   }
   /**
    * Get the maximum order value for a timeline
@@ -63668,6 +63676,664 @@ function noopMessage(warnings) {
   return warnings.find((w) => w.code === "noop")?.message;
 }
 
+// src/lib/list/spec.ts
+var DEFAULT_LIST_LIMIT = 100;
+var MAX_LIST_LIMIT = 500;
+function listFilter(filter) {
+  return filter;
+}
+function filtersOf(spec) {
+  return spec.filters ?? {};
+}
+function columnsOf(spec, rows) {
+  return typeof spec.columns === "function" ? spec.columns(rows) : spec.columns;
+}
+function flagSummaryOf(filter) {
+  return filter.flags.split(/[,\s]+/).filter((part) => part.startsWith("-")).join("/");
+}
+
+// src/lib/list/query.ts
+function positiveInt(value, flag, command) {
+  if (value === void 0 || value === null) return void 0;
+  const n2 = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(n2) || n2 < 1) {
+    throw new Error(
+      `${command}: ${flag} expects a positive integer (got "${String(value)}")`
+    );
+  }
+  return n2;
+}
+function sortNamesOf(spec) {
+  return (spec.sorts ?? []).map((option) => option.value);
+}
+function resolveSort(spec, raw) {
+  const sorts = spec.sorts ?? [];
+  if (raw === void 0) return sorts[0]?.pbSort ?? "";
+  if (sorts.length === 0) {
+    throw new Error(`${spec.command} does not support --sort.`);
+  }
+  const wanted = String(raw);
+  const found = sorts.find((option) => option.value === wanted);
+  if (!found) {
+    throw new Error(
+      `${spec.command}: unknown --sort "${wanted}". Valid values: ${sortNamesOf(spec).join(", ")}`
+    );
+  }
+  return found.pbSort;
+}
+function availableFilterFlags(spec) {
+  const flags = Object.values(filtersOf(spec)).map(flagSummaryOf);
+  return flags.length > 0 ? flags.join(", ") : "(none)";
+}
+async function resolveFilterValues(spec, opts, ctx, env) {
+  const filters = filtersOf(spec);
+  const values = /* @__PURE__ */ new Map();
+  for (const key of Object.keys(filters)) {
+    if (opts[key] !== void 0) values.set(key, opts[key]);
+  }
+  const isTTY = env.isTTY ?? Boolean(process.stdin.isTTY);
+  for (const key of spec.required ?? []) {
+    if (values.has(key)) continue;
+    const filter = filters[key];
+    if (!filter) {
+      throw new Error(
+        `${spec.command}: required filter "${key}" is not declared in the spec.`
+      );
+    }
+    if (filter.pick && isTTY) {
+      values.set(key, await filter.pick(ctx));
+      continue;
+    }
+    throw new Error(
+      `${spec.command} needs ${filter.flags} \u2014 ${filter.description}.
+  Available filters: ${availableFilterFlags(spec)}`
+    );
+  }
+  const oneOf = spec.requireOneOf ?? [];
+  if (oneOf.length > 0 && !oneOf.some((key) => values.has(key))) {
+    const alternatives = oneOf.map((key) => filters[key] ? flagSummaryOf(filters[key]) : key).join(", ");
+    throw new Error(
+      `${spec.command} needs at least one of: ${alternatives}.
+  Available filters: ${availableFilterFlags(spec)}`
+    );
+  }
+  return values;
+}
+function bindClause(ctx, clause) {
+  const expr = clause.expr.trim();
+  if (!expr) return "";
+  return clause.params ? ctx.pb.filter(expr, clause.params) : expr;
+}
+function joinClauses(clauses) {
+  const parts = clauses.filter((clause) => clause.length > 0);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return parts.map((part) => `(${part})`).join(" && ");
+}
+async function resolveListQuery(spec, opts, ctx, env = {}) {
+  const requestedLimit = positiveInt(opts.limit, "-n, --limit", spec.command);
+  const requestedPage = positiveInt(opts.page, "--page", spec.command);
+  let perPage = requestedLimit ?? spec.defaultLimit ?? DEFAULT_LIST_LIMIT;
+  if (perPage > MAX_LIST_LIMIT) {
+    warn(
+      `--limit ${perPage} exceeds the ${MAX_LIST_LIMIT}-row ceiling \u2014 using ${MAX_LIST_LIMIT}. Pass --all to fetch every page instead.`
+    );
+    perPage = MAX_LIST_LIMIT;
+  }
+  const windowed = requestedLimit !== void 0 || requestedPage !== void 0;
+  const all = Boolean(opts.all) || Boolean(spec.unpaged) && !windowed;
+  const values = await resolveFilterValues(spec, opts, ctx, env);
+  const filters = filtersOf(spec);
+  const clauses = [];
+  if (spec.workspaceScoped !== false) {
+    if (!ctx.workspaceId) {
+      throw new Error(
+        `${spec.command}: no active workspace \u2014 pass -w <id> or run \`vw workspace use\`.`
+      );
+    }
+    clauses.push(
+      bindClause(ctx, {
+        expr: "WorkspaceRef = {:ws}",
+        params: { ws: ctx.workspaceId }
+      })
+    );
+  }
+  const base = spec.baseFilter?.(opts, ctx);
+  if (base) clauses.push(bindClause(ctx, base));
+  const applied = [];
+  const appliedValues = {};
+  for (const [key, filter] of Object.entries(filters)) {
+    if (!values.has(key)) continue;
+    const raw = values.get(key);
+    const value = filter.parse && typeof raw === "string" ? filter.parse(raw) : raw;
+    const clause = await filter.clause(value, ctx);
+    applied.push(key);
+    appliedValues[key] = value;
+    if (!clause) continue;
+    clauses.push(bindClause(ctx, clause));
+  }
+  return {
+    page: requestedPage ?? 1,
+    perPage,
+    filter: joinClauses(clauses),
+    sort: resolveSort(spec, opts.sort),
+    all,
+    applied,
+    values: appliedValues
+  };
+}
+
+// src/lib/help.ts
+var WARNINGS_HELP = `Warnings:
+  The result carries a \`warnings\` array \u2014 { level, code, message, clipIds,
+  data? } \u2014 one uniform channel for "succeeded, but not exactly as asked".
+  It is part of the --json document; warning-level entries also print as \u26A0
+  lines on stderr (notices surface as the command's detail lines instead).
+
+  Levels: \`warning\` = the outcome deviates from what was requested or is
+  irreversible; \`notice\` = the documented effect of a flag that was
+  explicitly passed, or a no-op.
+
+  Codes:
+    nudged              placed later than requested, past a collision
+    clamped             requested shift/slip reduced by bounds or neighbors
+    shifted-others      other clips displaced under an explicit --ripple
+    trimmed             --overwrite trimmed overlapping clips (reversible)
+    removed             --overwrite deleted covered clips (irreversible)
+    noop                nothing changed \u2014 no write was performed
+    stale-read          concurrent edit detected; re-planned on fresh state
+    post-write-overlap  final state has an overlap involving this op's clips
+
+  Warnings never change the exit code on their own; --strict exits 1 when
+  any warning-level entry exists.`;
+var NOOP_HELP = `No-op edits:
+  An edit that matches the stored state (same position, same field values,
+  an unchanged edit list) skips the write entirely and reports a top-level
+  \`noop: true\`, so a record's \`updated\` timestamp keeps meaning "content
+  changed".`;
+var CONFLICT_HELP = `Concurrent edits:
+  The writes are guarded: if a record this command writes changed between
+  the command's read and its write, what happens depends on what changed
+  remotely. Fields this command does not touch \u2014 the operation re-plans
+  once against the fresh state and reports a \`stale-read\` warning. The
+  same fields it patches (or \`meta\`, which is replaced whole) \u2014 it aborts
+  before writing; pass --force to re-apply this command over the fresh
+  state anyway.`;
+function editResultHelp(sections = {}) {
+  const parts = [WARNINGS_HELP];
+  if (sections.noop) parts.push(NOOP_HELP);
+  if (sections.conflict) parts.push(CONFLICT_HELP);
+  return `
+${parts.join("\n\n")}`;
+}
+function listResultHelp(spec, config2 = {}) {
+  const filterCount = Object.keys(spec.filters ?? {}).length;
+  const parts = [
+    `Results:
+  Prints one page as a table, then a footer saying where you are and how to
+  reach the rest \u2014 \`(1\u2013100 of 3412 \u2014 next page: vw \u2026 --page 2)\`, or
+  \`end of results\` on the last page. ${spec.unpaged ? "Every row is fetched by default; -n/--page ask for a window instead." : `Page size is ${spec.defaultLimit ?? 100} (-n/--limit); --all walks every page.`}`
+  ];
+  if (filterCount > 0) {
+    parts.push(`Narrowing beats paging:
+  While more pages remain, the footer also lists the filters you have not
+  used. Applying one is almost always better than walking pages \u2014 it is
+  fewer requests and a smaller result to read.`);
+  }
+  parts.push(`JSON:
+  --json prints { items, totalItems, page, perPage, totalPages, hasMore,
+  nextPage, nextCommand, appliedFilters, availableFilters } and nothing else
+  on stdout. Agents should follow \`nextCommand\` while \`hasMore\` is true, or
+  narrow using \`availableFilters\`.`);
+  if (config2.merged) {
+    parts.push(`Merged results:
+  This command queries several collections and presents the union, so a page
+  costs \`page \xD7 --limit\` rows from each. Depth is capped (--max-depth,
+  default 500); past it, narrow to a single type instead of paging deeper.`);
+  }
+  return `
+${parts.join("\n\n")}`;
+}
+var DOCTOR_HELP = `
+Checks (reported most severe first):
+  error    track-overlap (same-track overlaps are invalid),
+           dangling-media / dangling-caption (rendering will fail),
+           dangling-track (clip points at a deleted track),
+           duplicate-track-layer (two tracks share a layer number)
+  warning  stale-timeline-duration / stale-clip-duration (self-heal on the
+           next clip mutation), dangling-media-clip (provenance only),
+           nested-window-drift (persist the fix with \`timeline reflow\`),
+           micro-gap (clips nearly touching \u2014 usually unintended)
+  info     track-gap (an ordinary gap between clips)
+
+  Exits 1 when any error-level finding exists, so agents can use doctor as
+  an "am I done" gate. --json returns { timelineId, timelineName,
+  computedDuration, clipCount, trackCount, findings: [{ level, code,
+  message, clipIds, layer?, start?, end? }], errors, warnings, ok }.`;
+
+// src/lib/list/options.ts
+function parseCount(value) {
+  const n2 = Number(value);
+  if (!Number.isInteger(n2) || n2 < 1) {
+    throw new InvalidArgumentError("expected a positive integer");
+  }
+  return n2;
+}
+function withListOptions(cmd, spec, config2 = {}) {
+  for (const [key, filter] of Object.entries(filtersOf(spec))) {
+    const option = new Option(filter.flags, filter.description);
+    if (option.attributeName() !== key) {
+      throw new Error(
+        `${spec.command}: filter key "${key}" must match the flag attribute name "${option.attributeName()}" (${filter.flags})`
+      );
+    }
+    if (filter.parse) {
+      option.argParser(filter.parse);
+    }
+    cmd.addOption(option);
+  }
+  const limitDefault = spec.unpaged ? "default: every row" : `default: ${spec.defaultLimit ?? DEFAULT_LIST_LIMIT}`;
+  cmd.option(
+    "-n, --limit <count>",
+    `rows per page (${limitDefault})`,
+    parseCount
+  );
+  cmd.option("--page <n>", "page to show (default: 1)", parseCount);
+  if (spec.sorts && spec.sorts.length > 0) {
+    const names = sortNamesOf(spec);
+    cmd.option(
+      "--sort <field>",
+      `order results (${names.join(", ")}; default: ${names[0]})`
+    );
+  }
+  cmd.option("--all", "fetch every page instead of one");
+  cmd.option("--json", "print full records as JSON (machine-readable)");
+  if (config2.merged) {
+    cmd.option(
+      "--max-depth <rows>",
+      "rows read per collection when merging paged results (default: 500)",
+      parseCount
+    );
+  }
+  cmd.addHelpText("after", listResultHelp(spec, config2));
+  return cmd;
+}
+
+// src/lib/list/footer.ts
+function hasMore(view) {
+  if (view.all) return false;
+  return view.page < view.totalPages;
+}
+function quoteArg(arg) {
+  return /[\s"'$`\\*?[\]{}()<>|&;#~]/.test(arg) ? `'${arg.replaceAll("'", `'\\''`)}'` : arg;
+}
+function nextPageCommand(argv, page) {
+  const kept = [];
+  for (let i2 = 0; i2 < argv.length; i2++) {
+    const arg = argv[i2];
+    if (arg === "--page") {
+      i2++;
+      continue;
+    }
+    if (arg.startsWith("--page=")) continue;
+    kept.push(arg);
+  }
+  return ["vw", ...kept.map(quoteArg), "--page", String(page)].join(" ");
+}
+function rangeLabel(view) {
+  if (view.all || view.totalPages <= 1) {
+    return `${view.shown} of ${view.totalItems}`;
+  }
+  const start = (view.page - 1) * view.perPage + 1;
+  const end = start + view.shown - 1;
+  return `${start}\u2013${end} of ${view.totalItems}`;
+}
+function paginationLine(view) {
+  const range2 = rangeLabel(view);
+  if (hasMore(view)) {
+    return `(${range2} \u2014 next page: ${nextPageCommand(view.argv, view.page + 1)})`;
+  }
+  const ending = !view.all && view.totalPages > 1 ? "end of results" : "all results shown";
+  return `(${range2} \u2014 ${ending})`;
+}
+function narrowHint(spec, view, applied) {
+  if (!hasMore(view)) return null;
+  const unused = Object.entries(filtersOf(spec)).filter(
+    ([key]) => !applied.includes(key)
+  );
+  if (unused.length === 0) return null;
+  const flags = unused.map(([, filter]) => valueFlag(filter)).join(", ");
+  return `(narrow instead: ${flags})`;
+}
+function valueFlag(filter) {
+  const placeholder = filter.flags.match(/<[^>]+>/)?.[0] ?? "";
+  const flags = flagSummaryOf(filter);
+  return placeholder ? `${flags} ${placeholder}` : flags;
+}
+function hintLine(spec) {
+  const parts = ["add --json for full records"];
+  if (spec.hint) parts.push(spec.hint);
+  return `(${parts.join("; ")})`;
+}
+function listFooter(spec, view, applied) {
+  if (view.shown === 0) return [];
+  const lines = [paginationLine(view)];
+  const narrow = narrowHint(spec, view, applied);
+  if (narrow) lines.push(narrow);
+  lines.push(hintLine(spec));
+  return lines;
+}
+function listEnvelope(spec, rows, view, applied) {
+  const more = hasMore(view);
+  return {
+    items: rows,
+    totalItems: view.totalItems,
+    page: view.page,
+    perPage: view.perPage,
+    totalPages: view.totalPages,
+    hasMore: more,
+    nextPage: more ? view.page + 1 : null,
+    nextCommand: more ? nextPageCommand(view.argv, view.page + 1) : null,
+    appliedFilters: [...applied],
+    availableFilters: Object.keys(filtersOf(spec))
+  };
+}
+
+// src/lib/list/paginate.ts
+var DEFAULT_MAX_MERGE_DEPTH = 500;
+var PB_MAX_PER_PAGE = 500;
+async function fetchAll(getPage) {
+  const first = await getPage(1);
+  const items = [...first.items];
+  for (let page = 2; page <= first.totalPages; page++) {
+    items.push(...(await getPage(page)).items);
+  }
+  return items;
+}
+async function fetchAllPages(getPage) {
+  const first = await getPage(1);
+  const items = [...first.items];
+  for (let page = 2; page <= first.totalPages; page++) {
+    items.push(...(await getPage(page)).items);
+  }
+  return {
+    page: 1,
+    perPage: items.length,
+    totalItems: first.totalItems,
+    totalPages: 1,
+    items
+  };
+}
+function windowItems(rows, window2) {
+  if (window2.all) {
+    return {
+      page: 1,
+      perPage: rows.length,
+      totalItems: rows.length,
+      totalPages: 1,
+      items: [...rows]
+    };
+  }
+  const start = (window2.page - 1) * window2.perPage;
+  return {
+    page: window2.page,
+    perPage: window2.perPage,
+    totalItems: rows.length,
+    totalPages: Math.max(1, Math.ceil(rows.length / window2.perPage)),
+    items: rows.slice(start, start + window2.perPage)
+  };
+}
+function maxMergedPage(perPage, maxDepth = DEFAULT_MAX_MERGE_DEPTH) {
+  return Math.max(1, Math.floor(maxDepth / Math.max(1, perPage)));
+}
+function sumTotals(results) {
+  return results.reduce((sum, result) => sum + result.totalItems, 0);
+}
+async function fetchTopN(source, n2) {
+  const perPage = Math.min(n2, PB_MAX_PER_PAGE);
+  const first = await source.fetchPage({ page: 1, perPage });
+  const items = [...first.items];
+  const lastPage = Math.min(Math.ceil(n2 / perPage), first.totalPages);
+  for (let page = 2; page <= lastPage; page++) {
+    items.push(...(await source.fetchPage({ page, perPage })).items);
+  }
+  return { ...first, items: items.slice(0, n2) };
+}
+async function fetchMergedPage(args) {
+  if (args.sources.length === 1) {
+    const result = await args.sources[0].fetchPage({
+      page: args.page,
+      perPage: args.perPage
+    });
+    return {
+      items: [...result.items],
+      totalItems: result.totalItems,
+      totalPages: Math.max(1, result.totalPages),
+      depth: args.perPage
+    };
+  }
+  const maxDepth = args.maxDepth ?? DEFAULT_MAX_MERGE_DEPTH;
+  const depth = args.page * args.perPage;
+  const limit = maxMergedPage(args.perPage, maxDepth);
+  if (args.page > limit) {
+    const narrow = args.narrowWith ? ` Narrow the query (${args.narrowWith}) to page without a bound` : " Narrow the query to page without a bound";
+    throw new Error(
+      `Page ${args.page} needs ${depth} rows from each of ${args.sources.length} collections, past the ${maxDepth}-row merge depth (max page ${limit} at --limit ${args.perPage}).${narrow}, use a smaller --limit, or raise --max-depth.`
+    );
+  }
+  const results = await Promise.all(
+    args.sources.map((source) => fetchTopN(source, depth))
+  );
+  const merged = results.flatMap((result) => result.items);
+  merged.sort(args.compare);
+  const totalItems = sumTotals(results);
+  return {
+    items: merged.slice((args.page - 1) * args.perPage, depth),
+    totalItems,
+    totalPages: Math.max(1, Math.ceil(totalItems / args.perPage)),
+    depth
+  };
+}
+async function fetchMergedAll(args) {
+  const perPage = args.batchSize ?? DEFAULT_MAX_MERGE_DEPTH;
+  const results = await Promise.all(
+    args.sources.map(
+      (source) => fetchAllPages((page) => source.fetchPage({ page, perPage }))
+    )
+  );
+  const merged = results.flatMap((result) => result.items);
+  merged.sort(args.compare);
+  return {
+    items: merged,
+    totalItems: sumTotals(results),
+    totalPages: 1,
+    depth: merged.length
+  };
+}
+
+// src/lib/list/run.ts
+function argvOf(argv) {
+  return argv ?? process.argv.slice(2);
+}
+async function present(args) {
+  const { spec, ctx, query, refine: refine2 } = args;
+  const kept = refine2 ? refine2.filter(args.items) : args.items;
+  const dropped = args.items.length - kept.length;
+  const windowed = refine2 ? windowItems(kept, query) : null;
+  const pageItems = windowed ? windowed.items : args.items;
+  const totalItems = windowed ? windowed.totalItems : args.totalItems;
+  const totalPages = windowed ? windowed.totalPages : args.totalPages;
+  const rows = spec.toRows ? await spec.toRows(pageItems, ctx) : pageItems;
+  const view = {
+    command: spec.command,
+    argv: args.argv,
+    page: query.page,
+    perPage: query.perPage,
+    shown: rows.length,
+    totalItems,
+    totalPages,
+    all: query.all
+  };
+  if (args.opts.json) {
+    console.log(
+      JSON.stringify(
+        {
+          ...listEnvelope(spec, rows, view, query.applied),
+          ...refine2?.extras?.(dropped) ?? {},
+          ...await args.jsonExtras?.() ?? {}
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  table(rows, columnsOf(spec, rows));
+  for (const line of listFooter(spec, view, query.applied)) {
+    info(line);
+  }
+  const note = dropped > 0 ? refine2?.note?.(dropped) : null;
+  if (note) info(note);
+}
+async function runList(args) {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+    isTTY: args.isTTY
+  });
+  const result = query.all || args.refine ? await fetchAllPages(
+    (page) => args.fetchPage({ ...query, all: true, page })
+  ) : await args.fetchPage(query);
+  await present({
+    spec: args.spec,
+    ctx: args.ctx,
+    opts: args.opts,
+    argv: argvOf(args.argv),
+    items: result.items,
+    query,
+    totalItems: result.totalItems,
+    totalPages: result.totalPages,
+    refine: args.refine,
+    jsonExtras: args.jsonExtras
+  });
+}
+async function runMergedList(args) {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+    isTTY: args.isTTY
+  });
+  const sources = await args.sources(query);
+  const compare = args.compare(query);
+  const merged = query.all || args.refine ? await fetchMergedAll({ sources, compare }) : await fetchMergedPage({
+    sources,
+    compare,
+    page: query.page,
+    perPage: query.perPage,
+    maxDepth: args.opts.maxDepth,
+    narrowWith: args.narrowWith
+  });
+  await present({
+    spec: args.spec,
+    ctx: args.ctx,
+    opts: args.opts,
+    argv: argvOf(args.argv),
+    items: merged.items,
+    query,
+    totalItems: merged.totalItems,
+    totalPages: merged.totalPages,
+    refine: args.refine,
+    jsonExtras: args.jsonExtras
+  });
+}
+
+// src/lib/list/sorts.ts
+var MEDIA_SORTS = [
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  {
+    value: "name",
+    description: "source filename A\u2192Z",
+    pbSort: "UploadRef.name,-created"
+  },
+  {
+    value: "duration",
+    description: "longest first",
+    pbSort: "-duration,-created"
+  },
+  {
+    value: "media_time",
+    description: "capture time, newest first",
+    pbSort: "-mediaDate,-created"
+  }
+];
+var UPLOAD_SORTS = [
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  { value: "name", description: "file name A\u2192Z", pbSort: "name,-created" },
+  { value: "size", description: "largest first", pbSort: "-size,-created" },
+  {
+    value: "status",
+    description: "grouped by status",
+    pbSort: "status,-created"
+  }
+];
+var TIMELINE_SORTS = [
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  { value: "name", description: "name A\u2192Z", pbSort: "name,-created" },
+  {
+    value: "duration",
+    description: "longest first",
+    pbSort: "-duration,-created"
+  }
+];
+var ENTITY_SORTS = [
+  { value: "name", description: "name A\u2192Z", pbSort: "name,-created" },
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  { value: "kind", description: "grouped by kind", pbSort: "kind,name" }
+];
+var CAPTION_SORTS = [
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  { value: "name", description: "name A\u2192Z", pbSort: "name,-created" },
+  {
+    value: "duration",
+    description: "longest first",
+    pbSort: "-duration,-created"
+  }
+];
+var DIRECTORY_SORTS = [
+  { value: "name", description: "name A\u2192Z", pbSort: "name,-created" },
+  { value: "recent", description: "newest first", pbSort: "-created" }
+];
+var MEDIA_CLIP_SORTS = [
+  { value: "recent", description: "newest first", pbSort: "-created" },
+  {
+    value: "start",
+    description: "earliest source position first",
+    pbSort: "start,-created"
+  },
+  {
+    value: "duration",
+    description: "longest first",
+    pbSort: "-duration,-created"
+  }
+];
+var WORKSPACE_SORTS = [
+  { value: "name", description: "name A\u2192Z", pbSort: "name,-created" },
+  { value: "recent", description: "newest first", pbSort: "-created" }
+];
+var LABEL_RANGE_SORTS = [
+  {
+    value: "media",
+    description: "grouped by media, then chronological",
+    pbSort: "MediaRef,start,id"
+  },
+  {
+    value: "start",
+    description: "chronological",
+    pbSort: "start,MediaRef,id"
+  },
+  {
+    value: "duration",
+    description: "longest first",
+    pbSort: "-duration,MediaRef,start,id"
+  }
+];
+
 // src/lib/timeline.ts
 function singleMediaType(mediaType) {
   return Array.isArray(mediaType) ? mediaType[0] : mediaType;
@@ -63688,6 +64354,45 @@ function parseTrackNames(value) {
     throw new InvalidArgumentError("expected comma-separated track names");
   }
   return names;
+}
+var timelineListSpec = {
+  command: "timeline list",
+  sorts: TIMELINE_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    search: listFilter({
+      flags: "--search <text>",
+      description: "match the timeline's name, label, or description",
+      clause: (q) => ({
+        expr: "(name ~ {:q} || label ~ {:q} || description ~ {:q})",
+        params: { q }
+      })
+    }),
+    orientation: listFilter({
+      flags: "--orientation <o>",
+      description: `only this orientation (${Object.values(TimelineOrientation).join(", ")})`,
+      parse: (raw) => parseOrientation(raw),
+      clause: (o) => ({ expr: "orientation = {:o}", params: { o } })
+    })
+  },
+  columns: [
+    { header: "ID", value: (t2) => t2.id },
+    { header: "NAME", value: (t2) => t2.name },
+    { header: "LABEL", value: (t2) => truncate(t2.label ?? "", 30) },
+    { header: "DURATION", value: (t2) => formatDuration(t2.duration) },
+    { header: "VERSION", value: (t2) => String(t2.version ?? 1) }
+  ],
+  hint: "`vw timeline show <id>` for tracks and clips"
+};
+function fetchTimelinePage(pb, query) {
+  return new TimelineMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
 }
 var timelineCreateOptions = {
   label: {
@@ -65120,6 +65825,240 @@ var hitColumns = (withMedia) => [
     value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record))
   }
 ];
+var LABEL_SORT_CONFIDENCE = "confidence";
+var LABEL_SORT_START = "start";
+var LABEL_SORT_MEDIA = "media";
+var LABEL_SEARCH_SORTS = [
+  {
+    value: "confidence",
+    description: "most confident first",
+    pbSort: LABEL_SORT_CONFIDENCE
+  },
+  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
+  {
+    value: "media",
+    description: "grouped by media, then chronological",
+    pbSort: LABEL_SORT_MEDIA
+  }
+];
+var LABEL_LIST_SORTS = [
+  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
+  {
+    value: "media",
+    description: "grouped by media, then chronological",
+    pbSort: LABEL_SORT_MEDIA
+  },
+  {
+    value: "confidence",
+    description: "most confident first",
+    pbSort: LABEL_SORT_CONFIDENCE
+  }
+];
+function labelPbSort(type, logical) {
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return `-${LABEL_TYPE_META[type].confidenceField},id`;
+    case LABEL_SORT_MEDIA:
+      return "MediaRef,start,id";
+    default:
+      return "start,MediaRef,id";
+  }
+}
+function labelHitCompare(logical) {
+  const byId = (a, b) => a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0;
+  const byMedia = (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef);
+  const byStart = (a, b) => a.record.start - b.record.start;
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return (a, b) => confidenceOf(b) - confidenceOf(a) || byId(a, b);
+    case LABEL_SORT_MEDIA:
+      return (a, b) => byMedia(a, b) || byStart(a, b) || byId(a, b);
+    default:
+      return (a, b) => byStart(a, b) || byMedia(a, b) || byId(a, b);
+  }
+}
+function andClauses(clauses) {
+  const parts = clauses.filter((c) => c.length > 0);
+  if (parts.length <= 1) return parts[0] ?? "";
+  return parts.map((c) => `(${c})`).join(" && ");
+}
+function labelMergeSources(pb, opts) {
+  return opts.types.map((type) => ({
+    key: type,
+    fetchPage: async ({ page, perPage }) => {
+      const result = await labelMutator(pb, type).getList(
+        page,
+        perPage,
+        andClauses([opts.baseFilter, ...opts.perType?.(type) ?? []]),
+        labelPbSort(type, opts.sort),
+        [...opts.expand ?? [], ...attributionExpands(type)]
+      );
+      return {
+        ...result,
+        items: result.items.map((record2) => toLabelHit(type, record2))
+      };
+    }
+  }));
+}
+function minConfidenceClause(pb, type, min) {
+  return pb.filter(`${LABEL_TYPE_META[type].confidenceField} >= {:min}`, {
+    min
+  });
+}
+function queryFieldsClause(pb, type, query) {
+  const fields = LABEL_TYPE_CONFIG[type].queryFields;
+  return pb.filter(fields.map((f) => `${f} ~ {:q}`).join(" || "), { q: query });
+}
+function idFlagClauses(pb, type, opts) {
+  return Object.keys(ID_FLAGS).filter((key) => opts[key] !== void 0 && ID_FLAGS[key].type === type).map(
+    (key) => pb.filter(`${ID_FLAGS[key].field} = {:v}`, {
+      v: String(opts[key])
+    })
+  );
+}
+function resolveLabelTypes(opts) {
+  const idFlags = Object.keys(ID_FLAGS).filter(
+    (key) => opts[key] !== void 0
+  );
+  const implied = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
+  if (opts.types && implied.length > 0) {
+    const sameSet = opts.types.length === implied.length && implied.every((t2) => opts.types.includes(t2));
+    if (!sameSet) {
+      throw new Error(
+        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${implied.join(",")})`
+      );
+    }
+  }
+  if (implied.length > 0) return implied;
+  return [...opts.types ?? Object.values(LabelType)];
+}
+function labelPerTypeClauses(pb, opts) {
+  return (type) => [
+    ...opts.search ? [queryFieldsClause(pb, type, opts.search)] : [],
+    ...idFlagClauses(pb, type, opts),
+    ...opts.minConfidence !== void 0 ? [minConfidenceClause(pb, type, opts.minConfidence)] : [],
+    // A record id from resolveEntity, and the shared attribution filters are
+    // string templates rather than bound params — safe to embed directly.
+    ...opts.entityId ? [labelAttributionFilter(type, opts.entityId)] : []
+  ];
+}
+var labelIdFilters = {
+  faceId: listFilter({
+    flags: "--face-id <id>",
+    description: "exact faceId match (implies --types face)",
+    clause: () => null
+  }),
+  personId: listFilter({
+    flags: "--person-id <id>",
+    description: "exact personId match (implies --types person)",
+    clause: () => null
+  }),
+  trackId: listFilter({
+    flags: "--track-id <id>",
+    description: "exact object track id match (implies --types object)",
+    clause: () => null
+  })
+};
+var labelSearchSpec = {
+  command: "label search",
+  sorts: LABEL_SEARCH_SORTS,
+  requireOneOf: ["search", "entity", "faceId", "personId", "trackId"],
+  filters: {
+    search: listFilter({
+      flags: "--search <text>",
+      description: "free-text match against each label type's searchable fields (transcript, entity, text, \u2026)",
+      clause: () => null
+    }),
+    types: listFilter({
+      flags: "-t, --types <types>",
+      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null
+    }),
+    media: listFilter({
+      flags: "-m, --media <id>",
+      description: "restrict results to one media",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+    }),
+    entity: listFilter({
+      flags: "--entity <nameOrId>",
+      description: "only labels attributed to this entity (tagged track or cluster)",
+      clause: () => null
+    }),
+    ...labelIdFilters,
+    minConfidence: listFilter({
+      flags: "--min-confidence <n>",
+      description: "minimum confidence (0..1)",
+      parse: parseFloat,
+      clause: () => null
+    })
+  },
+  columns: hitColumns(true),
+  hint: "`vw label show <type> <id>` shows one record, `vw label clip <type> <id>` creates a clip"
+};
+var labelListSpec = {
+  command: "label list",
+  workspaceScoped: false,
+  sorts: LABEL_LIST_SORTS,
+  required: ["media"],
+  filters: {
+    media: listFilter({
+      flags: "-m, --media <id>",
+      description: "the media whose labels to list",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } }),
+      pick: async ({ pb, workspaceId }) => (await pickMedia(pb, workspaceId)).id
+    }),
+    clip: listFilter({
+      flags: "--clip <mediaClipId>",
+      description: "filter to a MediaClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null
+    }),
+    timelineClip: listFilter({
+      flags: "--timeline-clip <id>",
+      description: "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null
+    }),
+    from: listFilter({
+      flags: "--from <seconds>",
+      description: "only labels overlapping at/after this source time",
+      parse: parseSeconds,
+      clause: (start) => ({
+        expr: "end > {:wStart}",
+        params: { wStart: start }
+      })
+    }),
+    to: listFilter({
+      flags: "--to <seconds>",
+      description: "only labels overlapping before this source time",
+      parse: parseSeconds,
+      clause: (end) => ({ expr: "start < {:wEnd}", params: { wEnd: end } })
+    }),
+    types: listFilter({
+      flags: "-t, --types <types>",
+      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null
+    }),
+    entity: listFilter({
+      flags: "--entity <nameOrId>",
+      description: "only labels attributed to this entity (tagged track or cluster)",
+      clause: () => null
+    }),
+    search: listFilter({
+      flags: "--search <text>",
+      description: "free-text match against each label type's fields",
+      clause: () => null
+    }),
+    minConfidence: listFilter({
+      flags: "--min-confidence <n>",
+      description: "minimum confidence (0..1)",
+      parse: parseFloat,
+      clause: () => null
+    })
+  },
+  columns: hitColumns(false),
+  hint: "`vw label show <type> <id>` shows one record"
+};
 var labelSearchOptions = {
   types: {
     flags: "-t, --types <types>",
@@ -65153,78 +66092,6 @@ var labelSearchOptions = {
     parse: (v) => parseInt(v, 10)
   }
 };
-async function searchLabels(pb, opts) {
-  const idFlags = Object.keys(ID_FLAGS).filter(
-    (key) => opts[key] !== void 0
-  );
-  if (!opts.query && idFlags.length === 0 && !opts.entityId) {
-    throw new Error(
-      "Provide a search query, --entity, or an exact-id flag (--face-id, --person-id, --track-id)"
-    );
-  }
-  const impliedTypes = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
-  if (opts.types && impliedTypes.length > 0) {
-    const sameSet = opts.types.length === impliedTypes.length && impliedTypes.every((t2) => opts.types.includes(t2));
-    if (!sameSet) {
-      throw new Error(
-        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${impliedTypes.join(",")})`
-      );
-    }
-  }
-  const types = impliedTypes.length > 0 ? impliedTypes : opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 20;
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const config2 = LABEL_TYPE_CONFIG[type];
-      const meta3 = LABEL_TYPE_META[type];
-      const clauses = ["WorkspaceRef = {:ws}"];
-      const params = {
-        ws: opts.workspaceId
-      };
-      if (opts.media) {
-        clauses.push("MediaRef = {:media}");
-        params.media = opts.media;
-      }
-      if (opts.query) {
-        clauses.push(
-          `(${config2.queryFields.map((f) => `${f} ~ {:q}`).join(" || ")})`
-        );
-        params.q = opts.query;
-      }
-      for (const key of idFlags) {
-        if (ID_FLAGS[key].type === type) {
-          clauses.push(`${ID_FLAGS[key].field} = {:${key}}`);
-          params[key] = opts[key];
-        }
-      }
-      if (opts.minConfidence !== void 0) {
-        clauses.push(`${meta3.confidenceField} >= {:minConfidence}`);
-        params.minConfidence = opts.minConfidence;
-      }
-      if (opts.entityId) {
-        clauses.push(labelAttributionFilter(type, opts.entityId));
-      }
-      const filter = pb.filter(clauses.join(" && "), params);
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        filter,
-        `-${meta3.confidenceField}`,
-        ["MediaRef.UploadRef", ...attributionExpands(type)]
-      );
-      return { type, result };
-    })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  hits.sort((a, b) => confidenceOf(b) - confidenceOf(a));
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
 async function listLabels(pb, opts) {
   const types = opts.types ?? Object.values(LabelType);
   const limit = opts.limit ?? 100;
@@ -65597,14 +66464,6 @@ var OWNED_ENTRIES = [
   "timelines",
   "entities"
 ];
-async function fetchAll(getPage) {
-  const first = await getPage(1);
-  const items = [...first.items];
-  for (let page = 2; page <= first.totalPages; page++) {
-    items.push(...(await getPage(page)).items);
-  }
-  return items;
-}
 function groupBy(items, key) {
   const groups = /* @__PURE__ */ new Map();
   for (const item of items) {
@@ -66052,25 +66911,52 @@ Run \`vw --help\` (or \`vw timeline --help\`) for the full command list.
 }
 
 // src/commands/workspace.ts
+var workspaceListSpec = {
+  command: "workspace list",
+  workspaceScoped: false,
+  sorts: WORKSPACE_SORTS,
+  filters: {
+    search: listFilter({
+      flags: "--search <text>",
+      description: "match the workspace name or slug",
+      clause: (q) => ({
+        expr: "(name ~ {:q} || slug ~ {:q})",
+        params: { q }
+      })
+    })
+  },
+  // A function so the config file is read once per render, not once per row
+  // (`loadConfig` is a synchronous disk read).
+  columns: () => {
+    const activeId = loadConfig().workspaceId;
+    return [
+      { header: " ", value: (w) => w.id === activeId ? "*" : "" },
+      { header: "ID", value: (w) => w.id },
+      { header: "NAME", value: (w) => w.name },
+      { header: "SLUG", value: (w) => w.slug ?? "" }
+    ];
+  },
+  hint: "`vw workspace use <id>` switches the active workspace"
+};
 function registerWorkspaceCommands(program2) {
   const ws = program2.command("workspace").alias("ws").description("Manage the active workspace");
-  withJsonOption(
-    ws.command("list").alias("ls").description("List workspaces")
+  withListOptions(
+    ws.command("list").alias("ls").description("List workspaces"),
+    workspaceListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const result = await new WorkspaceMutator(pb).getList(1, 100);
-      const active = loadConfig().workspaceId;
-      printList(
-        result.items,
-        [
-          { header: " ", value: (w) => w.id === active ? "*" : "" },
-          { header: "ID", value: (w) => w.id },
-          { header: "NAME", value: (w) => w.name },
-          { header: "SLUG", value: (w) => w.slug ?? "" }
-        ],
-        { json: opts.json, totalItems: result.totalItems }
-      );
+      await runList({
+        spec: workspaceListSpec,
+        opts,
+        ctx: { pb },
+        fetchPage: (query) => new WorkspaceMutator(pb).getList(
+          query.page,
+          query.perPage,
+          query.filter,
+          query.sort
+        )
+      });
     } catch (err) {
       handleError(err);
     }
@@ -66143,10 +67029,47 @@ function isRootDirRef(ref) {
   return normalized === "" || normalized === "root" || normalized === "none" || /^\/+$/.test(normalized);
 }
 async function listDirectories(pb, workspaceId) {
+  return fetchAllPages(
+    (page) => directoryMutator(pb).getList(
+      page,
+      200,
+      pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId })
+    )
+  );
+}
+function makeDirectoryListSpec(counts) {
+  return {
+    command: "directory list",
+    sorts: DIRECTORY_SORTS,
+    unpaged: true,
+    filters: {
+      search: listFilter({
+        flags: "--search <text>",
+        description: "match the directory name",
+        clause: (q) => ({ expr: "name ~ {:q}", params: { q } })
+      })
+    },
+    toRows: async (items, { pb, workspaceId }) => {
+      const resolved2 = await counts(pb, workspaceId);
+      return items.map((dir) => ({
+        ...dir,
+        mediaCount: resolved2.byDirectory.get(dir.id) ?? 0
+      }));
+    },
+    columns: [
+      { header: "ID", value: (d) => d.id },
+      { header: "NAME", value: (d) => d.name },
+      { header: "MEDIA", value: (d) => String(d.mediaCount) }
+    ],
+    hint: "`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId\u2026>` files media"
+  };
+}
+function fetchDirectoryPage(pb, query) {
   return directoryMutator(pb).getList(
-    1,
-    500,
-    pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId })
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
   );
 }
 function resolveDirectoryIn(dirs, ref) {
@@ -66293,22 +67216,80 @@ function parseUploadStatus(value) {
   }
   return value;
 }
-async function listUploads(pb, workspaceId, opts = {}) {
-  const perPage = opts.limit ?? 200;
-  const filter = opts.status ? pb.filter("WorkspaceRef = {:ws} && status = {:status}", {
-    ws: workspaceId,
-    status: opts.status
-  }) : pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId });
-  return new UploadMutator(pb).getList(1, perPage, filter);
-}
-async function mediaByUpload(pb, workspaceId, perPage = 500) {
-  const result = await new MediaMutator(pb).getByWorkspace(
-    workspaceId,
-    1,
-    perPage
+var uploadListSpec = {
+  command: "upload list",
+  sorts: UPLOAD_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    status: listFilter({
+      flags: "--status <status>",
+      description: `only uploads in this status (${Object.values(UploadStatus).join(", ")})`,
+      parse: parseUploadStatus,
+      clause: (status) => ({
+        expr: "status = {:status}",
+        params: { status }
+      })
+    }),
+    search: listFilter({
+      flags: "--search <text>",
+      description: "match the uploaded file name",
+      clause: (q) => ({ expr: "name ~ {:q}", params: { q } })
+    })
+  },
+  // Resolved per page rather than workspace-wide, so `mediaId` is also carried
+  // in --json (an agent can go straight from an upload to its media) without
+  // the previous version's silent "not yet ingested" for large workspaces.
+  toRows: (uploads, { pb }) => attachUploadMedia(pb, uploads),
+  columns: [
+    { header: "ID", value: (u) => u.id },
+    { header: "NAME", value: (u) => u.name },
+    { header: "STATUS", value: (u) => String(u.status) },
+    { header: "SIZE", value: (u) => formatBytes(u.size) },
+    { header: "MEDIA", value: (u) => u.mediaId ?? "\u2014" }
+  ],
+  hint: "pass an id to `vw upload replace`"
+};
+function fetchUploadPage(pb, query) {
+  return new UploadMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
   );
+}
+async function attachUploadMedia(pb, uploads) {
+  if (uploads.length === 0) return [];
+  const byUpload = await mediaByUploadIds(
+    pb,
+    uploads.map((upload) => upload.id)
+  );
+  return uploads.map((upload) => {
+    const media = byUpload.get(upload.id);
+    return media ? { ...upload, mediaId: media.id } : upload;
+  });
+}
+var UPLOAD_IDS_PER_REQUEST = 100;
+async function mediaByUploadIds(pb, uploadIds) {
   const map2 = /* @__PURE__ */ new Map();
-  for (const media of result.items) {
+  if (uploadIds.length === 0) return map2;
+  const chunks = [];
+  for (let i2 = 0; i2 < uploadIds.length; i2 += UPLOAD_IDS_PER_REQUEST) {
+    chunks.push([...uploadIds.slice(i2, i2 + UPLOAD_IDS_PER_REQUEST)]);
+  }
+  const results = await Promise.all(
+    chunks.map(
+      (chunk) => fetchAll(
+        (page) => new MediaMutator(pb).getList(
+          page,
+          200,
+          chunk.map((id) => pb.filter("UploadRef = {:u}", { u: id })).join(" || ")
+        )
+      )
+    )
+  );
+  for (const media of results.flat()) {
     if (media.UploadRef) map2.set(media.UploadRef, media);
   }
   return map2;
@@ -66758,42 +67739,21 @@ function registerUploadCommands(program2) {
       handleError(err);
     }
   });
-  withJsonOption(
+  withListOptions(
     upload.command("list").alias("ls").description(
       "List uploads in the active workspace by original file name, with the media ingested from each"
-    ).option(
-      "--status <status>",
-      "filter by upload status (queued, uploading, uploaded, processing, ready, failed)"
-    ).option(
-      "-n, --limit <count>",
-      "max results (default: 200)",
-      (v) => parseInt(v, 10)
-    )
+    ),
+    uploadListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const status = opts.status ? parseUploadStatus(opts.status) : void 0;
-      const result = await listUploads(pb, workspaceId, {
-        status,
-        limit: opts.limit
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
+      await runList({
+        spec: uploadListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchUploadPage(pb, query)
       });
-      const media = opts.json ? /* @__PURE__ */ new Map() : await mediaByUpload(pb, workspaceId);
-      printList(
-        result.items,
-        [
-          { header: "ID", value: (u) => u.id },
-          { header: "NAME", value: (u) => u.name },
-          { header: "STATUS", value: (u) => String(u.status) },
-          { header: "SIZE", value: (u) => formatBytes(u.size) },
-          { header: "MEDIA", value: (u) => media.get(u.id)?.id ?? "\u2014" }
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: "pass an id to `vw upload replace`"
-        }
-      );
     } catch (err) {
       handleError(err);
     }
@@ -67043,6 +68003,107 @@ async function applyEntityLinks(pb, entityId, targets) {
   );
   return { tracks, clusters };
 }
+var entityListSpec = {
+  command: "entity list",
+  sorts: ENTITY_SORTS,
+  filters: {
+    kind: listFilter({
+      flags: "-k, --kind <kind>",
+      description: `only this kind (${Object.values(EntityKind).join(", ")})`,
+      parse: (raw) => parseEntityKind(raw),
+      clause: (kind) => ({ expr: "kind = {:k}", params: { k: kind } })
+    }),
+    search: listFilter({
+      flags: "--search <text>",
+      description: "match the entity's name, aliases, or description",
+      clause: (q) => ({
+        expr: "(name ~ {:q} || aliases ~ {:q} || description ~ {:q})",
+        params: { q }
+      })
+    })
+  },
+  columns: [
+    { header: "ID", value: (e2) => e2.id },
+    { header: "KIND", value: (e2) => String(e2.kind) },
+    { header: "NAME", value: (e2) => e2.name },
+    { header: "DESCRIPTION", value: (e2) => truncate(e2.description ?? "", 50) }
+  ],
+  hint: "`vw entity show <name|id>` shows links and appearances"
+};
+function fetchEntityPage(pb, query) {
+  return new EntityMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
+}
+var entityMediaFilter = listFilter({
+  flags: "-m, --media <id>",
+  description: "restrict to one media",
+  clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+});
+var entityAppearancesSpec = {
+  command: "entity appearances",
+  workspaceScoped: false,
+  sorts: LABEL_RANGE_SORTS,
+  filters: { media: entityMediaFilter },
+  toRows: (tracks) => tracks.map(toEntityAppearance),
+  columns: [
+    { header: "MEDIA", value: (a) => a.mediaName },
+    { header: "TYPE", value: (a) => a.labelType || "?" },
+    { header: "TRACK", value: (a) => a.track.trackId },
+    { header: "START", value: (a) => `${a.track.start.toFixed(2)}s` },
+    { header: "END", value: (a) => `${a.track.end.toFixed(2)}s` },
+    { header: "DUR", value: (a) => formatDuration(a.track.duration) },
+    { header: "VIA", value: (a) => a.via }
+  ],
+  hint: "`vw label clip <type> <labelId>` turns a label into a clip"
+};
+function fetchEntityAppearancePage(pb, entityId, query) {
+  return new LabelTrackMutator(pb).getList(
+    query.page,
+    query.perPage,
+    andFilters(trackEntityAttributionFilter(entityId), query.filter),
+    query.sort,
+    ["MediaRef.UploadRef", "LabelEntityRef"]
+  );
+}
+var entityWordsSpec = {
+  command: "entity words",
+  workspaceScoped: false,
+  sorts: LABEL_RANGE_SORTS,
+  filters: { media: entityMediaFilter },
+  columns: [
+    { header: "MEDIA", value: (u) => mediaNameOf(u) },
+    { header: "START", value: (u) => `${u.start.toFixed(2)}s` },
+    { header: "END", value: (u) => `${u.end.toFixed(2)}s` },
+    { header: "TEXT", value: (u) => truncate(u.transcript, 70) }
+  ],
+  hint: "add --text for a plain transcript"
+};
+function fetchEntityWordsPage(pb, entityId, query) {
+  return new LabelSpeakerMutator(pb).getList(
+    query.page,
+    query.perPage,
+    andFilters(entityAttributionFilter(entityId), query.filter),
+    query.sort,
+    ["MediaRef.UploadRef"]
+  );
+}
+function andFilters(scope, filter) {
+  return filter ? `(${scope}) && (${filter})` : scope;
+}
+function toEntityAppearance(track) {
+  const t2 = track;
+  const labelType = t2.expand?.LabelEntityRef?.labelType;
+  return {
+    track: t2,
+    mediaName: mediaNameOf(t2),
+    labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? "",
+    via: t2.EntityRef ? "track" : "cluster"
+  };
+}
 async function getEntityAppearances(pb, entityId, opts = {}) {
   const clauses = [trackEntityAttributionFilter(entityId)];
   if (opts.media) {
@@ -67088,54 +68149,28 @@ async function getEntityTaggedMedia(pb, entityId, limit = 100) {
   });
   return { tagged, totalItems: result.totalItems };
 }
-async function getEntityLabels(pb, entityId, opts = {}) {
-  const types = opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 100;
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const clauses = [labelAttributionFilter(type, entityId)];
-      if (opts.media) {
-        clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
-      }
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        clauses.join(" && "),
-        "MediaRef,start",
-        ["MediaRef.UploadRef", ...attributionExpands(type)]
-      );
-      return { type, result };
+var entityLabelsSpec = {
+  command: "entity labels",
+  workspaceScoped: false,
+  sorts: LABEL_LIST_SORTS,
+  filters: {
+    media: entityMediaFilter,
+    types: listFilter({
+      flags: "-t, --types <types>",
+      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null
+    }),
+    minConfidence: listFilter({
+      flags: "--min-confidence <n>",
+      description: "minimum confidence (0..1)",
+      parse: parseFloat,
+      clause: () => null
     })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  hits.sort(
-    (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef) || a.record.start - b.record.start
-  );
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
-async function getEntityWords(pb, entityId, opts = {}) {
-  const clauses = [entityAttributionFilter(entityId)];
-  if (opts.media) {
-    clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
-  }
-  const result = await new LabelSpeakerMutator(pb).getList(
-    1,
-    opts.limit ?? 200,
-    clauses.join(" && "),
-    "MediaRef,start",
-    ["MediaRef.UploadRef"]
-  );
-  return {
-    utterances: result.items,
-    totalItems: result.totalItems
-  };
-}
+  },
+  columns: hitColumns(true),
+  hint: "`vw label clip <type> <labelId>` turns a label into a clip"
+};
 function formatEntityTranscript(utterances) {
   const blocks = [];
   let currentMedia = null;
@@ -67178,21 +68213,113 @@ function mediaColumns(items) {
   }
   return columns;
 }
-async function searchMedia(pb, workspaceId, query, perPage = 50, directoryId) {
-  const search = "(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})";
-  const filter = directoryId === null ? pb.filter(`WorkspaceRef = {:ws} && DirectoryRef = "" && ${search}`, {
-    ws: workspaceId,
-    q: query
-  }) : directoryId ? pb.filter(
-    `WorkspaceRef = {:ws} && DirectoryRef = {:dir} && ${search}`,
-    { ws: workspaceId, dir: directoryId, q: query }
-  ) : pb.filter(`WorkspaceRef = {:ws} && ${search}`, {
-    ws: workspaceId,
-    q: query
-  });
-  return new MediaMutator(pb).getList(1, perPage, filter, void 0, [
-    "DirectoryRef"
-  ]);
+function parseMediaType(value) {
+  const types = Object.values(MediaType);
+  if (!types.includes(value)) {
+    throw new Error(
+      `Invalid media type "${value}". Valid types: ${types.join(", ")}`
+    );
+  }
+  return value;
+}
+var directoryFilter = (field) => listFilter({
+  flags: "-d, --directory <dir>",
+  description: 'only this directory (name or id; "/" = unfiled media at the workspace root)',
+  clause: async (ref, { pb, workspaceId }) => isRootDirRef(ref) ? { expr: `${field} = ""` } : {
+    expr: `${field} = {:dir}`,
+    params: { dir: (await resolveDirectory(pb, workspaceId, ref)).id }
+  }
+});
+var mediaSearchFilter = listFilter({
+  flags: "--search <text>",
+  description: "match the media's label, description, or source filename",
+  clause: (q) => ({
+    expr: "(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})",
+    params: { q }
+  })
+});
+var mediaListSpec = {
+  command: "media list",
+  sorts: MEDIA_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    directory: directoryFilter("DirectoryRef"),
+    type: listFilter({
+      flags: "--type <mediaType>",
+      description: `only this media type (${Object.values(MediaType).join(", ")})`,
+      parse: parseMediaType,
+      clause: (type) => ({ expr: "mediaType = {:t}", params: { t: type } })
+    }),
+    search: mediaSearchFilter
+  },
+  columns: (rows) => mediaColumns(rows),
+  hint: "`vw media show <id>` for one record with its entity tags"
+};
+function fetchMediaPage(pb, query) {
+  return new MediaMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort,
+    ["DirectoryRef", "UploadRef"]
+  );
+}
+var mediaClipListSpec = {
+  command: "media clip list",
+  sorts: MEDIA_CLIP_SORTS,
+  // Pre-pagination page size — see mediaListSpec.
+  defaultLimit: 200,
+  filters: {
+    media: listFilter({
+      flags: "-m, --media <id>",
+      description: "only clips of this source media",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+    }),
+    // A clip has no directory of its own — it follows its parent media, so the
+    // filter reaches through the relation.
+    directory: directoryFilter("MediaRef.DirectoryRef"),
+    type: listFilter({
+      flags: "--type <type>",
+      description: `only this clip type (${Object.values(ClipType).join(", ")})`,
+      parse: parseClipType,
+      clause: (type) => ({ expr: "type = {:t}", params: { t: type } })
+    }),
+    search: listFilter({
+      flags: "--search <query>",
+      description: "match the clip's label, description, or source filename",
+      clause: (q) => ({
+        expr: "(label ~ {:q} || description ~ {:q} || MediaRef.UploadRef.name ~ {:q})",
+        params: { q }
+      })
+    })
+  },
+  toRows: (clips) => clips.map((c) => ({ ...c, times: mediaClipTimes(c) })),
+  columns: [
+    { header: "ID", value: (c) => c.id },
+    { header: "LABEL", value: (c) => c.label ?? "" },
+    { header: "MEDIA", value: (c) => mediaClipMediaLabel(c) },
+    { header: "TYPE", value: (c) => String(c.type) },
+    { header: "START", value: (c) => `${c.start.toFixed(2)}s` },
+    { header: "END", value: (c) => `${c.end.toFixed(2)}s` },
+    {
+      // Effective gap-skipping length; ` ◆N` marks an N-segment composite
+      // whose START–END span is larger than it plays.
+      header: "DURATION",
+      value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`
+    }
+  ],
+  hint: "`vw media clip segments <id>` shows a composite clip\u2019s edit list"
+};
+function fetchMediaClipPage(pb, query) {
+  return new MediaClipMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort,
+    ["MediaRef.UploadRef"]
+  );
 }
 function parseClipType(value) {
   const types = Object.values(ClipType);
@@ -67865,66 +68992,6 @@ async function withConflictRetry(run, opts) {
     return result;
   }
 }
-
-// src/lib/help.ts
-var WARNINGS_HELP = `Warnings:
-  The result carries a \`warnings\` array \u2014 { level, code, message, clipIds,
-  data? } \u2014 one uniform channel for "succeeded, but not exactly as asked".
-  It is part of the --json document; warning-level entries also print as \u26A0
-  lines on stderr (notices surface as the command's detail lines instead).
-
-  Levels: \`warning\` = the outcome deviates from what was requested or is
-  irreversible; \`notice\` = the documented effect of a flag that was
-  explicitly passed, or a no-op.
-
-  Codes:
-    nudged              placed later than requested, past a collision
-    clamped             requested shift/slip reduced by bounds or neighbors
-    shifted-others      other clips displaced under an explicit --ripple
-    trimmed             --overwrite trimmed overlapping clips (reversible)
-    removed             --overwrite deleted covered clips (irreversible)
-    noop                nothing changed \u2014 no write was performed
-    stale-read          concurrent edit detected; re-planned on fresh state
-    post-write-overlap  final state has an overlap involving this op's clips
-
-  Warnings never change the exit code on their own; --strict exits 1 when
-  any warning-level entry exists.`;
-var NOOP_HELP = `No-op edits:
-  An edit that matches the stored state (same position, same field values,
-  an unchanged edit list) skips the write entirely and reports a top-level
-  \`noop: true\`, so a record's \`updated\` timestamp keeps meaning "content
-  changed".`;
-var CONFLICT_HELP = `Concurrent edits:
-  The writes are guarded: if a record this command writes changed between
-  the command's read and its write, what happens depends on what changed
-  remotely. Fields this command does not touch \u2014 the operation re-plans
-  once against the fresh state and reports a \`stale-read\` warning. The
-  same fields it patches (or \`meta\`, which is replaced whole) \u2014 it aborts
-  before writing; pass --force to re-apply this command over the fresh
-  state anyway.`;
-function editResultHelp(sections = {}) {
-  const parts = [WARNINGS_HELP];
-  if (sections.noop) parts.push(NOOP_HELP);
-  if (sections.conflict) parts.push(CONFLICT_HELP);
-  return `
-${parts.join("\n\n")}`;
-}
-var DOCTOR_HELP = `
-Checks (reported most severe first):
-  error    track-overlap (same-track overlaps are invalid),
-           dangling-media / dangling-caption (rendering will fail),
-           dangling-track (clip points at a deleted track),
-           duplicate-track-layer (two tracks share a layer number)
-  warning  stale-timeline-duration / stale-clip-duration (self-heal on the
-           next clip mutation), dangling-media-clip (provenance only),
-           nested-window-drift (persist the fix with \`timeline reflow\`),
-           micro-gap (clips nearly touching \u2014 usually unintended)
-  info     track-gap (an ordinary gap between clips)
-
-  Exits 1 when any error-level finding exists, so agents can use doctor as
-  an "am I done" gate. --json returns { timelineId, timelineName,
-  computedDuration, clipCount, trackCount, findings: [{ level, code,
-  message, clipIds, layer?, start?, end? }], errors, warnings, ok }.`;
 
 // src/commands/clip-segments.ts
 var signed3 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
@@ -68672,63 +69739,43 @@ var tagColumns = [
 ];
 function registerMediaCommands(program2) {
   const media = program2.command("media").description("Browse workspace media");
-  withJsonOption(
+  withListOptions(
     media.command("list").alias("ls").description(
-      "List media in the active workspace (all of it unless -d filters to one directory)"
-    ).option(
-      "-d, --directory <dir>",
-      'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
-    )
+      "List media in the active workspace (narrow with --search/--type/-d)"
+    ),
+    mediaListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const mutator = new MediaMutator(pb);
-      const result = opts.directory === void 0 ? await mutator.getByWorkspace(workspaceId, 1, 200, "DirectoryRef") : isRootDirRef(opts.directory) ? await mutator.getByWorkspaceRoot(
-        workspaceId,
-        1,
-        200,
-        "DirectoryRef"
-      ) : await mutator.getByDirectory(
-        (await resolveDirectory(pb, workspaceId, opts.directory)).id,
-        1,
-        200,
-        "DirectoryRef"
-      );
-      const items = result.items;
-      printList(items, mediaColumns(items), {
-        json: opts.json,
-        totalItems: result.totalItems
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb)
+      };
+      await runList({
+        spec: mediaListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchMediaPage(pb, query)
       });
     } catch (err) {
       handleError(err);
     }
   });
-  withJsonOption(
-    media.command("search <query>").alias("find").description("Search workspace media by filename, label, or description").option(
-      "-d, --directory <dir>",
-      'optional filter: only media in this directory (name or id; "/" = unfiled media at the workspace root)'
-    ).option(
-      "-n, --limit <count>",
-      "max results (default: 50)",
-      (v) => parseInt(v, 10)
-    )
+  withListOptions(
+    media.command("search <query>").alias("find").description("Search workspace media by filename, label, or description"),
+    { ...mediaListSpec, command: "media search" }
   ).action(async (query, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const directoryId = opts.directory === void 0 ? void 0 : isRootDirRef(opts.directory) ? null : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
-      const result = await searchMedia(
+      const ctx = {
         pb,
-        workspaceId,
-        query,
-        opts.limit ?? 50,
-        directoryId
-      );
-      const items = result.items;
-      printList(items, mediaColumns(items), {
-        json: opts.json,
-        totalItems: result.totalItems
+        workspaceId: await resolveWorkspaceId(pb)
+      };
+      await runList({
+        spec: { ...mediaListSpec, command: "media search" },
+        opts: { ...opts, search: opts.search ?? query },
+        ctx,
+        fetchPage: (resolved2) => fetchMediaPage(pb, resolved2)
       });
     } catch (err) {
       handleError(err);
@@ -68882,52 +69929,27 @@ function registerMediaCommands(program2) {
       handleError(err);
     }
   });
-  withJsonOption(
-    clip.command("list").alias("ls").description("List media clips in the active workspace").option("-m, --media <id>", "filter to a single source media").option("--type <type>", "filter by clip type").option(
-      "--search <query>",
-      "filter by clip label, description, type, or media filename"
-    ).option(
-      "-d, --directory <dir>",
-      'optional filter: only clips whose source media is in this directory (name or id; "/" = unfiled media)'
-    )
+  withListOptions(
+    clip.command("list").alias("ls").description("List media clips in the active workspace"),
+    mediaClipListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const mutator = new MediaClipMutator(pb);
       if (opts.media && opts.directory !== void 0) {
         throw new Error(
           "-m already pins one media (and its directory) \u2014 drop -d or -m."
         );
       }
-      const directoryId = opts.directory === void 0 ? void 0 : isRootDirRef(opts.directory) ? "root" : (await resolveDirectory(pb, workspaceId, opts.directory)).id;
-      const result = opts.media ? await mutator.getByMedia(opts.media, 1, 200) : await mutator.getByWorkspace(workspaceId, 1, 200, {
-        type: opts.type ? parseClipType(opts.type) : void 0,
-        searchQuery: opts.search,
-        directoryId
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb)
+      };
+      await runList({
+        spec: mediaClipListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchMediaClipPage(pb, query)
       });
-      const rows = result.items.map((c) => ({
-        ...c,
-        times: mediaClipTimes(c)
-      }));
-      printList(
-        rows,
-        [
-          { header: "ID", value: (c) => c.id },
-          { header: "LABEL", value: (c) => c.label ?? "" },
-          { header: "MEDIA", value: (c) => mediaClipMediaLabel(c) },
-          { header: "TYPE", value: (c) => String(c.type) },
-          { header: "START", value: (c) => `${c.start.toFixed(2)}s` },
-          { header: "END", value: (c) => `${c.end.toFixed(2)}s` },
-          {
-            // Effective gap-skipping length; ` ◆N` marks an N-segment
-            // composite whose START–END span is larger than it plays.
-            header: "DURATION",
-            value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`
-          }
-        ],
-        { json: opts.json, totalItems: result.totalItems }
-      );
     } catch (err) {
       handleError(err);
     }
@@ -68984,45 +70006,36 @@ function registerDirectoryCommands(program2) {
   const directory = program2.command("directory").alias("dir").description(
     'Optional, flat media folders (e.g. per shoot or location) \u2014 purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media\u2019s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
   );
-  withJsonOption(
-    directory.command("list").alias("ls").description("List directories in the active workspace with media counts")
+  let countsPromise;
+  const countsOnce = (pb, workspaceId) => countsPromise ??= mediaCountsByDirectory(pb, workspaceId);
+  const directoryListSpec = makeDirectoryListSpec(countsOnce);
+  withListOptions(
+    directory.command("list").alias("ls").description(
+      "List directories in the active workspace with media counts"
+    ),
+    directoryListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
-      const [result, counts] = await Promise.all([
-        listDirectories(pb, workspaceId),
-        mediaCountsByDirectory(pb, workspaceId)
-      ]);
-      const rows = result.items.map((d) => ({
-        ...d,
-        mediaCount: counts.byDirectory.get(d.id) ?? 0
-      }));
-      if (opts.json) {
-        printRecord(
-          {
-            items: rows,
-            totalItems: result.totalItems,
-            unfiledMedia: counts.root,
-            totalMedia: counts.total
-          },
-          [],
-          true
-        );
-        return;
-      }
-      const columns = [
-        { header: "ID", value: (d) => d.id },
-        { header: "NAME", value: (d) => d.name },
-        { header: "MEDIA", value: (d) => String(d.mediaCount) }
-      ];
-      printList(rows, columns, {
-        totalItems: result.totalItems,
-        hint: "vw media list -d <dir> filters, vw dir move <dir> <mediaId\u2026> files media"
+      await runList({
+        spec: directoryListSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchDirectoryPage(pb, query),
+        // Workspace-wide counts scripts have always read from this envelope —
+        // kept top-level alongside the pagination keys.
+        jsonExtras: async () => {
+          const counts = await countsOnce(pb, workspaceId);
+          return { unfiledMedia: counts.root, totalMedia: counts.total };
+        }
       });
-      info(
-        rows.length === 0 ? `Directories are optional \u2014 all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.` : `${counts.root} of ${counts.total} media are unfiled (workspace root) \u2014 vw media list -d / lists them.`
-      );
+      if (!opts.json) {
+        const counts = await countsOnce(pb, workspaceId);
+        info(
+          counts.byDirectory.size === 0 ? `Directories are optional \u2014 all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.` : `${counts.root} of ${counts.total} media are unfiled (workspace root) \u2014 vw media list -d / lists them.`
+        );
+      }
     } catch (err) {
       handleError(err);
     }
@@ -69164,60 +70177,44 @@ function registerLabelCommands(program2) {
   const label = program2.command("label").description(
     "Search and browse media labels (speech, objects, faces, \u2026) and create clips from them"
   );
-  const search = label.command("search [query]").alias("find").description(
-    "Search workspace labels by text (transcript/entity), exact id, or attributed entity"
-  ).option(
-    "--entity <nameOrId>",
-    "only labels attributed to this entity (tagged track or cluster)"
-  );
-  applyOptions(search, labelSearchOptions);
-  withJsonOption(search).action(async (query, opts) => {
+  withListOptions(
+    label.command("search [query]").alias("find").description(
+      "Search workspace labels by text (transcript/entity), exact id, or attributed entity"
+    ),
+    labelSearchSpec,
+    { merged: true }
+  ).action(async (query, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
-      const entityId = opts.entity ? (await resolveEntity(pb, workspaceId, opts.entity)).id : void 0;
-      const { hits, totalItems } = await searchLabels(pb, {
-        workspaceId,
-        query,
-        entityId,
-        ...pickOptions(opts, labelSearchOptions)
-      });
-      printList(hits, hitColumns(true), {
-        json: opts.json,
-        totalItems,
-        hint: "vw label show <type> <id> shows one record, vw label clip <type> <id> creates a clip"
+      const merged = { ...opts, search: opts.search ?? query };
+      const entityId = merged.entity ? (await resolveEntity(pb, workspaceId, merged.entity)).id : void 0;
+      const types = resolveLabelTypes(merged);
+      await runMergedList({
+        spec: labelSearchSpec,
+        opts: merged,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
+        narrowWith: "-t <type>, -m <mediaId>",
+        sources: (resolved2) => labelMergeSources(pb, {
+          types,
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
+          perType: labelPerTypeClauses(pb, { ...merged, entityId }),
+          expand: ["MediaRef.UploadRef"]
+        })
       });
     } catch (err) {
       handleError(err);
     }
   });
-  const list = label.command("list").alias("ls").description("List labels for one media").option("-m, --media <id>", "source media id").option(
-    "-t, --types <types>",
-    "comma-separated label types (default: all)",
-    parseLabelTypes
-  ).option(
-    "--entity <nameOrId>",
-    "only labels attributed to this entity (tagged track or cluster)"
-  ).option(
-    "-n, --limit <count>",
-    "max results per label type (default: 100)",
-    (v) => parseInt(v, 10)
-  ).option(
-    "--from <seconds>",
-    "only labels overlapping at/after this source time",
-    parseSeconds
-  ).option(
-    "--to <seconds>",
-    "only labels overlapping before this source time",
-    parseSeconds
-  ).option(
-    "--clip <mediaClipId>",
-    "filter to a MediaClip's played edit list (labels inside cut gaps hidden)"
-  ).option(
-    "--timeline-clip <id>",
-    "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)"
-  );
-  withJsonOption(list).action(async (opts) => {
+  withListOptions(
+    label.command("list").alias("ls").description("List labels for one media"),
+    labelListSpec,
+    { merged: true }
+  ).action(async (opts) => {
     try {
       const pb = await requireClient();
       if (opts.clip && opts.timelineClip) {
@@ -69230,67 +70227,53 @@ function registerLabelCommands(program2) {
         );
       }
       let editList;
-      let mediaId = opts.media;
-      let window2;
+      const scope = {};
       if (clipScoped) {
         editList = await clipEditListFilter(pb, {
           clip: opts.clip,
           timelineClip: opts.timelineClip
         });
-        if (mediaId && mediaId !== editList.mediaId) {
+        if (opts.media && opts.media !== editList.mediaId) {
           throw new Error(
-            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${mediaId} \u2014 drop -m.`
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${opts.media} \u2014 drop -m.`
           );
         }
-        mediaId = editList.mediaId;
-        window2 = {
-          start: Math.min(...editList.segments.map((s2) => s2.start)),
-          end: Math.max(...editList.segments.map((s2) => s2.end))
-        };
-      } else if (opts.from !== void 0 || opts.to !== void 0) {
-        window2 = { start: opts.from, end: opts.to };
+        scope.media = editList.mediaId;
+        scope.from = Math.min(...editList.segments.map((s2) => s2.start));
+        scope.to = Math.max(...editList.segments.map((s2) => s2.end));
       }
+      const merged = { ...opts, ...scope };
       const workspaceId = await resolveWorkspaceId(pb);
-      if (!mediaId) {
-        mediaId = (await pickMedia(pb, workspaceId)).id;
-      }
-      const entityId = opts.entity ? (await resolveEntity(pb, workspaceId, opts.entity)).id : void 0;
-      const { hits, totalItems } = await listLabels(pb, {
-        mediaId,
-        types: opts.types,
-        entityId,
-        limit: opts.limit,
-        ...window2 ? { window: window2 } : {}
-      });
-      let shown = hits;
-      let hidden = 0;
-      if (editList) {
-        shown = hits.filter(
-          (h) => overlapsSegments(h.record.start, h.record.end, editList.segments)
-        );
-        hidden = hits.length - shown.length;
-      }
-      if (opts.json && editList) {
-        printRecord(
-          {
-            items: shown,
-            totalItems,
-            editList: { segments: editList.segments, source: editList.source },
+      const entityId = merged.entity ? (await resolveEntity(pb, workspaceId, merged.entity)).id : void 0;
+      const types = resolveLabelTypes(merged);
+      const segments = editList?.segments;
+      await runMergedList({
+        spec: labelListSpec,
+        opts: merged,
+        ctx: { pb, workspaceId },
+        // The resolved sort drives both the per-source server sort and this
+        // comparator, so they cannot drift apart.
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
+        narrowWith: "-t <type>",
+        // Edit-list scope means "what plays": the server window is the outer
+        // span, so labels landing entirely in a cut gap can only go here.
+        refine: segments && {
+          filter: (hits) => hits.filter(
+            (h) => overlapsSegments(h.record.start, h.record.end, segments)
+          ),
+          extras: (hidden) => ({
+            editList: { segments, source: editList.source },
             hiddenInCutGaps: hidden
-          },
-          [],
-          true
-        );
-        return;
-      }
-      printList(shown, hitColumns(false), {
-        json: opts.json,
-        totalItems,
-        hint: "vw label show <type> <id> shows one record"
+          }),
+          note: (hidden) => `(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`
+        },
+        sources: (resolved2) => labelMergeSources(pb, {
+          types,
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
+          perType: labelPerTypeClauses(pb, { ...merged, entityId })
+        })
       });
-      if (!opts.json && hidden > 0) {
-        info(`(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`);
-      }
     } catch (err) {
       handleError(err);
     }
@@ -69429,12 +70412,6 @@ var taggedMediaColumns = [
   { header: "TYPE", value: (t2) => t2.mediaType },
   { header: "DURATION", value: (t2) => formatDuration(t2.duration) }
 ];
-var utteranceColumns = [
-  { header: "MEDIA", value: (u) => mediaNameOf(u) },
-  { header: "START", value: (u) => `${u.start.toFixed(2)}s` },
-  { header: "END", value: (u) => `${u.end.toFixed(2)}s` },
-  { header: "TEXT", value: (u) => truncate(u.transcript, 70) }
-];
 function registerEntityCommands(program2) {
   const entity = program2.command("entity").description(
     "Real-world entities (people, products, places, things) \u2014 create them, link label tracks/clusters, and query appearances and spoken words across media"
@@ -69472,35 +70449,24 @@ function registerEntityCommands(program2) {
       handleError(err);
     }
   });
-  const list = entity.command("list [query]").alias("ls").description("List (or fuzzy-search) the workspace's entities").option(
-    "-k, --kind <kind>",
-    `only this kind (${Object.values(EntityKind).join(", ")})`,
-    parseEntityKind
-  );
-  withJsonOption(list).action(async (query, opts) => {
+  withListOptions(
+    entity.command("list [query]").alias("ls").description("List (or fuzzy-search) the workspace's entities"),
+    entityListSpec
+  ).action(async (query, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const mutator = new EntityMutator(pb);
-      const result = query ? await mutator.search(workspaceId, query) : await mutator.getByWorkspace(workspaceId, opts.kind);
-      const items = opts.kind ? result.items.filter((e2) => e2.kind === opts.kind) : result.items;
-      printList(
-        items,
-        [
-          { header: "ID", value: (e2) => e2.id },
-          { header: "KIND", value: (e2) => String(e2.kind) },
-          { header: "NAME", value: (e2) => e2.name },
-          {
-            header: "DESCRIPTION",
-            value: (e2) => truncate(e2.description ?? "", 50)
-          }
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: "vw entity show <name|id> shows links and appearances"
-        }
-      );
+      const ctx = {
+        pb,
+        workspaceId: await resolveWorkspaceId(pb)
+      };
+      await runList({
+        spec: entityListSpec,
+        // The positional query is the --search filter, so both forms compose
+        // with --kind and page identically.
+        opts: { ...opts, search: opts.search ?? query },
+        ctx,
+        fetchPage: (resolved2) => fetchEntityPage(pb, resolved2)
+      });
     } catch (err) {
       handleError(err);
     }
@@ -69513,18 +70479,18 @@ function registerEntityCommands(program2) {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const { appearances: appearances2, totalItems } = await getEntityAppearances(
+      const { appearances, totalItems } = await getEntityAppearances(
         pb,
         found.id,
         { limit: 20 }
       );
-      const media = distinctMedia(appearances2.map((a) => a.track));
+      const media = distinctMedia(appearances.map((a) => a.track));
       const taggedMedia = await getEntityTaggedMedia(pb, found.id, 20);
       if (opts.json) {
         printRecord(
           {
             ...found,
-            appearances: appearances2,
+            appearances,
             totalItems,
             taggedMedia: taggedMedia.tagged,
             taggedMediaTotal: taggedMedia.totalItems
@@ -69542,7 +70508,7 @@ function registerEntityCommands(program2) {
       info(
         `appears in ${media.length} media via ${totalItems} linked track(s)`
       );
-      printList(appearances2, appearanceColumns, {
+      printList(appearances, appearanceColumns, {
         totalItems,
         hint: "vw entity words/appearances <name|id> queries across all media"
       });
@@ -69600,85 +70566,89 @@ function registerEntityCommands(program2) {
       handleError(err);
     }
   });
-  const words = entity.command("words <nameOrId>").description(
-    "Everything the entity said across media (diarized speaker labels)"
-  ).option("-m, --media <id>", "restrict to one media").option("--text", "print a plain transcript instead of a table").option(
-    "-n, --limit <count>",
-    "max utterances (default: 200)",
-    (v) => parseInt(v, 10)
-  );
-  withJsonOption(words).action(async (nameOrId, opts) => {
+  withListOptions(
+    entity.command("words <nameOrId>").description(
+      "Everything the entity said across media (diarized speaker labels)"
+    ).option("--text", "print a plain transcript instead of a table"),
+    entityWordsSpec
+  ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const { utterances, totalItems } = await getEntityWords(pb, found.id, {
-        media: opts.media,
-        limit: opts.limit
-      });
       if (opts.text) {
+        const utterances = await fetchAll(
+          (page) => fetchEntityWordsPage(pb, found.id, {
+            page,
+            perPage: 200,
+            filter: opts.media ? pb.filter("MediaRef = {:m}", { m: opts.media }) : "",
+            // The id tiebreak matters here like everywhere labels page:
+            // aligned words share MediaRef+start, and a non-total order can
+            // duplicate or drop rows at an OFFSET page boundary.
+            sort: "MediaRef,start,id"
+          })
+        );
         info(formatEntityTranscript(utterances));
         return;
       }
-      printList(utterances, utteranceColumns, {
-        json: opts.json,
-        totalItems,
-        hint: "add --text for a plain transcript"
+      await runList({
+        spec: entityWordsSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchEntityWordsPage(pb, found.id, query)
       });
     } catch (err) {
       handleError(err);
     }
   });
-  const labels = entity.command("labels <nameOrId>").description(
-    "Every label attributed to the entity across media, all label types (tagged tracks and clusters)"
-  ).option("-m, --media <id>", "restrict to one media").option(
-    "-t, --types <types>",
-    "comma-separated label types (default: all)",
-    parseLabelTypes
-  ).option(
-    "-n, --limit <count>",
-    "max rows per label type (default: 100)",
-    (v) => parseInt(v, 10)
-  );
-  withJsonOption(labels).action(async (nameOrId, opts) => {
+  withListOptions(
+    entity.command("labels <nameOrId>").description(
+      "Every label attributed to the entity across media, all label types (tagged tracks and clusters)"
+    ),
+    entityLabelsSpec,
+    { merged: true }
+  ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const { hits, totalItems } = await getEntityLabels(pb, found.id, {
-        types: opts.types,
-        media: opts.media,
-        limit: opts.limit
-      });
-      printList(hits, hitColumns(true), {
-        json: opts.json,
-        totalItems,
-        hint: "vw label clip <type> <labelId> turns a label into a clip"
+      const types = resolveLabelTypes(opts);
+      await runMergedList({
+        spec: entityLabelsSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
+        narrowWith: "-t <type>, -m <mediaId>",
+        sources: (resolved2) => labelMergeSources(pb, {
+          types,
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
+          perType: labelPerTypeClauses(pb, {
+            ...opts,
+            entityId: found.id
+          }),
+          expand: ["MediaRef.UploadRef"]
+        })
       });
     } catch (err) {
       handleError(err);
     }
   });
-  const appearances = entity.command("appearances <nameOrId>").description(
-    "When the entity is on screen / speaking, per media (linked track ranges)"
-  ).option("-m, --media <id>", "restrict to one media").option(
-    "-n, --limit <count>",
-    "max tracks (default: 100)",
-    (v) => parseInt(v, 10)
-  );
-  withJsonOption(appearances).action(async (nameOrId, opts) => {
+  withListOptions(
+    entity.command("appearances <nameOrId>").description(
+      "When the entity is on screen / speaking, per media (linked track ranges)"
+    ),
+    entityAppearancesSpec
+  ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
       const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
-      const result = await getEntityAppearances(pb, found.id, {
-        media: opts.media,
-        limit: opts.limit
-      });
-      printList(result.appearances, appearanceColumns, {
-        json: opts.json,
-        totalItems: result.totalItems,
-        hint: "vw label clip <type> <labelId> turns a label into a clip"
+      await runList({
+        spec: entityAppearancesSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchEntityAppearancePage(pb, found.id, query)
       });
     } catch (err) {
       handleError(err);
@@ -69695,6 +70665,61 @@ function captionLabel(caption) {
 function captionTypeOf(caption) {
   const raw = Array.isArray(caption.captionType) ? caption.captionType[0] : caption.captionType;
   return raw;
+}
+var captionListSpec = {
+  command: "caption list",
+  sorts: CAPTION_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  baseFilter: (opts) => opts.includeTranscripts || opts.media ? null : { expr: 'MediaRef = ""' },
+  filters: {
+    includeTranscripts: listFilter({
+      flags: "--include-transcripts",
+      description: "also list media-attached transcript captions (ad-hoc only by default)",
+      clause: () => null
+    }),
+    media: listFilter({
+      flags: "--media <id>",
+      description: "only captions attached to this media (implies --include-transcripts)",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+    }),
+    type: listFilter({
+      flags: "--type <type>",
+      description: `only this caption type (${Object.values(CaptionType).join(", ")})`,
+      parse: (raw) => parseCaptionType(raw),
+      clause: (type) => ({ expr: "captionType = {:t}", params: { t: type } })
+    }),
+    search: listFilter({
+      flags: "--search <text>",
+      description: "match the caption's name or text",
+      clause: (q) => ({
+        expr: "(name ~ {:q} || text ~ {:q})",
+        params: { q }
+      })
+    })
+  },
+  columns: [
+    { header: "ID", value: (c) => c.id },
+    { header: "TYPE", value: (c) => captionTypeOf(c) },
+    { header: "NAME", value: (c) => truncate(c.name ?? "", 24) },
+    { header: "TEXT", value: (c) => truncate(c.text ?? "", 40) },
+    { header: "DUR", value: (c) => `${c.duration.toFixed(2)}s` },
+    {
+      header: "CUES",
+      value: (c) => String((c.cues ?? []).length || "\u2014")
+    },
+    { header: "MEDIA", value: (c) => c.MediaRef ?? "" }
+  ],
+  hint: "`vw timeline insert --caption <id>` places one on a track"
+};
+function fetchCaptionPage(pb, query) {
+  return new CaptionMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
 }
 function parseCaptionType(value) {
   const values = Object.values(CaptionType);
@@ -69907,18 +70932,6 @@ async function deleteCaption(pb, captionId, opts = {}) {
 
 // src/commands/caption.ts
 var secs4 = (v) => `${v.toFixed(2)}s`;
-var captionColumns = [
-  { header: "ID", value: (c) => c.id },
-  { header: "TYPE", value: (c) => captionTypeOf(c) },
-  { header: "NAME", value: (c) => truncate(c.name ?? "", 24) },
-  { header: "TEXT", value: (c) => truncate(c.text ?? "", 40) },
-  { header: "DUR", value: (c) => secs4(c.duration) },
-  {
-    header: "CUES",
-    value: (c) => String((c.cues ?? []).length || "\u2014")
-  },
-  { header: "MEDIA", value: (c) => c.MediaRef ?? "" }
-];
 function registerCaptionCommands(program2) {
   const caption = program2.command("caption").alias("cap").description("Create and manage captions and title cards");
   const create = caption.command("create").description("Create a caption (subtitle) or a title card").option(
@@ -69956,25 +70969,18 @@ function registerCaptionCommands(program2) {
       handleError(err);
     }
   });
-  withJsonOption(
-    caption.command("list").alias("ls").description("List captions in the active workspace").option(
-      "--all",
-      "include media-attached transcript captions (default: ad-hoc only)"
-    )
+  withListOptions(
+    caption.command("list").alias("ls").description("List captions in the active workspace"),
+    captionListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const result = await new CaptionMutator(pb).getByWorkspace(
-        workspaceId,
-        !opts.all,
-        1,
-        200
-      );
-      printList(result.items, captionColumns, {
-        json: opts.json,
-        totalItems: result.totalItems,
-        hint: "`vw timeline insert --caption <id>` places one on a track"
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
+      await runList({
+        spec: captionListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchCaptionPage(pb, query)
       });
     } catch (err) {
       handleError(err);
@@ -70550,6 +71556,33 @@ function trackFlags(row) {
   ].filter(Boolean);
   return flags.join(",");
 }
+var timelineTrackListSpec = {
+  command: "timeline track list",
+  workspaceScoped: false,
+  unpaged: true,
+  required: ["timeline"],
+  filters: {
+    timeline: listFilter({
+      flags: "-t, --timeline <id>",
+      description: "the timeline whose tracks to list",
+      clause: () => null,
+      // Resolved lazily: the picker only runs when -t is missing on a TTY, so
+      // a scripted `-t <id>` call never needs an active workspace at all.
+      pick: async ({ pb }) => (await pickTimeline(pb, await resolveWorkspaceId(pb))).id
+    })
+  },
+  columns: [
+    { header: "ID", value: (r2) => r2.track.id },
+    { header: "LAYER", value: (r2) => String(r2.track.layer) },
+    { header: "NAME", value: (r2) => r2.track.name ?? "" },
+    { header: "LABEL", value: (r2) => truncate(r2.track.label ?? "", 30) },
+    { header: "VOL", value: (r2) => r2.track.volume.toFixed(2) },
+    { header: "OPACITY", value: (r2) => r2.track.opacity.toFixed(2) },
+    { header: "FLAGS", value: (r2) => trackFlags(r2) },
+    { header: "CLIPS", value: (r2) => String(r2.clipCount) }
+  ],
+  hint: "address tracks by layer number or id"
+};
 function registerTimelineTrackCommands(timeline) {
   const track = timeline.command("track").description("Manage timeline tracks (layers with volume/opacity)");
   const create = track.command("create").description("Create a track on the next layer up").requiredOption("-t, --timeline <id>", "timeline id").option("--muted", "create the track muted").option("--locked", "create the track locked");
@@ -70575,30 +71608,25 @@ function registerTimelineTrackCommands(timeline) {
       }
     }
   );
-  withJsonOption(
-    track.command("list").alias("ls").description("List a timeline's tracks (layer ascending)").requiredOption("-t, --timeline <id>", "timeline id")
+  withListOptions(
+    track.command("list").alias("ls").description("List a timeline's tracks (layer ascending)"),
+    timelineTrackListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const result = await listTracks(pb, opts.timeline);
-      printList(
-        result.items,
-        [
-          { header: "ID", value: (r2) => r2.track.id },
-          { header: "LAYER", value: (r2) => String(r2.track.layer) },
-          { header: "NAME", value: (r2) => r2.track.name ?? "" },
-          { header: "LABEL", value: (r2) => truncate(r2.track.label ?? "", 30) },
-          { header: "VOL", value: (r2) => r2.track.volume.toFixed(2) },
-          { header: "OPACITY", value: (r2) => r2.track.opacity.toFixed(2) },
-          { header: "FLAGS", value: (r2) => trackFlags(r2) },
-          { header: "CLIPS", value: (r2) => String(r2.clipCount) }
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: "address tracks by layer number or id"
+      await runList({
+        spec: timelineTrackListSpec,
+        opts,
+        ctx: { pb },
+        // `query.values.timeline`, not `opts.timeline`: when the timeline came
+        // from the interactive picker it exists only on the resolved query.
+        // Rows are derived whole (CLIPS counts need the full timeline), then
+        // `--limit`/`--page` window that view like `timeline clips list`.
+        fetchPage: async (query) => {
+          const result = await listTracks(pb, query.values.timeline);
+          return windowItems(result.items, query);
         }
-      );
+      });
     } catch (err) {
       handleError(err);
     }
@@ -70666,50 +71694,89 @@ function registerTimelineTrackCommands(timeline) {
 }
 
 // src/commands/timeline-clips.ts
+async function fetchTimelineClipRows(pb, opts) {
+  const overview = await getTimelineOverview(pb, opts.timelineId);
+  await assertWorkspaceMatch(
+    pb,
+    overview.timeline.WorkspaceRef,
+    `Timeline ${opts.timelineId}`
+  );
+  let tracks = overview.tracks;
+  if (opts.track) {
+    const target = await resolveTrackRef(pb, opts.timelineId, opts.track);
+    tracks = tracks.filter((t2) => t2.track?.id === target.id);
+  }
+  const rows = tracks.flatMap(
+    (t2) => t2.clips.map((c) => ({ ...c, layer: t2.layer }))
+  );
+  return windowItems(rows, opts);
+}
+var timelineClipListSpec = {
+  command: "timeline clips list",
+  workspaceScoped: false,
+  unpaged: true,
+  required: ["timeline"],
+  filters: {
+    timeline: listFilter({
+      flags: "-t, --timeline <id>",
+      description: "the timeline whose clips to list",
+      clause: () => null,
+      // Resolved lazily: the picker only runs when -t is missing on a TTY, so
+      // a scripted `-t <id>` call never needs an active workspace at all.
+      pick: async ({ pb }) => (await pickTimeline(pb, await resolveWorkspaceId(pb))).id
+    }),
+    track: listFilter({
+      flags: "--track <layer|id>",
+      description: "restrict to one track (layer number or record id)",
+      clause: () => null
+    })
+  },
+  columns: [
+    { header: "ID", value: (r2) => r2.clip.id },
+    { header: "TRACK", value: (r2) => String(r2.layer) },
+    { header: "ORDER", value: (r2) => String(r2.clip.order) },
+    {
+      header: "TIMELINE",
+      value: (r2) => range(r2.timelineStart, r2.timelineEnd)
+    },
+    {
+      // Outer source span; ` ◆N` marks a composite (DUR is effective).
+      header: "SOURCE",
+      value: (r2) => range(r2.clip.start, r2.clip.end) + compositeMarker(r2.times)
+    },
+    {
+      header: "DUR",
+      value: (r2) => secs(r2.timelineEnd - r2.timelineStart)
+    },
+    { header: "KIND", value: (r2) => r2.kind },
+    { header: "LABEL", value: (r2) => truncate(r2.labelHint, 40) }
+  ],
+  hint: "`vw timeline clips show <id>` for one clip"
+};
 function registerTimelineClipCommands(timeline) {
   const clips = timeline.command("clips").description("List and edit the clips placed on a timeline");
-  withJsonOption(
-    clips.command("list").alias("ls").description("List a timeline's clips with computed positions").requiredOption("-t, --timeline <id>", "timeline id").option("--track <layer|id>", "restrict to one track")
+  withListOptions(
+    clips.command("list").alias("ls").description("List a timeline's clips with computed positions"),
+    timelineClipListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const overview = await getTimelineOverview(pb, opts.timeline);
-      let tracks = overview.tracks;
-      if (opts.track) {
-        const target = await resolveTrackRef(pb, opts.timeline, opts.track);
-        tracks = tracks.filter((t2) => t2.track?.id === target.id);
-      }
-      const rows = tracks.flatMap(
-        (t2) => t2.clips.map((c) => ({ ...c, layer: t2.layer }))
-      );
-      printList(
-        rows,
-        [
-          { header: "ID", value: (r2) => r2.clip.id },
-          { header: "TRACK", value: (r2) => String(r2.layer) },
-          { header: "ORDER", value: (r2) => String(r2.clip.order) },
-          {
-            header: "TIMELINE",
-            value: (r2) => range(r2.timelineStart, r2.timelineEnd)
-          },
-          {
-            // Outer source span; ` ◆N` marks a composite (DUR is effective).
-            header: "SOURCE",
-            value: (r2) => range(r2.clip.start, r2.clip.end) + compositeMarker(r2.times)
-          },
-          {
-            header: "DUR",
-            value: (r2) => secs(r2.timelineEnd - r2.timelineStart)
-          },
-          { header: "KIND", value: (r2) => r2.kind },
-          { header: "LABEL", value: (r2) => truncate(r2.labelHint, 40) }
-        ],
-        {
-          json: opts.json,
-          totalItems: rows.length,
-          hint: "`vw timeline clips show <id>` for one clip"
-        }
-      );
+      await runList({
+        spec: timelineClipListSpec,
+        opts,
+        // `-w` is validated against the timeline's own workspace (in
+        // fetchTimelineClipRows), not used as a filter, so it stays out of ctx.
+        ctx: { pb },
+        // `query.values`, not `opts`: a timeline resolved through the
+        // interactive picker exists only on the resolved query.
+        fetchPage: (query) => fetchTimelineClipRows(pb, {
+          timelineId: query.values.timeline,
+          track: query.values.track,
+          page: query.page,
+          perPage: query.perPage,
+          all: query.all
+        })
+      });
     } catch (err) {
       handleError(err);
     }
@@ -71202,32 +72269,19 @@ function printLabelDetail(detail) {
 }
 function registerTimelineCommands(program2) {
   const timeline = program2.command("timeline").alias("tl").description("Work with timelines");
-  withJsonOption(
-    timeline.command("list").alias("ls").description("List timelines in the active workspace")
+  withListOptions(
+    timeline.command("list").alias("ls").description("List timelines in the active workspace"),
+    timelineListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb);
-      const result = await new TimelineMutator(pb).getByWorkspace(
-        workspaceId,
-        1,
-        200
-      );
-      printList(
-        result.items,
-        [
-          { header: "ID", value: (t2) => t2.id },
-          { header: "NAME", value: (t2) => t2.name },
-          { header: "LABEL", value: (t2) => truncate(t2.label ?? "", 30) },
-          { header: "DURATION", value: (t2) => formatDuration(t2.duration) },
-          { header: "VERSION", value: (t2) => String(t2.version ?? 1) }
-        ],
-        {
-          json: opts.json,
-          totalItems: result.totalItems,
-          hint: "`vw timeline show <id>` for tracks and clips"
-        }
-      );
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
+      await runList({
+        spec: timelineListSpec,
+        opts,
+        ctx,
+        fetchPage: (query) => fetchTimelinePage(pb, query)
+      });
     } catch (err) {
       handleError(err);
     }

@@ -18,6 +18,12 @@ import {
 import { loadConfig } from './config.js';
 import { resetUploadConnections, uploadFetch } from './http.js';
 import { resolveUrl } from './pocketbase.js';
+import {
+  UPLOAD_SORTS,
+  fetchAll,
+  listFilter,
+  type ListSpec,
+} from './list/index.js';
 
 export { chunkPlan, type ChunkSpec } from '@project/shared';
 
@@ -83,54 +89,139 @@ export function parseUploadStatus(value: string): UploadStatus {
   return value as UploadStatus;
 }
 
-export interface ListUploadsOptions {
-  /** Only uploads in this status. */
-  status?: UploadStatus;
-  /** Max rows (default 200). */
-  limit?: number;
-}
-
 /**
- * List a workspace's uploads, newest first (the mutator's default sort),
- * optionally filtered by status. Each row carries the original file name in
- * `name` — the whole point of the listing, since the derived Media's own name
- * can be relabelled while the upload keeps the name the file was uploaded as.
+ * `upload list` — the workspace's uploads by the file name each was uploaded
+ * as, which is the point of the listing: a derived Media can be relabelled
+ * while its upload keeps the original filename.
  */
-export async function listUploads(
+export const uploadListSpec: ListSpec<Upload, UploadRow> = {
+  command: 'upload list',
+  sorts: UPLOAD_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  filters: {
+    status: listFilter({
+      flags: '--status <status>',
+      description: `only uploads in this status (${Object.values(UploadStatus).join(', ')})`,
+      parse: parseUploadStatus,
+      clause: (status) => ({
+        expr: 'status = {:status}',
+        params: { status },
+      }),
+    }),
+    search: listFilter({
+      flags: '--search <text>',
+      description: 'match the uploaded file name',
+      clause: (q) => ({ expr: 'name ~ {:q}', params: { q } }),
+    }),
+  },
+  // Resolved per page rather than workspace-wide, so `mediaId` is also carried
+  // in --json (an agent can go straight from an upload to its media) without
+  // the previous version's silent "not yet ingested" for large workspaces.
+  toRows: (uploads, { pb }) => attachUploadMedia(pb, uploads),
+  columns: [
+    { header: 'ID', value: (u) => u.id },
+    { header: 'NAME', value: (u) => u.name },
+    { header: 'STATUS', value: (u) => String(u.status) },
+    { header: 'SIZE', value: (u) => formatBytes(u.size) },
+    { header: 'MEDIA', value: (u) => u.mediaId ?? '—' },
+  ],
+  hint: 'pass an id to `vw upload replace`',
+};
+
+/** An upload row with the id of the Media ingested from it, when there is one. */
+export type UploadRow = Upload & { mediaId?: string };
+
+/** Fetch one page of uploads for `uploadListSpec`. */
+export function fetchUploadPage(
   pb: TypedPocketBase,
-  workspaceId: string,
-  opts: ListUploadsOptions = {}
+  query: { page: number; perPage: number; filter: string; sort: string }
 ): Promise<ListResult<Upload>> {
-  const perPage = opts.limit ?? 200;
-  const filter = opts.status
-    ? pb.filter('WorkspaceRef = {:ws} && status = {:status}', {
-        ws: workspaceId,
-        status: opts.status,
-      })
-    : pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId });
-  return new UploadMutator(pb).getList(1, perPage, filter);
+  return new UploadMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
 }
 
 /**
- * Map each source-Upload id in a workspace to the Media ingested from it, when
- * one exists. Media are 1:1 with their source upload, so a single query lets
- * the upload listing show whether an upload finished ingesting without an N+1
- * lookup. Bounded by `perPage`: uploads whose media falls outside that page
- * read as not-yet-ingested, so keep the bound comfortably above the workspace's
- * media count.
+ * Attach each upload's derived Media id, for the listing's MEDIA column.
+ *
+ * Media are 1:1 with their source upload, so one query over the page's upload
+ * ids resolves the whole column without an N+1 walk — and, unlike the previous
+ * workspace-wide fetch, it cannot silently read "not yet ingested" for a
+ * workspace with more media than the query bound.
+ */
+export async function attachUploadMedia(
+  pb: TypedPocketBase,
+  uploads: Upload[]
+): Promise<UploadRow[]> {
+  if (uploads.length === 0) return [];
+  const byUpload = await mediaByUploadIds(
+    pb,
+    uploads.map((upload) => upload.id)
+  );
+  return uploads.map((upload) => {
+    const media = byUpload.get(upload.id);
+    return media ? { ...upload, mediaId: media.id } : upload;
+  });
+}
+
+/**
+ * Ids per list request — keeps the `UploadRef = ... || ...` filter proxy-safe,
+ * matching `MEDIA_IDS_PER_REQUEST` in shared/src/mutators/media-entities.ts:
+ * a page can hold up to `MAX_LIST_LIMIT` (500) uploads, and a single OR filter
+ * over that many ids would outgrow the query-string limits of proxies sitting
+ * in front of PocketBase.
+ */
+const UPLOAD_IDS_PER_REQUEST = 100;
+
+/** Map the given upload ids to the Media ingested from each, where one exists. */
+export async function mediaByUploadIds(
+  pb: TypedPocketBase,
+  uploadIds: readonly string[]
+): Promise<Map<string, Media>> {
+  const map = new Map<string, Media>();
+  if (uploadIds.length === 0) return map;
+  const chunks: string[][] = [];
+  for (let i = 0; i < uploadIds.length; i += UPLOAD_IDS_PER_REQUEST) {
+    chunks.push([...uploadIds.slice(i, i + UPLOAD_IDS_PER_REQUEST)]);
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAll((page) =>
+        new MediaMutator(pb).getList(
+          page,
+          200,
+          chunk
+            .map((id) => pb.filter('UploadRef = {:u}', { u: id }))
+            .join(' || ')
+        )
+      )
+    )
+  );
+  for (const media of results.flat()) {
+    if (media.UploadRef) map.set(media.UploadRef, media);
+  }
+  return map;
+}
+
+/**
+ * Map every source-Upload id in a workspace to the Media ingested from it.
+ * Walks all pages, so the mapping is complete regardless of workspace size.
  */
 export async function mediaByUpload(
   pb: TypedPocketBase,
   workspaceId: string,
   perPage = 500
 ): Promise<Map<string, Media>> {
-  const result = await new MediaMutator(pb).getByWorkspace(
-    workspaceId,
-    1,
-    perPage
+  const items = await fetchAll((page) =>
+    new MediaMutator(pb).getByWorkspace(workspaceId, page, perPage)
   );
   const map = new Map<string, Media>();
-  for (const media of result.items) {
+  for (const media of items) {
     if (media.UploadRef) map.set(media.UploadRef, media);
   }
   return map;

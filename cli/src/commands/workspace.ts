@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { WorkspaceMutator } from '@project/shared';
+import { WorkspaceMutator, type Workspace } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { loadConfig, updateConfig } from '../lib/config.js';
 import { pickWorkspace, resolveWorkspaceId } from '../lib/select.js';
@@ -9,8 +9,47 @@ import {
   workspaceOverride,
 } from '../lib/workspace-option.js';
 import { withJsonOption } from '../lib/options.js';
-import { info, printList, printRecord, success } from '../lib/output.js';
+import { info, printRecord, success } from '../lib/output.js';
 import { exportWorkspace } from '../lib/export.js';
+import {
+  WORKSPACE_SORTS,
+  listFilter,
+  runList,
+  withListOptions,
+  type ListSpec,
+} from '../lib/list/index.js';
+
+/**
+ * `workspace list`. Not workspace-scoped (it *is* the workspace list), and the
+ * active workspace is marked with `*` from the local config.
+ */
+const workspaceListSpec: ListSpec<Workspace> = {
+  command: 'workspace list',
+  workspaceScoped: false,
+  sorts: WORKSPACE_SORTS,
+  filters: {
+    search: listFilter({
+      flags: '--search <text>',
+      description: 'match the workspace name or slug',
+      clause: (q) => ({
+        expr: '(name ~ {:q} || slug ~ {:q})',
+        params: { q },
+      }),
+    }),
+  },
+  // A function so the config file is read once per render, not once per row
+  // (`loadConfig` is a synchronous disk read).
+  columns: () => {
+    const activeId = loadConfig().workspaceId;
+    return [
+      { header: ' ', value: (w) => (w.id === activeId ? '*' : '') },
+      { header: 'ID', value: (w) => w.id },
+      { header: 'NAME', value: (w) => w.name },
+      { header: 'SLUG', value: (w) => w.slug ?? '' },
+    ];
+  },
+  hint: '`vw workspace use <id>` switches the active workspace',
+};
 
 export function registerWorkspaceCommands(program: Command): void {
   const ws = program
@@ -18,23 +57,24 @@ export function registerWorkspaceCommands(program: Command): void {
     .alias('ws')
     .description('Manage the active workspace');
 
-  withJsonOption(
-    ws.command('list').alias('ls').description('List workspaces')
+  withListOptions(
+    ws.command('list').alias('ls').description('List workspaces'),
+    workspaceListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const result = await new WorkspaceMutator(pb).getList(1, 100);
-      const active = loadConfig().workspaceId;
-      printList(
-        result.items,
-        [
-          { header: ' ', value: (w) => (w.id === active ? '*' : '') },
-          { header: 'ID', value: (w) => w.id },
-          { header: 'NAME', value: (w) => w.name },
-          { header: 'SLUG', value: (w) => w.slug ?? '' },
-        ],
-        { json: opts.json, totalItems: result.totalItems }
-      );
+      await runList({
+        spec: workspaceListSpec,
+        opts,
+        ctx: { pb },
+        fetchPage: (query) =>
+          new WorkspaceMutator(pb).getList(
+            query.page,
+            query.perPage,
+            query.filter,
+            query.sort
+          ),
+      });
     } catch (err) {
       handleError(err);
     }

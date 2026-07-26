@@ -14,11 +14,14 @@ import {
   type CaptionUpdate,
   type TypedPocketBase,
 } from '@project/shared';
+import type { ListResult } from 'pocketbase';
 import {
   parseSeconds,
   parseUnitInterval,
   type OptionGroupOf,
 } from './options.js';
+import { truncate } from './output.js';
+import { CAPTION_SORTS, listFilter, type ListSpec } from './list/index.js';
 
 /**
  * Caption creation/editing for the CLI, built directly on @project/shared's
@@ -64,6 +67,76 @@ export function captionTypeOf(caption: Caption): CaptionType {
     ? caption.captionType[0]
     : caption.captionType;
   return raw as CaptionType;
+}
+
+/**
+ * `caption list`. Media-attached transcript captions are hidden by default:
+ * a transcribed media contributes one caption per utterance, which would
+ * swamp the handful of ad-hoc captions you actually place on a timeline.
+ * `--include-transcripts` (or naming a media with `--media`) widens it.
+ */
+export const captionListSpec: ListSpec<Caption> = {
+  command: 'caption list',
+  sorts: CAPTION_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
+  baseFilter: (opts) =>
+    opts.includeTranscripts || opts.media ? null : { expr: 'MediaRef = ""' },
+  filters: {
+    includeTranscripts: listFilter({
+      flags: '--include-transcripts',
+      description:
+        'also list media-attached transcript captions (ad-hoc only by default)',
+      clause: () => null,
+    }),
+    media: listFilter({
+      flags: '--media <id>',
+      description:
+        'only captions attached to this media (implies --include-transcripts)',
+      clause: (id) => ({ expr: 'MediaRef = {:m}', params: { m: id } }),
+    }),
+    type: listFilter({
+      flags: '--type <type>',
+      description: `only this caption type (${Object.values(CaptionType).join(', ')})`,
+      parse: (raw) => parseCaptionType(raw),
+      clause: (type) => ({ expr: 'captionType = {:t}', params: { t: type } }),
+    }),
+    search: listFilter({
+      flags: '--search <text>',
+      description: "match the caption's name or text",
+      clause: (q) => ({
+        expr: '(name ~ {:q} || text ~ {:q})',
+        params: { q },
+      }),
+    }),
+  },
+  columns: [
+    { header: 'ID', value: (c) => c.id },
+    { header: 'TYPE', value: (c) => captionTypeOf(c) },
+    { header: 'NAME', value: (c) => truncate(c.name ?? '', 24) },
+    { header: 'TEXT', value: (c) => truncate(c.text ?? '', 40) },
+    { header: 'DUR', value: (c) => `${c.duration.toFixed(2)}s` },
+    {
+      header: 'CUES',
+      value: (c) => String(((c.cues ?? []) as CaptionCue[]).length || '—'),
+    },
+    { header: 'MEDIA', value: (c) => c.MediaRef ?? '' },
+  ],
+  hint: '`vw timeline insert --caption <id>` places one on a track',
+};
+
+/** Fetch one page of captions for `captionListSpec`. */
+export function fetchCaptionPage(
+  pb: TypedPocketBase,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<Caption>> {
+  return new CaptionMutator(pb).getList(
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
+  );
 }
 
 /** Validate a `--type` flag against the CaptionType enum. */

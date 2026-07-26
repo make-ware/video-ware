@@ -7,6 +7,12 @@ import {
   type Media,
   type TypedPocketBase,
 } from '@project/shared';
+import {
+  DIRECTORY_SORTS,
+  fetchAllPages,
+  listFilter,
+  type ListSpec,
+} from './list/index.js';
 
 /** A mutator without the default WorkspaceRef expand — the CLI only needs
  * the flat records themselves. */
@@ -28,15 +34,76 @@ export function isRootDirRef(ref: string): boolean {
   );
 }
 
-/** Every directory in the workspace (flat, name-sorted, first 500). */
+/** Every directory in the workspace (flat, name-sorted, all pages). */
 export async function listDirectories(
   pb: TypedPocketBase,
   workspaceId: string
 ): Promise<ListResult<Directory>> {
+  return fetchAllPages((page) =>
+    directoryMutator(pb).getList(
+      page,
+      200,
+      pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId })
+    )
+  );
+}
+
+/** A directory row with the count of media filed under it. */
+export type DirectoryRow = Directory & { mediaCount: number };
+
+/**
+ * `directory list`. Directories are flat and few, so the whole set is fetched
+ * and each row carries its media count — the count comes from a separate
+ * aggregate query, so it is not a sortable field.
+ *
+ * A factory rather than a constant: the counts query is a full media scan of
+ * the workspace, and the command also needs it for the unfiled-media summary
+ * and the `--json` envelope's `unfiledMedia`/`totalMedia`. The caller passes
+ * a memoized getter so one invocation scans exactly once.
+ */
+export function makeDirectoryListSpec(
+  counts: (
+    pb: TypedPocketBase,
+    workspaceId: string
+  ) => Promise<DirectoryMediaCounts>
+): ListSpec<Directory, DirectoryRow> {
+  return {
+    command: 'directory list',
+    sorts: DIRECTORY_SORTS,
+    unpaged: true,
+    filters: {
+      search: listFilter({
+        flags: '--search <text>',
+        description: 'match the directory name',
+        clause: (q) => ({ expr: 'name ~ {:q}', params: { q } }),
+      }),
+    },
+    toRows: async (items, { pb, workspaceId }) => {
+      const resolved = await counts(pb, workspaceId!);
+      return items.map((dir) => ({
+        ...dir,
+        mediaCount: resolved.byDirectory.get(dir.id) ?? 0,
+      }));
+    },
+    columns: [
+      { header: 'ID', value: (d) => d.id },
+      { header: 'NAME', value: (d) => d.name },
+      { header: 'MEDIA', value: (d) => String(d.mediaCount) },
+    ],
+    hint: '`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId…>` files media',
+  };
+}
+
+/** Fetch one page of directories for `directoryListSpec`. */
+export function fetchDirectoryPage(
+  pb: TypedPocketBase,
+  query: { page: number; perPage: number; filter: string; sort: string }
+): Promise<ListResult<Directory>> {
   return directoryMutator(pb).getList(
-    1,
-    500,
-    pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId })
+    query.page,
+    query.perPage,
+    query.filter,
+    query.sort
   );
 }
 

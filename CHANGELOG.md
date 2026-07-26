@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.6...video-ware-v0.10.7) (2026-07-26)
+
+
+### Bug Fixes
+
+* add clip level CLI commands ([3d69714](https://github.com/make-ware/video-ware/commit/3d697148f07cf8c520a1a8ca5f43b1f72b6643c8))
+* add infinite data to media clips ([f2e37cd](https://github.com/make-ware/video-ware/commit/f2e37cdf653fd7c69d7ea34bce611534aebc231b))
+* add media entities and bulk apply ([a02d991](https://github.com/make-ware/video-ware/commit/a02d9918117a0e69a172b2182d2f70ea04186cf0))
+* speaker tracks bug ([45563f9](https://github.com/make-ware/video-ware/commit/45563f9a25d8867767d771c287e7a51797968b0e))
+* standardize the cli ws override ([b5e2d71](https://github.com/make-ware/video-ware/commit/b5e2d7129a2b0c5e6fc6302a91f83209fe7b9fd8))
+
 ## [0.10.6](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.5...video-ware-v0.10.6) (2026-07-25)
 
 

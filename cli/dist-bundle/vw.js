@@ -64041,6 +64041,7 @@ function listEnvelope(spec, rows, view, applied) {
 
 // src/lib/list/paginate.ts
 var DEFAULT_MAX_MERGE_DEPTH = 500;
+var PB_MAX_PER_PAGE = 500;
 async function fetchAll(getPage) {
   const first = await getPage(1);
   const items = [...first.items];
@@ -64088,18 +64089,40 @@ function maxMergedPage(perPage, maxDepth = DEFAULT_MAX_MERGE_DEPTH) {
 function sumTotals(results) {
   return results.reduce((sum, result) => sum + result.totalItems, 0);
 }
+async function fetchTopN(source, n2) {
+  const perPage = Math.min(n2, PB_MAX_PER_PAGE);
+  const first = await source.fetchPage({ page: 1, perPage });
+  const items = [...first.items];
+  const lastPage = Math.min(Math.ceil(n2 / perPage), first.totalPages);
+  for (let page = 2; page <= lastPage; page++) {
+    items.push(...(await source.fetchPage({ page, perPage })).items);
+  }
+  return { ...first, items: items.slice(0, n2) };
+}
 async function fetchMergedPage(args) {
+  if (args.sources.length === 1) {
+    const result = await args.sources[0].fetchPage({
+      page: args.page,
+      perPage: args.perPage
+    });
+    return {
+      items: [...result.items],
+      totalItems: result.totalItems,
+      totalPages: Math.max(1, result.totalPages),
+      depth: args.perPage
+    };
+  }
   const maxDepth = args.maxDepth ?? DEFAULT_MAX_MERGE_DEPTH;
   const depth = args.page * args.perPage;
   const limit = maxMergedPage(args.perPage, maxDepth);
-  if (args.sources.length > 1 && args.page > limit) {
+  if (args.page > limit) {
     const narrow = args.narrowWith ? ` Narrow the query (${args.narrowWith}) to page without a bound` : " Narrow the query to page without a bound";
     throw new Error(
       `Page ${args.page} needs ${depth} rows from each of ${args.sources.length} collections, past the ${maxDepth}-row merge depth (max page ${limit} at --limit ${args.perPage}).${narrow}, use a smaller --limit, or raise --max-depth.`
     );
   }
   const results = await Promise.all(
-    args.sources.map((source) => source.fetchPage({ page: 1, perPage: depth }))
+    args.sources.map((source) => fetchTopN(source, depth))
   );
   const merged = results.flatMap((result) => result.items);
   merged.sort(args.compare);
@@ -64136,9 +64159,11 @@ async function present(args) {
   const { spec, ctx, query, refine: refine2 } = args;
   const kept = refine2 ? refine2.filter(args.items) : args.items;
   const dropped = args.items.length - kept.length;
-  const totalItems = refine2 ? kept.length : args.totalItems;
-  const totalPages = refine2 ? 1 : args.totalPages;
-  const rows = spec.toRows ? await spec.toRows(kept, ctx) : kept;
+  const windowed = refine2 ? windowItems(kept, query) : null;
+  const pageItems = windowed ? windowed.items : args.items;
+  const totalItems = windowed ? windowed.totalItems : args.totalItems;
+  const totalPages = windowed ? windowed.totalPages : args.totalPages;
+  const rows = spec.toRows ? await spec.toRows(pageItems, ctx) : pageItems;
   const view = {
     command: spec.command,
     argv: args.argv,
@@ -64171,11 +64196,12 @@ async function present(args) {
   if (note) info(note);
 }
 async function runList(args) {
-  const resolved2 = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY
   });
-  const query = args.refine ? { ...resolved2, all: true } : resolved2;
-  const result = query.all ? await fetchAllPages((page) => args.fetchPage({ ...query, page })) : await args.fetchPage(query);
+  const result = query.all || args.refine ? await fetchAllPages(
+    (page) => args.fetchPage({ ...query, all: true, page })
+  ) : await args.fetchPage(query);
   await present({
     spec: args.spec,
     ctx: args.ctx,
@@ -64190,13 +64216,12 @@ async function runList(args) {
   });
 }
 async function runMergedList(args) {
-  const resolved2 = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY
   });
-  const query = args.refine ? { ...resolved2, all: true } : resolved2;
   const sources = await args.sources(query);
   const compare = args.compare(query);
-  const merged = query.all ? await fetchMergedAll({ sources, compare }) : await fetchMergedPage({
+  const merged = query.all || args.refine ? await fetchMergedAll({ sources, compare }) : await fetchMergedPage({
     sources,
     compare,
     page: query.page,
@@ -70557,7 +70582,10 @@ function registerEntityCommands(program2) {
             page,
             perPage: 200,
             filter: opts.media ? pb.filter("MediaRef = {:m}", { m: opts.media }) : "",
-            sort: "MediaRef,start"
+            // The id tiebreak matters here like everywhere labels page:
+            // aligned words share MediaRef+start, and a non-total order can
+            // duplicate or drop rows at an OFFSET page boundary.
+            sort: "MediaRef,start,id"
           })
         );
         info(formatEntityTranscript(utterances));

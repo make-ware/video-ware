@@ -49,6 +49,7 @@ export {
 
 export {
   DEFAULT_MAX_MERGE_DEPTH,
+  PB_MAX_PER_PAGE,
   fetchAll,
   fetchAllPages,
   fetchMergedAll,

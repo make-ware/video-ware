@@ -18,6 +18,7 @@ import {
   fetchAllPages,
   fetchMergedAll,
   fetchMergedPage,
+  windowItems,
   type MergeSource,
   type PageRequest,
 } from './paginate.js';
@@ -102,17 +103,20 @@ async function present<T, TRow>(args: {
 }): Promise<void> {
   const { spec, ctx, query, refine } = args;
 
-  // A refinement always sees the complete set (runList forces the walk), so
-  // the surviving count IS the total — the server's count includes the rows it
-  // could not express a filter for.
+  // A refinement always sees the complete set (the runners force the walk),
+  // so the surviving count IS the total — the server's count includes the
+  // rows it could not express a filter for. The caller's --limit/--page then
+  // window what survives, exactly like any other list.
   const kept = refine ? refine.filter(args.items) : args.items;
   const dropped = args.items.length - kept.length;
-  const totalItems = refine ? kept.length : args.totalItems;
-  const totalPages = refine ? 1 : args.totalPages;
+  const windowed = refine ? windowItems(kept, query) : null;
+  const pageItems = windowed ? windowed.items : args.items;
+  const totalItems = windowed ? windowed.totalItems : args.totalItems;
+  const totalPages = windowed ? windowed.totalPages : args.totalPages;
 
   const rows = spec.toRows
-    ? await spec.toRows(kept, ctx)
-    : (kept as unknown as TRow[]);
+    ? await spec.toRows(pageItems, ctx)
+    : (pageItems as unknown as TRow[]);
 
   const view: ListView = {
     command: spec.command,
@@ -152,15 +156,18 @@ async function present<T, TRow>(args: {
 export async function runList<T, TRow = T>(
   args: RunListArgs<T, TRow>
 ): Promise<void> {
-  const resolved = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY,
   });
-  // A refinement can only be honest over the complete set — see ListRefinement.
-  const query = args.refine ? { ...resolved, all: true } : resolved;
-
-  const result = query.all
-    ? await fetchAllPages((page) => args.fetchPage({ ...query, page }))
-    : await args.fetchPage(query);
+  // A refinement can only be honest over the complete set, so it always
+  // walks every page; the requested window is applied to what survives, in
+  // `present`. The query keeps the caller's --limit/--page for that.
+  const result =
+    query.all || args.refine
+      ? await fetchAllPages((page) =>
+          args.fetchPage({ ...query, all: true, page })
+        )
+      : await args.fetchPage(query);
 
   await present({
     spec: args.spec,
@@ -180,24 +187,26 @@ export async function runList<T, TRow = T>(
 export async function runMergedList<T, TRow = T>(
   args: RunMergedListArgs<T, TRow>
 ): Promise<void> {
-  const resolved = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY,
   });
-  // A refinement can only be honest over the complete set — see ListRefinement.
-  const query = args.refine ? { ...resolved, all: true } : resolved;
   const sources = await args.sources(query);
   const compare = args.compare(query);
 
-  const merged = query.all
-    ? await fetchMergedAll({ sources, compare })
-    : await fetchMergedPage({
-        sources,
-        compare,
-        page: query.page,
-        perPage: query.perPage,
-        maxDepth: args.opts.maxDepth as number | undefined,
-        narrowWith: args.narrowWith,
-      });
+  // A refinement can only be honest over the complete set, so it always
+  // merges every row; the requested window is applied to what survives, in
+  // `present`. The query keeps the caller's --limit/--page for that.
+  const merged =
+    query.all || args.refine
+      ? await fetchMergedAll({ sources, compare })
+      : await fetchMergedPage({
+          sources,
+          compare,
+          page: query.page,
+          perPage: query.perPage,
+          maxDepth: args.opts.maxDepth as number | undefined,
+          narrowWith: args.narrowWith,
+        });
 
   await present({
     spec: args.spec,

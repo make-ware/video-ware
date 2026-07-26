@@ -782,7 +782,8 @@ else:
   and `hiddenInCutGaps` to the envelope. A clip's outer span is the server-side
   window, but "overlaps a played segment" can only be decided in memory, so
   this scope always reads every page — `totalItems` is the count of labels that
-  actually play, not the count the window matched
+  actually play, not the count the window matched. `-n`/`--page` still window
+  what is shown, applied to the surviving rows
 - **the canonical `times` block** (see *The three time domains*) appears on
   every clip-shaped JSON output: `{ timeline?, source, effective, segments?,
   composite }`. **Breaking:** `segments --json` `times` now uses this shape —

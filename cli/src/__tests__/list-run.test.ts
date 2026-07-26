@@ -347,6 +347,33 @@ describe('refinements — narrowing the server filter cannot express', () => {
     expect(out.stdout.some((l) => l.startsWith('(2 of 2'))).toBe(true);
   });
 
+  it('windows the surviving rows when --limit/--page are passed', async () => {
+    const out = await captureList({
+      spec,
+      opts: { limit: 1, page: 2 },
+      ctx,
+      argv: ['media', 'list', '--limit', '1', '--page', '2'],
+      fetchPage: async () =>
+        page(
+          [
+            { id: 'm1', name: 'a.mp4' },
+            { id: 'm2', name: 'b.mov' },
+            { id: 'm3', name: 'c.mp4' },
+          ],
+          3,
+          100
+        ),
+      refine: { filter: kept },
+    });
+
+    // Every page is still read (the refinement needs the complete set), but
+    // an explicit window is honoured over what survives instead of being
+    // silently ignored.
+    expect(out.stdout).toContain('m3  c.mp4');
+    expect(out.stdout.some((l) => l.includes('m1'))).toBe(false);
+    expect(out.stdout).toContain('(2–2 of 2 — end of results)');
+  });
+
   it('appends the note only when rows were actually dropped', async () => {
     const run = (rows: Row[]) =>
       captureList({

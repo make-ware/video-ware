@@ -19,6 +19,15 @@ import type { ListResult } from 'pocketbase';
 /** Rows fetched per source before a merged window is refused. */
 export const DEFAULT_MAX_MERGE_DEPTH = 500;
 
+/**
+ * PocketBase's server-side `perPage` ceiling. A request above it is silently
+ * clamped — the response just carries fewer rows than asked for — so any read
+ * deeper than this must be batched into multiple requests, never widened into
+ * one (`fetchTopN`). Slicing a clamped response as if it were the full depth
+ * would silently drop rows.
+ */
+export const PB_MAX_PER_PAGE = 500;
+
 /** One page request, as the runner hands it to a fetcher. */
 export interface PageRequest {
   page: number;
@@ -125,8 +134,32 @@ function sumTotals<T>(results: readonly ListResult<T>[]): number {
 }
 
 /**
- * One merged window. Each source is read to `page × perPage`, the union is
- * sorted by `compare`, and the requested slice is returned.
+ * A source's top `n` rows in its server sort. Batched in requests of at most
+ * `PB_MAX_PER_PAGE` rows, because the server clamps `perPage` silently — one
+ * request of `perPage: n` past the cap would return 500 rows claiming to be
+ * `n`. Walking consecutive pages at a constant `perPage` is exact because
+ * every merge source is server-sorted by a total order (id tiebreak).
+ */
+async function fetchTopN<T>(
+  source: MergeSource<T>,
+  n: number
+): Promise<ListResult<T>> {
+  const perPage = Math.min(n, PB_MAX_PER_PAGE);
+  const first = await source.fetchPage({ page: 1, perPage });
+  const items = [...first.items];
+  const lastPage = Math.min(Math.ceil(n / perPage), first.totalPages);
+  for (let page = 2; page <= lastPage; page++) {
+    items.push(...(await source.fetchPage({ page, perPage })).items);
+  }
+  return { ...first, items: items.slice(0, n) };
+}
+
+/**
+ * One merged window. Each source is read to its top `page × perPage` rows,
+ * the union is sorted by `compare`, and the requested slice is returned.
+ *
+ * A single source skips the merge entirely: the server pages it exactly, so
+ * the window passes straight through — no over-fetch, and no depth bound.
  */
 export async function fetchMergedPage<T>(args: {
   sources: readonly MergeSource<T>[];
@@ -137,11 +170,24 @@ export async function fetchMergedPage<T>(args: {
   /** Appended to the depth-exceeded error — how to narrow this command. */
   narrowWith?: string;
 }): Promise<MergedPage<T>> {
+  if (args.sources.length === 1) {
+    const result = await args.sources[0].fetchPage({
+      page: args.page,
+      perPage: args.perPage,
+    });
+    return {
+      items: [...result.items],
+      totalItems: result.totalItems,
+      totalPages: Math.max(1, result.totalPages),
+      depth: args.perPage,
+    };
+  }
+
   const maxDepth = args.maxDepth ?? DEFAULT_MAX_MERGE_DEPTH;
   const depth = args.page * args.perPage;
   const limit = maxMergedPage(args.perPage, maxDepth);
 
-  if (args.sources.length > 1 && args.page > limit) {
+  if (args.page > limit) {
     const narrow = args.narrowWith
       ? ` Narrow the query (${args.narrowWith}) to page without a bound`
       : ' Narrow the query to page without a bound';
@@ -154,7 +200,7 @@ export async function fetchMergedPage<T>(args: {
   }
 
   const results = await Promise.all(
-    args.sources.map((source) => source.fetchPage({ page: 1, perPage: depth }))
+    args.sources.map((source) => fetchTopN(source, depth))
   );
 
   const merged = results.flatMap((result) => result.items);

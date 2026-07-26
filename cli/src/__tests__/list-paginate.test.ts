@@ -215,7 +215,7 @@ describe('fetchMergedPage', () => {
     );
   });
 
-  it('lets a single source page past the bound (no merge needed)', async () => {
+  it('passes the window straight through for a single source', async () => {
     const many = rows('a', 2000, 0);
     const only = source('a', many);
     const merged = await fetchMergedPage({
@@ -224,8 +224,13 @@ describe('fetchMergedPage', () => {
       page: 12,
       perPage: 100,
     });
+    // No merge, no over-fetch: one exact server page. Over-fetching here
+    // would ask for perPage 1200, which the server silently clamps to 500 —
+    // the slice would then return an empty page while rows exist.
+    expect(only.requests).toEqual([{ page: 12, perPage: 100 }]);
     expect(merged.items).toHaveLength(100);
     expect(merged.items).toEqual([...many].sort(byScore).slice(1100, 1200));
+    expect(merged.totalItems).toBe(2000);
   });
 
   it('honours a raised depth bound', async () => {
@@ -239,6 +244,31 @@ describe('fetchMergedPage', () => {
         maxDepth: 1000,
       })
     ).resolves.toMatchObject({ depth: 600 });
+  });
+
+  it('batches each source under the server perPage cap for a deep window', async () => {
+    const deepA = rows('a', 700, 0);
+    const deepB = rows('b', 650, 3);
+    const sources = [source('a', deepA), source('b', deepB)];
+    const merged = await fetchMergedPage({
+      sources: sources.map((s) => s.merge),
+      compare: byScore,
+      page: 6,
+      perPage: 100,
+      maxDepth: 1000,
+    });
+    // Depth 600 exceeds PB_MAX_PER_PAGE, so each source is read in 500-row
+    // pages — a single 600-row request would be silently clamped to 500 and
+    // the merge would slice an incomplete union.
+    for (const s of sources) {
+      expect(s.requests).toEqual([
+        { page: 1, perPage: 500 },
+        { page: 2, perPage: 500 },
+      ]);
+    }
+    const everything = [...deepA, ...deepB].sort(byScore);
+    expect(merged.items).toEqual(everything.slice(500, 600));
+    expect(merged.depth).toBe(600);
   });
 
   it('returns an empty window past the end of the data', async () => {

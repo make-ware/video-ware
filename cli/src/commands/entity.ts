@@ -266,7 +266,10 @@ export function registerEntityCommands(program: Command): void {
             filter: opts.media
               ? pb.filter('MediaRef = {:m}', { m: opts.media })
               : '',
-            sort: 'MediaRef,start',
+            // The id tiebreak matters here like everywhere labels page:
+            // aligned words share MediaRef+start, and a non-total order can
+            // duplicate or drop rows at an OFFSET page boundary.
+            sort: 'MediaRef,start,id',
           })
         );
         info(formatEntityTranscript(utterances));

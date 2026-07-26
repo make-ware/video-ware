@@ -11,6 +11,7 @@ import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create
 import {
   deriveSpeakerSummaries,
   formatDiarizedTranscript,
+  missingTrackLabel,
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
@@ -43,7 +44,11 @@ export default function LabelSpeakersPage() {
   const mediaId = params.id as string;
   const workspaceId = params.workspaceId as string;
   const { utterances, isLoading } = useMediaSpeakers(mediaId);
-  const { byTrackId } = useMediaLabelTracks(mediaId);
+  const {
+    byTrackId,
+    isPending: tracksPending,
+    error: tracksError,
+  } = useMediaLabelTracks(mediaId);
   const assignEntity = useAssignTrackEntity();
   const createClip = useCreateClipFromLabel();
 
@@ -204,7 +209,10 @@ export default function LabelSpeakersPage() {
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          No track record
+                          {missingTrackLabel({
+                            isPending: tracksPending,
+                            error: tracksError,
+                          })}
                         </span>
                       )}
                     </div>

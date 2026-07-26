@@ -34,6 +34,10 @@ export function useMediaLabelTracks(mediaId: string) {
     tracks: query.data ?? [],
     byTrackId,
     isLoading: query.isLoading,
+    // `isPending` (not isLoading) so an auth-gated, still-disabled query reads
+    // as "unknown" rather than "no tracks" — an empty byTrackId otherwise
+    // looks identical to a media that genuinely has none.
+    isPending: query.isPending,
     error: query.error,
   };
 }

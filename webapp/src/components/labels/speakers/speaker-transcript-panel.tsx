@@ -8,6 +8,7 @@ import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
 import {
   deriveSpeakerSummaries,
+  missingTrackLabel,
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
@@ -46,7 +47,11 @@ export function SpeakerTranscriptPanel({
   workspaceId,
   onSeek,
 }: SpeakerTranscriptPanelProps) {
-  const { byTrackId } = useMediaLabelTracks(mediaId);
+  const {
+    byTrackId,
+    isPending: tracksPending,
+    error: tracksError,
+  } = useMediaLabelTracks(mediaId);
   const assignEntity = useAssignTrackEntity();
   const createClip = useCreateClipFromLabel();
 
@@ -178,7 +183,10 @@ export function SpeakerTranscriptPanel({
                     />
                   ) : (
                     <span className="ml-auto text-xs text-muted-foreground">
-                      No track record
+                      {missingTrackLabel({
+                        isPending: tracksPending,
+                        error: tracksError,
+                      })}
                     </span>
                   )}
                 </div>

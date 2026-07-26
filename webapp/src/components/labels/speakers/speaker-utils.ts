@@ -62,6 +62,21 @@ export function speakerTranscriptLabelFor(utterance: SpeakerUtterance): string {
   );
 }
 
+/**
+ * Placeholder shown where a speaker's EntityPicker would go when no LabelTrack
+ * row backs the speaker. "No track record" is only true once the track query
+ * has actually answered — reporting it while the query is pending or failed
+ * blames the data for a load problem.
+ */
+export function missingTrackLabel(state: {
+  isPending: boolean;
+  error: unknown;
+}): string {
+  if (state.isPending) return 'Loading…';
+  if (state.error) return 'Tracks unavailable';
+  return 'No track record';
+}
+
 export interface SpeakerSummary {
   speakerId: string;
   name: string;

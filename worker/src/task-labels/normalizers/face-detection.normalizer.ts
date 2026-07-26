@@ -251,6 +251,7 @@ export class FaceDetectionNormalizer {
         },
         keyframes,
         trackHash,
+        labelType: LabelType.FACE,
         // LabelEntityRef will be set by step processor
       });
     }

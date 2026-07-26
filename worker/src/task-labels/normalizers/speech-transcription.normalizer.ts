@@ -121,6 +121,7 @@ export class SpeechTranscriptionNormalizer {
         TaskRef: taskRef,
         trackId,
         trackHash,
+        labelType: LabelType.SPEECH,
         start: trackStart,
         end: trackEnd,
         duration: trackEnd - trackStart,

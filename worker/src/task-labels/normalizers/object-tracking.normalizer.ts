@@ -150,6 +150,7 @@ export class ObjectTrackingNormalizer {
         },
         keyframes,
         trackHash,
+        labelType: LabelType.OBJECT,
         // LabelEntityRef will be set by step processor
       });
 

@@ -19,6 +19,21 @@ export interface MutatorOptions {
   expand: string[];
   filter: string[];
   sort: string[];
+  /**
+   * PocketBase `fields` projection. Empty (the default) returns whole
+   * records; set it to skip heavy columns a caller never reads — a
+   * LabelTrack's `keyframes` runs to megabytes, LabelSpeaker's `words`
+   * carries per-word timings.
+   *
+   * Two PocketBase rules make this sharper than it looks: there is no
+   * exclusion syntax, so a projection must enumerate every field it wants,
+   * and naming any field drops all expands unless the expand paths
+   * (`expand.Rel.*`) are enumerated too.
+   *
+   * Optional so existing `setDefaults()` overrides keep compiling;
+   * normalized to `[]` at construction.
+   */
+  fields?: string[];
 }
 
 /**
@@ -47,6 +62,7 @@ export abstract class BaseMutator<
     expand: [],
     filter: [],
     sort: [],
+    fields: [],
   };
 
   constructor(pb: TypedPocketBase, options?: Partial<MutatorOptions>) {
@@ -60,7 +76,10 @@ export abstract class BaseMutator<
   }
 
   private initializeOptions(): void {
-    this.options = this.setDefaults();
+    // `fields` is optional on the interface so subclass setDefaults() can keep
+    // returning the original three keys; normalize it once here so every read
+    // site can treat it as an array.
+    this.options = { fields: [], ...this.setDefaults() };
   }
   /**
    * Initialize options with class-specific defaults
@@ -86,6 +105,9 @@ export abstract class BaseMutator<
     }
     if (newOptions.sort !== undefined) {
       this.options.sort = newOptions.sort;
+    }
+    if (newOptions.fields !== undefined) {
+      this.options.fields = newOptions.fields;
     }
   }
 
@@ -242,6 +264,41 @@ export abstract class BaseMutator<
         Expanded<T, Relations, E>
       >;
     } catch (error) {
+      return this.errorWrapper(error);
+    }
+  }
+
+  /**
+   * Every entity matching the filter, fetched in batches.
+   *
+   * Use this wherever a "give me all of them" read would otherwise be written
+   * as a single oversized `getList` page — that shape truncates silently, and
+   * because callers read `.items` and drop `.totalItems` the truncation is
+   * indistinguishable from there being no more records.
+   * @param filter Filter expression(s), merged with the class defaults
+   * @param sort Sort expression, or the class default when omitted
+   * @param expand Relations to expand, merged with the class defaults
+   * @param batch Records per request (default: 500)
+   */
+  async getFullList<E extends keyof Relations = never>(
+    filter?: string | string[],
+    sort?: string,
+    expand?: E | E[],
+    batch = 500
+  ): Promise<Expanded<T, Relations, E>[]> {
+    try {
+      const items = await this.entityGetFullList(
+        filter,
+        sort,
+        expand as string | string[],
+        batch
+      );
+      return (await Promise.all(
+        items.map((item) => this.processRecord(item))
+      )) as Expanded<T, Relations, E>[];
+    } catch (error) {
+      // Rethrow like getList: a swallowed failure here would render as "this
+      // media has no records", the exact ambiguity this method exists to end.
       return this.errorWrapper(error);
     }
   }
@@ -460,8 +517,41 @@ export abstract class BaseMutator<
     if (finalFilter) options.filter = finalFilter;
     if (finalExpand) options.expand = finalExpand;
     if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
 
     return await this.getCollection().getList(page, perPage, options);
+  }
+
+  /**
+   * Perform the actual getFullList operation
+   */
+  protected async entityGetFullList(
+    filter?: string | string[],
+    sort?: string,
+    expand?: string | string[],
+    batch = 500
+  ): Promise<T[]> {
+    const finalFilter = this.prepareFilter(filter);
+    const finalExpand = this.prepareExpand(expand);
+    const finalSort = this.prepareSort(sort);
+
+    const options: RecordListOptions = { batch };
+    if (finalFilter) options.filter = finalFilter;
+    if (finalExpand) options.expand = finalExpand;
+    if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
+
+    return await this.getCollection().getFullList(options);
+  }
+
+  /**
+   * Prepare the `fields` projection parameter, or undefined for whole records.
+   */
+  protected prepareFields(): string | undefined {
+    const fields = this.options.fields?.filter(Boolean) ?? [];
+    return fields.length ? fields.join(',') : undefined;
   }
 
   /**

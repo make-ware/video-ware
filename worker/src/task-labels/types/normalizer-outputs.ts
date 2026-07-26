@@ -149,6 +149,11 @@ export interface LabelTrackData {
   LabelEntityRef?: string; // Optional - will be set by step processor
   LabelFaceRef?: string; // Optional - will be set by step processor
   trackId: string;
+  // Denormalized copy of the cluster's type, so "this media's speaker tracks"
+  // is an indexed filter instead of a scan of every track for the media.
+  // Persisted; unlike provider/processor/version below, which are stripped by
+  // LabelTrackInputSchema because LabelTrack no longer has those columns.
+  labelType: LabelType;
   start: number; // seconds (float)
   end: number; // seconds (float)
   duration: number; // seconds (float)

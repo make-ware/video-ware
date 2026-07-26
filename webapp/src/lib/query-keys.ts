@@ -120,7 +120,10 @@ export const qk = {
       ['entities', 'transcripts', id, query, page, perPage] as const,
   },
   labelTracks: {
-    byMedia: (id: string) => ['label-tracks', id] as const,
+    /** Invalidation prefix — entity re-links touch every track query. */
+    all: ['label-tracks'] as const,
+    byMediaAndType: (id: string, labelType: string) =>
+      ['label-tracks', id, labelType] as const,
   },
   mediaEntities: {
     all: ['media-entities'] as const,

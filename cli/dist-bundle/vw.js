@@ -58474,6 +58474,17 @@ var LabelTextCollection = defineCollection({
     "CREATE INDEX idx_label_text_track ON LabelText (LabelTrackRef)"
   ]
 });
+var LABEL_TRACK_TYPE_VALUES = [
+  "object",
+  "shot",
+  "person",
+  "speech",
+  "speaker",
+  "face",
+  "segment",
+  "text"
+  /* TEXT */
+];
 var LabelTrackSchema = external_exports.object({
   // --- Relations ---
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
@@ -58487,6 +58498,14 @@ var LabelTrackSchema = external_exports.object({
   // The stable ID from the provider (e.g., "0")
   trackHash: TextField({ min: 1 }),
   // Unique constraint (MediaRef + trackId + provider)
+  // Denormalized copy of LabelEntityRef -> LabelEntity.labelType. One media
+  // routinely holds hundreds of object tracks alongside a handful of speaker
+  // or face tracks, so "this media's speaker tracks" has to be an indexed
+  // filter rather than a paged scan of every track plus a relation
+  // traversal. Safe to denormalize: a cluster's labelType is set at creation
+  // and never changes. Optional because a track written without a
+  // LabelEntityRef has no type to inherit.
+  labelType: SelectField([...LABEL_TRACK_TYPE_VALUES]).optional(),
   // --- Timing ---
   start: NumberField({ min: 0 }),
   // Seconds (from first keyframe)
@@ -58517,6 +58536,10 @@ var LabelTrackInputSchema = external_exports.object({
   // --- Identification ---
   trackId: external_exports.string().min(1, "Track ID is required"),
   trackHash: external_exports.string().min(1, "Track hash is required"),
+  // Must be listed here or it never persists: this is a non-strict z.object,
+  // so validateInput silently drops any key it doesn't declare (which is why
+  // the worker's provider/processor/version writes vanish).
+  labelType: external_exports.nativeEnum(LabelType).optional(),
   // --- Timing ---
   start: external_exports.number().min(0),
   end: external_exports.number().min(0),
@@ -58541,7 +58564,9 @@ var LabelTrackCollection = defineCollection({
     "CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)",
     // Workspace-wide cluster traversal in trackEntityAttributionFilter —
     // the (MediaRef, LabelEntityRef) composite can't serve it alone.
-    "CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)"
+    "CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)",
+    // "This media's tracks of kind X" — the speaker/face identification UIs.
+    "CREATE INDEX idx_label_track_media_type ON LabelTrack (MediaRef, labelType)"
   ]
 });
 var LABEL_TYPE_TO_REF_FIELD = {
@@ -59627,7 +59652,8 @@ var BaseMutator = class {
   options = {
     expand: [],
     filter: [],
-    sort: []
+    sort: [],
+    fields: []
   };
   constructor(pb, options) {
     this.pb = pb;
@@ -59637,7 +59663,7 @@ var BaseMutator = class {
     }
   }
   initializeOptions() {
-    this.options = this.setDefaults();
+    this.options = { fields: [], ...this.setDefaults() };
   }
   /**
    * Initialize options with class-specific defaults
@@ -59662,6 +59688,9 @@ var BaseMutator = class {
     }
     if (newOptions.sort !== void 0) {
       this.options.sort = newOptions.sort;
+    }
+    if (newOptions.fields !== void 0) {
+      this.options.fields = newOptions.fields;
     }
   }
   toSnakeCase(str) {
@@ -59778,6 +59807,33 @@ var BaseMutator = class {
         expand
       );
       return await this.processListResult(result);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Every entity matching the filter, fetched in batches.
+   *
+   * Use this wherever a "give me all of them" read would otherwise be written
+   * as a single oversized `getList` page — that shape truncates silently, and
+   * because callers read `.items` and drop `.totalItems` the truncation is
+   * indistinguishable from there being no more records.
+   * @param filter Filter expression(s), merged with the class defaults
+   * @param sort Sort expression, or the class default when omitted
+   * @param expand Relations to expand, merged with the class defaults
+   * @param batch Records per request (default: 500)
+   */
+  async getFullList(filter, sort, expand, batch = 500) {
+    try {
+      const items = await this.entityGetFullList(
+        filter,
+        sort,
+        expand,
+        batch
+      );
+      return await Promise.all(
+        items.map((item) => this.processRecord(item))
+      );
     } catch (error49) {
       return this.errorWrapper(error49);
     }
@@ -59932,7 +59988,31 @@ var BaseMutator = class {
     if (finalFilter) options.filter = finalFilter;
     if (finalExpand) options.expand = finalExpand;
     if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
     return await this.getCollection().getList(page, perPage, options);
+  }
+  /**
+   * Perform the actual getFullList operation
+   */
+  async entityGetFullList(filter, sort, expand, batch = 500) {
+    const finalFilter = this.prepareFilter(filter);
+    const finalExpand = this.prepareExpand(expand);
+    const finalSort = this.prepareSort(sort);
+    const options = { batch };
+    if (finalFilter) options.filter = finalFilter;
+    if (finalExpand) options.expand = finalExpand;
+    if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
+    return await this.getCollection().getFullList(options);
+  }
+  /**
+   * Prepare the `fields` projection parameter, or undefined for whole records.
+   */
+  prepareFields() {
+    const fields = this.options.fields?.filter(Boolean) ?? [];
+    return fields.length ? fields.join(",") : void 0;
   }
   /**
    * Perform the actual delete operation
@@ -62159,9 +62239,12 @@ var LabelTrackMutator = class extends BaseMutator {
   getCollection() {
     return this.pb.collection("LabelTrack");
   }
+  // No default expand: a track list is often hundreds of rows per media, and
+  // expanding MediaRef re-serializes the same Media record onto every one of
+  // them. The handful of callers that need it ask explicitly.
   setDefaults() {
     return {
-      expand: ["MediaRef"],
+      expand: [],
       filter: [],
       sort: ["-created"]
     };
@@ -62180,12 +62263,25 @@ var LabelTrackMutator = class extends BaseMutator {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
   }
   /**
-   * Get the latest media label for a media item
+   * A media's tracks of one label kind — its diarized speakers, its face
+   * tracks.
+   *
+   * Always prefer this to filtering `getByMedia` client-side. LabelTrack
+   * holds every label kind in one collection and object tracking alone emits
+   * hundreds of rows per media, so an unfiltered page silently drops the
+   * handful of rows a speaker- or face-identification UI is after. Served by
+   * idx_label_track_media_type.
    * @param mediaId The media ID
-   * @returns The latest media label record or null if not found
+   * @param labelType The label kind to return
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 200)
    */
-  async getLatestByMedia(mediaId) {
-    return this.getFirstByFilter(`MediaRef = "${mediaId}"`, "-created");
+  async getByMediaAndType(mediaId, labelType, page = 1, perPage = 200) {
+    return this.getList(
+      page,
+      perPage,
+      `MediaRef = "${mediaId}" && labelType = "${labelType}"`
+    );
   }
   /**
    * Link (or, with null, unlink) a track to a real-world Entity. The track
@@ -62551,8 +62647,8 @@ var LabelFaceMutator = class extends BaseMutator {
   }
 };
 var LabelSpeakerMutator = class extends BaseMutator {
-  constructor(pb) {
-    super(pb);
+  constructor(pb, options) {
+    super(pb, options);
   }
   getCollection() {
     return this.pb.collection("LabelSpeaker");
@@ -62568,6 +62664,15 @@ var LabelSpeakerMutator = class extends BaseMutator {
       "start",
       expand
     );
+  }
+  /**
+   * Every utterance in a media, sorted by start — the whole diarized
+   * transcript, fetched in batches so a long recording can't be truncated.
+   * @param mediaId The media ID
+   * @param expand Relations to expand (dotted paths allowed)
+   */
+  async getAllByMedia(mediaId, expand) {
+    return this.getFullList(`MediaRef = "${mediaId}"`, "start", expand);
   }
   async getByMediaAndSpeaker(mediaId, speakerId, page = 1, perPage = 100) {
     return this.getList(
@@ -71886,7 +71991,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.6";
+    return "0.10.7";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

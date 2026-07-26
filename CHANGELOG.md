@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.7...video-ware-v0.10.8) (2026-07-26)
+
+
+### Bug Fixes
+
+* add labelType to LabelTrack collection ([8bd4fd2](https://github.com/make-ware/video-ware/commit/8bd4fd267cec4d8ae44f69d809cf43d9c8224903))
+
 ## [0.10.7](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.6...video-ware-v0.10.7) (2026-07-26)
 
 

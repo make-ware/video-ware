@@ -3,6 +3,7 @@ import type { TimelineClip } from '../../schema/timeline-clip.js';
 import type { TimelineTrackRecord } from '../../schema/timeline-track.js';
 import {
   buildPlaybackTracks,
+  clipOffsetAtSourceTime,
   clipPlaybackRegions,
   clipSourceTimeAtOffset,
   computeClipPlacement,
@@ -736,6 +737,120 @@ describe('clipSourceTimeAtOffset', () => {
       },
     };
     expect(clipSourceTimeAtOffset(withOverride, 1)).toBe(4);
+  });
+
+  it('ignores segments on nested-timeline clips (timeline-linear)', () => {
+    const clip = makeClip({
+      id: 'nested',
+      MediaRef: undefined,
+      SourceTimelineRef: 'child-tl',
+      start: 5,
+      end: 15,
+      duration: 10,
+      // Stale data — a nested clip must never route through an edit list.
+      meta: { segments: [{ start: 0, end: 2 }] },
+    });
+    expect(clipSourceTimeAtOffset(clip, 3)).toBe(8);
+  });
+});
+
+describe('clipOffsetAtSourceTime', () => {
+  it('maps plain clips linearly, clamped to the trim window', () => {
+    const clip = makeClip({ id: 'c1', start: 2, end: 9, duration: 7 });
+    expect(clipOffsetAtSourceTime(clip, 2)).toBe(0);
+    expect(clipOffsetAtSourceTime(clip, 5)).toBe(3);
+    expect(clipOffsetAtSourceTime(clip, 0)).toBe(0);
+    expect(clipOffsetAtSourceTime(clip, 30)).toBe(7);
+  });
+
+  it('maps composite source times to gap-skipped offsets', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 10,
+      end: 23,
+      duration: 5,
+      meta: {
+        segments: [
+          { start: 10, end: 12 },
+          { start: 20, end: 23 },
+        ],
+      },
+    });
+    expect(clipOffsetAtSourceTime(clip, 10)).toBe(0);
+    expect(clipOffsetAtSourceTime(clip, 11)).toBe(1);
+    expect(clipOffsetAtSourceTime(clip, 20.5)).toBe(2.5);
+  });
+
+  it('collapses gap times to the shared boundary offset', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 10,
+      end: 23,
+      duration: 5,
+      meta: {
+        segments: [
+          { start: 10, end: 12 },
+          { start: 20, end: 23 },
+        ],
+      },
+    });
+    // 15s sits in the cut gap 12–20: both segment edges play at offset 2.
+    expect(clipOffsetAtSourceTime(clip, 15)).toBe(2);
+    expect(clipOffsetAtSourceTime(clip, 12)).toBe(2);
+    expect(clipOffsetAtSourceTime(clip, 20)).toBe(2);
+  });
+
+  it('respects the clip trim window over the edit list', () => {
+    // Full list [10,12] + [20,23]; trim 11–22 keeps [11,12] + [20,22]
+    const clip = makeClip({
+      id: 'c1',
+      start: 11,
+      end: 22,
+      duration: 3,
+      meta: {
+        segments: [
+          { start: 10, end: 12 },
+          { start: 20, end: 23 },
+        ],
+      },
+    });
+    expect(clipOffsetAtSourceTime(clip, 11)).toBe(0);
+    expect(clipOffsetAtSourceTime(clip, 20.5)).toBe(1.5);
+    // Before the window clamps to offset 0; after clamps to the effective end.
+    expect(clipOffsetAtSourceTime(clip, 10)).toBe(0);
+    expect(clipOffsetAtSourceTime(clip, 23)).toBe(3);
+  });
+
+  it('round-trips with clipSourceTimeAtOffset inside segments', () => {
+    const clip = makeClip({
+      id: 'c1',
+      start: 0,
+      end: 30,
+      duration: 20,
+      meta: {
+        segments: [
+          { start: 0, end: 10 },
+          { start: 20, end: 30 },
+        ],
+      },
+    });
+    for (const offset of [0, 4.25, 9.999, 10.5, 19]) {
+      const source = clipSourceTimeAtOffset(clip, offset);
+      expect(clipOffsetAtSourceTime(clip, source)).toBeCloseTo(offset, 6);
+    }
+  });
+
+  it('treats nested-timeline clips as timeline-linear', () => {
+    const clip = makeClip({
+      id: 'nested',
+      MediaRef: undefined,
+      SourceTimelineRef: 'child-tl',
+      start: 5,
+      end: 15,
+      duration: 10,
+      meta: { segments: [{ start: 0, end: 2 }] },
+    });
+    expect(clipOffsetAtSourceTime(clip, 8)).toBe(3);
   });
 });
 

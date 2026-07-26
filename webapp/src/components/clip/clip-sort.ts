@@ -19,7 +19,12 @@
  */
 import type { ClipListItem } from '@/services/media-clip';
 
-export type ClipSortValue = 'recent' | 'name' | 'duration' | 'media_time';
+export type ClipSortValue =
+  | 'recent'
+  | 'name'
+  | 'duration'
+  | 'media_time'
+  | 'timeline';
 
 export interface ClipSortOption {
   value: ClipSortValue;
@@ -88,7 +93,42 @@ export const CLIP_SORT_OPTIONS: readonly ClipSortOption[] = [
     },
     canCompare: (record) => record.expand?.MediaRef !== undefined,
   },
+  // Appended deliberately: getClipSortOption falls back to CLIP_SORT_OPTIONS[0],
+  // which must stay 'recent' for the workspace library.
+  {
+    value: 'timeline',
+    label: 'Timeline',
+    pbSort: 'start,-created',
+    // No canCompare: `start` lives on the record itself, so an SSE event that
+    // arrived without expands still positions correctly.
+    compare: (a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return byRecency(a, b);
+    },
+  },
 ];
+
+/**
+ * The subset offered when the list is scoped to a single media (the media
+ * viewer's Clips tab). `name` and `media_time` are degenerate there — every
+ * clip shares the same media — so only position/recency/length are useful.
+ */
+export const MEDIA_SCOPED_CLIP_SORT_VALUES: readonly ClipSortValue[] = [
+  'timeline',
+  'recent',
+  'duration',
+];
+
+/** Module-level (stable identity) so consumers can read it unmemoized. */
+export const MEDIA_SCOPED_CLIP_SORT_OPTIONS: readonly ClipSortOption[] =
+  MEDIA_SCOPED_CLIP_SORT_VALUES.map(
+    (value) =>
+      CLIP_SORT_OPTIONS.find(
+        (option) => option.value === value
+      ) as ClipSortOption
+  );
+
+export const DEFAULT_MEDIA_CLIP_SORT: ClipSortValue = 'timeline';
 
 /** Resolve a sort value, falling back to the default. */
 export function getClipSortOption(value: string | null): ClipSortOption {

@@ -31,7 +31,6 @@ export function registerCaptionCommands(program: Command): void {
   const create = caption
     .command('create')
     .description('Create a caption (subtitle) or a title card')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option(
       '--animate',
       'split the text into evenly-timed cues (one per line)'
@@ -42,7 +41,7 @@ export function registerCaptionCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const created = await createCaption(pb, {
         workspaceId,
         animate: !!opts.animate,
@@ -78,10 +77,7 @@ export function registerCaptionCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const ctx = {
-        pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
-      };
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
       await runList({
         spec: captionListSpec,
         opts,

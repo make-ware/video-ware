@@ -17,9 +17,14 @@ export const qk = {
       /** null = all directories, '' = workspace root, id = one directory. */
       directoryId: string | null;
       mediaType: string;
+      /** null = no entity filter, id = tagged with / appearing as that entity. */
+      entityId: string | null;
       sort: string;
       search: string;
     }) => ['media', 'list', args] as const,
+    /** Media linked to an entity — the client mirror of the entity filter. */
+    entityLinkedIds: (entityId: string) =>
+      ['media', 'entity-linked-ids', entityId] as const,
     detail: (id: string) => ['media', 'detail', id] as const,
     neighbors: (workspaceId: string, mediaId: string) =>
       ['media', 'neighbors', workspaceId, mediaId] as const,
@@ -45,6 +50,8 @@ export const qk = {
     lists: ['clips', 'list'] as const,
     list: (args: {
       workspaceId: string;
+      /** null = every media in the workspace, id = one media's clips. */
+      mediaId: string | null;
       /** null = all directories, '' = workspace root, id = one directory. */
       directoryId: string | null;
       /** 'all' | one ClipType. */
@@ -54,6 +61,8 @@ export const qk = {
       sort: string;
       search: string;
     }) => ['clips', 'list', args] as const,
+    /** One clip by id — resolves a `?clip=` deep link outside the loaded window. */
+    detail: (id: string) => ['clips', 'detail', id] as const,
   },
   directories: {
     list: (workspaceId: string) => ['directories', workspaceId] as const,
@@ -111,7 +120,15 @@ export const qk = {
       ['entities', 'transcripts', id, query, page, perPage] as const,
   },
   labelTracks: {
-    byMedia: (id: string) => ['label-tracks', id] as const,
+    /** Invalidation prefix — entity re-links touch every track query. */
+    all: ['label-tracks'] as const,
+    byMediaAndType: (id: string, labelType: string) =>
+      ['label-tracks', id, labelType] as const,
+  },
+  mediaEntities: {
+    all: ['media-entities'] as const,
+    /** Entity links for one page of media cards, keyed by the sorted id set. */
+    byMediaIds: (idsKey: string) => ['media-entities', idsKey] as const,
   },
   mediaTags: {
     all: ['media-tags'] as const,

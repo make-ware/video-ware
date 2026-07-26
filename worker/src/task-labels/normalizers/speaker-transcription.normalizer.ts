@@ -128,6 +128,7 @@ export class SpeakerTranscriptionNormalizer {
         TaskRef: taskRef,
         trackId: speakerId,
         trackHash,
+        labelType: LabelType.SPEAKER,
         start: trackStart,
         end: trackEnd,
         duration: trackEnd - trackStart,

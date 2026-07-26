@@ -31,18 +31,18 @@ export function parseCount(value: string): number {
 }
 
 /**
- * Register `-w`, every declared filter, the paging/sorting flags, `--json`,
- * and the shared list help epilogue. Returns the command for chaining.
+ * Register every declared filter, the paging/sorting flags, `--json`, and the
+ * shared list help epilogue. Returns the command for chaining.
+ *
+ * `-w` is deliberately absent: `lib/workspace-option.ts` walks the finished
+ * command tree and registers it everywhere, so declaring it here would fork
+ * the flag's description away from the one every other command shows.
  */
 export function withListOptions<T, TRow>(
   cmd: Command,
   spec: ListSpec<T, TRow>,
   config: ListOptionsConfig = {}
 ): Command {
-  if (spec.workspaceScoped !== false) {
-    cmd.option('-w, --workspace <id>', 'workspace id override');
-  }
-
   for (const [key, filter] of Object.entries(filtersOf(spec))) {
     const option = new Option(filter.flags, filter.description);
     if (option.attributeName() !== key) {

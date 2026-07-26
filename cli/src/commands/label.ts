@@ -1,9 +1,10 @@
 import type { Command } from 'commander';
-import { MediaClipLabelMutator } from '@project/shared';
+import { MediaClipLabelMutator, overlapsSegments } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
   attributedEntitySummaryOf,
+  clipEditListFilter,
   clipMetaOptions,
   confidenceOf,
   createClipFromLabel,
@@ -16,6 +17,7 @@ import {
   labelSearchSpec,
   parseLabelType,
   resolveLabelTypes,
+  type ClipEditListFilter,
   type LabelHit,
 } from '../lib/label.js';
 import { resolveEntity, tagLabel } from '../lib/entity.js';
@@ -59,7 +61,7 @@ export function registerLabelCommands(program: Command): void {
   ).action(async (query: string | undefined, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       // The positional query is the --search filter, so both spellings
       // compose with the other flags identically.
       const merged = { ...opts, search: opts.search ?? query };
@@ -97,26 +99,73 @@ export function registerLabelCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const entityId = opts.entity
-        ? (await resolveEntity(pb, workspaceId, opts.entity)).id
-        : undefined;
-      const types = resolveLabelTypes(opts);
 
+      if (opts.clip && opts.timelineClip) {
+        throw new Error('Pass --clip or --timeline-clip, not both.');
+      }
+      const clipScoped = Boolean(opts.clip || opts.timelineClip);
+      if (clipScoped && (opts.from !== undefined || opts.to !== undefined)) {
+        throw new Error(
+          '--from/--to cannot be combined with --clip/--timeline-clip — the clip supplies its own window.'
+        );
+      }
+
+      // A clip scope resolves to exactly what the spec's own flags express: the
+      // clip's media, and its outer span as the coarse window. Only the cut
+      // gaps inside that span need the in-memory refinement below.
+      let editList: ClipEditListFilter | undefined;
+      const scope: Record<string, unknown> = {};
+      if (clipScoped) {
+        editList = await clipEditListFilter(pb, {
+          clip: opts.clip,
+          timelineClip: opts.timelineClip,
+        });
+        if (opts.media && opts.media !== editList.mediaId) {
+          throw new Error(
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${opts.media} — drop -m.`
+          );
+        }
+        scope.media = editList.mediaId;
+        scope.from = Math.min(...editList.segments.map((s) => s.start));
+        scope.to = Math.max(...editList.segments.map((s) => s.end));
+      }
+      const merged = { ...opts, ...scope };
+
+      const workspaceId = await resolveWorkspaceId(pb);
+      const entityId = merged.entity
+        ? (await resolveEntity(pb, workspaceId, merged.entity)).id
+        : undefined;
+      const types = resolveLabelTypes(merged);
+
+      const segments = editList?.segments;
       await runMergedList({
         spec: labelListSpec,
-        opts,
+        opts: merged,
         ctx: { pb, workspaceId },
         // The resolved sort drives both the per-source server sort and this
         // comparator, so they cannot drift apart.
         compare: (resolved) => labelHitCompare(resolved.sort),
         narrowWith: '-t <type>',
+        // Edit-list scope means "what plays": the server window is the outer
+        // span, so labels landing entirely in a cut gap can only go here.
+        refine: segments && {
+          filter: (hits) =>
+            hits.filter((h) =>
+              overlapsSegments(h.record.start, h.record.end, segments)
+            ),
+          extras: (hidden) => ({
+            editList: { segments, source: editList!.source },
+            hiddenInCutGaps: hidden,
+          }),
+          note: (hidden) =>
+            `(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`,
+        },
         sources: (resolved) =>
           labelMergeSources(pb, {
             types,
             baseFilter: resolved.filter,
             sort: resolved.sort,
-            perType: labelPerTypeClauses(pb, { ...opts, entityId }),
+            perType: labelPerTypeClauses(pb, { ...merged, entityId }),
           }),
       });
     } catch (err) {
@@ -189,13 +238,12 @@ export function registerLabelCommands(program: Command): void {
       "Attribute a label to a real-world entity — writes the label's track " +
         'when it has one (this instance across the media), else its ' +
         'provider cluster (workspace-wide)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override');
+    );
   withJsonOption(tag).action(
     async (typeArg: string, labelId: string, entityNameOrId: string, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const type = parseLabelType(typeArg);
         const entity = await resolveEntity(pb, workspaceId, entityNameOrId);
         const result = await tagLabel(pb, type, labelId, entity.id);

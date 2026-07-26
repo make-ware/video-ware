@@ -62,6 +62,21 @@ export function speakerTranscriptLabelFor(utterance: SpeakerUtterance): string {
   );
 }
 
+/**
+ * Placeholder shown where a speaker's EntityPicker would go when no LabelTrack
+ * row backs the speaker. "No track record" is only true once the track query
+ * has actually answered — reporting it while the query is pending or failed
+ * blames the data for a load problem.
+ */
+export function missingTrackLabel(state: {
+  isPending: boolean;
+  error: unknown;
+}): string {
+  if (state.isPending) return 'Loading…';
+  if (state.error) return 'Tracks unavailable';
+  return 'No track record';
+}
+
 export interface SpeakerSummary {
   speakerId: string;
   name: string;
@@ -70,6 +85,15 @@ export interface SpeakerSummary {
   totalDuration: number;
   /** Stable palette index, assigned by order of first appearance. */
   colorIndex: number;
+  /**
+   * The speaker's LabelTrack — the row that carries the EntityRef link, so
+   * this is what "identify this speaker" writes to. Read straight off the
+   * utterance's expanded LabelTrackRef: the worker writes that FK for every
+   * utterance it persists, so the track is already in hand and needs no
+   * second query. Undefined only for rows written before the FK existed,
+   * which the surfaces heal with a narrow by-type lookup.
+   */
+  track?: LabelTrack;
 }
 
 /**
@@ -85,6 +109,10 @@ export function deriveSpeakerSummaries(
     if (existing) {
       existing.utteranceCount += 1;
       existing.totalDuration += u.duration;
+      // A speaker's utterances all point at the same track, but only the
+      // ones written with the FK carry the expand — take the first that has
+      // it rather than assuming the first utterance does.
+      existing.track ??= u.expand?.LabelTrackRef;
     } else {
       byId.set(u.speakerId, {
         speakerId: u.speakerId,
@@ -92,6 +120,7 @@ export function deriveSpeakerSummaries(
         utteranceCount: 1,
         totalDuration: u.duration,
         colorIndex: byId.size,
+        track: u.expand?.LabelTrackRef,
       });
     }
   }

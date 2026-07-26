@@ -3,7 +3,13 @@ import { Job } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider, FileStatus, type Media } from '@project/shared';
+import {
+  ProcessingProvider,
+  FileStatus,
+  type LabelSpeaker,
+  type LabelTrack,
+  type Media,
+} from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { SpeakerTranscriptionExecutor } from '../executors/speaker-transcription.executor';
@@ -44,10 +50,15 @@ const AUDIO_READY_POLL_MS_DEFAULT = 3_000;
  *    preferring the transcode audio proxy (Media.audioFileRef) over the
  *    original file
  * 3. Calls SpeakerTranscriptionNormalizer to transform response
- * 4. Batch inserts LabelEntity records (one per speaker)
- * 5. Batch inserts LabelTrack records (one per speaker)
- * 6. Batch inserts LabelSpeaker records (per-utterance, word-precise timing)
+ * 4. Upserts LabelEntity records (one per speaker)
+ * 5. Upserts LabelTrack records (one per speaker)
+ * 6. Upserts LabelSpeaker records (per-utterance, word-precise timing)
  * 7. Stores normalized response to cache
+ *
+ * Steps 4-6 are upserts keyed by content hash, and existing rows have their
+ * entity/track links reconciled, so re-running the labels task repairs a media
+ * left half-written by an earlier run. A write that cannot be completed fails
+ * the step rather than reporting success with a broken label graph.
  */
 @Injectable()
 export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
@@ -214,45 +225,59 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
       }
       this.logger.debug(`Processed ${entityMap.size} speaker entities`);
 
-      // Step 5: Batch insert LabelTrack records
-      // Link tracks to entities
-      const trackMap = new Map<string, string>();
-      const tracksToInsert = (normalizedData.labelTracks || []).map((track) => {
+      // Step 5: Upsert one LabelTrack per speaker.
+      // The track is what the editor links to an Entity ("this speaker is
+      // Erik"), and the UI finds it by trackId == the provider speaker id, so
+      // the mapping below must be keyed by speaker id — never by array
+      // position, which silently shifts every later speaker onto the wrong
+      // track when one upsert fails.
+      const tracksToUpsert = (normalizedData.labelTracks || []).map((track) => {
         const speakerId =
-          (track.trackData as { speakerId?: string })?.speakerId ?? '';
+          (track.trackData as { speakerId?: string })?.speakerId ??
+          track.trackId;
         return {
-          ...track,
-          LabelEntityRef: entityMap.get(speakerId),
+          speakerId,
+          data: { ...track, LabelEntityRef: entityMap.get(speakerId) },
         };
       });
 
-      const trackIds = await this.batchInsertLabelTracks(tracksToInsert);
+      const tracks = await this.upsertLabelTracks(tracksToUpsert);
+      this.logger.debug(
+        `Upserted ${tracks.idsBySpeakerId.size} of ${tracksToUpsert.length} speaker tracks`
+      );
 
-      // Map speaker ids to track IDs (using tracksToInsert to maintain order)
-      tracksToInsert.forEach((track, index) => {
-        const speakerId =
-          (track.trackData as { speakerId?: string })?.speakerId ?? '';
-        if (trackIds[index]) {
-          trackMap.set(speakerId, trackIds[index]);
-        }
-      });
-      this.logger.debug(`Inserted ${trackIds.length} speaker tracks`);
-
-      // Step 6: Batch insert LabelSpeaker records
+      // Step 6: Upsert LabelSpeaker records
       // Link utterances to entities and tracks
-      const speakersToInsert = (normalizedData.labelSpeakers || []).map(
+      const speakersToUpsert = (normalizedData.labelSpeakers || []).map(
         (speaker) => ({
           ...speaker,
           LabelEntityRef: entityMap.get(speaker.speakerId),
-          LabelTrackRef: trackMap.get(speaker.speakerId),
+          LabelTrackRef: tracks.idsBySpeakerId.get(speaker.speakerId),
         })
       );
 
-      const speakerIds = await this.batchInsertLabelSpeakers(speakersToInsert);
-      this.logger.debug(`Inserted ${speakerIds.length} speaker utterances`);
+      const speakers = await this.upsertLabelSpeakers(speakersToUpsert);
+      this.logger.debug(
+        `Upserted ${speakers.ids.length} of ${speakersToUpsert.length} speaker utterances`
+      );
 
       // Clear entity cache after processing
       this.labelEntityService.clearCache();
+
+      // A speaker with no LabelTrack row cannot be identified in the UI at all
+      // (the track carries the Entity link), so a partial write is a failed
+      // step, not a successful one — reporting success here is what let this
+      // reach an editor as a silently unusable "No track record". Utterances
+      // are written before this check so the transcript survives, and the
+      // retry is cheap and idempotent: the provider response comes from the
+      // cache and every write above upserts by hash.
+      if (tracks.failed > 0 || speakers.failed > 0) {
+        throw new Error(
+          `Speaker transcription persisted incompletely for media ${input.mediaId}: ` +
+            `${tracks.failed} of ${tracksToUpsert.length} tracks and ` +
+            `${speakers.failed} of ${speakersToUpsert.length} utterances failed to write`
+        );
+      }
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -267,13 +292,13 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
           wordCount: normalizedData.labelMediaUpdate.wordCount || 0,
           speakerCount: normalizedData.labelMediaUpdate.speakerCount || 0,
           labelEntityCount: entityMap.size,
-          labelTrackCount: trackIds.length,
+          labelTrackCount: tracks.idsBySpeakerId.size,
           labelClipCount: 0,
           labelObjectCount: 0,
           labelFaceCount: 0,
           labelPersonCount: 0,
           labelSpeechCount: 0,
-          labelSpeakerCount: speakerIds.length,
+          labelSpeakerCount: speakers.ids.length,
           labelSegmentCount: 0,
           labelShotCount: 0,
         },
@@ -434,87 +459,196 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Batch insert LabelTrack records
+   * Upsert one LabelTrack per speaker, keyed by trackHash.
+   *
+   * Returns the record id for every speaker whose track is now in the DB —
+   * whether it was created here or already existed — so callers can link
+   * utterances by speaker id rather than by array position.
+   *
+   * Existing tracks are reconciled, not just reused: a run that failed to
+   * write its tracks leaves utterances with no LabelTrackRef, and re-running
+   * the task is the documented repair path, so the provider cluster link is
+   * refreshed on the way through. `EntityRef` is deliberately never touched —
+   * that is the editor's manual "this speaker is Erik" link, which must
+   * survive label regeneration.
    */
-  private async batchInsertLabelTracks(
-    tracks: LabelTrackData[]
-  ): Promise<string[]> {
-    const trackIds: string[] = [];
-    for (const track of tracks) {
+  private async upsertLabelTracks(
+    tracks: Array<{ speakerId: string; data: LabelTrackData }>
+  ): Promise<{ idsBySpeakerId: Map<string, string>; failed: number }> {
+    const idsBySpeakerId = new Map<string, string>();
+    let failed = 0;
+
+    for (const { speakerId, data } of tracks) {
       try {
-        const existing = await this.pocketBaseService.labelTrackMutator.getList(
-          1,
-          1,
-          `trackHash = "${track.trackHash}"`
-        );
-        if (existing.items.length > 0) {
-          trackIds.push(existing.items[0].id);
-        } else {
-          const created =
-            await this.pocketBaseService.labelTrackMutator.create(track);
-          trackIds.push(created.id);
+        const existing = await this.findTrackByHash(data.trackHash);
+        if (existing) {
+          if (
+            data.LabelEntityRef &&
+            existing.LabelEntityRef !== data.LabelEntityRef
+          ) {
+            await this.pocketBaseService.labelTrackMutator.update(existing.id, {
+              LabelEntityRef: data.LabelEntityRef,
+            } as Partial<LabelTrack>);
+          }
+          idsBySpeakerId.set(speakerId, existing.id);
+          continue;
         }
+
+        const created =
+          await this.pocketBaseService.labelTrackMutator.create(data);
+        idsBySpeakerId.set(speakerId, created.id);
       } catch (error) {
-        this.logger.error(`Failed to insert track: ${error}`);
+        // A concurrent run of this step (retry, watchdog takeback) can win the
+        // race between our lookup and our create; the row it wrote is the one
+        // we want. Without this recovery the track was dropped outright and
+        // every utterance for the speaker lost its LabelTrackRef.
+        if (this.isUniqueConstraintError(error)) {
+          const existing = await this.findTrackByHash(data.trackHash);
+          if (existing) {
+            idsBySpeakerId.set(speakerId, existing.id);
+            continue;
+          }
+        }
+        failed += 1;
+        this.logger.error(
+          `Failed to upsert speaker track "${speakerId}" (trackHash=${data.trackHash}) ` +
+            `for media ${data.MediaRef}: ${this.formatPbError(error)}`
+        );
       }
     }
-    return trackIds;
+
+    return { idsBySpeakerId, failed };
   }
 
   /**
-   * Batch insert LabelSpeaker records
+   * Upsert LabelSpeaker records, keyed by speakerHash.
+   *
+   * Existing utterances have their entity/track links reconciled so a re-run
+   * repairs rows written by an earlier run whose tracks failed (the link
+   * fields were left empty then, and blindly reusing the row would keep them
+   * empty forever).
    */
-  private async batchInsertLabelSpeakers(
+  private async upsertLabelSpeakers(
     utterances: LabelSpeakerData[]
-  ): Promise<string[]> {
-    const speakerIds: string[] = [];
-    const batchSize = 100;
+  ): Promise<{ ids: string[]; failed: number }> {
+    const ids: string[] = [];
+    let failed = 0;
 
-    for (let i = 0; i < utterances.length; i += batchSize) {
-      const batch = utterances.slice(i, i + batchSize);
-      for (const speakerData of batch) {
-        try {
-          const existing =
-            await this.pocketBaseService.labelSpeakerMutator.getList(
-              1,
-              1,
-              `speakerHash = "${speakerData.speakerHash}"`
-            );
-          if (existing.items.length > 0) {
-            speakerIds.push(existing.items[0].id);
-          } else {
-            const created =
-              await this.pocketBaseService.labelSpeakerMutator.create(
-                speakerData
-              );
-            speakerIds.push(created.id);
-          }
-        } catch (error) {
-          if (this.isUniqueConstraintErrorForSpeaker(error)) {
-            const existing =
-              await this.pocketBaseService.labelSpeakerMutator.getList(
-                1,
-                1,
-                `speakerHash = "${speakerData.speakerHash}"`
-              );
-            if (existing.items.length > 0) {
-              speakerIds.push(existing.items[0].id);
-              continue;
-            }
-          }
-          this.logger.error(`Failed to insert speaker utterance: ${error}`);
+    for (const speakerData of utterances) {
+      try {
+        const existing = await this.findSpeakerByHash(speakerData.speakerHash);
+        if (existing) {
+          await this.relinkSpeaker(existing, speakerData);
+          ids.push(existing.id);
+          continue;
         }
+
+        const created =
+          await this.pocketBaseService.labelSpeakerMutator.create(speakerData);
+        ids.push(created.id);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          const existing = await this.findSpeakerByHash(
+            speakerData.speakerHash
+          );
+          if (existing) {
+            await this.relinkSpeaker(existing, speakerData);
+            ids.push(existing.id);
+            continue;
+          }
+        }
+        failed += 1;
+        this.logger.error(
+          `Failed to upsert speaker utterance (speakerHash=${speakerData.speakerHash}) ` +
+            `for media ${speakerData.MediaRef}: ${this.formatPbError(error)}`
+        );
       }
     }
-    return speakerIds;
+
+    return { ids, failed };
   }
 
-  private isUniqueConstraintErrorForSpeaker(error: unknown): boolean {
+  /** Patch an existing utterance's entity/track links when they drifted. */
+  private async relinkSpeaker(
+    existing: LabelSpeaker,
+    desired: LabelSpeakerData
+  ): Promise<void> {
+    const patch: Partial<LabelSpeaker> = {};
+    if (
+      desired.LabelTrackRef &&
+      existing.LabelTrackRef !== desired.LabelTrackRef
+    ) {
+      patch.LabelTrackRef = desired.LabelTrackRef;
+    }
+    if (
+      desired.LabelEntityRef &&
+      existing.LabelEntityRef !== desired.LabelEntityRef
+    ) {
+      patch.LabelEntityRef = desired.LabelEntityRef;
+    }
+    if (Object.keys(patch).length === 0) {
+      return;
+    }
+    await this.pocketBaseService.labelSpeakerMutator.update(existing.id, patch);
+  }
+
+  private async findTrackByHash(trackHash: string): Promise<LabelTrack | null> {
+    const result = await this.pocketBaseService.labelTrackMutator.getList(
+      1,
+      1,
+      `trackHash = "${trackHash}"`
+    );
+    return result.items[0] ?? null;
+  }
+
+  private async findSpeakerByHash(
+    speakerHash: string
+  ): Promise<LabelSpeaker | null> {
+    const result = await this.pocketBaseService.labelSpeakerMutator.getList(
+      1,
+      1,
+      `speakerHash = "${speakerHash}"`
+    );
+    return result.items[0] ?? null;
+  }
+
+  /**
+   * Log-friendly error string that keeps PocketBase's field-level detail.
+   *
+   * A ClientResponseError's `.message` is always the generic envelope
+   * ("Failed to create record."); the actionable per-field reasons live in
+   * `error.response.data`. Logging only the message is why a failed track
+   * write looked like a run with no errors at all.
+   */
+  private formatPbError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      return `${message} — ${JSON.stringify(data)}`;
+    }
+    return message;
+  }
+
+  /**
+   * Recognize a unique-constraint violation.
+   *
+   * PocketBase reports `validation_not_unique` in
+   * `error.response.data.<field>.code`, never in `error.message`, so both the
+   * message and the serialized body are searched.
+   */
+  private isUniqueConstraintError(error: unknown): boolean {
+    if (!error) return false;
+
+    const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    const haystack = `${message} ${data ? JSON.stringify(data) : ''}`;
+
     return (
-      message.includes('unique constraint') ||
-      message.includes('validation_not_unique') ||
-      message.includes('speakerHash')
+      haystack.includes('unique constraint') ||
+      haystack.includes('UNIQUE constraint') ||
+      haystack.includes('validation_not_unique') ||
+      haystack.includes('trackHash') ||
+      haystack.includes('speakerHash')
     );
   }
 }

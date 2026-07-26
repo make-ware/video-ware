@@ -586,7 +586,15 @@ N }\`. All times are seconds.
   \`height\` describe the source.
 - **MediaClip** — a reusable, named sub-range of one media; \`start\`/\`end\`
   are positions in the source media. Created by hand
-  (\`vw media clip create\`) or from a label (\`vw label clip\`).
+  (\`vw media clip create\`) or from a label (\`vw label clip\`). A clip may
+  carry an **edit list** (\`clipData.segments\` here, \`meta.segments\` on
+  timeline clips): 2+ \`{start, end}\` source ranges that fine-tune the cut
+  (umms removed in place). Such a "composite" clip plays only its segments —
+  its effective duration is their sum, not \`end - start\`, and text/labels
+  inside the gaps are NOT part of the cut. Read composites through
+  \`vw ... segments <id>\` (the list), \`vw ... transcript <id>\` (what the
+  cut says, gap words trimmed), and \`vw timeline clips map <id>\`
+  (source ↔ timeline time translation) — never by their outer trim alone.
 - **Labels** — machine annotations of a media, one file per label under a
   per-type folder: \`speech\` (transcripts), \`speaker\` (diarized
   per-speaker utterances; each carries a \`speakerId\` and word timings),
@@ -609,7 +617,10 @@ N }\`. All times are seconds.
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
   track's clips carry computed \`timelineStart\`/\`timelineEnd\` (position on
   the timeline) while \`clip.start\`/\`clip.end\` are the trim window in the
-  source media.
+  source media. Each placed clip also embeds a canonical \`times\` block
+  (\`timeline\`/\`source\`/\`effective\`/\`segments\`/\`composite\`) — when
+  \`composite\` is true, the source span is larger than what plays; use the
+  \`effective\` duration and the segment commands above.
 
 Timeline placement semantics: every clip sits at an explicit
 \`timelineStart\`. \`vw timeline insert\` appends to the end of the target
@@ -627,6 +638,13 @@ Ids in these files (folder names, \`id\` fields) plug directly into \`vw\`
 flags. Always pass explicit ids and \`-w ${workspace.id}\` — commands fall
 back to interactive pickers when an id is omitted, which blocks without a
 TTY. Add \`--json\` for machine-readable output.
+
+\`-w\` is accepted by **every** \`vw\` command and in any position
+(\`vw -w ${workspace.id} media list\` == \`vw media list -w ${workspace.id}\`),
+so it is safe to pass on every call: workspace-scoped commands act on it, and
+id-addressed commands validate it against the record instead of rejecting it.
+It applies to that one command only — \`vw workspace use\` is what changes the
+active workspace.
 
 \`\`\`bash
 # 1. Find moments and turn the good ones into MediaClips

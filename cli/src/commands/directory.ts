@@ -36,7 +36,7 @@ export function registerDirectoryCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       await runList({
         spec: directoryListSpec,
         opts,
@@ -62,11 +62,10 @@ export function registerDirectoryCommands(program: Command): void {
     directory
       .command('show <dir>')
       .description('Show one directory (name or id) and the media filed in it')
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (ref: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const dir = resolveDirectoryIn(
         (await listDirectories(pb, workspaceId)).items,
         ref
@@ -99,11 +98,10 @@ export function registerDirectoryCommands(program: Command): void {
       .description(
         'Create a directory — flat, unique per workspace; names allow letters, digits, dashes, and underscores (idempotent)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (name: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await createDirectory(pb, workspaceId, name);
       if (opts.json) {
         printRecord({ ...result.directory, existed: result.existed }, [], true);
@@ -132,11 +130,10 @@ export function registerDirectoryCommands(program: Command): void {
       .description(
         'Rename a directory (name or id; new name must be path-safe and unique)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (ref: string, newName: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await renameDirectory(pb, workspaceId, ref, newName);
       if (opts.json) {
         printRecord(result.directory, [], true);
@@ -157,11 +154,10 @@ export function registerDirectoryCommands(program: Command): void {
       .description(
         'Move media into a directory (name or id) — "/" or "none" re-files them at the workspace root'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (ref: string, mediaIds: string[], opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await moveMedia(pb, workspaceId, ref, mediaIds);
       if (opts.json) {
         printRecord(result, [], true);
@@ -183,7 +179,6 @@ export function registerDirectoryCommands(program: Command): void {
       .description(
         'Delete a directory (name or id). Refuses while media is filed in it; --force unfiles the media first — media are never deleted'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option(
         '-f, --force',
         'unfile any contained media back to the workspace root, then delete'
@@ -191,7 +186,7 @@ export function registerDirectoryCommands(program: Command): void {
   ).action(async (ref: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await deleteDirectory(pb, workspaceId, ref, {
         force: opts.force,
       });

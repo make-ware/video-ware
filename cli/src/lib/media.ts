@@ -16,8 +16,17 @@ import {
   type TypedPocketBase,
 } from '@project/shared';
 import { mediaBounds, singleMediaType } from './timeline.js';
-import { mediaLabel, type MediaWithUpload } from './select.js';
+import {
+  mediaLabel,
+  requireMediaClip,
+  type MediaWithUpload,
+} from './select.js';
 import { isRootDirRef, resolveDirectory } from './directory.js';
+import {
+  compositeMarker,
+  mediaClipTimes,
+  type ClipTimes,
+} from './clip-times.js';
 import type { OptionGroupOf } from './options.js';
 import { formatDuration, type Column } from './output.js';
 import {
@@ -144,8 +153,11 @@ export function fetchMediaPage(
   ) as Promise<ListResult<MediaWithUpload>>;
 }
 
+/** A listed clip with its derived time semantics, for the ◆N marker. */
+export type MediaClipRow = MediaClipWithMedia & { times: ClipTimes };
+
 /** `media clip list` — clips are addressed per media or across the workspace. */
-export const mediaClipListSpec: ListSpec<MediaClipWithMedia> = {
+export const mediaClipListSpec: ListSpec<MediaClipWithMedia, MediaClipRow> = {
   command: 'media clip list',
   sorts: MEDIA_CLIP_SORTS,
   filters: {
@@ -174,6 +186,7 @@ export const mediaClipListSpec: ListSpec<MediaClipWithMedia> = {
       }),
     }),
   },
+  toRows: (clips) => clips.map((c) => ({ ...c, times: mediaClipTimes(c) })),
   columns: [
     { header: 'ID', value: (c) => c.id },
     { header: 'LABEL', value: (c) => c.label ?? '' },
@@ -181,7 +194,12 @@ export const mediaClipListSpec: ListSpec<MediaClipWithMedia> = {
     { header: 'TYPE', value: (c) => String(c.type) },
     { header: 'START', value: (c) => `${c.start.toFixed(2)}s` },
     { header: 'END', value: (c) => `${c.end.toFixed(2)}s` },
-    { header: 'DURATION', value: (c) => formatDuration(c.duration) },
+    {
+      // Effective gap-skipping length; ` ◆N` marks an N-segment composite
+      // whose START–END span is larger than it plays.
+      header: 'DURATION',
+      value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`,
+    },
   ],
   hint: '`vw media clip segments <id>` shows a composite clip’s edit list',
 };
@@ -348,10 +366,7 @@ export async function updateMediaClip(
   opts: UpdateMediaClipOptions
 ): Promise<MediaClip> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
 
   const patch: Partial<MediaClip> = {
     ...(opts.label !== undefined ? { label: opts.label } : {}),
@@ -440,10 +455,7 @@ export async function deleteMediaClip(
   clipId: string
 ): Promise<DeleteMediaClipResult> {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
 
   const refs = await new TimelineClipMutator(pb).getList(
     1,

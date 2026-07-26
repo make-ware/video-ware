@@ -23,7 +23,12 @@ import {
 } from '../lib/timeline-clip.js';
 import { withConflictRetry } from '../lib/conflict.js';
 import { DOCTOR_HELP, editResultHelp } from '../lib/help.js';
-import { enforceStrict, printOpWarnings } from '../lib/warnings.js';
+import {
+  enforceStrict,
+  noopMessage,
+  printOpWarnings,
+} from '../lib/warnings.js';
+import { compactTimeline } from '../lib/timeline-compact.js';
 import {
   clipLabelDetail,
   getTimelineOverview,
@@ -49,23 +54,22 @@ import {
   parseSeconds,
   pickOptions,
   withJsonOption,
+  withStrictOption,
 } from '../lib/options.js';
 import {
   error,
   formatDuration,
   info,
   printRecord,
+  range,
+  secs,
   success,
   table,
   truncate,
 } from '../lib/output.js';
+import { compositeMarker } from '../lib/clip-times.js';
 import { registerTimelineTrackCommands } from './timeline-track.js';
 import { registerTimelineClipCommands } from './timeline-clips.js';
-
-/** Format a time position/range in exact seconds (agents need precision). */
-const secs = (v: number) => `${v.toFixed(2)}s`;
-const range = (start: number, end: number) =>
-  `${start.toFixed(2)}–${end.toFixed(2)}s`;
 
 function trackHeaderLine(overview: TrackOverview): string {
   const track = overview.track;
@@ -92,13 +96,15 @@ const showClipColumns = [
     value: (c: InspectClipInfo) => range(c.timelineStart, c.timelineEnd),
   },
   {
+    // Outer source span; ` ◆N` marks a composite whose edit list skips gaps
+    // inside it (the DUR column is the effective playback length).
     header: 'SOURCE',
-    value: (c: InspectClipInfo) => range(c.clip.start, c.clip.end),
+    value: (c: InspectClipInfo) =>
+      range(c.clip.start, c.clip.end) + compositeMarker(c.times),
   },
   {
     header: 'DUR',
-    value: (c: InspectClipInfo) =>
-      formatDuration(c.timelineEnd - c.timelineStart),
+    value: (c: InspectClipInfo) => secs(c.timelineEnd - c.timelineStart),
   },
   { header: 'KIND', value: (c: InspectClipInfo) => c.kind },
   {
@@ -170,17 +176,36 @@ export function printLabelDetail(detail: ClipLabelDetail): void {
     }
   }
   if (detail.overlapping.length > 0) {
-    info('  overlapping labels in the source window:');
+    info('  overlapping labels in the played content:');
     for (const hit of detail.overlapping) {
       const r = hit.record;
       const snippet = LABEL_TYPE_CONFIG[hit.type].snippet(r);
+      const first = hit.played[0];
+      const plays = first
+        ? first.timelineStart !== undefined && first.timelineEnd !== undefined
+          ? `  plays tl ${range(first.timelineStart, first.timelineEnd)}`
+          : `  plays clip ${range(first.clipStart, first.clipEnd)}`
+        : '';
+      const more =
+        hit.played.length > 1 ? ` +${hit.played.length - 1} more` : '';
       info(
         `    ${hit.type}  ${r.id}  ${range(r.start, r.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` +
-          withWho(snippet, hit.attributedEntity?.name)
+          withWho(snippet, hit.attributedEntity?.name) +
+          plays +
+          more
       );
     }
   }
-  if (detail.provenance.length === 0 && detail.overlapping.length === 0) {
+  if (detail.hiddenInCutGaps > 0) {
+    info(
+      `  (${detail.hiddenInCutGaps} label(s) inside cut gaps hidden — not played by this clip)`
+    );
+  }
+  if (
+    detail.provenance.length === 0 &&
+    detail.overlapping.length === 0 &&
+    detail.hiddenInCutGaps === 0
+  ) {
     info('  (no labels found for this clip)');
   }
 }
@@ -200,10 +225,7 @@ export function registerTimelineCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const ctx = {
-        pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
-      };
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
       await runList({
         spec: timelineListSpec,
         opts,
@@ -217,13 +239,12 @@ export function registerTimelineCommands(program: Command): void {
 
   const create = timeline
     .command('create <name>')
-    .description('Create a timeline with its tracks')
-    .option('-w, --workspace <id>', 'workspace id override');
+    .description('Create a timeline with its tracks');
   applyOptions(withJsonOption(create), timelineCreateOptions).action(
     async (name: string, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const created = await createTimeline(pb, {
           workspaceId,
           name,
@@ -271,7 +292,6 @@ export function registerTimelineCommands(program: Command): void {
       .command('show [timelineId]')
       .description('Inspect a timeline: tracks, settings, and placed clips')
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
       const pb = await requireClient();
@@ -282,15 +302,10 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
       const overview = await getTimelineOverview(pb, timelineId);
-      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
-        throw new Error(
-          `Timeline ${timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
-        );
-      }
       if (opts.json) {
         printRecord(overview, [], true);
         return;
@@ -340,7 +355,6 @@ export function registerTimelineCommands(program: Command): void {
     timeline
       .command('inspect')
       .description('Show what plays on each track at a timeline time')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('-t, --timeline <id>', 'timeline id')
       .requiredOption(
         '--at <seconds>',
@@ -355,7 +369,7 @@ export function registerTimelineCommands(program: Command): void {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const timelineId =
         opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
 
@@ -371,7 +385,9 @@ export function registerTimelineCommands(program: Command): void {
           if (track.active) {
             labelDetails.set(
               track.active.clip.id,
-              await clipLabelDetail(pb, track.active.clip)
+              await clipLabelDetail(pb, track.active.clip, {
+                placement: { timelineStart: track.active.timelineStart },
+              })
             );
           }
         }
@@ -424,9 +440,13 @@ export function registerTimelineCommands(program: Command): void {
               : '—',
         },
         {
+          // ` ◆` marks a source time mapped through a composite's edit list.
           header: 'SOURCE@T',
           value: (t: TrackAtTime) =>
-            t.active ? secs(t.active.sourceTime) : '—',
+            t.active
+              ? secs(t.active.sourceTime) +
+                (t.active.times.composite ? ' ◆' : '')
+              : '—',
         },
         {
           header: 'REMAINING',
@@ -467,7 +487,6 @@ export function registerTimelineCommands(program: Command): void {
         'into a timeline track (appends to the end of the track unless ' +
         '--at/--after)'
     )
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
     .option(
       '--clips <ids>',
@@ -495,7 +514,7 @@ export function registerTimelineCommands(program: Command): void {
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
 
       const timelineId =
         opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
@@ -603,7 +622,6 @@ export function registerTimelineCommands(program: Command): void {
         'Health-check a timeline: overlaps, gaps, stale durations, dangling refs, deleted tracks, duplicate layers'
       )
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
       .addHelpText('after', DOCTOR_HELP)
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
@@ -615,7 +633,7 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
 
@@ -666,7 +684,6 @@ export function registerTimelineCommands(program: Command): void {
         'Heal nested-timeline clip drift (gap-preserving reflow of each track)'
       )
       .option('-t, --timeline <id>', 'timeline id (alternative to positional)')
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('--dry-run', 'compute and report the plan without writing')
   ).action(async (timelineIdArg: string | undefined, opts) => {
     try {
@@ -678,7 +695,7 @@ export function registerTimelineCommands(program: Command): void {
       }
       let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
 
@@ -728,10 +745,84 @@ export function registerTimelineCommands(program: Command): void {
     }
   });
 
+  withJsonOption(
+    withStrictOption(
+      timeline
+        .command('compact [timelineId]')
+        .description(
+          'Close gaps track-by-track: re-place each clip flush after the ' +
+            'previous one, order preserved (contrast: reflow heals nested ' +
+            'drift and PRESERVES gaps)'
+        )
+        .option(
+          '-t, --timeline <id>',
+          'timeline id (alternative to positional)'
+        )
+        .option(
+          '--track <layer|id>',
+          'compact only this track (overlay tracks often keep gaps on purpose)'
+        )
+        .option('--dry-run', 'print the moves without writing anything')
+        .option(
+          '--force',
+          're-apply over a concurrent edit to clip positions instead of aborting'
+        )
+        .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
+    )
+  ).action(async (timelineIdArg: string | undefined, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId: string | undefined = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+
+      const result = await withConflictRetry(
+        () =>
+          compactTimeline(pb, timelineId, {
+            track: opts.track,
+            dryRun: opts.dryRun,
+          }),
+        { patchKeys: ['timelineStart'], force: opts.force }
+      );
+      if (opts.json) {
+        printRecord(result, [], true);
+      } else if (result.moveCount === 0) {
+        info(noopMessage(result.warnings) ?? 'Nothing to compact.');
+      } else {
+        for (const track of result.tracks) {
+          info(
+            `TRACK ${track.layer}: ${track.moves.length} move(s), ` +
+              `${secs(track.closedGapSeconds)} of gap closed`
+          );
+          for (const move of track.moves) {
+            info(`  ${move.clipId}: ${secs(move.from)} → ${secs(move.to)}`);
+          }
+        }
+        if (result.applied) {
+          success(`Compacted ${result.moveCount} clip(s).`);
+        } else {
+          info(
+            `Dry run — ${result.moveCount} move(s) pending; re-run without --dry-run to apply.`
+          );
+        }
+      }
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
   timeline
     .command('render')
     .description('Render a timeline')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-t, --timeline <id>', 'timeline id')
     .option('--format <fmt>', 'output container format (default: mp4)')
     .option('--codec <codec>', 'video codec (default: h264)')
@@ -752,7 +843,7 @@ export function registerTimelineCommands(program: Command): void {
     .action(async (opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
 
         let timelineId = opts.timeline as string | undefined;
         if (!timelineId) {

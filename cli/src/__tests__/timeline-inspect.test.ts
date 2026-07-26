@@ -265,6 +265,48 @@ describe('inspectAtTime', () => {
     expect(result.computedDuration).toBe(0);
     expect(result.tracks.every((t) => t.active === null)).toBe(true);
   });
+
+  it('maps source time through a composite edit list', async () => {
+    // Segments [0,2] + [5,7], effective 4s, placed at 10. At t=13 the clip
+    // is 3s in: 1s into the second segment → source 6, never the gap's 3.
+    const composite = mediaClip({
+      id: 'comp',
+      TimelineTrackRef: 'trk0',
+      timelineStart: 10,
+      start: 0,
+      end: 7,
+      duration: 4,
+      meta: {
+        segments: [
+          { start: 0, end: 2 },
+          { start: 5, end: 7 },
+        ],
+      },
+    });
+    const pb = fakePb(inspectStubs({ clips: [composite] }));
+
+    const result = await inspectAtTime(pb, { timelineId: 'tl1', at: 13 });
+
+    const active = result.tracks[0].active;
+    expect(active?.clip.id).toBe('comp');
+    expect(active?.sourceTime).toBe(6);
+    expect(active?.remaining).toBe(1);
+    expect(active?.times).toEqual({
+      timeline: { start: 10, end: 14, duration: 4 },
+      source: { start: 0, end: 7, span: 7 },
+      effective: { duration: 4 },
+      segments: { count: 2, source: 'meta' },
+      composite: true,
+    });
+
+    // Inside the first segment the mapping is linear.
+    const early = await inspectAtTime(pb, { timelineId: 'tl1', at: 11 });
+    expect(early.tracks[0].active?.sourceTime).toBe(1);
+
+    // At the internal cut boundary (offset 2) the earlier segment's end plays.
+    const boundary = await inspectAtTime(pb, { timelineId: 'tl1', at: 12 });
+    expect(boundary.tracks[0].active?.sourceTime).toBe(2);
+  });
 });
 
 describe('clipLabelDetail', () => {
@@ -293,6 +335,12 @@ describe('clipLabelDetail', () => {
           expand: { LabelSpeechRef: speechLabel },
         },
       ]),
+      // resolveTimelineEditList's fetch fallback (MediaClipRef unexpanded).
+      MediaClips: {
+        getOne: vi.fn(async () => {
+          throw notFound();
+        }),
+      },
     };
     const pb = fakePb(stubs);
 
@@ -346,6 +394,74 @@ describe('clipLabelDetail', () => {
     const overlap = detail.overlapping.find((h) => h.record.id === 'ls1');
     expect(overlap).toBeDefined();
     expect(overlap!.attributedEntity?.name).toBe('Erik');
+    // Plain trim clip: the label plays as one range, clip-relative.
+    expect(overlap!.played).toEqual([
+      { sourceStart: 5, sourceEnd: 8, clipStart: 0, clipEnd: 3 },
+    ]);
+    expect(detail.hiddenInCutGaps).toBe(0);
+  });
+
+  it('drops gap-only labels and projects played ranges for composites', async () => {
+    const gapLabel = {
+      id: 'gap1',
+      MediaRef: 'm1',
+      transcript: 'umm cut away',
+      confidence: 0.9,
+      start: 9,
+      end: 11,
+    };
+    const straddler = {
+      id: 'edge1',
+      MediaRef: 'm1',
+      transcript: 'partially audible',
+      confidence: 0.9,
+      start: 7,
+      end: 9.5,
+    };
+    const stubs = {
+      ...allLabelCollections({
+        LabelSpeech: listStub([gapLabel, straddler]),
+      }),
+      MediaClipLabels: listStub([]),
+    };
+    const pb = fakePb(stubs);
+
+    // Composite: plays [5,8] + [12,15]; the 8–12 stretch is cut.
+    const clip = {
+      id: 'tc1',
+      TimelineRef: 'tl1',
+      MediaRef: 'm1',
+      order: 0,
+      start: 5,
+      end: 15,
+      duration: 6,
+      meta: {
+        segments: [
+          { start: 5, end: 8 },
+          { start: 12, end: 15 },
+        ],
+      },
+    } as unknown as TimelineClipExpanded;
+
+    const detail = await clipLabelDetail(pb, clip, {
+      placement: { timelineStart: 100 },
+    });
+
+    expect(detail.hiddenInCutGaps).toBe(1);
+    expect(detail.overlapping).toHaveLength(1);
+    const hit = detail.overlapping[0];
+    expect(hit.record.id).toBe('edge1');
+    // Only the audible intersection is reported, projected to timeline time.
+    expect(hit.played).toEqual([
+      {
+        sourceStart: 7,
+        sourceEnd: 8,
+        clipStart: 2,
+        clipEnd: 3,
+        timelineStart: 102,
+        timelineEnd: 103,
+      },
+    ]);
   });
 
   it('returns nothing for caption clips', async () => {

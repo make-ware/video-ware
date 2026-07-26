@@ -1,17 +1,11 @@
 import type { Command } from 'commander';
-import {
-  MediaMutator,
-  MediaTagMutator,
-  type Entity,
-  type MediaTag,
-  type TypedPocketBase,
-} from '@project/shared';
+import { MediaTagMutator, type Entity, type MediaTag } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import {
   mediaLabel,
   pickMedia,
+  requireMedia,
   resolveWorkspaceId,
-  type MediaWithUpload,
 } from '../lib/select.js';
 import { resolveEntity } from '../lib/entity.js';
 import {
@@ -28,6 +22,7 @@ import {
   updateMediaClip,
 } from '../lib/media.js';
 import { registerMediaClipSegmentCommands } from './clip-segments.js';
+import { registerMediaClipTranscriptCommand } from './clip-transcript.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import { runList, withListOptions } from '../lib/list/index.js';
 import {
@@ -48,17 +43,6 @@ const tagColumns: Column<MediaTagWithEntity>[] = [
   { header: 'ENTITY ID', value: (t) => t.EntityRef },
 ];
 
-async function requireMedia(
-  pb: TypedPocketBase,
-  mediaId: string
-): Promise<MediaWithUpload> {
-  const media = await new MediaMutator(pb).getById(mediaId);
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
-  }
-  return media as MediaWithUpload;
-}
-
 export function registerMediaCommands(program: Command): void {
   const media = program.command('media').description('Browse workspace media');
 
@@ -75,7 +59,7 @@ export function registerMediaCommands(program: Command): void {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+        workspaceId: await resolveWorkspaceId(pb),
       };
       await runList({
         spec: mediaListSpec,
@@ -101,7 +85,7 @@ export function registerMediaCommands(program: Command): void {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+        workspaceId: await resolveWorkspaceId(pb),
       };
       await runList({
         spec: { ...mediaListSpec, command: 'media search' },
@@ -264,13 +248,12 @@ export function registerMediaCommands(program: Command): void {
   const clipCreate = clip
     .command('create')
     .description('Create a media clip from a media sub-range')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-m, --media <id>', 'source media id');
 
   applyOptions(clipCreate, clipFieldOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
 
       let mediaId = opts.media as string | undefined;
       if (!mediaId) {
@@ -307,7 +290,7 @@ export function registerMediaCommands(program: Command): void {
       }
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+        workspaceId: await resolveWorkspaceId(pb),
       };
       await runList({
         spec: mediaClipListSpec,
@@ -373,4 +356,5 @@ export function registerMediaCommands(program: Command): void {
   });
 
   registerMediaClipSegmentCommands(clip);
+  registerMediaClipTranscriptCommand(clip);
 }

@@ -63,6 +63,7 @@ export {
   mergeSource,
   runList,
   runMergedList,
+  type ListRefinement,
   type RunListArgs,
   type RunMergedListArgs,
 } from './run.js';

@@ -2,18 +2,24 @@
 
 import { useCallback, useMemo, useState, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMediaDetails } from '@/hooks/use-media-details';
+import { useMediaClip } from '@/hooks/use-media-clip';
+import { useClipList } from '@/hooks/use-clip-list';
 import { useRegisterPageMenu } from '@/hooks/use-page-menu';
 import type { PageMenuItem } from '@/contexts/page-menu-context';
 import { MediaVideoPlayer } from '@/components/video/media-video-player';
-import { MediaClipsLibrary } from '@/components/library';
+import { MediaClipsLibrary, LibraryToolbar } from '@/components/library';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { MediaClipPanel } from '@/components/clip/media-clip-panel';
 import { MediaInfoEditor } from '@/components/media/media-info-editor';
 import {
-  ClipTypeFilter,
-  clipTypeFilterPredicate,
-} from '@/components/clip/clip-type-filter';
+  MEDIA_SCOPED_CLIP_SORT_OPTIONS,
+  DEFAULT_MEDIA_CLIP_SORT,
+  getClipSortOption,
+  type ClipSortValue,
+} from '@/components/clip/clip-sort';
+import { qk } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
@@ -35,6 +41,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { SpeakerTranscriptPanel } from '@/components/labels/speakers/speaker-transcript-panel';
 import { useMediaSpeakers } from '@/hooks/use-media-speakers';
 import { MediaClip } from '@project/shared';
+import type { ExpandedMediaClip } from '@/types/expanded-types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { useWorkspace } from '@/hooks/use-workspace';
 
@@ -43,40 +50,63 @@ function MediaDetailsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const id = params.id as string;
-  const { media, clips, isLoading, error, refresh } = useMediaDetails(id);
+  // The route param, not currentWorkspace?.id: it's available on first render,
+  // so the clip list doesn't wait on workspace hydration to become `enabled`.
+  const routeWorkspaceId = params.workspaceId as string;
+  const { media, isLoading, error, refresh } = useMediaDetails(id);
   const { currentWorkspace } = useWorkspace();
   const { utterances, isLoading: isLoadingSpeakers } = useMediaSpeakers(id);
+  const queryClient = useQueryClient();
   const [clipEditorState, setClipEditorState] = useState<
     | null
     | { mode: 'create'; playhead?: number }
-    | { mode: 'edit-media-clip'; clip: MediaClip; playhead?: number }
+    | {
+        mode: 'edit-media-clip';
+        clip: MediaClip | ExpandedMediaClip;
+        playhead?: number;
+      }
   >(null);
   const [activeTab, setActiveTab] = useState('clips');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [clipSearch, setClipSearch] = useState('');
+  const [clipSort, setClipSort] = useState<ClipSortValue>(
+    DEFAULT_MEDIA_CLIP_SORT
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Media-scoped live infinite list: every filter and the sort run server-side,
+  // so this reaches every clip on the media instead of the first 200.
+  const clipsList = useClipList({
+    workspaceId: routeWorkspaceId,
+    mediaId: id,
+    // One media lives in one directory and has one mediaType, so both of these
+    // cross-media filters are degenerate here.
+    directoryFilter: null,
+    mediaTypeFilter: 'all',
+    clipTypeFilter: typeFilter,
+    searchQuery: clipSearch,
+    sort: clipSort,
+  });
 
   // Get clip ID from URL query parameter
   const clipIdFromUrl = searchParams.get('clip');
 
-  // Derive active clip ID from URL parameter, verifying it exists in loaded clips
-  const activeClipId = useMemo(() => {
-    if (!clipIdFromUrl || clips.length === 0) {
-      return undefined;
-    }
-    // Verify the clip exists in the loaded clips
-    const clipExists = clips.some((clip) => clip.id === clipIdFromUrl);
-    return clipExists ? clipIdFromUrl : undefined;
-  }, [clipIdFromUrl, clips]);
-
-  const activeClip = useMemo(
-    () => clips.find((c) => c.id === activeClipId),
-    [clips, activeClipId]
+  // The loaded list is the preferred source — SSE keeps it fresh and it costs
+  // no extra request.
+  const listActiveClip = useMemo(
+    () => clipsList.items.find((c) => c.id === clipIdFromUrl) ?? null,
+    [clipsList.items, clipIdFromUrl]
   );
 
-  const filteredClips = useMemo(() => {
-    const predicate = clipTypeFilterPredicate(typeFilter);
-    return clips.filter((clip) => predicate(clip.type));
-  }, [clips, typeFilter]);
+  // Only fall back to a by-id fetch once the first page has landed *without*
+  // the clip: a deep link into an unloaded page, or one the filters exclude.
+  const activeClipDetail = useMediaClip(clipIdFromUrl, {
+    enabled: !!clipIdFromUrl && !listActiveClip && !clipsList.isLoading,
+    mediaId: id,
+  });
+
+  const activeClip = listActiveClip ?? activeClipDetail.clip ?? undefined;
+  const activeClipId = activeClip?.id;
 
   const handleClearClipSelection = useCallback(() => {
     const newSearchParams = new URLSearchParams(searchParams.toString());
@@ -103,7 +133,7 @@ function MediaDetailsPageContent() {
 
   useRegisterPageMenu('edit', editMenuItems);
 
-  const handleClipSelect = (clip: MediaClip) => {
+  const handleClipSelect = (clip: ExpandedMediaClip) => {
     // If clicking the same clip, toggle it off (return to full video)
     if (activeClipId === clip.id) {
       handleClearClipSelection();
@@ -124,13 +154,13 @@ function MediaDetailsPageContent() {
     router.push(`/ws/${currentWorkspace?.id}/media`);
   };
 
-  const handleClipUpdate = () => {
-    refresh();
-  };
-
-  const handleClipDelete = () => {
-    refresh();
-  };
+  // SSE already folded the write into the list cache; the invalidation is the
+  // safety net and is what refreshes the (unsubscribed) clip-detail key.
+  // Deliberately not clipsList.removeFromCache() on delete: the SSE delete
+  // event decrements totalItems too, so an optimistic removal double-counts.
+  const handleClipsChanged = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: qk.clips.all });
+  }, [queryClient]);
 
   const handleOpenCreateClip = () => {
     const video = videoRef.current;
@@ -140,7 +170,11 @@ function MediaDetailsPageContent() {
   };
 
   const handleOpenEditClip = (clipId: string) => {
-    const clip = clips.find((c) => c.id === clipId);
+    // The loaded window first, then the deep-link record — there is no third
+    // source, so an id from neither simply can't be edited.
+    const clip =
+      clipsList.items.find((c) => c.id === clipId) ??
+      (activeClip?.id === clipId ? activeClip : undefined);
     if (clip) {
       const video = videoRef.current;
       const playhead = video?.currentTime;
@@ -159,17 +193,9 @@ function MediaDetailsPageContent() {
     }
   };
 
-  const _handleViewClip = (clipId: string) => {
-    // Navigate to the clip
-    const newSearchParams = new URLSearchParams(searchParams.toString());
-    newSearchParams.set('clip', clipId);
-    router.push(
-      `/ws/${currentWorkspace?.id}/media/${id}?${newSearchParams.toString()}`,
-      {
-        scroll: false,
-      }
-    );
-  };
+  const handleClipSortChange = useCallback((value: string) => {
+    setClipSort(getClipSortOption(value).value);
+  }, []);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -428,29 +454,44 @@ function MediaDetailsPageContent() {
             <MediaClipPanel
               activeTab={activeTab}
               onTabChange={handleTabChange}
-              clipCount={filteredClips.length}
               transcriptCount={utterances.length}
+              clipsHeaderContent={
+                <LibraryToolbar
+                  searchQuery={clipSearch}
+                  onSearchChange={setClipSearch}
+                  sortBy={clipSort}
+                  onSortChange={handleClipSortChange}
+                  sortOptions={MEDIA_SCOPED_CLIP_SORT_OPTIONS}
+                  clipTypeFilter={typeFilter}
+                  onClipTypeFilterChange={setTypeFilter}
+                  searchPlaceholder="Search clips..."
+                  // undefined while the first page is in flight, so the badge
+                  // doesn't read "0" next to the loading skeletons.
+                  totalItems={
+                    clipsList.isLoading ? undefined : clipsList.totalItems
+                  }
+                  itemLabel="clip"
+                />
+              }
               clipsContent={
-                <>
-                  <div className="mb-3 flex items-center justify-between px-0">
-                    <ClipTypeFilter
-                      value={typeFilter}
-                      onChange={setTypeFilter}
-                    />
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {filteredClips.length} found
-                    </span>
-                  </div>
-                  <MediaClipsLibrary
-                    media={media}
-                    clips={filteredClips}
-                    activeClipId={activeClipId}
-                    onClipSelect={handleClipSelect}
-                    onClipUpdate={handleClipUpdate}
-                    onClipDelete={handleClipDelete}
-                    onInlineEdit={handleOpenEditClip}
-                  />
-                </>
+                <MediaClipsLibrary
+                  media={media}
+                  clips={clipsList.items}
+                  activeClipId={activeClipId}
+                  onClipSelect={handleClipSelect}
+                  onClipUpdate={handleClipsChanged}
+                  onClipDelete={handleClipsChanged}
+                  onInlineEdit={handleOpenEditClip}
+                  isLoading={clipsList.isLoading}
+                  error={clipsList.error}
+                  totalItems={clipsList.totalItems}
+                  hasNextPage={clipsList.hasNextPage}
+                  isFetchingNextPage={clipsList.isFetchingNextPage}
+                  onLoadMore={clipsList.loadMore}
+                  hasSearch={
+                    clipSearch.trim().length > 0 || typeFilter !== 'all'
+                  }
+                />
               }
               transcriptsContent={
                 <SpeakerTranscriptPanel
@@ -477,9 +518,7 @@ function MediaDetailsPageContent() {
           mode="create"
           media={media}
           initialPlayhead={clipEditorState.playhead}
-          onClipCreated={() => {
-            refresh();
-          }}
+          onClipCreated={handleClipsChanged}
         />
       )}
       {clipEditorState?.mode === 'edit-media-clip' && (
@@ -494,7 +533,7 @@ function MediaDetailsPageContent() {
           clip={clipEditorState.clip}
           initialPlayhead={clipEditorState.playhead}
           onClipUpdated={() => {
-            refresh();
+            handleClipsChanged();
             setClipEditorState(null);
           }}
         />

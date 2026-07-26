@@ -1,13 +1,30 @@
 import {
   defineCollection,
   RelationField,
+  SelectField,
   TextField,
   NumberField,
   JSONField,
   baseSchema,
 } from 'pocketbase-zod-schema/schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
+import { LabelType } from '../enums';
 import { z } from 'zod';
+
+/**
+ * Every label kind a track can belong to — the same set as
+ * LabelEntity.labelType, which is where the value is denormalized from.
+ */
+export const LABEL_TRACK_TYPE_VALUES = [
+  LabelType.OBJECT,
+  LabelType.SHOT,
+  LabelType.PERSON,
+  LabelType.SPEECH,
+  LabelType.SPEAKER,
+  LabelType.FACE,
+  LabelType.SEGMENT,
+  LabelType.TEXT,
+] as const;
 
 // Define the Zod schema for LabelTrack
 export const LabelTrackSchema = z
@@ -23,6 +40,14 @@ export const LabelTrackSchema = z
     // --- Identification ---
     trackId: TextField(), // The stable ID from the provider (e.g., "0")
     trackHash: TextField({ min: 1 }), // Unique constraint (MediaRef + trackId + provider)
+    // Denormalized copy of LabelEntityRef -> LabelEntity.labelType. One media
+    // routinely holds hundreds of object tracks alongside a handful of speaker
+    // or face tracks, so "this media's speaker tracks" has to be an indexed
+    // filter rather than a paged scan of every track plus a relation
+    // traversal. Safe to denormalize: a cluster's labelType is set at creation
+    // and never changes. Optional because a track written without a
+    // LabelEntityRef has no type to inherit.
+    labelType: SelectField([...LABEL_TRACK_TYPE_VALUES]).optional(),
 
     // --- Timing ---
     start: NumberField({ min: 0 }), // Seconds (from first keyframe)
@@ -57,6 +82,10 @@ export const LabelTrackInputSchema = z.object({
   // --- Identification ---
   trackId: z.string().min(1, 'Track ID is required'),
   trackHash: z.string().min(1, 'Track hash is required'),
+  // Must be listed here or it never persists: this is a non-strict z.object,
+  // so validateInput silently drops any key it doesn't declare (which is why
+  // the worker's provider/processor/version writes vanish).
+  labelType: z.nativeEnum(LabelType).optional(),
 
   // --- Timing ---
   start: z.number().min(0),
@@ -86,6 +115,8 @@ export const LabelTrackCollection = defineCollection({
     // Workspace-wide cluster traversal in trackEntityAttributionFilter —
     // the (MediaRef, LabelEntityRef) composite can't serve it alone.
     'CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)',
+    // "This media's tracks of kind X" — the speaker/face identification UIs.
+    'CREATE INDEX idx_label_track_media_type ON LabelTrack (MediaRef, labelType)',
   ],
 });
 

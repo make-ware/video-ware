@@ -3,6 +3,7 @@ import { ClipType, LabelType, type TypedPocketBase } from '@project/shared';
 import {
   attributedEntityOf,
   attributedEntitySummaryOf,
+  clipEditListFilter,
   createClipFromLabel,
   getLabel,
   LABEL_SORT_START,
@@ -376,6 +377,104 @@ describe('listLabels', () => {
     const shotFilter = shots.getList.mock.calls[0][2].filter;
     expect(shotFilter).toContain('LabelEntityRef.EntityRef = "e1"');
     expect(shotFilter).not.toContain('LabelTrackRef');
+  });
+
+  it('emits only the provided window clauses (open edges allowed)', async () => {
+    const fromOnly = listStub();
+    const pb1 = fakePb(allLabelCollections({ LabelSpeech: fromOnly }));
+    await listLabels(pb1, {
+      mediaId: 'm1',
+      types: [LabelType.SPEECH],
+      window: { start: 10 },
+    });
+    const fromFilter = fromOnly.getList.mock.calls[0][2].filter;
+    expect(fromFilter).toContain('end > 10');
+    expect(fromFilter).not.toContain('start <');
+
+    const toOnly = listStub();
+    const pb2 = fakePb(allLabelCollections({ LabelSpeech: toOnly }));
+    await listLabels(pb2, {
+      mediaId: 'm1',
+      types: [LabelType.SPEECH],
+      window: { end: 42 },
+    });
+    const toFilter = toOnly.getList.mock.calls[0][2].filter;
+    expect(toFilter).toContain('start < 42');
+    expect(toFilter).not.toContain('end >');
+  });
+});
+
+describe('clipEditListFilter', () => {
+  it('resolves a composite MediaClip to its windowed edit list', async () => {
+    const pb = fakePb({
+      MediaClips: {
+        getOne: vi.fn(async () => ({
+          id: 'mc1',
+          MediaRef: 'm1',
+          start: 0,
+          end: 30,
+          clipData: {
+            segments: [
+              { start: 0, end: 10 },
+              { start: 20, end: 30 },
+            ],
+          },
+        })),
+      },
+    });
+
+    const result = await clipEditListFilter(pb, { clip: 'mc1' });
+
+    expect(result.mediaId).toBe('m1');
+    expect(result.source).toBe('clipData');
+    expect(result.segments).toEqual([
+      { start: 0, end: 10 },
+      { start: 20, end: 30 },
+    ]);
+  });
+
+  it('resolves a timeline clip through the meta override and rejects captions', async () => {
+    const pb = fakePb({
+      TimelineClips: {
+        getOne: vi.fn(async () => ({
+          id: 'tc1',
+          TimelineRef: 'tl1',
+          MediaRef: 'm1',
+          start: 0,
+          end: 20,
+          meta: {
+            segments: [
+              { start: 2, end: 6 },
+              { start: 10, end: 14 },
+            ],
+          },
+        })),
+      },
+    });
+    const result = await clipEditListFilter(pb, { timelineClip: 'tc1' });
+    expect(result).toEqual({
+      mediaId: 'm1',
+      source: 'meta',
+      segments: [
+        { start: 2, end: 6 },
+        { start: 10, end: 14 },
+      ],
+    });
+
+    const pb2 = fakePb({
+      TimelineClips: {
+        getOne: vi.fn(async () => ({
+          id: 'cap1',
+          TimelineRef: 'tl1',
+          CaptionRef: 'c1',
+          start: 0,
+          end: 4,
+        })),
+      },
+    });
+    await expect(
+      clipEditListFilter(pb2, { timelineClip: 'cap1' })
+    ).rejects.toThrow(/no source media/i);
   });
 });
 

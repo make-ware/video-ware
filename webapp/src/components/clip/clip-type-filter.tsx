@@ -21,27 +21,9 @@ export const CLIP_TYPE_OPTIONS = [
   { value: ClipType.SPEECH, label: 'Speech' },
 ];
 
-const CLIP_TYPES = new Set<string>([
-  ClipType.USER,
-  ClipType.RANGE,
-  ClipType.SHOT,
-  ClipType.OBJECT,
-  ClipType.PERSON,
-  ClipType.FACE,
-  ClipType.SPEECH,
-]);
-
-/**
- * Returns a predicate that tests whether a clip type matches the filter value.
- */
-export function clipTypeFilterPredicate(
-  filterValue: string
-): (type: string) => boolean {
-  if (filterValue === 'all') return () => true;
-  if (filterValue === 'user') return (type) => type === ClipType.USER;
-  if (filterValue === 'clips') return (type) => CLIP_TYPES.has(type);
-  return (type) => type === filterValue;
-}
+// The client-side predicate that used to live here is gone: every clip list is
+// now filtered server-side (`type = {:type}` in MediaClipService.listClips),
+// which is equivalent for every value this dropdown emits.
 
 interface ClipTypeFilterProps {
   value: string;

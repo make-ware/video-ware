@@ -31,6 +31,12 @@ export const CLIP_PAGE_SIZE = 24;
 
 export interface UseClipListArgs {
   workspaceId: string | undefined;
+  /**
+   * null/undefined = every media in the workspace (the timeline library);
+   * id = only that media's clips (the media viewer's Clips tab). Also narrows
+   * the searched fields and swaps the subscription to a media-scoped filter.
+   */
+  mediaId?: string | null;
   /** null = all directories, '' = workspace root, id = one directory. */
   directoryFilter: string | null;
   /** 'all' | one ClipType. */
@@ -44,17 +50,19 @@ export interface UseClipListArgs {
 
 /**
  * Client-side mirror of the server filter `listClips` builds. Search is a
- * case-insensitive substring test over the same six fields — an approximation
- * of PB's `~` operator, close enough for realtime merge decisions (refetches
- * true up any divergence).
+ * case-insensitive substring test over the same fields — an approximation of
+ * PB's `~` operator, close enough for realtime merge decisions (refetches true
+ * up any divergence).
  *
  * The directory and media-type tests read through the `MediaRef` expand. A
  * `delete` event can arrive without it, in which case the record reads as
  * non-matching and live-list skips the `totalItems` decrement; the next
- * refetch trues the count up.
+ * refetch trues the count up. The `mediaId` test deliberately reads the
+ * `MediaRef` *field* rather than the expand, so it survives expand-less events.
  */
 export function buildClipMatches(args: {
   workspaceId: string;
+  mediaId: string | null;
   directoryId: string | null;
   clipType: string;
   mediaType: string;
@@ -64,6 +72,7 @@ export function buildClipMatches(args: {
   const search = args.search.trim().toLowerCase();
   return (record) => {
     if (record.WorkspaceRef !== args.workspaceId) return false;
+    if (args.mediaId && record.MediaRef !== args.mediaId) return false;
     const media = record.expand?.MediaRef;
     if (
       args.directoryId !== null &&
@@ -74,14 +83,18 @@ export function buildClipMatches(args: {
     if (args.clipType !== 'all' && record.type !== args.clipType) return false;
     if (!typePredicate(media?.mediaType)) return false;
     if (search) {
-      const haystacks = [
-        record.label,
-        record.description,
-        record.type,
-        media?.label,
-        media?.description,
-        media?.expand?.UploadRef?.name,
-      ];
+      // Mirrors searchExpr() in services/media-clip.ts: media-scoped lists
+      // search clip fields only, since the media's own text is constant there.
+      const haystacks = args.mediaId
+        ? [record.label, record.description, record.type]
+        : [
+            record.label,
+            record.description,
+            record.type,
+            media?.label,
+            media?.description,
+            media?.expand?.UploadRef?.name,
+          ];
       if (!haystacks.some((text) => text?.toLowerCase().includes(search))) {
         return false;
       }
@@ -95,6 +108,7 @@ export function useClipList(
 ): UseLiveInfiniteListResult<ClipListItem> {
   const {
     workspaceId,
+    mediaId = null,
     directoryFilter,
     clipTypeFilter,
     mediaTypeFilter,
@@ -116,6 +130,7 @@ export function useClipList(
     () => ({
       matches: buildClipMatches({
         workspaceId: workspaceId ?? '',
+        mediaId,
         directoryId: directoryFilter,
         clipType: clipTypeFilter,
         mediaType: mediaTypeFilter,
@@ -126,6 +141,7 @@ export function useClipList(
     }),
     [
       workspaceId,
+      mediaId,
       directoryFilter,
       clipTypeFilter,
       mediaTypeFilter,
@@ -134,30 +150,39 @@ export function useClipList(
     ]
   );
 
-  // Server-side filter stays coarse and stable (the workspace) so filter /
-  // search / sort changes never resubscribe; fine-grained relevance is
-  // spec.matches' job. Expand mirrors the list fetch exactly so live-inserted
-  // cards render identically to fetched ones.
-  const subscription = useMemo<LiveListSubscription | null>(
-    () =>
-      workspaceId
-        ? {
-            collection: 'MediaClips',
-            topic: '*',
-            key: `MediaClips:${workspaceId}`,
-            options: {
-              filter: pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId }),
-              expand: CLIP_LIST_EXPAND.join(','),
-            },
-            gapHealKey: qk.clips.lists,
-          }
-        : null,
-    [workspaceId]
-  );
+  // Server-side filter stays coarse and stable (the workspace, or the one media
+  // when scoped) so filter / search / sort changes never resubscribe;
+  // fine-grained relevance is spec.matches' job. `mediaId` is fixed for the
+  // lifetime of the media viewer, so it is safe to fold into the key. Expand
+  // mirrors the list fetch exactly so live-inserted cards render identically to
+  // fetched ones.
+  const subscription = useMemo<LiveListSubscription | null>(() => {
+    if (!workspaceId) return null;
+    const scoped = mediaId
+      ? {
+          key: `MediaClips:media:${mediaId}`,
+          filter: pb.filter('MediaRef = {:media}', { media: mediaId }),
+        }
+      : {
+          key: `MediaClips:${workspaceId}`,
+          filter: pb.filter('WorkspaceRef = {:ws}', { ws: workspaceId }),
+        };
+    return {
+      collection: 'MediaClips',
+      topic: '*',
+      key: scoped.key,
+      options: {
+        filter: scoped.filter,
+        expand: CLIP_LIST_EXPAND.join(','),
+      },
+      gapHealKey: qk.clips.lists,
+    };
+  }, [workspaceId, mediaId]);
 
   return useLiveInfiniteList<ClipListItem>({
     queryKey: qk.clips.list({
       workspaceId: workspaceId ?? '',
+      mediaId,
       directoryId: directoryFilter,
       clipType: clipTypeFilter,
       mediaType: mediaTypeFilter,
@@ -169,6 +194,7 @@ export function useClipList(
       clipService.listClips(
         {
           workspaceId: workspaceId ?? '',
+          mediaId,
           directoryId: directoryFilter,
           clipType: clipTypeFilter,
           mediaType: mediaTypeFilter,

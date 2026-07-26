@@ -297,3 +297,122 @@ describe('runMergedList', () => {
     ).resolves.toBeDefined();
   });
 });
+
+describe('refinements — narrowing the server filter cannot express', () => {
+  const kept = (rows: Row[]) => rows.filter((r) => r.name.endsWith('.mp4'));
+
+  const fanOutSpec: ListSpec<Row> = {
+    command: 'label list',
+    workspaceScoped: false,
+    columns: [{ header: 'ID', value: (r) => r.id }],
+  };
+
+  const oneSource = (key: string, rows: Row[]): MergeSource<Row> => ({
+    key,
+    fetchPage: async ({ page: p, perPage }) =>
+      listResult(rows.slice((p - 1) * perPage, p * perPage), {
+        page: p,
+        perPage,
+        totalItems: rows.length,
+      }),
+  });
+
+  it('drops rows, walks every page, and reports the true total', async () => {
+    const pages = vi.fn(async (query: ResolvedListQuery) =>
+      query.page === 1
+        ? page(
+            [
+              { id: 'm1', name: 'a.mp4' },
+              { id: 'm2', name: 'b.mov' },
+            ],
+            3
+          )
+        : page([{ id: 'm3', name: 'c.mp4' }], 3)
+    );
+
+    const out = await captureList({
+      spec,
+      opts: { limit: 2 },
+      ctx,
+      fetchPage: pages,
+      refine: { filter: kept },
+    });
+
+    // Both pages fetched even though --all was not passed: a per-page
+    // predicate would leave the footer counting rows nobody saw.
+    expect(pages).toHaveBeenCalledTimes(2);
+    expect(out.stdout).toContain('m1  a.mp4');
+    expect(out.stdout).not.toContain('m2  b.mov');
+    // 2 survivors of the 3 the server counted — the total is what is shown.
+    expect(out.stdout.some((l) => l.startsWith('(2 of 2'))).toBe(true);
+  });
+
+  it('appends the note only when rows were actually dropped', async () => {
+    const run = (rows: Row[]) =>
+      captureList({
+        spec,
+        ctx,
+        fetchPage: async () => page(rows, rows.length, 100),
+        refine: { filter: kept, note: (n) => `(${n} hidden)` },
+      });
+
+    const dropped = await run([
+      { id: 'm1', name: 'a.mp4' },
+      { id: 'm2', name: 'b.mov' },
+    ]);
+    expect(dropped.stdout).toContain('(1 hidden)');
+
+    const clean = await run([{ id: 'm1', name: 'a.mp4' }]);
+    expect(clean.stdout.some((l) => l.includes('hidden'))).toBe(false);
+  });
+
+  it('merges extras into the --json envelope with the dropped count', async () => {
+    const out = await captureList({
+      spec,
+      opts: { json: true },
+      ctx,
+      fetchPage: async () =>
+        page(
+          [
+            { id: 'm1', name: 'a.mp4' },
+            { id: 'm2', name: 'b.mov' },
+          ],
+          2,
+          100
+        ),
+      refine: {
+        filter: kept,
+        extras: (dropped) => ({ hiddenInCutGaps: dropped, source: 'clipData' }),
+      },
+    });
+
+    const envelope = out.json() as {
+      items: Row[];
+      totalItems: number;
+      hiddenInCutGaps: number;
+      source: string;
+    };
+    expect(envelope.items.map((r) => r.id)).toEqual(['m1']);
+    expect(envelope.totalItems).toBe(1);
+    expect(envelope.hiddenInCutGaps).toBe(1);
+    expect(envelope.source).toBe('clipData');
+  });
+
+  it('refines a fan-out list the same way', async () => {
+    const out = await captureMergedList({
+      spec: fanOutSpec,
+      opts: { json: true },
+      ctx,
+      sources: () => [
+        oneSource('a', [{ id: 'a1', name: 'a.mp4', score: 9 }]),
+        oneSource('b', [{ id: 'b1', name: 'b.mov', score: 8 }]),
+      ],
+      compare: () => (a, b) => (b.score ?? 0) - (a.score ?? 0),
+      refine: { filter: kept },
+    });
+
+    const envelope = out.json() as { items: Row[]; totalItems: number };
+    expect(envelope.items.map((r) => r.id)).toEqual(['a1']);
+    expect(envelope.totalItems).toBe(1);
+  });
+});

@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider } from '@project/shared';
+import {
+  ProcessingProvider,
+  type LabelSpeech,
+  type LabelTrack,
+} from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { SpeechTranscriptionExecutor } from '../executors/speech-transcription.executor';
@@ -26,9 +30,14 @@ export type { SpeechTranscriptionStepInput, SpeechTranscriptionStepOutput };
  * 1. Checks cache before calling executor
  * 2. Calls SpeechTranscriptionExecutor (SPEECH_TRANSCRIPTION)
  * 3. Calls SpeechTranscriptionNormalizer to transform response
- * 4. Batch inserts LabelEntity records (for speakers)
- * 5. Batch inserts LabelTrack records (for speaker timelines)
- * 6. Batch inserts LabelSpeech records (for detailed timing)
+ * 4. Upserts LabelEntity records (for speakers)
+ * 5. Upserts LabelTrack records (for speaker timelines)
+ * 6. Upserts LabelSpeech records (for detailed timing)
+ *
+ * Steps 4-6 are upserts keyed by content hash, and existing rows have their
+ * entity/track links reconciled, so re-running the labels task repairs a media
+ * left half-written by an earlier run. A write that cannot be completed fails
+ * the step rather than reporting success with a broken label graph.
  * 7. Updates LabelMedia with aggregated data (transcript, word counts)
  * 8. Stores normalized response to cache
  */
@@ -171,48 +180,56 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
       }
       this.logger.debug(`Processed ${entityMap.size} speaker entities`);
 
-      // Step 5: Batch insert LabelTrack records
-      // Link tracks to entities
-      const trackMap = new Map<number, string>();
-      const tracksToInsert = (normalizedData.labelTracks || []).map((track) => {
+      // Step 5: Upsert one LabelTrack per speaker tag.
+      // Keyed by speaker tag, never by array position — a positional map
+      // silently shifts every later speaker onto the wrong track as soon as
+      // one upsert fails.
+      const tracksToUpsert = (normalizedData.labelTracks || []).map((track) => {
         const speakerTag =
           (track.trackData as { speakerTag?: number })?.speakerTag ?? 0;
         return {
-          ...track,
-          LabelEntityRef: entityMap.get(speakerTag),
+          speakerTag,
+          data: { ...track, LabelEntityRef: entityMap.get(speakerTag) },
         };
       });
 
-      const trackIds = await this.batchInsertLabelTracks(tracksToInsert);
+      const tracks = await this.upsertLabelTracks(tracksToUpsert);
+      this.logger.debug(
+        `Upserted ${tracks.idsBySpeakerTag.size} of ${tracksToUpsert.length} speaker tracks`
+      );
 
-      // Map speaker tags to track IDs (using tracksToInsert to maintain order)
-      tracksToInsert.forEach((track, index) => {
-        const speakerTag =
-          (track.trackData as { speakerTag?: number })?.speakerTag ?? 0;
-        if (trackIds[index]) {
-          trackMap.set(speakerTag, trackIds[index]);
-        }
-      });
-      this.logger.debug(`Inserted ${trackIds.length} speaker tracks`);
-
-      // Step 6: Batch insert LabelSpeech records
+      // Step 6: Upsert LabelSpeech records
       // Link speech to entities and tracks
-      const speechToInsert = (normalizedData.labelSpeech || []).map(
+      const speechToUpsert = (normalizedData.labelSpeech || []).map(
         (speech) => {
           const speakerTag = speech.speakerTag ?? 0;
           return {
             ...speech,
             LabelEntityRef: entityMap.get(speakerTag),
-            LabelTrackRef: trackMap.get(speakerTag),
+            LabelTrackRef: tracks.idsBySpeakerTag.get(speakerTag),
           };
         }
       );
 
-      const speechIds = await this.batchInsertLabelSpeech(speechToInsert);
-      this.logger.debug(`Inserted ${speechIds.length} label speech segments`);
+      const speech = await this.upsertLabelSpeech(speechToUpsert);
+      this.logger.debug(
+        `Upserted ${speech.ids.length} of ${speechToUpsert.length} label speech segments`
+      );
 
       // Clear entity cache after processing
       this.labelEntityService.clearCache();
+
+      // A speaker with no LabelTrack row cannot be linked to an Entity in the
+      // UI, so a partial write is a failed step. Segments are written first so
+      // the transcript survives; the retry is cheap and idempotent (cached
+      // provider response, hash-keyed upserts).
+      if (tracks.failed > 0 || speech.failed > 0) {
+        throw new Error(
+          `Speech transcription persisted incompletely for media ${input.mediaId}: ` +
+            `${tracks.failed} of ${tracksToUpsert.length} tracks and ` +
+            `${speech.failed} of ${speechToUpsert.length} segments failed to write`
+        );
+      }
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -226,12 +243,12 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
             normalizedData.labelMediaUpdate.transcriptLength || 0,
           wordCount: normalizedData.labelMediaUpdate.wordCount || 0,
           labelEntityCount: entityMap.size,
-          labelTrackCount: trackIds.length,
+          labelTrackCount: tracks.idsBySpeakerTag.size,
           labelClipCount: 0, // No longer creating clips
           labelObjectCount: 0,
           labelFaceCount: 0,
           labelPersonCount: 0,
-          labelSpeechCount: speechIds.length,
+          labelSpeechCount: speech.ids.length,
           labelSegmentCount: 0,
           labelShotCount: 0,
         },
@@ -251,87 +268,180 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Batch insert LabelTrack records
+   * Upsert one LabelTrack per speaker tag, keyed by trackHash.
+   *
+   * Returns the record id for every speaker tag whose track is now in the DB,
+   * so callers can link segments by tag rather than by array position.
+   * Existing tracks have their provider cluster link reconciled so a re-run
+   * repairs rows left unlinked by an earlier partial write; `EntityRef` — the
+   * editor's manual link — is never touched.
    */
-  private async batchInsertLabelTracks(
-    tracks: LabelTrackData[]
-  ): Promise<string[]> {
-    const trackIds: string[] = [];
-    for (const track of tracks) {
+  private async upsertLabelTracks(
+    tracks: Array<{ speakerTag: number; data: LabelTrackData }>
+  ): Promise<{ idsBySpeakerTag: Map<number, string>; failed: number }> {
+    const idsBySpeakerTag = new Map<number, string>();
+    let failed = 0;
+
+    for (const { speakerTag, data } of tracks) {
       try {
-        const existing = await this.pocketBaseService.labelTrackMutator.getList(
-          1,
-          1,
-          `trackHash = "${track.trackHash}"`
-        );
-        if (existing.items.length > 0) {
-          trackIds.push(existing.items[0].id);
-        } else {
-          const created =
-            await this.pocketBaseService.labelTrackMutator.create(track);
-          trackIds.push(created.id);
+        const existing = await this.findTrackByHash(data.trackHash);
+        if (existing) {
+          if (
+            data.LabelEntityRef &&
+            existing.LabelEntityRef !== data.LabelEntityRef
+          ) {
+            await this.pocketBaseService.labelTrackMutator.update(existing.id, {
+              LabelEntityRef: data.LabelEntityRef,
+            } as Partial<LabelTrack>);
+          }
+          idsBySpeakerTag.set(speakerTag, existing.id);
+          continue;
         }
+
+        const created =
+          await this.pocketBaseService.labelTrackMutator.create(data);
+        idsBySpeakerTag.set(speakerTag, created.id);
       } catch (error) {
-        this.logger.error(`Failed to insert track: ${error}`);
+        // A concurrent run of this step can win the race between our lookup
+        // and our create; the row it wrote is the one we want. Without this
+        // recovery the track was dropped and its segments lost LabelTrackRef.
+        if (this.isUniqueConstraintError(error)) {
+          const existing = await this.findTrackByHash(data.trackHash);
+          if (existing) {
+            idsBySpeakerTag.set(speakerTag, existing.id);
+            continue;
+          }
+        }
+        failed += 1;
+        this.logger.error(
+          `Failed to upsert speaker track ${speakerTag} (trackHash=${data.trackHash}) ` +
+            `for media ${data.MediaRef}: ${this.formatPbError(error)}`
+        );
       }
     }
-    return trackIds;
+
+    return { idsBySpeakerTag, failed };
   }
 
   /**
-   * Batch insert LabelSpeech records
+   * Upsert LabelSpeech records, keyed by speechHash. Existing segments have
+   * their entity/track links reconciled so a re-run repairs segments written
+   * by an earlier run whose tracks failed.
    */
-  private async batchInsertLabelSpeech(
+  private async upsertLabelSpeech(
     speechSegments: LabelSpeechData[]
-  ): Promise<string[]> {
-    const speechIds: string[] = [];
-    const batchSize = 100;
+  ): Promise<{ ids: string[]; failed: number }> {
+    const ids: string[] = [];
+    let failed = 0;
 
-    for (let i = 0; i < speechSegments.length; i += batchSize) {
-      const batch = speechSegments.slice(i, i + batchSize);
-      for (const speechData of batch) {
-        try {
-          const existing =
-            await this.pocketBaseService.labelSpeechMutator.getList(
-              1,
-              1,
-              `speechHash = "${speechData.speechHash}"`
-            );
-          if (existing.items.length > 0) {
-            speechIds.push(existing.items[0].id);
-          } else {
-            const created =
-              await this.pocketBaseService.labelSpeechMutator.create(
-                speechData
-              );
-            speechIds.push(created.id);
-          }
-        } catch (error) {
-          if (this.isUniqueConstraintErrorForSpeech(error)) {
-            const existing =
-              await this.pocketBaseService.labelSpeechMutator.getList(
-                1,
-                1,
-                `speechHash = "${speechData.speechHash}"`
-              );
-            if (existing.items.length > 0) {
-              speechIds.push(existing.items[0].id);
-              continue;
-            }
-          }
-          this.logger.error(`Failed to insert speech segment: ${error}`);
+    for (const speechData of speechSegments) {
+      try {
+        const existing = await this.findSpeechByHash(speechData.speechHash);
+        if (existing) {
+          await this.relinkSpeech(existing, speechData);
+          ids.push(existing.id);
+          continue;
         }
+
+        const created =
+          await this.pocketBaseService.labelSpeechMutator.create(speechData);
+        ids.push(created.id);
+      } catch (error) {
+        if (this.isUniqueConstraintError(error)) {
+          const existing = await this.findSpeechByHash(speechData.speechHash);
+          if (existing) {
+            await this.relinkSpeech(existing, speechData);
+            ids.push(existing.id);
+            continue;
+          }
+        }
+        failed += 1;
+        this.logger.error(
+          `Failed to upsert speech segment (speechHash=${speechData.speechHash}) ` +
+            `for media ${speechData.MediaRef}: ${this.formatPbError(error)}`
+        );
       }
     }
-    return speechIds;
+
+    return { ids, failed };
   }
 
-  private isUniqueConstraintErrorForSpeech(error: unknown): boolean {
+  /** Patch an existing segment's entity/track links when they drifted. */
+  private async relinkSpeech(
+    existing: LabelSpeech,
+    desired: LabelSpeechData
+  ): Promise<void> {
+    const patch: Partial<LabelSpeech> = {};
+    if (
+      desired.LabelTrackRef &&
+      existing.LabelTrackRef !== desired.LabelTrackRef
+    ) {
+      patch.LabelTrackRef = desired.LabelTrackRef;
+    }
+    if (
+      desired.LabelEntityRef &&
+      existing.LabelEntityRef !== desired.LabelEntityRef
+    ) {
+      patch.LabelEntityRef = desired.LabelEntityRef;
+    }
+    if (Object.keys(patch).length === 0) {
+      return;
+    }
+    await this.pocketBaseService.labelSpeechMutator.update(existing.id, patch);
+  }
+
+  private async findTrackByHash(trackHash: string): Promise<LabelTrack | null> {
+    const result = await this.pocketBaseService.labelTrackMutator.getList(
+      1,
+      1,
+      `trackHash = "${trackHash}"`
+    );
+    return result.items[0] ?? null;
+  }
+
+  private async findSpeechByHash(
+    speechHash: string
+  ): Promise<LabelSpeech | null> {
+    const result = await this.pocketBaseService.labelSpeechMutator.getList(
+      1,
+      1,
+      `speechHash = "${speechHash}"`
+    );
+    return result.items[0] ?? null;
+  }
+
+  /**
+   * Log-friendly error string that keeps PocketBase's field-level detail.
+   * A ClientResponseError's `.message` is only the generic envelope; the
+   * actionable per-field reasons live in `error.response.data`.
+   */
+  private formatPbError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      return `${message} — ${JSON.stringify(data)}`;
+    }
+    return message;
+  }
+
+  /**
+   * Recognize a unique-constraint violation. PocketBase reports
+   * `validation_not_unique` in `error.response.data.<field>.code`, never in
+   * `error.message`, so both are searched.
+   */
+  private isUniqueConstraintError(error: unknown): boolean {
+    if (!error) return false;
+
+    const message = error instanceof Error ? error.message : String(error);
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    const haystack = `${message} ${data ? JSON.stringify(data) : ''}`;
+
     return (
-      message.includes('unique constraint') ||
-      message.includes('validation_not_unique') ||
-      message.includes('speechHash')
+      haystack.includes('unique constraint') ||
+      haystack.includes('UNIQUE constraint') ||
+      haystack.includes('validation_not_unique') ||
+      haystack.includes('trackHash') ||
+      haystack.includes('speechHash')
     );
   }
 }

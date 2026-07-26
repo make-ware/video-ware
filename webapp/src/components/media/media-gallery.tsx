@@ -1,6 +1,7 @@
 'use client';
 
 import type { Media } from '@project/shared';
+import { isCuratedTag } from '@project/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,19 +28,31 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { DirectorySelector } from '@/components/uploads/directory-selector';
+import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import {
   Film,
   FolderInput,
   FolderOpen,
   Loader2,
   Search,
+  Tag,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
 import { MediaCard } from './media-card';
 import { MediaTypeIcon, getMediaTypeLabel } from './media-type-icon';
-import { useState } from 'react';
+import { useMediaEntityLinks } from '@/hooks/use-media-entities';
+import { useWorkspaceEntities } from '@/hooks/use-entities';
+import { useMemo, useState } from 'react';
 
 interface MediaGalleryProps {
   media: Media[];
@@ -48,6 +61,8 @@ interface MediaGalleryProps {
   className?: string;
   directoryFilter?: string | null;
   mediaTypeFilter?: string;
+  /** True when an entity filter is active (drives the empty state copy). */
+  entityFilterActive?: boolean;
   /** True when a search query is active (drives the empty state copy). */
   searchActive?: boolean;
   processingMedia?: Map<string, string>;
@@ -64,8 +79,11 @@ interface MediaGalleryProps {
   onClearSelection?: () => void;
   onBulkDelete?: () => Promise<void>;
   onBulkMove?: (directoryId: string | null) => Promise<void>;
+  onBulkTag?: (entityId: string) => Promise<void>;
+  onBulkUntag?: (entityId: string) => Promise<void>;
   isDeleting?: boolean;
   isMoving?: boolean;
+  isTagging?: boolean;
   workspaceId?: string;
 }
 
@@ -76,6 +94,7 @@ export function MediaGallery({
   className,
   directoryFilter,
   mediaTypeFilter,
+  entityFilterActive = false,
   searchActive = false,
   processingMedia,
   totalItems,
@@ -88,14 +107,47 @@ export function MediaGallery({
   onClearSelection,
   onBulkDelete,
   onBulkMove,
+  onBulkTag,
+  onBulkUntag,
   isDeleting = false,
   isMoving = false,
+  isTagging = false,
   workspaceId,
 }: MediaGalleryProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const selectionCount = selectedIds?.size ?? 0;
   const hasSelection = selectionCount > 0;
+
+  // Entity chips for the loaded window: one MediaEntities request per page,
+  // colored by the entity's position in the workspace list like the label UIs.
+  const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
+  const { linksByMediaId } = useMediaEntityLinks(mediaIds);
+  const { entities } = useWorkspaceEntities(workspaceId ?? '');
+  const colorIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    entities.forEach((entity, index) => map.set(entity.id, index));
+    return map;
+  }, [entities]);
+
+  // Only curated tags are removable from here — a detected appearance is a
+  // label link, unlinked from the label inspector, not from the gallery.
+  const removableTags = useMemo(() => {
+    if (!selectedIds || !linksByMediaId) return [];
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const mediaId of selectedIds) {
+      for (const link of linksByMediaId[mediaId] ?? []) {
+        if (!isCuratedTag(link)) continue;
+        const entry = counts.get(link.id);
+        if (entry) entry.count += 1;
+        else counts.set(link.id, { name: link.name, count: 1 });
+      }
+    }
+    return [...counts.entries()]
+      .map(([id, entry]) => ({ id, ...entry }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [selectedIds, linksByMediaId]);
+
   const typeFilterActive = !!mediaTypeFilter && mediaTypeFilter !== 'all';
   const typeFilterLabel = getMediaTypeLabel(mediaTypeFilter);
 
@@ -177,6 +229,47 @@ export function MediaGallery({
                     Clear
                   </Button>
                 )}
+                {onBulkTag && workspaceId && (
+                  <EntityPicker
+                    workspaceId={workspaceId}
+                    // Always "add" mode: a pick tags the selection, and the
+                    // trigger goes back to its placeholder afterwards.
+                    value={undefined}
+                    onChange={(entityId) => {
+                      if (entityId) void onBulkTag(entityId);
+                    }}
+                    disabled={isTagging}
+                    placeholder="Tag entity…"
+                    className="h-8 w-[150px] text-xs"
+                  />
+                )}
+                {onBulkUntag && removableTags.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={isTagging}>
+                        <Tag className="h-4 w-4 mr-1" />
+                        Remove tag
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel className="text-xs font-medium">
+                        Remove from {selectionCount}{' '}
+                        {selectionCount === 1 ? 'item' : 'items'}
+                      </DropdownMenuLabel>
+                      {removableTags.map((tag) => (
+                        <DropdownMenuItem
+                          key={tag.id}
+                          onSelect={() => void onBulkUntag(tag.id)}
+                        >
+                          <span className="truncate">{tag.name}</span>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {tag.count}/{selectionCount}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
                 {onBulkMove && workspaceId && (
                   <Popover
                     open={movePopoverOpen}
@@ -226,6 +319,8 @@ export function MediaGallery({
                 <EmptyMediaIcon variant="icon">
                   {searchActive ? (
                     <Search className="h-6 w-6" />
+                  ) : entityFilterActive ? (
+                    <UserRound className="h-6 w-6" />
                   ) : typeFilterActive ? (
                     <MediaTypeIcon
                       mediaType={mediaTypeFilter}
@@ -240,20 +335,24 @@ export function MediaGallery({
                 <EmptyTitle>
                   {searchActive
                     ? 'No matches for your search'
-                    : typeFilterActive
-                      ? `No ${typeFilterLabel.toLowerCase()} here`
-                      : directoryFilter
-                        ? 'This folder is empty'
-                        : 'No media yet'}
+                    : entityFilterActive
+                      ? 'No media for this entity'
+                      : typeFilterActive
+                        ? `No ${typeFilterLabel.toLowerCase()} here`
+                        : directoryFilter
+                          ? 'This folder is empty'
+                          : 'No media yet'}
                 </EmptyTitle>
                 <EmptyDescription>
                   {searchActive
                     ? 'Try a different search term or clear the filters'
-                    : typeFilterActive
-                      ? 'Try a different media type or upload more files'
-                      : directoryFilter
-                        ? 'Upload files to this folder or move existing media here'
-                        : 'Upload videos to see them in your media library'}
+                    : entityFilterActive
+                      ? 'Nothing is tagged with it, and no label track is linked to it yet'
+                      : typeFilterActive
+                        ? 'Try a different media type or upload more files'
+                        : directoryFilter
+                          ? 'Upload files to this folder or move existing media here'
+                          : 'Upload videos to see them in your media library'}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -276,6 +375,8 @@ export function MediaGallery({
                         ? (e) => onSelectionClick(item.id, e)
                         : undefined
                     }
+                    entityLinks={linksByMediaId?.[item.id]}
+                    colorIndexById={colorIndexById}
                   />
                 ))}
               </div>

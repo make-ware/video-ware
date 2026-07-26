@@ -95,7 +95,7 @@ export function useAssignTrackEntity() {
     onSuccess: (_track, { entityId }) => {
       toast.success(entityId ? 'Linked to entity' : 'Entity link removed');
       void queryClient.invalidateQueries({ queryKey: qk.entities.all });
-      void queryClient.invalidateQueries({ queryKey: ['label-tracks'] });
+      void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
       void queryClient.invalidateQueries({ queryKey: ['labels'] });
       // Speaker utterances expand LabelTrackRef.EntityRef for transcript
       // labels, so a re-link makes that cached expand stale.
@@ -148,7 +148,7 @@ export function useAssignTracksEntity() {
         );
       }
       void queryClient.invalidateQueries({ queryKey: qk.entities.all });
-      void queryClient.invalidateQueries({ queryKey: ['label-tracks'] });
+      void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
       void queryClient.invalidateQueries({ queryKey: ['labels'] });
       void queryClient.invalidateQueries({ queryKey: ['speakers'] });
     },

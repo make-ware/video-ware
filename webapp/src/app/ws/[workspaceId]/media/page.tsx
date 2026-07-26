@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useMediaList } from '@/hooks/use-media-list';
 import { useMultiSelect } from '@/hooks/use-multi-select';
+import { useTagMediaBulk, useUntagMediaBulk } from '@/hooks/use-media-tags';
 import { useProcessingMedia } from '@/hooks/use-processing-media';
 import { useRegisterPageMenu } from '@/hooks/use-page-menu';
 import type { PageMenuItem } from '@/contexts/page-menu-context';
@@ -25,6 +26,7 @@ import {
 import {
   MediaGallery,
   MediaTypeFilter,
+  MediaEntityFilter,
   MEDIA_SORT_OPTIONS,
   DEFAULT_MEDIA_SORT,
   getMediaSortOption,
@@ -53,6 +55,9 @@ function MediaPageContent() {
   const [mediaTypeFilter, setMediaTypeFilter] = useState<string>(
     searchParams.get('type') ?? 'all'
   );
+  const [entityFilter, setEntityFilter] = useState<string | null>(
+    searchParams.get('entity')
+  );
   const [sort, setSort] = useState<MediaSortValue>(
     getMediaSortOption(searchParams.get('sort')).value
   );
@@ -60,6 +65,8 @@ function MediaPageContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const mediaMutator = useMemo(() => new MediaMutator(pb), []);
   const mediaService = useMemo(() => new MediaService(pb), []);
+  const tagMediaBulk = useTagMediaBulk();
+  const untagMediaBulk = useUntagMediaBulk();
 
   const {
     items: media,
@@ -73,17 +80,24 @@ function MediaPageContent() {
     workspaceId: currentWorkspace?.id,
     directoryFilter,
     mediaTypeFilter,
+    entityFilter,
     searchQuery,
     sort,
   });
 
-  // Build a URL that preserves the directory, media-type, and sort params
+  // Build a URL that preserves the directory, media-type, entity, and sort params
   const buildMediaUrl = useCallback(
-    (dir: string | null, type: string, sortValue: MediaSortValue) => {
+    (
+      dir: string | null,
+      type: string,
+      entity: string | null,
+      sortValue: MediaSortValue
+    ) => {
       const params = new URLSearchParams();
       // '' is the workspace root — only null (all directories) omits `dir`
       if (dir !== null) params.set('dir', dir);
       if (type && type !== 'all') params.set('type', type);
+      if (entity) params.set('entity', entity);
       if (sortValue !== DEFAULT_MEDIA_SORT) params.set('sort', sortValue);
       const qs = params.toString();
       return qs ? `${pathname}?${qs}` : pathname;
@@ -101,6 +115,10 @@ function MediaPageContent() {
     if (typeParam !== mediaTypeFilter) {
       setMediaTypeFilter(typeParam);
     }
+    const entityParam = searchParams.get('entity');
+    if (entityParam !== entityFilter) {
+      setEntityFilter(entityParam);
+    }
     const sortParam = getMediaSortOption(searchParams.get('sort')).value;
     if (sortParam !== sort) {
       setSort(sortParam);
@@ -114,10 +132,10 @@ function MediaPageContent() {
       window.history.replaceState(
         null,
         '',
-        buildMediaUrl(filter, mediaTypeFilter, sort)
+        buildMediaUrl(filter, mediaTypeFilter, entityFilter, sort)
       );
     },
-    [buildMediaUrl, mediaTypeFilter, sort]
+    [buildMediaUrl, mediaTypeFilter, entityFilter, sort]
   );
 
   const handleMediaTypeFilterChange = useCallback(
@@ -126,10 +144,22 @@ function MediaPageContent() {
       window.history.replaceState(
         null,
         '',
-        buildMediaUrl(directoryFilter, type, sort)
+        buildMediaUrl(directoryFilter, type, entityFilter, sort)
       );
     },
-    [buildMediaUrl, directoryFilter, sort]
+    [buildMediaUrl, directoryFilter, entityFilter, sort]
+  );
+
+  const handleEntityFilterChange = useCallback(
+    (entityId: string | null) => {
+      setEntityFilter(entityId);
+      window.history.replaceState(
+        null,
+        '',
+        buildMediaUrl(directoryFilter, mediaTypeFilter, entityId, sort)
+      );
+    },
+    [buildMediaUrl, directoryFilter, mediaTypeFilter, sort]
   );
 
   const handleSortChange = useCallback(
@@ -139,10 +169,10 @@ function MediaPageContent() {
       window.history.replaceState(
         null,
         '',
-        buildMediaUrl(directoryFilter, mediaTypeFilter, sortValue)
+        buildMediaUrl(directoryFilter, mediaTypeFilter, entityFilter, sortValue)
       );
     },
-    [buildMediaUrl, directoryFilter, mediaTypeFilter]
+    [buildMediaUrl, directoryFilter, mediaTypeFilter, entityFilter]
   );
 
   const mediaIds = useMemo(() => media.map((m) => m.id), [media]);
@@ -233,6 +263,58 @@ function MediaPageContent() {
     [selectedIds, selectionCount, mediaMutator, clearSelection, queryClient]
   );
 
+  const handleBulkTag = useCallback(
+    async (entityId: string) => {
+      if (selectionCount === 0 || !currentWorkspace) return;
+      // The mutation's onError already toasts; swallow so the caller's
+      // fire-and-forget invocation never rejects unhandled.
+      const result = await tagMediaBulk
+        .mutateAsync({
+          workspaceId: currentWorkspace.id,
+          mediaIds: Array.from(selectedIds),
+          entityId,
+        })
+        .catch(() => null);
+      if (!result) return;
+      clearSelection();
+      // Only the entity-filtered list can change membership on a tag write.
+      if (entityFilter) {
+        await queryClient.invalidateQueries({ queryKey: qk.media.lists });
+      }
+    },
+    [
+      selectedIds,
+      selectionCount,
+      currentWorkspace,
+      tagMediaBulk,
+      clearSelection,
+      entityFilter,
+      queryClient,
+    ]
+  );
+
+  const handleBulkUntag = useCallback(
+    async (entityId: string) => {
+      if (selectionCount === 0) return;
+      const result = await untagMediaBulk
+        .mutateAsync({ mediaIds: Array.from(selectedIds), entityId })
+        .catch(() => null);
+      if (!result) return;
+      clearSelection();
+      if (entityFilter) {
+        await queryClient.invalidateQueries({ queryKey: qk.media.lists });
+      }
+    },
+    [
+      selectedIds,
+      selectionCount,
+      untagMediaBulk,
+      clearSelection,
+      entityFilter,
+      queryClient,
+    ]
+  );
+
   // Contribute selection actions to the nav bar Edit menu.
   const editMenuItems = useMemo<PageMenuItem[]>(
     () => [
@@ -314,6 +396,12 @@ function MediaPageContent() {
             onChange={handleMediaTypeFilterChange}
             className="w-[150px] h-9 text-sm"
           />
+          <MediaEntityFilter
+            workspaceId={currentWorkspace.id}
+            value={entityFilter}
+            onChange={handleEntityFilterChange}
+            className="w-[170px] h-9 text-sm"
+          />
         </div>
       </div>
 
@@ -324,6 +412,7 @@ function MediaPageContent() {
         onMediaClick={handleMediaClick}
         directoryFilter={directoryFilter}
         mediaTypeFilter={mediaTypeFilter}
+        entityFilterActive={!!entityFilter}
         searchActive={searchQuery.trim().length > 0}
         processingMedia={processingMedia}
         totalItems={totalItems}
@@ -336,8 +425,11 @@ function MediaPageContent() {
         onClearSelection={clearSelection}
         onBulkDelete={handleBulkDelete}
         onBulkMove={handleBulkMove}
+        onBulkTag={handleBulkTag}
+        onBulkUntag={handleBulkUntag}
         isDeleting={isDeleting}
         isMoving={isMoving}
+        isTagging={tagMediaBulk.isPending || untagMediaBulk.isPending}
         workspaceId={currentWorkspace.id}
       />
     </div>

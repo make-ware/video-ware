@@ -4,6 +4,7 @@ import {
   runList,
   runMergedList,
   type ListContext,
+  type ListRefinement,
   type ListSpec,
   type MergeSource,
   type ResolvedListQuery,
@@ -61,6 +62,7 @@ export function captureList<T, TRow = T>(args: {
   fetchPage: (query: ResolvedListQuery) => Promise<ListResult<T>>;
   argv?: readonly string[];
   isTTY?: boolean;
+  refine?: ListRefinement<T>;
 }): Promise<CapturedList> {
   return capture(() =>
     runList({
@@ -70,6 +72,7 @@ export function captureList<T, TRow = T>(args: {
       fetchPage: args.fetchPage,
       argv: args.argv ?? ['test', 'list'],
       isTTY: args.isTTY ?? false,
+      refine: args.refine,
     })
   );
 }
@@ -86,6 +89,7 @@ export function captureMergedList<T, TRow = T>(args: {
   narrowWith?: string;
   argv?: readonly string[];
   isTTY?: boolean;
+  refine?: ListRefinement<T>;
 }): Promise<CapturedList> {
   return capture(() =>
     runMergedList({
@@ -97,6 +101,7 @@ export function captureMergedList<T, TRow = T>(args: {
       narrowWith: args.narrowWith,
       argv: args.argv ?? ['test', 'list'],
       isTTY: args.isTTY ?? false,
+      refine: args.refine,
     })
   );
 }

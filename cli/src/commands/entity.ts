@@ -72,7 +72,6 @@ export function registerEntityCommands(program: Command): void {
   const create = entity
     .command('create <name>')
     .description('Create an entity in the workspace')
-    .option('-w, --workspace <id>', 'workspace id override')
     .option(
       '-k, --kind <kind>',
       `entity kind (${Object.values(EntityKind).join(', ')}; default: person)`,
@@ -87,7 +86,7 @@ export function registerEntityCommands(program: Command): void {
   withJsonOption(create).action(async (name: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const created = await new EntityMutator(pb).create({
         WorkspaceRef: workspaceId,
         name,
@@ -120,7 +119,7 @@ export function registerEntityCommands(program: Command): void {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace),
+        workspaceId: await resolveWorkspaceId(pb),
       };
       await runList({
         spec: entityListSpec,
@@ -139,12 +138,11 @@ export function registerEntityCommands(program: Command): void {
     .command('show <nameOrId>')
     .description(
       'Show one entity with its linked tracks, appearances, and tagged media'
-    )
-    .option('-w, --workspace <id>', 'workspace id override');
+    );
   withJsonOption(show).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const { appearances, totalItems } = await getEntityAppearances(
         pb,
@@ -200,13 +198,12 @@ export function registerEntityCommands(program: Command): void {
     .command('link <nameOrId>')
     .description(
       'Attribute label tracks or provider clusters to an entity (repeatable across media, or within one media when the provider id changes)'
-    )
-    .option('-w, --workspace <id>', 'workspace id override');
+    );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const targets = await resolveLinkTargets(
         pb,
@@ -227,8 +224,7 @@ export function registerEntityCommands(program: Command): void {
 
   const unlink = entity
     .command('unlink')
-    .description('Clear the entity link on label tracks or provider clusters')
-    .option('-w, --workspace <id>', 'workspace id override');
+    .description('Clear the entity link on label tracks or provider clusters');
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -252,13 +248,12 @@ export function registerEntityCommands(program: Command): void {
       .description(
         'Everything the entity said across media (diarized speaker labels)'
       )
-      .option('-w, --workspace <id>', 'workspace id override')
       .option('--text', 'print a plain transcript instead of a table'),
     entityWordsSpec
   ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
 
       // --text is a whole-transcript rendering, not a table: it walks every
@@ -294,14 +289,13 @@ export function registerEntityCommands(program: Command): void {
       .command('labels <nameOrId>')
       .description(
         'Every label attributed to the entity across media, all label types (tagged tracks and clusters)'
-      )
-      .option('-w, --workspace <id>', 'workspace id override'),
+      ),
     entityLabelsSpec,
     { merged: true }
   ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const types = resolveLabelTypes(opts);
 
@@ -333,13 +327,12 @@ export function registerEntityCommands(program: Command): void {
       .command('appearances <nameOrId>')
       .description(
         'When the entity is on screen / speaking, per media (linked track ranges)'
-      )
-      .option('-w, --workspace <id>', 'workspace id override'),
+      ),
     entityAppearancesSpec
   ).action(async (nameOrId: string, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       await runList({
         spec: entityAppearancesSpec,

@@ -18,7 +18,7 @@ async function resolveMediaId(
   opts: { media?: string; workspace?: string }
 ): Promise<string> {
   if (opts.media) return opts.media;
-  const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+  const workspaceId = await resolveWorkspaceId(pb);
   return (await pickMedia(pb, workspaceId)).id;
 }
 
@@ -35,7 +35,6 @@ export function registerJobCommands(program: Command): void {
     .description(
       '(dev) Queue label detection (a detect_labels task) for a media item'
     )
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-m, --media <id>', 'source media id')
     .option(
       '-t, --types <types>',
@@ -78,7 +77,6 @@ export function registerJobCommands(program: Command): void {
       '(dev) Queue transcode/preview generation (a process_upload task) for ' +
         'a media item'
     )
-    .option('-w, --workspace <id>', 'workspace id override')
     .option('-m, --media <id>', 'source media id')
     .option(
       '-a, --assets <assets>',

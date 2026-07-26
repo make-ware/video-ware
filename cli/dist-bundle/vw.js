@@ -16116,9 +16116,9 @@ var require_util = __commonJS({
       return !headerCharRegex.test(characters);
     }
     var rangeHeaderRegex = /^bytes (\d+)-(\d+)\/(\d+)?$/;
-    function parseRangeHeader(range4) {
-      if (range4 == null || range4 === "") return { start: 0, end: null, size: null };
-      const m = range4 ? range4.match(rangeHeaderRegex) : null;
+    function parseRangeHeader(range2) {
+      if (range2 == null || range2 === "") return { start: 0, end: null, size: null };
+      const m = range2 ? range2.match(rangeHeaderRegex) : null;
       return m ? {
         start: parseInt(m[1]),
         end: m[2] ? parseInt(m[2]) : null,
@@ -25529,8 +25529,8 @@ var require_retry_handler = __commonJS({
         }
         if (this.end == null) {
           if (statusCode === 206) {
-            const range4 = parseRangeHeader(headers["content-range"]);
-            if (range4 == null) {
+            const range2 = parseRangeHeader(headers["content-range"]);
+            if (range2 == null) {
               this.headersSent = true;
               this.handler.onResponseStart?.(
                 controller,
@@ -25540,7 +25540,7 @@ var require_retry_handler = __commonJS({
               );
               return;
             }
-            const { start, size, end = size ? size - 1 : null } = range4;
+            const { start, size, end = size ? size - 1 : null } = range2;
             assert2(
               start != null && Number.isFinite(start),
               "content-range mismatch"
@@ -39502,7 +39502,7 @@ ${captureLines}` : capture.stack;
   }
 });
 
-// src/cli.ts
+// src/program.ts
 import { readFileSync as readFileSync3 } from "fs";
 import { dirname as dirname2, join as join4 } from "path";
 import { fileURLToPath } from "url";
@@ -43007,8 +43007,8 @@ var NotAuthenticatedError = class extends Error {
     this.name = "NotAuthenticatedError";
   }
 };
-function resolveUrl(override) {
-  if (override) return override;
+function resolveUrl(override2) {
+  if (override2) return override2;
   const cfg = loadConfig();
   if (cfg.url) return cfg.url;
   return process.env.POCKETBASE_URL ?? "http://localhost:8090";
@@ -43096,6 +43096,12 @@ function printRecord(record2, conciseLines, json2) {
 }
 function truncate(text, max = 60) {
   return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
+}
+function secs(v) {
+  return `${v.toFixed(2)}s`;
+}
+function range(start, end) {
+  return `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 }
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -56540,8 +56546,8 @@ function convertBaseSchema(schema, ctx) {
       });
     }
     ctx.processing.add(refPath);
-    const resolved = resolveRef(refPath, ctx);
-    const zodSchema2 = convertSchema(resolved, ctx);
+    const resolved2 = resolveRef(refPath, ctx);
+    const zodSchema2 = convertSchema(resolved2, ctx);
     ctx.refs.set(refPath, zodSchema2);
     ctx.processing.delete(refPath);
     return zodSchema2;
@@ -58468,6 +58474,17 @@ var LabelTextCollection = defineCollection({
     "CREATE INDEX idx_label_text_track ON LabelText (LabelTrackRef)"
   ]
 });
+var LABEL_TRACK_TYPE_VALUES = [
+  "object",
+  "shot",
+  "person",
+  "speech",
+  "speaker",
+  "face",
+  "segment",
+  "text"
+  /* TEXT */
+];
 var LabelTrackSchema = external_exports.object({
   // --- Relations ---
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
@@ -58481,6 +58498,14 @@ var LabelTrackSchema = external_exports.object({
   // The stable ID from the provider (e.g., "0")
   trackHash: TextField({ min: 1 }),
   // Unique constraint (MediaRef + trackId + provider)
+  // Denormalized copy of LabelEntityRef -> LabelEntity.labelType. One media
+  // routinely holds hundreds of object tracks alongside a handful of speaker
+  // or face tracks, so "this media's speaker tracks" has to be an indexed
+  // filter rather than a paged scan of every track plus a relation
+  // traversal. Safe to denormalize: a cluster's labelType is set at creation
+  // and never changes. Optional because a track written without a
+  // LabelEntityRef has no type to inherit.
+  labelType: SelectField([...LABEL_TRACK_TYPE_VALUES]).optional(),
   // --- Timing ---
   start: NumberField({ min: 0 }),
   // Seconds (from first keyframe)
@@ -58511,6 +58536,10 @@ var LabelTrackInputSchema = external_exports.object({
   // --- Identification ---
   trackId: external_exports.string().min(1, "Track ID is required"),
   trackHash: external_exports.string().min(1, "Track hash is required"),
+  // Must be listed here or it never persists: this is a non-strict z.object,
+  // so validateInput silently drops any key it doesn't declare (which is why
+  // the worker's provider/processor/version writes vanish).
+  labelType: external_exports.nativeEnum(LabelType).optional(),
   // --- Timing ---
   start: external_exports.number().min(0),
   end: external_exports.number().min(0),
@@ -58535,7 +58564,9 @@ var LabelTrackCollection = defineCollection({
     "CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)",
     // Workspace-wide cluster traversal in trackEntityAttributionFilter —
     // the (MediaRef, LabelEntityRef) composite can't serve it alone.
-    "CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)"
+    "CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)",
+    // "This media's tracks of kind X" — the speaker/face identification UIs.
+    "CREATE INDEX idx_label_track_media_type ON LabelTrack (MediaRef, labelType)"
   ]
 });
 var LABEL_TYPE_TO_REF_FIELD = {
@@ -58702,6 +58733,19 @@ var MediaClipCollection = defineCollection({
     "CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)"
   ]
 });
+var MediaEntityLinkSchema = external_exports.object({
+  id: external_exports.string(),
+  name: external_exports.string(),
+  kind: external_exports.string(),
+  tagged: external_exports.number(),
+  links: external_exports.number()
+});
+var MediaEntitiesSchema = external_exports.object({
+  /** Owning workspace (stored as the workspace id; used for filtering). */
+  WorkspaceRef: external_exports.string(),
+  /** Entities attached to this media. */
+  entities: external_exports.array(MediaEntityLinkSchema)
+}).extend(baseSchema);
 var MediaTagSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media" }),
@@ -59464,6 +59508,17 @@ function sourceTimeAtCompositeOffset(segments, offset) {
   }
   return mapping[mapping.length - 1].sourceEnd;
 }
+function compositeOffsetAtSourceTime(segments, sourceTime) {
+  const mapping = buildCompositeTimeMapping(segments);
+  if (mapping.length === 0) return sourceTime;
+  if (sourceTime <= mapping[0].sourceStart) return 0;
+  for (const mapped of mapping) {
+    if (sourceTime <= mapped.sourceEnd) {
+      return mapped.compositeStart + Math.max(0, sourceTime - mapped.sourceStart);
+    }
+  }
+  return mapping[mapping.length - 1].compositeEnd;
+}
 function expandCompositeToSegments(compositeSegments, usageSourceStart, usageDuration, timelineStart) {
   const result = [];
   const usageSourceEnd = usageSourceStart + usageDuration;
@@ -59597,7 +59652,8 @@ var BaseMutator = class {
   options = {
     expand: [],
     filter: [],
-    sort: []
+    sort: [],
+    fields: []
   };
   constructor(pb, options) {
     this.pb = pb;
@@ -59607,7 +59663,7 @@ var BaseMutator = class {
     }
   }
   initializeOptions() {
-    this.options = this.setDefaults();
+    this.options = { fields: [], ...this.setDefaults() };
   }
   /**
    * Initialize options with class-specific defaults
@@ -59632,6 +59688,9 @@ var BaseMutator = class {
     }
     if (newOptions.sort !== void 0) {
       this.options.sort = newOptions.sort;
+    }
+    if (newOptions.fields !== void 0) {
+      this.options.fields = newOptions.fields;
     }
   }
   toSnakeCase(str) {
@@ -59748,6 +59807,33 @@ var BaseMutator = class {
         expand
       );
       return await this.processListResult(result);
+    } catch (error49) {
+      return this.errorWrapper(error49);
+    }
+  }
+  /**
+   * Every entity matching the filter, fetched in batches.
+   *
+   * Use this wherever a "give me all of them" read would otherwise be written
+   * as a single oversized `getList` page — that shape truncates silently, and
+   * because callers read `.items` and drop `.totalItems` the truncation is
+   * indistinguishable from there being no more records.
+   * @param filter Filter expression(s), merged with the class defaults
+   * @param sort Sort expression, or the class default when omitted
+   * @param expand Relations to expand, merged with the class defaults
+   * @param batch Records per request (default: 500)
+   */
+  async getFullList(filter, sort, expand, batch = 500) {
+    try {
+      const items = await this.entityGetFullList(
+        filter,
+        sort,
+        expand,
+        batch
+      );
+      return await Promise.all(
+        items.map((item) => this.processRecord(item))
+      );
     } catch (error49) {
       return this.errorWrapper(error49);
     }
@@ -59902,7 +59988,31 @@ var BaseMutator = class {
     if (finalFilter) options.filter = finalFilter;
     if (finalExpand) options.expand = finalExpand;
     if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
     return await this.getCollection().getList(page, perPage, options);
+  }
+  /**
+   * Perform the actual getFullList operation
+   */
+  async entityGetFullList(filter, sort, expand, batch = 500) {
+    const finalFilter = this.prepareFilter(filter);
+    const finalExpand = this.prepareExpand(expand);
+    const finalSort = this.prepareSort(sort);
+    const options = { batch };
+    if (finalFilter) options.filter = finalFilter;
+    if (finalExpand) options.expand = finalExpand;
+    if (finalSort) options.sort = finalSort;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
+    return await this.getCollection().getFullList(options);
+  }
+  /**
+   * Prepare the `fields` projection parameter, or undefined for whole records.
+   */
+  prepareFields() {
+    const fields = this.options.fields?.filter(Boolean) ?? [];
+    return fields.length ? fields.join(",") : void 0;
   }
   /**
    * Perform the actual delete operation
@@ -60223,16 +60333,16 @@ function getClipRanges(trackClips) {
 function findNonOverlappingTimelineStart(trackClips, desiredTime, newClipDuration, excludeClipId) {
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const relevantRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range4 }) => range4.end > range4.start).map(({ range: range4 }) => range4).sort((a, b) => a.start - b.start);
+  const relevantRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range2 }) => range2.end > range2.start).map(({ range: range2 }) => range2).sort((a, b) => a.start - b.start);
   if (relevantRanges.length === 0) {
     return Math.max(0, desiredTime);
   }
   let candidateTime = Math.max(0, desiredTime);
-  for (const range4 of relevantRanges) {
+  for (const range2 of relevantRanges) {
     const newEnd = candidateTime + newClipDuration;
-    const overlaps = candidateTime < range4.end && newEnd > range4.start;
+    const overlaps = candidateTime < range2.end && newEnd > range2.start;
     if (overlaps) {
-      candidateTime = range4.end;
+      candidateTime = range2.end;
     }
   }
   return candidateTime;
@@ -60281,7 +60391,7 @@ function planRippleDelete(trackClips, deletedClipIds) {
   const deletedIds = new Set(deletedClipIds);
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const deletedRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => deletedIds.has(clip.id)).map(({ range: range4 }) => range4);
+  const deletedRanges = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => deletedIds.has(clip.id)).map(({ range: range2 }) => range2);
   const moves = [];
   sorted.forEach((clip, i2) => {
     if (deletedIds.has(clip.id)) return;
@@ -60300,13 +60410,13 @@ function planRippleInsert(trackClips, insertStart, insertDuration, excludeClipId
   if (insertDuration <= OVERLAP_EPSILON) return [];
   const sorted = getSortedTrackClips(trackClips);
   const ranges = getClipRanges(trackClips);
-  const affected = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range4 }) => range4.end > range4.start).filter(({ range: range4 }) => range4.end > insertStart + OVERLAP_EPSILON);
+  const affected = sorted.map((clip, i2) => ({ clip, range: ranges[i2] })).filter(({ clip }) => clip.id !== excludeClipId).filter(({ range: range2 }) => range2.end > range2.start).filter(({ range: range2 }) => range2.end > insertStart + OVERLAP_EPSILON);
   if (affected.length === 0) return [];
-  const firstStart = Math.min(...affected.map(({ range: range4 }) => range4.start));
+  const firstStart = Math.min(...affected.map(({ range: range2 }) => range2.start));
   const delta = firstStart < insertStart - OVERLAP_EPSILON ? insertStart + insertDuration - firstStart : insertDuration;
-  return affected.map(({ clip, range: range4 }) => ({
+  return affected.map(({ clip, range: range2 }) => ({
     clipId: clip.id,
-    timelineStart: range4.start + delta
+    timelineStart: range2.start + delta
   }));
 }
 function computeClipPlacement(trackClips, selectedClipId, newClipDuration) {
@@ -60377,6 +60487,68 @@ function buildPlaybackTracks(clips, tracks) {
 }
 function findActiveClip(placed, time3) {
   return placed.find((p) => time3 >= p.globalStart && time3 < p.globalEnd);
+}
+var PLAYBACK_CONTINUITY_EPSILON = 1e-3;
+function regionSourceEnd(region) {
+  return region.sourceStart + (region.timelineEnd - region.timelineStart);
+}
+function clipPlaybackRegions(placed) {
+  const { clip, globalStart, globalEnd } = placed;
+  const wholeClip = {
+    key: clip.id,
+    timelineStart: globalStart,
+    timelineEnd: globalEnd,
+    sourceStart: clip.start
+  };
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (!segments || segments.length === 0) return [wholeClip];
+  const windowed = [
+    ...windowCompositeSegments(segments, clip.start, clip.end)
+  ].sort((a, b) => a.start - b.start);
+  const regions = [];
+  let offset = 0;
+  for (const seg of windowed) {
+    const duration3 = seg.end - seg.start;
+    if (duration3 <= 0) continue;
+    const last = regions[regions.length - 1];
+    if (last && Math.abs(seg.start - regionSourceEnd(last)) <= PLAYBACK_CONTINUITY_EPSILON) {
+      last.timelineEnd += duration3;
+    } else {
+      regions.push({
+        key: `${clip.id}#${regions.length}`,
+        timelineStart: globalStart + offset,
+        timelineEnd: globalStart + offset + duration3,
+        sourceStart: seg.start
+      });
+    }
+    offset += duration3;
+  }
+  if (regions.length === 0) return [wholeClip];
+  regions[regions.length - 1].timelineEnd = globalEnd;
+  return regions;
+}
+function clipSourceTimeAtOffset(clip, offset) {
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return sourceTimeAtCompositeOffset(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      offset
+    );
+  }
+  return offset + clip.start;
+}
+function clipOffsetAtSourceTime(clip, sourceTime) {
+  const segments = clip.SourceTimelineRef ? void 0 : getClipSegments(clip);
+  if (segments && segments.length > 0) {
+    return compositeOffsetAtSourceTime(
+      windowCompositeSegments(segments, clip.start, clip.end),
+      sourceTime
+    );
+  }
+  return Math.min(
+    Math.max(0, sourceTime - clip.start),
+    Math.max(0, clip.end - clip.start)
+  );
 }
 function computeTimelineDuration(clips, tracks) {
   let max = 0;
@@ -61137,6 +61309,130 @@ function clampSegmentsToWindow(segments, start, end, bounds) {
   })).filter((seg) => seg.end - seg.start > 0);
   return normalizeSegments(pieces, bounds);
 }
+var isSpeakerShaped = (w) => typeof w?.text === "string" && typeof w?.start === "number" && typeof w?.end === "number";
+var isSpeechShaped = (w) => typeof w?.word === "string" && typeof w?.startTime === "number" && typeof w?.endTime === "number";
+function normalizeUtteranceWords(u) {
+  const raw = Array.isArray(u.words) ? u.words : [];
+  if (raw.length > 0 && raw.every(isSpeakerShaped)) {
+    return {
+      words: raw.map((w) => ({
+        text: w.text,
+        start: w.start,
+        end: w.end,
+        ...w.speakerId !== void 0 ? { speakerId: w.speakerId } : {}
+      })),
+      estimated: false
+    };
+  }
+  if (raw.length > 0 && raw.every(isSpeechShaped)) {
+    return {
+      words: raw.map((w) => ({
+        text: w.word,
+        start: w.startTime,
+        end: w.endTime,
+        ...w.confidence !== void 0 ? { confidence: w.confidence } : {}
+      })),
+      estimated: false
+    };
+  }
+  const text = u.transcript?.trim();
+  if (!text) return { words: [], estimated: true };
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const per = Math.max(u.end - u.start, 0) / tokens.length;
+  return {
+    words: tokens.map((token, i2) => ({
+      text: token,
+      start: u.start + i2 * per,
+      end: u.start + (i2 + 1) * per
+    })),
+    estimated: true
+  };
+}
+function overlapsSegments(start, end, segments) {
+  return segments.some((s2) => end > s2.start && start < s2.end);
+}
+function cutMarker(seconds) {
+  return `[cut ${seconds.toFixed(1)}s]`;
+}
+function buildClipTranscript(utterances, segments) {
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const result = [];
+  let keptWords = 0;
+  let omittedTotal = 0;
+  let droppedUtterances = 0;
+  for (const u of utterances) {
+    const { words, estimated } = normalizeUtteranceWords(u);
+    const bySegment = /* @__PURE__ */ new Map();
+    let omitted = 0;
+    for (const word of words) {
+      const index = sorted.findIndex(
+        (s2) => word.end > s2.start && word.start < s2.end
+      );
+      if (index === -1) {
+        omitted++;
+        continue;
+      }
+      const bucket = bySegment.get(index);
+      if (bucket) bucket.push(word);
+      else bySegment.set(index, [word]);
+    }
+    omittedTotal += omitted;
+    if (bySegment.size === 0) {
+      if (words.length > 0) droppedUtterances++;
+      continue;
+    }
+    const parts = [...bySegment.entries()].sort(([a], [b]) => a - b).map(([segmentIndex, segWords]) => {
+      const sourceStart = Math.min(...segWords.map((w) => w.start));
+      const sourceEnd = Math.max(...segWords.map((w) => w.end));
+      return {
+        segmentIndex,
+        text: segWords.map((w) => w.text).join(" "),
+        sourceStart: roundToMs(sourceStart),
+        sourceEnd: roundToMs(sourceEnd),
+        clipStart: roundToMs(
+          compositeOffsetAtSourceTime(sorted, sourceStart)
+        ),
+        clipEnd: roundToMs(compositeOffsetAtSourceTime(sorted, sourceEnd)),
+        words: segWords
+      };
+    });
+    const pieces = [];
+    for (let i2 = 0; i2 < parts.length; i2++) {
+      if (i2 > 0) {
+        let removed = 0;
+        for (let k = parts[i2 - 1].segmentIndex; k < parts[i2].segmentIndex; k++) {
+          removed += Math.max(0, sorted[k + 1].start - sorted[k].end);
+        }
+        pieces.push(cutMarker(removed));
+      }
+      pieces.push(parts[i2].text);
+    }
+    keptWords += words.length - omitted;
+    result.push({
+      id: u.id,
+      ...u.speakerId !== void 0 ? { speakerId: u.speakerId } : {},
+      ...u.speakerTag !== void 0 ? { speakerTag: u.speakerTag } : {},
+      ...u.confidence !== void 0 ? { confidence: u.confidence } : {},
+      text: pieces.join(" "),
+      sourceStart: parts[0].sourceStart,
+      sourceEnd: parts[parts.length - 1].sourceEnd,
+      clipStart: parts[0].clipStart,
+      clipEnd: parts[parts.length - 1].clipEnd,
+      parts,
+      omittedWords: omitted,
+      estimatedTimings: estimated
+    });
+  }
+  return {
+    utterances: result,
+    totals: {
+      utterances: result.length,
+      keptWords,
+      omittedWords: omittedTotal,
+      droppedUtterances
+    }
+  };
+}
 var TIMELINE_EPSILON = 1e-6;
 var MICRO_GAP_THRESHOLD = 0.1;
 var LEVEL_ORDER = {
@@ -61144,7 +61440,7 @@ var LEVEL_ORDER = {
   warning: 1,
   info: 2
 };
-var secs = (v) => `${v.toFixed(2)}s`;
+var secs2 = (v) => `${v.toFixed(2)}s`;
 var millis = (v) => `${Math.max(1, Math.round(v * 1e3))}ms`;
 function clusterOverlappingRanges(items, rangeOf) {
   const sorted = [...items].sort((a, b) => rangeOf(a).start - rangeOf(b).start);
@@ -61234,7 +61530,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
         clipIds: cluster.map((c) => c.clip.id),
         start,
         end,
-        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs(start)} and ${secs(end)} \u2014 same-track overlaps are invalid`
+        message: `track ${track.layer}: ${cluster.length} clips overlap between ${secs2(start)} and ${secs2(end)} \u2014 same-track overlaps are invalid`
       });
     }
     for (const gap of findRangeGaps(placed, rangeOf)) {
@@ -61250,14 +61546,14 @@ function collectTimelineDoctorFindings(input, options = {}) {
           level: "warning",
           code: "micro-gap",
           ...shared,
-          message: `track ${track.layer}: ${millis(width)} micro-gap at ${secs(gap.start)}\u2013${secs(gap.end)} \u2014 clips are nearly touching; this is usually unintended`
+          message: `track ${track.layer}: ${millis(width)} micro-gap at ${secs2(gap.start)}\u2013${secs2(gap.end)} \u2014 clips are nearly touching; this is usually unintended`
         });
       } else {
         findings.push({
           level: "info",
           code: "track-gap",
           ...shared,
-          message: `track ${track.layer}: ${secs(width)} gap at ${secs(gap.start)}\u2013${secs(gap.end)}`
+          message: `track ${track.layer}: ${secs2(width)} gap at ${secs2(gap.start)}\u2013${secs2(gap.end)}`
         });
       }
     }
@@ -61270,7 +61566,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
           code: "stale-clip-duration",
           layer: track.layer,
           clipIds: [clip.id],
-          message: `clip ${clip.id}: stored duration ${secs(clip.duration)} \u2260 effective duration (${secs(effective)})`
+          message: `clip ${clip.id}: stored duration ${secs2(clip.duration)} \u2260 effective duration (${secs2(effective)})`
         });
       }
       if (clip.MediaRef && !clip.expand?.MediaRef) {
@@ -61309,7 +61605,7 @@ function collectTimelineDoctorFindings(input, options = {}) {
         level: "warning",
         code: "stale-timeline-duration",
         clipIds: [],
-        message: `stored duration ${secs(input.storedDuration)} \u2260 computed ${secs(computed)} \u2014 self-heals on the next clip mutation`
+        message: `stored duration ${secs2(input.storedDuration)} \u2260 computed ${secs2(computed)} \u2014 self-heals on the next clip mutation`
       });
     }
   }
@@ -61960,9 +62256,12 @@ var LabelTrackMutator = class extends BaseMutator {
   getCollection() {
     return this.pb.collection("LabelTrack");
   }
+  // No default expand: a track list is often hundreds of rows per media, and
+  // expanding MediaRef re-serializes the same Media record onto every one of
+  // them. The handful of callers that need it ask explicitly.
   setDefaults() {
     return {
-      expand: ["MediaRef"],
+      expand: [],
       filter: [],
       sort: ["-created"]
     };
@@ -61981,12 +62280,25 @@ var LabelTrackMutator = class extends BaseMutator {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
   }
   /**
-   * Get the latest media label for a media item
+   * A media's tracks of one label kind — its diarized speakers, its face
+   * tracks.
+   *
+   * Always prefer this to filtering `getByMedia` client-side. LabelTrack
+   * holds every label kind in one collection and object tracking alone emits
+   * hundreds of rows per media, so an unfiltered page silently drops the
+   * handful of rows a speaker- or face-identification UI is after. Served by
+   * idx_label_track_media_type.
    * @param mediaId The media ID
-   * @returns The latest media label record or null if not found
+   * @param labelType The label kind to return
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 200)
    */
-  async getLatestByMedia(mediaId) {
-    return this.getFirstByFilter(`MediaRef = "${mediaId}"`, "-created");
+  async getByMediaAndType(mediaId, labelType, page = 1, perPage = 200) {
+    return this.getList(
+      page,
+      perPage,
+      `MediaRef = "${mediaId}" && labelType = "${labelType}"`
+    );
   }
   /**
    * Link (or, with null, unlink) a track to a real-world Entity. The track
@@ -62352,8 +62664,8 @@ var LabelFaceMutator = class extends BaseMutator {
   }
 };
 var LabelSpeakerMutator = class extends BaseMutator {
-  constructor(pb) {
-    super(pb);
+  constructor(pb, options) {
+    super(pb, options);
   }
   getCollection() {
     return this.pb.collection("LabelSpeaker");
@@ -62369,6 +62681,15 @@ var LabelSpeakerMutator = class extends BaseMutator {
       "start",
       expand
     );
+  }
+  /**
+   * Every utterance in a media, sorted by start — the whole diarized
+   * transcript, fetched in batches so a long recording can't be truncated.
+   * @param mediaId The media ID
+   * @param expand Relations to expand (dotted paths allowed)
+   */
+  async getAllByMedia(mediaId, expand) {
+    return this.getFullList(`MediaRef = "${mediaId}"`, "start", expand);
   }
   async getByMediaAndSpeaker(mediaId, speakerId, page = 1, perPage = 100) {
     return this.getList(
@@ -62970,8 +63291,8 @@ function handleError(err) {
 }
 
 // src/commands/login.ts
-function registerAuthCommands(program3) {
-  program3.command("login").description("Authenticate with PocketBase and cache the session").option("--url <url>", "PocketBase URL").option(
+function registerAuthCommands(program2) {
+  program2.command("login").description("Authenticate with PocketBase and cache the session").option("--url <url>", "PocketBase URL").option(
     "--app-url <url>",
     "webapp origin serving /api-next, for uploads (only when it differs from the PocketBase URL)"
   ).option("--email <email>", "account email").option("--password <password>", "account password").action(async (opts) => {
@@ -62981,11 +63302,80 @@ function registerAuthCommands(program3) {
       handleError(err);
     }
   });
-  program3.command("logout").description("Clear the cached session").action(() => logout());
+  program2.command("logout").description("Clear the cached session").action(() => logout());
 }
 
 // src/commands/workspace.ts
 import { join as join3 } from "path";
+
+// src/lib/workspace-option.ts
+var WORKSPACE_FLAGS = "-w, --workspace <id>";
+var WORKSPACE_DESCRIPTION = "workspace id, slug, or name \u2014 overrides the active workspace for this command only";
+var SIMPLE_REF = /^[A-Za-z0-9_-]+$/;
+var override;
+var resolved;
+function setWorkspaceOverride(ref) {
+  override = ref;
+  resolved = void 0;
+}
+function workspaceOverride() {
+  return override;
+}
+function nearestWorkspaceOption(cmd) {
+  for (let current = cmd; current; current = current.parent) {
+    const value = current.opts().workspace;
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return void 0;
+}
+function addWorkspaceOption(cmd) {
+  const declared = cmd.options.some(
+    (opt) => opt.short === "-w" || opt.long === "--workspace"
+  );
+  if (!declared) {
+    cmd.option(WORKSPACE_FLAGS, WORKSPACE_DESCRIPTION);
+  }
+  for (const sub of cmd.commands) {
+    addWorkspaceOption(sub);
+  }
+}
+function installWorkspaceOption(program2) {
+  addWorkspaceOption(program2);
+  program2.hook("preAction", (_program, actionCommand) => {
+    setWorkspaceOverride(nearestWorkspaceOption(actionCommand));
+  });
+  return program2;
+}
+async function resolveWorkspaceRef(pb, ref) {
+  if (ref === loadConfig().workspaceId) return ref;
+  if (resolved?.ref === ref) return resolved.id;
+  const mutator = new WorkspaceMutator(pb);
+  const found = await mutator.getById(ref) ?? await findBySlugOrName(mutator, ref);
+  if (!found) {
+    throw new Error(
+      `No workspace matching "${ref}" \u2014 vw workspace list shows the ids you can pass.`
+    );
+  }
+  resolved = { ref, id: found.id };
+  return found.id;
+}
+async function findBySlugOrName(mutator, ref) {
+  const bySlug = SIMPLE_REF.test(ref) ? await mutator.getBySlug(ref) : null;
+  if (bySlug) return bySlug;
+  const lower = ref.toLowerCase();
+  const all = await mutator.getList(1, 200);
+  return all.items.find((ws) => ws.name.toLowerCase() === lower) ?? null;
+}
+async function assertWorkspaceMatch(pb, workspaceRef, subject) {
+  if (!override || !workspaceRef) return;
+  const wanted = await resolveWorkspaceRef(pb, override);
+  if (wanted === workspaceRef) return;
+  throw new Error(
+    `${subject} belongs to workspace ${workspaceRef}, not ${wanted} (-w). Record ids are globally unique \u2014 drop -w, or pass -w ${workspaceRef}.`
+  );
+}
 
 // src/lib/select.ts
 function mediaLabel(media) {
@@ -63005,13 +63395,30 @@ async function pickWorkspace(pb) {
     }))
   });
 }
-async function resolveWorkspaceId(pb, flag) {
-  if (flag) return flag;
+async function resolveWorkspaceId(pb) {
+  const override2 = workspaceOverride();
+  if (override2) return resolveWorkspaceRef(pb, override2);
   const cfg = loadConfig();
   if (cfg.workspaceId) return cfg.workspaceId;
   const ws = await pickWorkspace(pb);
   updateConfig({ workspaceId: ws.id, workspaceName: ws.name });
   return ws.id;
+}
+async function requireMedia(pb, mediaId) {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found: ${mediaId}`);
+  }
+  await assertWorkspaceMatch(pb, media.WorkspaceRef, `Media ${mediaId}`);
+  return media;
+}
+async function requireMediaClip(pb, clipId) {
+  const clip = await new MediaClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Media clip not found: ${clipId}`);
+  }
+  await assertWorkspaceMatch(pb, clip.WorkspaceRef, `Media clip ${clipId}`);
+  return clip;
 }
 async function pickMedia(pb, workspaceId) {
   const result = await new MediaMutator(pb).getByWorkspace(workspaceId, 1, 200);
@@ -63140,6 +63547,143 @@ import {
   writeFileSync as writeFileSync3
 } from "fs";
 import { join as join2 } from "path";
+
+// src/lib/clip-times.ts
+function timelineEditListOf(clip) {
+  const metaSegments = clip.meta?.segments;
+  if (metaSegments && metaSegments.length > 0) {
+    return { segments: metaSegments, source: "meta" };
+  }
+  const mediaClip = clip.expand?.MediaClipRef;
+  const segments = getCompositeSegments(mediaClip);
+  if (segments && segments.length > 0) {
+    return { segments, source: "mediaClip" };
+  }
+  return { segments: [{ start: clip.start, end: clip.end }], source: "trim" };
+}
+var round = (v) => roundToMs(v);
+function sourceWindowOf(clip) {
+  return {
+    start: round(clip.start),
+    end: round(clip.end),
+    span: round(clip.end - clip.start)
+  };
+}
+function timelineClipTimes(clip, placement) {
+  const times = {
+    source: sourceWindowOf(clip),
+    effective: { duration: round(getClipTimelineDuration(clip)) },
+    composite: false
+  };
+  if (placement) {
+    times.timeline = {
+      start: round(placement.timelineStart),
+      end: round(placement.timelineEnd),
+      duration: round(placement.timelineEnd - placement.timelineStart)
+    };
+  }
+  if (!clip.CaptionRef && !clip.SourceTimelineRef) {
+    const editList = timelineEditListOf(clip);
+    times.segments = {
+      count: editList.segments.length,
+      source: editList.source
+    };
+    times.composite = editList.segments.length >= 2;
+  }
+  return times;
+}
+function mediaClipTimes(clip) {
+  const segments = getCompositeSegments(clip);
+  return {
+    source: sourceWindowOf(clip),
+    effective: {
+      duration: round(
+        calculateEffectiveDuration(clip.start, clip.end, segments)
+      )
+    },
+    segments: segments ? { count: segments.length, source: "clipData" } : { count: 1, source: "trim" },
+    composite: (segments?.length ?? 0) >= 2
+  };
+}
+function compositeMarker(times) {
+  return times.composite ? ` \u25C6${times.segments?.count ?? 0}` : "";
+}
+
+// src/lib/warnings.ts
+var secs3 = (v) => `${v.toFixed(2)}s`;
+var signed = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
+function nudgedWarning(requestedAt, placedAt, clipIds) {
+  return {
+    level: "warning",
+    code: "nudged",
+    message: `requested ${secs3(requestedAt)} \u2014 nudged to ${secs3(placedAt)} past existing clips (use --ripple to make room at the exact time)`,
+    clipIds,
+    data: { requestedAt, placedAt }
+  };
+}
+function clampedWarning(requestedBy, appliedBy, reason, clipIds) {
+  return {
+    level: "warning",
+    code: "clamped",
+    message: `requested ${signed(requestedBy)} \u2014 clamped to ${signed(appliedBy)} ${reason}`,
+    clipIds,
+    data: { requestedBy, appliedBy }
+  };
+}
+function shiftedOthersNotice(message, clipIds) {
+  return { level: "notice", code: "shifted-others", message, clipIds };
+}
+function trimmedNotice(trimmedClipIds) {
+  return {
+    level: "notice",
+    code: "trimmed",
+    message: `--overwrite trimmed ${trimmedClipIds.length} overlapping clip(s): ` + trimmedClipIds.join(", "),
+    clipIds: trimmedClipIds
+  };
+}
+function removedWarning(removedClipIds) {
+  return {
+    level: "warning",
+    code: "removed",
+    message: `--overwrite removed ${removedClipIds.length} fully-covered clip(s) (irreversible): ${removedClipIds.join(", ")}`,
+    clipIds: removedClipIds
+  };
+}
+function noopNotice(message, clipIds) {
+  return { level: "notice", code: "noop", message, clipIds };
+}
+function staleReadWarning(recordId) {
+  return {
+    level: "warning",
+    code: "stale-read",
+    message: `record ${recordId} changed while this command ran (another editor?) \u2014 the operation re-planned against the fresh state`,
+    clipIds: [recordId]
+  };
+}
+function postWriteOverlapWarning(finding, timelineId) {
+  return {
+    level: "warning",
+    code: "post-write-overlap",
+    message: `${finding.message} \u2014 detected after this command's writes; inspect with \`vw timeline doctor ${timelineId}\` and reposition with \`vw timeline clips move\``,
+    clipIds: finding.clipIds
+  };
+}
+function printOpWarnings(warnings) {
+  for (const w of warnings) {
+    if (w.level === "warning") warn(w.message);
+  }
+}
+function enforceStrict(warnings, strict) {
+  if (!strict) return;
+  const count = warnings.filter((w) => w.level === "warning").length;
+  if (count > 0) {
+    warn(`--strict: ${count} warning(s) \u2014 exiting 1`);
+    process.exitCode = 1;
+  }
+}
+function noopMessage(warnings) {
+  return warnings.find((w) => w.code === "noop")?.message;
+}
 
 // src/lib/list/spec.ts
 var DEFAULT_LIST_LIMIT = 100;
@@ -63382,9 +63926,6 @@ function parseCount(value) {
   return n2;
 }
 function withListOptions(cmd, spec, config2 = {}) {
-  if (spec.workspaceScoped !== false) {
-    cmd.option("-w, --workspace <id>", "workspace id override");
-  }
   for (const [key, filter] of Object.entries(filtersOf(spec))) {
     const option = new Option(filter.flags, filter.description);
     if (option.attributeName() !== key) {
@@ -63454,12 +63995,12 @@ function rangeLabel(view) {
   return `${start}\u2013${end} of ${view.totalItems}`;
 }
 function paginationLine(view) {
-  const range4 = rangeLabel(view);
+  const range2 = rangeLabel(view);
   if (hasMore(view)) {
-    return `(${range4} \u2014 next page: ${nextPageCommand(view.argv, view.page + 1)})`;
+    return `(${range2} \u2014 next page: ${nextPageCommand(view.argv, view.page + 1)})`;
   }
   const ending = !view.all && view.totalPages > 1 ? "end of results" : "all results shown";
-  return `(${range4} \u2014 ${ending})`;
+  return `(${range2} \u2014 ${ending})`;
 }
 function narrowHint(spec, view, applied) {
   if (!hasMore(view)) return null;
@@ -63579,21 +64120,32 @@ function argvOf(argv) {
   return argv ?? process.argv.slice(2);
 }
 async function present(args) {
-  const { spec, ctx, query } = args;
-  const rows = spec.toRows ? await spec.toRows(args.items, ctx) : args.items;
+  const { spec, ctx, query, refine: refine2 } = args;
+  const kept = refine2 ? refine2.filter(args.items) : args.items;
+  const dropped = args.items.length - kept.length;
+  const totalItems = refine2 ? kept.length : args.totalItems;
+  const totalPages = refine2 ? 1 : args.totalPages;
+  const rows = spec.toRows ? await spec.toRows(kept, ctx) : kept;
   const view = {
     command: spec.command,
     argv: args.argv,
     page: query.page,
     perPage: query.perPage,
     shown: rows.length,
-    totalItems: args.totalItems,
-    totalPages: args.totalPages,
+    totalItems,
+    totalPages,
     all: query.all
   };
   if (args.opts.json) {
     console.log(
-      JSON.stringify(listEnvelope(spec, rows, view, query.applied), null, 2)
+      JSON.stringify(
+        {
+          ...listEnvelope(spec, rows, view, query.applied),
+          ...refine2?.extras?.(dropped) ?? {}
+        },
+        null,
+        2
+      )
     );
     return;
   }
@@ -63601,11 +64153,14 @@ async function present(args) {
   for (const line of listFooter(spec, view, query.applied)) {
     info(line);
   }
+  const note = dropped > 0 ? refine2?.note?.(dropped) : null;
+  if (note) info(note);
 }
 async function runList(args) {
-  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const resolved2 = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY
   });
+  const query = args.refine ? { ...resolved2, all: true } : resolved2;
   const result = query.all ? await fetchAllPages((page) => args.fetchPage({ ...query, page })) : await args.fetchPage(query);
   await present({
     spec: args.spec,
@@ -63615,13 +64170,15 @@ async function runList(args) {
     items: result.items,
     query,
     totalItems: result.totalItems,
-    totalPages: result.totalPages
+    totalPages: result.totalPages,
+    refine: args.refine
   });
 }
 async function runMergedList(args) {
-  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const resolved2 = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY
   });
+  const query = args.refine ? { ...resolved2, all: true } : resolved2;
   const sources = await args.sources(query);
   const compare = args.compare(query);
   const merged = query.all ? await fetchMergedAll({ sources, compare }) : await fetchMergedPage({
@@ -63640,7 +64197,8 @@ async function runMergedList(args) {
     items: merged.items,
     query,
     totalItems: merged.totalItems,
-    totalPages: merged.totalPages
+    totalPages: merged.totalPages,
+    refine: args.refine
   });
 }
 
@@ -63730,522 +64288,6 @@ var LABEL_RANGE_SORTS = [
     pbSort: "-duration,MediaRef,start"
   }
 ];
-
-// src/lib/label.ts
-function parseLabelType(value) {
-  const types = Object.values(LabelType);
-  if (!types.includes(value)) {
-    throw new Error(
-      `Invalid label type "${value}". Valid types: ${types.join(", ")}`
-    );
-  }
-  return value;
-}
-function parseLabelTypes(value) {
-  return value.split(",").map((t2) => parseLabelType(t2.trim()));
-}
-function textField(record2, key) {
-  const value = record2[key];
-  if (typeof value === "string") return value;
-  return value == null ? "" : String(value);
-}
-function attributedEntityOf(record2) {
-  return record2.expand?.LabelTrackRef?.expand?.EntityRef ?? record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
-}
-function attributedEntitySummaryOf(record2) {
-  const viaTrack = record2.expand?.LabelTrackRef?.expand?.EntityRef;
-  const entity = viaTrack ?? record2.expand?.LabelEntityRef?.expand?.EntityRef;
-  if (!entity) return null;
-  return {
-    id: entity.id,
-    name: entity.name,
-    kind: entity.kind,
-    via: viaTrack ? "track" : "cluster"
-  };
-}
-function toLabelHit(type, record2) {
-  const attributedEntity = attributedEntitySummaryOf(record2);
-  return attributedEntity ? { type, record: record2, attributedEntity } : { type, record: record2 };
-}
-var LABEL_TYPE_CONFIG = {
-  [LabelType.OBJECT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.SHOT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.PERSON]: {
-    queryFields: ["upperBodyColor", "lowerBodyColor"],
-    snippet: (r2) => [
-      textField(r2, "personId"),
-      textField(r2, "upperBodyColor"),
-      textField(r2, "lowerBodyColor")
-    ].filter(Boolean).join(" ")
-  },
-  [LabelType.SPEECH]: {
-    queryFields: ["transcript"],
-    snippet: (r2) => textField(r2, "transcript")
-  },
-  [LabelType.SPEAKER]: {
-    queryFields: ["transcript", "speakerId"],
-    snippet: (r2) => [
-      speakerTranscriptLabel(
-        textField(r2, "speakerId"),
-        attributedEntityOf(r2)?.name
-      ),
-      textField(r2, "transcript")
-    ].filter(Boolean).join(": ")
-  },
-  [LabelType.FACE]: {
-    queryFields: ["faceId"],
-    snippet: (r2) => textField(r2, "faceId") || textField(r2, "faceHash")
-  },
-  [LabelType.SEGMENT]: {
-    queryFields: ["entity"],
-    snippet: (r2) => textField(r2, "entity")
-  },
-  [LabelType.TEXT]: {
-    queryFields: ["text"],
-    snippet: (r2) => textField(r2, "text")
-  }
-};
-var ID_FLAGS = {
-  faceId: { type: LabelType.FACE, field: "faceId", flag: "--face-id" },
-  personId: { type: LabelType.PERSON, field: "personId", flag: "--person-id" },
-  trackId: {
-    type: LabelType.OBJECT,
-    field: "originalTrackId",
-    flag: "--track-id"
-  }
-};
-function labelMutator(pb, type) {
-  switch (type) {
-    case LabelType.OBJECT:
-      return new LabelObjectMutator(pb);
-    case LabelType.SHOT:
-      return new LabelShotMutator(pb);
-    case LabelType.PERSON:
-      return new LabelPersonMutator(pb);
-    case LabelType.SPEECH:
-      return new LabelSpeechMutator(pb);
-    case LabelType.SPEAKER:
-      return new LabelSpeakerMutator(pb);
-    case LabelType.FACE:
-      return new LabelFaceMutator(pb);
-    case LabelType.SEGMENT:
-      return new LabelSegmentMutator(pb);
-    case LabelType.TEXT:
-      return new LabelTextMutator(pb);
-  }
-}
-function confidenceOf(hit) {
-  const field = LABEL_TYPE_META[hit.type].confidenceField;
-  const value = hit.record[field];
-  return typeof value === "number" ? value : 0;
-}
-function labelMediaName(hit) {
-  const media = hit.record.expand?.MediaRef;
-  return media ? mediaLabel(media) : hit.record.MediaRef;
-}
-var hitColumns = (withMedia) => [
-  { header: "TYPE", value: (h) => h.type },
-  { header: "ID", value: (h) => h.record.id },
-  ...withMedia ? [{ header: "MEDIA", value: (h) => labelMediaName(h) }] : [],
-  { header: "START", value: (h) => `${h.record.start.toFixed(2)}s` },
-  { header: "END", value: (h) => `${h.record.end.toFixed(2)}s` },
-  { header: "CONF", value: (h) => confidenceOf(h).toFixed(2) },
-  {
-    header: "ENTITY",
-    value: (h) => attributedEntityOf(h.record)?.name ?? ""
-  },
-  {
-    header: withMedia ? "MATCH" : "TEXT",
-    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record))
-  }
-];
-var LABEL_SORT_CONFIDENCE = "confidence";
-var LABEL_SORT_START = "start";
-var LABEL_SORT_MEDIA = "media";
-var LABEL_SEARCH_SORTS = [
-  {
-    value: "confidence",
-    description: "most confident first",
-    pbSort: LABEL_SORT_CONFIDENCE
-  },
-  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
-  {
-    value: "media",
-    description: "grouped by media, then chronological",
-    pbSort: LABEL_SORT_MEDIA
-  }
-];
-var LABEL_LIST_SORTS = [
-  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
-  {
-    value: "media",
-    description: "grouped by media, then chronological",
-    pbSort: LABEL_SORT_MEDIA
-  },
-  {
-    value: "confidence",
-    description: "most confident first",
-    pbSort: LABEL_SORT_CONFIDENCE
-  }
-];
-function labelPbSort(type, logical) {
-  switch (logical) {
-    case LABEL_SORT_CONFIDENCE:
-      return `-${LABEL_TYPE_META[type].confidenceField}`;
-    case LABEL_SORT_MEDIA:
-      return "MediaRef,start";
-    default:
-      return "start,MediaRef";
-  }
-}
-function labelHitCompare(logical) {
-  const byId = (a, b) => a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0;
-  const byMedia = (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef);
-  const byStart = (a, b) => a.record.start - b.record.start;
-  switch (logical) {
-    case LABEL_SORT_CONFIDENCE:
-      return (a, b) => confidenceOf(b) - confidenceOf(a) || byId(a, b);
-    case LABEL_SORT_MEDIA:
-      return (a, b) => byMedia(a, b) || byStart(a, b) || byId(a, b);
-    default:
-      return (a, b) => byStart(a, b) || byMedia(a, b) || byId(a, b);
-  }
-}
-function andClauses(clauses) {
-  const parts = clauses.filter((c) => c.length > 0);
-  if (parts.length <= 1) return parts[0] ?? "";
-  return parts.map((c) => `(${c})`).join(" && ");
-}
-function labelMergeSources(pb, opts) {
-  return opts.types.map((type) => ({
-    key: type,
-    fetchPage: async ({ page, perPage }) => {
-      const result = await labelMutator(pb, type).getList(
-        page,
-        perPage,
-        andClauses([opts.baseFilter, ...opts.perType?.(type) ?? []]),
-        labelPbSort(type, opts.sort),
-        [...opts.expand ?? [], ...attributionExpands(type)]
-      );
-      return {
-        ...result,
-        items: result.items.map((record2) => toLabelHit(type, record2))
-      };
-    }
-  }));
-}
-function minConfidenceClause(pb, type, min) {
-  return pb.filter(`${LABEL_TYPE_META[type].confidenceField} >= {:min}`, {
-    min
-  });
-}
-function queryFieldsClause(pb, type, query) {
-  const fields = LABEL_TYPE_CONFIG[type].queryFields;
-  return pb.filter(fields.map((f) => `${f} ~ {:q}`).join(" || "), { q: query });
-}
-function idFlagClauses(pb, type, opts) {
-  return Object.keys(ID_FLAGS).filter((key) => opts[key] !== void 0 && ID_FLAGS[key].type === type).map(
-    (key) => pb.filter(`${ID_FLAGS[key].field} = {:v}`, {
-      v: String(opts[key])
-    })
-  );
-}
-function resolveLabelTypes(opts) {
-  const idFlags = Object.keys(ID_FLAGS).filter(
-    (key) => opts[key] !== void 0
-  );
-  const implied = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
-  if (opts.types && implied.length > 0) {
-    const sameSet = opts.types.length === implied.length && implied.every((t2) => opts.types.includes(t2));
-    if (!sameSet) {
-      throw new Error(
-        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${implied.join(",")})`
-      );
-    }
-  }
-  if (implied.length > 0) return implied;
-  return [...opts.types ?? Object.values(LabelType)];
-}
-function labelPerTypeClauses(pb, opts) {
-  return (type) => [
-    ...opts.search ? [queryFieldsClause(pb, type, opts.search)] : [],
-    ...idFlagClauses(pb, type, opts),
-    ...opts.minConfidence !== void 0 ? [minConfidenceClause(pb, type, opts.minConfidence)] : [],
-    // A record id from resolveEntity, and the shared attribution filters are
-    // string templates rather than bound params — safe to embed directly.
-    ...opts.entityId ? [labelAttributionFilter(type, opts.entityId)] : []
-  ];
-}
-var labelIdFilters = {
-  faceId: listFilter({
-    flags: "--face-id <id>",
-    description: "exact faceId match (implies --types face)",
-    clause: () => null
-  }),
-  personId: listFilter({
-    flags: "--person-id <id>",
-    description: "exact personId match (implies --types person)",
-    clause: () => null
-  }),
-  trackId: listFilter({
-    flags: "--track-id <id>",
-    description: "exact object track id match (implies --types object)",
-    clause: () => null
-  })
-};
-var labelSearchSpec = {
-  command: "label search",
-  sorts: LABEL_SEARCH_SORTS,
-  requireOneOf: ["search", "entity", "faceId", "personId", "trackId"],
-  filters: {
-    search: listFilter({
-      flags: "--search <text>",
-      description: "free-text match against each label type's searchable fields (transcript, entity, text, \u2026)",
-      clause: () => null
-    }),
-    types: listFilter({
-      flags: "-t, --types <types>",
-      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
-      parse: parseLabelTypes,
-      clause: () => null
-    }),
-    media: listFilter({
-      flags: "-m, --media <id>",
-      description: "restrict results to one media",
-      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
-    }),
-    entity: listFilter({
-      flags: "--entity <nameOrId>",
-      description: "only labels attributed to this entity (tagged track or cluster)",
-      clause: () => null
-    }),
-    ...labelIdFilters,
-    minConfidence: listFilter({
-      flags: "--min-confidence <n>",
-      description: "minimum confidence (0..1)",
-      parse: parseFloat,
-      clause: () => null
-    })
-  },
-  columns: hitColumns(true),
-  hint: "`vw label show <type> <id>` shows one record, `vw label clip <type> <id>` creates a clip"
-};
-var labelListSpec = {
-  command: "label list",
-  workspaceScoped: false,
-  sorts: LABEL_LIST_SORTS,
-  required: ["media"],
-  filters: {
-    media: listFilter({
-      flags: "-m, --media <id>",
-      description: "the media whose labels to list",
-      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } }),
-      pick: async ({ pb, workspaceId }) => (await pickMedia(pb, workspaceId)).id
-    }),
-    types: listFilter({
-      flags: "-t, --types <types>",
-      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
-      parse: parseLabelTypes,
-      clause: () => null
-    }),
-    entity: listFilter({
-      flags: "--entity <nameOrId>",
-      description: "only labels attributed to this entity (tagged track or cluster)",
-      clause: () => null
-    }),
-    search: listFilter({
-      flags: "--search <text>",
-      description: "free-text match against each label type's fields",
-      clause: () => null
-    }),
-    minConfidence: listFilter({
-      flags: "--min-confidence <n>",
-      description: "minimum confidence (0..1)",
-      parse: parseFloat,
-      clause: () => null
-    })
-  },
-  columns: hitColumns(false),
-  hint: "`vw label show <type> <id>` shows one record"
-};
-var labelSearchOptions = {
-  types: {
-    flags: "-t, --types <types>",
-    description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
-    parse: parseLabelTypes
-  },
-  media: {
-    flags: "-m, --media <id>",
-    description: "restrict results to one media"
-  },
-  faceId: {
-    flags: "--face-id <id>",
-    description: "exact faceId match (implies --types face)"
-  },
-  personId: {
-    flags: "--person-id <id>",
-    description: "exact personId match (implies --types person)"
-  },
-  trackId: {
-    flags: "--track-id <id>",
-    description: "exact object track id match (implies --types object)"
-  },
-  minConfidence: {
-    flags: "--min-confidence <n>",
-    description: "minimum confidence (0..1)",
-    parse: parseFloat
-  },
-  limit: {
-    flags: "-n, --limit <count>",
-    description: "max results per label type (default: 20)",
-    parse: (v) => parseInt(v, 10)
-  }
-};
-async function listLabels(pb, opts) {
-  const types = opts.types ?? Object.values(LabelType);
-  const limit = opts.limit ?? 100;
-  const clauses = ["MediaRef = {:media}"];
-  const params = { media: opts.mediaId };
-  if (opts.window) {
-    clauses.push("start < {:wEnd} && end > {:wStart}");
-    params.wStart = opts.window.start;
-    params.wEnd = opts.window.end;
-  }
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const typeClauses = opts.entityId ? [...clauses, labelAttributionFilter(type, opts.entityId)] : clauses;
-      const filter = pb.filter(typeClauses.join(" && "), params);
-      const result = await labelMutator(pb, type).getList(
-        1,
-        limit,
-        filter,
-        "start",
-        attributionExpands(type)
-      );
-      return { type, result };
-    })
-  );
-  const hits = results.flatMap(
-    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
-  );
-  const totalItems = results.reduce(
-    (sum, { result }) => sum + result.totalItems,
-    0
-  );
-  return { hits, totalItems };
-}
-async function getLabel(pb, type, labelId) {
-  return labelMutator(pb, type).getById(labelId, attributionExpands(type));
-}
-var clipMetaOptions = {
-  label: {
-    flags: "--label <text>",
-    description: "clip name shown in the editor (searchable)"
-  },
-  description: {
-    flags: "--description <text>",
-    description: "clip notes shown in the editor (searchable)"
-  }
-};
-async function createClipFromLabel(pb, opts) {
-  const labelRecord = await getLabel(pb, opts.type, opts.labelId);
-  if (!labelRecord) {
-    throw new Error(
-      `No ${opts.type} label with id ${opts.labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
-    );
-  }
-  const mutator = new MediaClipMutator(pb);
-  let clip = await mutator.createFromLabel(labelRecord, opts.type, "cli");
-  const patch = {};
-  if (opts.label !== void 0) patch.label = opts.label;
-  if (opts.description !== void 0) patch.description = opts.description;
-  if (Object.keys(patch).length > 0) {
-    clip = await mutator.update(clip.id, patch);
-  }
-  return { clip, label: labelRecord };
-}
-
-// src/lib/warnings.ts
-var secs2 = (v) => `${v.toFixed(2)}s`;
-var signed = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
-function nudgedWarning(requestedAt, placedAt, clipIds) {
-  return {
-    level: "warning",
-    code: "nudged",
-    message: `requested ${secs2(requestedAt)} \u2014 nudged to ${secs2(placedAt)} past existing clips (use --ripple to make room at the exact time)`,
-    clipIds,
-    data: { requestedAt, placedAt }
-  };
-}
-function clampedWarning(requestedBy, appliedBy, reason, clipIds) {
-  return {
-    level: "warning",
-    code: "clamped",
-    message: `requested ${signed(requestedBy)} \u2014 clamped to ${signed(appliedBy)} ${reason}`,
-    clipIds,
-    data: { requestedBy, appliedBy }
-  };
-}
-function shiftedOthersNotice(message, clipIds) {
-  return { level: "notice", code: "shifted-others", message, clipIds };
-}
-function trimmedNotice(trimmedClipIds) {
-  return {
-    level: "notice",
-    code: "trimmed",
-    message: `--overwrite trimmed ${trimmedClipIds.length} overlapping clip(s): ` + trimmedClipIds.join(", "),
-    clipIds: trimmedClipIds
-  };
-}
-function removedWarning(removedClipIds) {
-  return {
-    level: "warning",
-    code: "removed",
-    message: `--overwrite removed ${removedClipIds.length} fully-covered clip(s) (irreversible): ${removedClipIds.join(", ")}`,
-    clipIds: removedClipIds
-  };
-}
-function noopNotice(message, clipIds) {
-  return { level: "notice", code: "noop", message, clipIds };
-}
-function staleReadWarning(recordId) {
-  return {
-    level: "warning",
-    code: "stale-read",
-    message: `record ${recordId} changed while this command ran (another editor?) \u2014 the operation re-planned against the fresh state`,
-    clipIds: [recordId]
-  };
-}
-function postWriteOverlapWarning(finding, timelineId) {
-  return {
-    level: "warning",
-    code: "post-write-overlap",
-    message: `${finding.message} \u2014 detected after this command's writes; inspect with \`vw timeline doctor ${timelineId}\` and reposition with \`vw timeline clips move\``,
-    clipIds: finding.clipIds
-  };
-}
-function printOpWarnings(warnings) {
-  for (const w of warnings) {
-    if (w.level === "warning") warn(w.message);
-  }
-}
-function enforceStrict(warnings, strict) {
-  if (!strict) return;
-  const count = warnings.filter((w) => w.level === "warning").length;
-  if (count > 0) {
-    warn(`--strict: ${count} warning(s) \u2014 exiting 1`);
-    process.exitCode = 1;
-  }
-}
-function noopMessage(warnings) {
-  return warnings.find((w) => w.code === "noop")?.message;
-}
 
 // src/lib/timeline.ts
 function singleMediaType(mediaType) {
@@ -64735,9 +64777,9 @@ async function insertClip(pb, opts) {
     const sorted = getSortedTrackClips(trackClips);
     const ranges = getClipRanges(trackClips);
     let furthestEnd = -1;
-    ranges.forEach((range4, i2) => {
-      if (range4.end > furthestEnd) {
-        furthestEnd = range4.end;
+    ranges.forEach((range2, i2) => {
+      if (range2.end > furthestEnd) {
+        furthestEnd = range2.end;
         afterClip = sorted[i2];
       }
     });
@@ -64961,18 +65003,16 @@ function assertOnTimeline(clip, timelineId) {
   }
 }
 async function resolveTimelineEditList(pb, clip) {
-  const metaSegments = clip.meta?.segments;
-  if (metaSegments && metaSegments.length > 0) {
-    return { segments: metaSegments, source: "meta" };
+  const sync = timelineEditListOf(clip);
+  if (sync.source !== "trim" || !clip.MediaClipRef || clip.expand?.MediaClipRef) {
+    return sync;
   }
-  if (clip.MediaClipRef) {
-    const mediaClip = clip.expand?.MediaClipRef ?? await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
-    const segments = getCompositeSegments(mediaClip);
-    if (segments && segments.length > 0) {
-      return { segments, source: "mediaClip" };
-    }
+  const mediaClip = await new MediaClipMutator(pb).getById(clip.MediaClipRef) ?? void 0;
+  const segments = getCompositeSegments(mediaClip);
+  if (segments && segments.length > 0) {
+    return { segments, source: "mediaClip" };
   }
-  return { segments: [{ start: clip.start, end: clip.end }], source: "trim" };
+  return sync;
 }
 var clipUpdateOptions = {
   label: {
@@ -65150,7 +65190,7 @@ async function moveTimelineClip(pb, clipId, opts) {
   const currentTrack = trackList.find((t2) => t2.id === clip.TimelineTrackRef) ?? trackList.find((t2) => t2.layer === 0) ?? trackList[0];
   const destTrack = opts.track ? await resolveTrackRef(pb, timelineId, opts.track) : currentTrack;
   const allClips = await clipMutator.getByTimeline(timelineId);
-  const duration3 = clip.end - clip.start;
+  const duration3 = getClipTimelineDuration(clip);
   const patch = { TimelineTrackRef: destTrack.id };
   let placedAt;
   let nudged = false;
@@ -65213,7 +65253,9 @@ async function moveTimelineClip(pb, clipId, opts) {
           {
             start: trim.start,
             end: trim.end,
-            duration: trim.end - trim.start,
+            // effective length from the planner — for composites this is
+            // the windowed gap-skipping sum, not end - start
+            duration: trim.duration,
             timelineStart: trim.timelineStart
           },
           victim ? { expectedUpdated: victim.updated, snapshot: victim } : void 0
@@ -65381,10 +65423,10 @@ async function rippleDownstreamClips(pb, clip, by, opts) {
       downstreamCount: downstream.length
     };
   }
-  const shifted = downstream.map(({ clip: c, range: range4 }) => ({
+  const shifted = downstream.map(({ clip: c, range: range2 }) => ({
     clipId: c.id,
-    from: range4.start,
-    to: roundToMs(range4.start + applied)
+    from: range2.start,
+    to: roundToMs(range2.start + applied)
   }));
   if (!opts.dryRun) {
     const clipMutator = new TimelineClipMutator(pb);
@@ -65438,10 +65480,10 @@ async function rippleTimelineClips(pb, clipId, opts) {
       ]
     };
   }
-  const shifted = group.map(({ clip: c, range: range4 }) => ({
+  const shifted = group.map(({ clip: c, range: range2 }) => ({
     clipId: c.id,
-    from: range4.start,
-    to: range4.start + by
+    from: range2.start,
+    to: range2.start + by
   }));
   const warnings = [];
   if (by !== opts.by) {
@@ -65601,6 +65643,501 @@ async function reorderTimelineClips(pb, timelineId, orderedIds) {
   return { clips: reordered, noop: false, warnings: [] };
 }
 
+// src/lib/label.ts
+function parseLabelType(value) {
+  const types = Object.values(LabelType);
+  if (!types.includes(value)) {
+    throw new Error(
+      `Invalid label type "${value}". Valid types: ${types.join(", ")}`
+    );
+  }
+  return value;
+}
+function parseLabelTypes(value) {
+  return value.split(",").map((t2) => parseLabelType(t2.trim()));
+}
+function textField(record2, key) {
+  const value = record2[key];
+  if (typeof value === "string") return value;
+  return value == null ? "" : String(value);
+}
+function attributedEntityOf(record2) {
+  return record2.expand?.LabelTrackRef?.expand?.EntityRef ?? record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
+}
+function attributedEntitySummaryOf(record2) {
+  const viaTrack = record2.expand?.LabelTrackRef?.expand?.EntityRef;
+  const entity = viaTrack ?? record2.expand?.LabelEntityRef?.expand?.EntityRef;
+  if (!entity) return null;
+  return {
+    id: entity.id,
+    name: entity.name,
+    kind: entity.kind,
+    via: viaTrack ? "track" : "cluster"
+  };
+}
+function toLabelHit(type, record2) {
+  const attributedEntity = attributedEntitySummaryOf(record2);
+  return attributedEntity ? { type, record: record2, attributedEntity } : { type, record: record2 };
+}
+var LABEL_TYPE_CONFIG = {
+  [LabelType.OBJECT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.SHOT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.PERSON]: {
+    queryFields: ["upperBodyColor", "lowerBodyColor"],
+    snippet: (r2) => [
+      textField(r2, "personId"),
+      textField(r2, "upperBodyColor"),
+      textField(r2, "lowerBodyColor")
+    ].filter(Boolean).join(" ")
+  },
+  [LabelType.SPEECH]: {
+    queryFields: ["transcript"],
+    snippet: (r2) => textField(r2, "transcript")
+  },
+  [LabelType.SPEAKER]: {
+    queryFields: ["transcript", "speakerId"],
+    snippet: (r2) => [
+      speakerTranscriptLabel(
+        textField(r2, "speakerId"),
+        attributedEntityOf(r2)?.name
+      ),
+      textField(r2, "transcript")
+    ].filter(Boolean).join(": ")
+  },
+  [LabelType.FACE]: {
+    queryFields: ["faceId"],
+    snippet: (r2) => textField(r2, "faceId") || textField(r2, "faceHash")
+  },
+  [LabelType.SEGMENT]: {
+    queryFields: ["entity"],
+    snippet: (r2) => textField(r2, "entity")
+  },
+  [LabelType.TEXT]: {
+    queryFields: ["text"],
+    snippet: (r2) => textField(r2, "text")
+  }
+};
+var ID_FLAGS = {
+  faceId: { type: LabelType.FACE, field: "faceId", flag: "--face-id" },
+  personId: { type: LabelType.PERSON, field: "personId", flag: "--person-id" },
+  trackId: {
+    type: LabelType.OBJECT,
+    field: "originalTrackId",
+    flag: "--track-id"
+  }
+};
+function labelMutator(pb, type) {
+  switch (type) {
+    case LabelType.OBJECT:
+      return new LabelObjectMutator(pb);
+    case LabelType.SHOT:
+      return new LabelShotMutator(pb);
+    case LabelType.PERSON:
+      return new LabelPersonMutator(pb);
+    case LabelType.SPEECH:
+      return new LabelSpeechMutator(pb);
+    case LabelType.SPEAKER:
+      return new LabelSpeakerMutator(pb);
+    case LabelType.FACE:
+      return new LabelFaceMutator(pb);
+    case LabelType.SEGMENT:
+      return new LabelSegmentMutator(pb);
+    case LabelType.TEXT:
+      return new LabelTextMutator(pb);
+  }
+}
+function confidenceOf(hit) {
+  const field = LABEL_TYPE_META[hit.type].confidenceField;
+  const value = hit.record[field];
+  return typeof value === "number" ? value : 0;
+}
+function labelMediaName(hit) {
+  const media = hit.record.expand?.MediaRef;
+  return media ? mediaLabel(media) : hit.record.MediaRef;
+}
+var hitColumns = (withMedia) => [
+  { header: "TYPE", value: (h) => h.type },
+  { header: "ID", value: (h) => h.record.id },
+  ...withMedia ? [{ header: "MEDIA", value: (h) => labelMediaName(h) }] : [],
+  { header: "START", value: (h) => `${h.record.start.toFixed(2)}s` },
+  { header: "END", value: (h) => `${h.record.end.toFixed(2)}s` },
+  { header: "CONF", value: (h) => confidenceOf(h).toFixed(2) },
+  {
+    header: "ENTITY",
+    value: (h) => attributedEntityOf(h.record)?.name ?? ""
+  },
+  {
+    header: withMedia ? "MATCH" : "TEXT",
+    value: (h) => truncate(LABEL_TYPE_CONFIG[h.type].snippet(h.record))
+  }
+];
+var LABEL_SORT_CONFIDENCE = "confidence";
+var LABEL_SORT_START = "start";
+var LABEL_SORT_MEDIA = "media";
+var LABEL_SEARCH_SORTS = [
+  {
+    value: "confidence",
+    description: "most confident first",
+    pbSort: LABEL_SORT_CONFIDENCE
+  },
+  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
+  {
+    value: "media",
+    description: "grouped by media, then chronological",
+    pbSort: LABEL_SORT_MEDIA
+  }
+];
+var LABEL_LIST_SORTS = [
+  { value: "start", description: "chronological", pbSort: LABEL_SORT_START },
+  {
+    value: "media",
+    description: "grouped by media, then chronological",
+    pbSort: LABEL_SORT_MEDIA
+  },
+  {
+    value: "confidence",
+    description: "most confident first",
+    pbSort: LABEL_SORT_CONFIDENCE
+  }
+];
+function labelPbSort(type, logical) {
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return `-${LABEL_TYPE_META[type].confidenceField}`;
+    case LABEL_SORT_MEDIA:
+      return "MediaRef,start";
+    default:
+      return "start,MediaRef";
+  }
+}
+function labelHitCompare(logical) {
+  const byId = (a, b) => a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0;
+  const byMedia = (a, b) => a.record.MediaRef.localeCompare(b.record.MediaRef);
+  const byStart = (a, b) => a.record.start - b.record.start;
+  switch (logical) {
+    case LABEL_SORT_CONFIDENCE:
+      return (a, b) => confidenceOf(b) - confidenceOf(a) || byId(a, b);
+    case LABEL_SORT_MEDIA:
+      return (a, b) => byMedia(a, b) || byStart(a, b) || byId(a, b);
+    default:
+      return (a, b) => byStart(a, b) || byMedia(a, b) || byId(a, b);
+  }
+}
+function andClauses(clauses) {
+  const parts = clauses.filter((c) => c.length > 0);
+  if (parts.length <= 1) return parts[0] ?? "";
+  return parts.map((c) => `(${c})`).join(" && ");
+}
+function labelMergeSources(pb, opts) {
+  return opts.types.map((type) => ({
+    key: type,
+    fetchPage: async ({ page, perPage }) => {
+      const result = await labelMutator(pb, type).getList(
+        page,
+        perPage,
+        andClauses([opts.baseFilter, ...opts.perType?.(type) ?? []]),
+        labelPbSort(type, opts.sort),
+        [...opts.expand ?? [], ...attributionExpands(type)]
+      );
+      return {
+        ...result,
+        items: result.items.map((record2) => toLabelHit(type, record2))
+      };
+    }
+  }));
+}
+function minConfidenceClause(pb, type, min) {
+  return pb.filter(`${LABEL_TYPE_META[type].confidenceField} >= {:min}`, {
+    min
+  });
+}
+function queryFieldsClause(pb, type, query) {
+  const fields = LABEL_TYPE_CONFIG[type].queryFields;
+  return pb.filter(fields.map((f) => `${f} ~ {:q}`).join(" || "), { q: query });
+}
+function idFlagClauses(pb, type, opts) {
+  return Object.keys(ID_FLAGS).filter((key) => opts[key] !== void 0 && ID_FLAGS[key].type === type).map(
+    (key) => pb.filter(`${ID_FLAGS[key].field} = {:v}`, {
+      v: String(opts[key])
+    })
+  );
+}
+function resolveLabelTypes(opts) {
+  const idFlags = Object.keys(ID_FLAGS).filter(
+    (key) => opts[key] !== void 0
+  );
+  const implied = [...new Set(idFlags.map((key) => ID_FLAGS[key].type))];
+  if (opts.types && implied.length > 0) {
+    const sameSet = opts.types.length === implied.length && implied.every((t2) => opts.types.includes(t2));
+    if (!sameSet) {
+      throw new Error(
+        `--types ${opts.types.join(",")} conflicts with ${idFlags.map((key) => ID_FLAGS[key].flag).join("/")} (implies --types ${implied.join(",")})`
+      );
+    }
+  }
+  if (implied.length > 0) return implied;
+  return [...opts.types ?? Object.values(LabelType)];
+}
+function labelPerTypeClauses(pb, opts) {
+  return (type) => [
+    ...opts.search ? [queryFieldsClause(pb, type, opts.search)] : [],
+    ...idFlagClauses(pb, type, opts),
+    ...opts.minConfidence !== void 0 ? [minConfidenceClause(pb, type, opts.minConfidence)] : [],
+    // A record id from resolveEntity, and the shared attribution filters are
+    // string templates rather than bound params — safe to embed directly.
+    ...opts.entityId ? [labelAttributionFilter(type, opts.entityId)] : []
+  ];
+}
+var labelIdFilters = {
+  faceId: listFilter({
+    flags: "--face-id <id>",
+    description: "exact faceId match (implies --types face)",
+    clause: () => null
+  }),
+  personId: listFilter({
+    flags: "--person-id <id>",
+    description: "exact personId match (implies --types person)",
+    clause: () => null
+  }),
+  trackId: listFilter({
+    flags: "--track-id <id>",
+    description: "exact object track id match (implies --types object)",
+    clause: () => null
+  })
+};
+var labelSearchSpec = {
+  command: "label search",
+  sorts: LABEL_SEARCH_SORTS,
+  requireOneOf: ["search", "entity", "faceId", "personId", "trackId"],
+  filters: {
+    search: listFilter({
+      flags: "--search <text>",
+      description: "free-text match against each label type's searchable fields (transcript, entity, text, \u2026)",
+      clause: () => null
+    }),
+    types: listFilter({
+      flags: "-t, --types <types>",
+      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null
+    }),
+    media: listFilter({
+      flags: "-m, --media <id>",
+      description: "restrict results to one media",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+    }),
+    entity: listFilter({
+      flags: "--entity <nameOrId>",
+      description: "only labels attributed to this entity (tagged track or cluster)",
+      clause: () => null
+    }),
+    ...labelIdFilters,
+    minConfidence: listFilter({
+      flags: "--min-confidence <n>",
+      description: "minimum confidence (0..1)",
+      parse: parseFloat,
+      clause: () => null
+    })
+  },
+  columns: hitColumns(true),
+  hint: "`vw label show <type> <id>` shows one record, `vw label clip <type> <id>` creates a clip"
+};
+var labelListSpec = {
+  command: "label list",
+  workspaceScoped: false,
+  sorts: LABEL_LIST_SORTS,
+  required: ["media"],
+  filters: {
+    media: listFilter({
+      flags: "-m, --media <id>",
+      description: "the media whose labels to list",
+      clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } }),
+      pick: async ({ pb, workspaceId }) => (await pickMedia(pb, workspaceId)).id
+    }),
+    clip: listFilter({
+      flags: "--clip <mediaClipId>",
+      description: "filter to a MediaClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null
+    }),
+    timelineClip: listFilter({
+      flags: "--timeline-clip <id>",
+      description: "filter to a TimelineClip's played edit list (labels inside cut gaps hidden)",
+      clause: () => null
+    }),
+    from: listFilter({
+      flags: "--from <seconds>",
+      description: "only labels overlapping at/after this source time",
+      parse: parseSeconds,
+      clause: (start) => ({ expr: "end > {:wStart}", params: { wStart: start } })
+    }),
+    to: listFilter({
+      flags: "--to <seconds>",
+      description: "only labels overlapping before this source time",
+      parse: parseSeconds,
+      clause: (end) => ({ expr: "start < {:wEnd}", params: { wEnd: end } })
+    }),
+    types: listFilter({
+      flags: "-t, --types <types>",
+      description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+      parse: parseLabelTypes,
+      clause: () => null
+    }),
+    entity: listFilter({
+      flags: "--entity <nameOrId>",
+      description: "only labels attributed to this entity (tagged track or cluster)",
+      clause: () => null
+    }),
+    search: listFilter({
+      flags: "--search <text>",
+      description: "free-text match against each label type's fields",
+      clause: () => null
+    }),
+    minConfidence: listFilter({
+      flags: "--min-confidence <n>",
+      description: "minimum confidence (0..1)",
+      parse: parseFloat,
+      clause: () => null
+    })
+  },
+  columns: hitColumns(false),
+  hint: "`vw label show <type> <id>` shows one record"
+};
+var labelSearchOptions = {
+  types: {
+    flags: "-t, --types <types>",
+    description: `comma-separated label types (${Object.values(LabelType).join(", ")}; default: all)`,
+    parse: parseLabelTypes
+  },
+  media: {
+    flags: "-m, --media <id>",
+    description: "restrict results to one media"
+  },
+  faceId: {
+    flags: "--face-id <id>",
+    description: "exact faceId match (implies --types face)"
+  },
+  personId: {
+    flags: "--person-id <id>",
+    description: "exact personId match (implies --types person)"
+  },
+  trackId: {
+    flags: "--track-id <id>",
+    description: "exact object track id match (implies --types object)"
+  },
+  minConfidence: {
+    flags: "--min-confidence <n>",
+    description: "minimum confidence (0..1)",
+    parse: parseFloat
+  },
+  limit: {
+    flags: "-n, --limit <count>",
+    description: "max results per label type (default: 20)",
+    parse: (v) => parseInt(v, 10)
+  }
+};
+async function listLabels(pb, opts) {
+  const types = opts.types ?? Object.values(LabelType);
+  const limit = opts.limit ?? 100;
+  const clauses = ["MediaRef = {:media}"];
+  const params = { media: opts.mediaId };
+  if (opts.window?.end !== void 0) {
+    clauses.push("start < {:wEnd}");
+    params.wEnd = opts.window.end;
+  }
+  if (opts.window?.start !== void 0) {
+    clauses.push("end > {:wStart}");
+    params.wStart = opts.window.start;
+  }
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const typeClauses = opts.entityId ? [...clauses, labelAttributionFilter(type, opts.entityId)] : clauses;
+      const filter = pb.filter(typeClauses.join(" && "), params);
+      const result = await labelMutator(pb, type).getList(
+        1,
+        limit,
+        filter,
+        "start",
+        attributionExpands(type)
+      );
+      return { type, result };
+    })
+  );
+  const hits = results.flatMap(
+    ({ type, result }) => result.items.map((record2) => toLabelHit(type, record2))
+  );
+  const totalItems = results.reduce(
+    (sum, { result }) => sum + result.totalItems,
+    0
+  );
+  return { hits, totalItems };
+}
+async function clipEditListFilter(pb, ref) {
+  if (ref.clip) {
+    const clip2 = await new MediaClipMutator(pb).getById(ref.clip);
+    if (!clip2) throw new Error(`Media clip not found: ${ref.clip}`);
+    const existing = getCompositeSegments(clip2);
+    const list = existing?.length ? existing : [{ start: clip2.start, end: clip2.end }];
+    return {
+      mediaId: clip2.MediaRef,
+      segments: windowCompositeSegments(list, clip2.start, clip2.end),
+      source: existing?.length ? "clipData" : "trim"
+    };
+  }
+  const clipId = ref.timelineClip;
+  if (!clipId) {
+    throw new Error("Pass a MediaClip id (--clip) or TimelineClip id.");
+  }
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) throw new Error(`Timeline clip not found: ${clipId}`);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 captions and nested timelines have no labels.`
+    );
+  }
+  const editList = await resolveTimelineEditList(pb, clip);
+  return {
+    mediaId: clip.MediaRef,
+    segments: windowCompositeSegments(editList.segments, clip.start, clip.end),
+    source: editList.source
+  };
+}
+async function getLabel(pb, type, labelId) {
+  return labelMutator(pb, type).getById(labelId, attributionExpands(type));
+}
+var clipMetaOptions = {
+  label: {
+    flags: "--label <text>",
+    description: "clip name shown in the editor (searchable)"
+  },
+  description: {
+    flags: "--description <text>",
+    description: "clip notes shown in the editor (searchable)"
+  }
+};
+async function createClipFromLabel(pb, opts) {
+  const labelRecord = await getLabel(pb, opts.type, opts.labelId);
+  if (!labelRecord) {
+    throw new Error(
+      `No ${opts.type} label with id ${opts.labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
+    );
+  }
+  const mutator = new MediaClipMutator(pb);
+  let clip = await mutator.createFromLabel(labelRecord, opts.type, "cli");
+  const patch = {};
+  if (opts.label !== void 0) patch.label = opts.label;
+  if (opts.description !== void 0) patch.description = opts.description;
+  if (Object.keys(patch).length > 0) {
+    clip = await mutator.update(clip.id, patch);
+  }
+  return { clip, label: labelRecord };
+}
+
 // src/lib/timeline-inspect.ts
 function toClipInfo(placed) {
   const clip = placed.clip;
@@ -65609,7 +66146,11 @@ function toClipInfo(placed) {
     timelineStart: placed.globalStart,
     timelineEnd: placed.globalEnd,
     labelHint: timelineClipLabelHint(clip),
-    kind: clip.CaptionRef ? "caption" : clip.SourceTimelineRef ? "timeline" : "media"
+    kind: clip.CaptionRef ? "caption" : clip.SourceTimelineRef ? "timeline" : "media",
+    times: timelineClipTimes(clip, {
+      timelineStart: placed.globalStart,
+      timelineEnd: placed.globalEnd
+    })
   };
 }
 function placedClipsOf(track) {
@@ -65624,6 +66165,11 @@ async function getTimelineOverview(pb, timelineId) {
   if (!timeline) {
     throw new Error(`Timeline not found: ${timelineId}`);
   }
+  await assertWorkspaceMatch(
+    pb,
+    timeline.WorkspaceRef,
+    `Timeline ${timelineId}`
+  );
   const clips = await new TimelineClipMutator(pb).getByTimeline(timelineId);
   const trackRecords = (await new TimelineTrackMutator(pb).getByTimeline(timelineId)).items;
   const byId = new Map(trackRecords.map((t2) => [t2.id, t2]));
@@ -65653,6 +66199,11 @@ async function inspectAtTime(pb, opts) {
   if (!timeline) {
     throw new Error(`Timeline not found: ${opts.timelineId}`);
   }
+  await assertWorkspaceMatch(
+    pb,
+    timeline.WorkspaceRef,
+    `Timeline ${opts.timelineId}`
+  );
   const clips = await new TimelineClipMutator(pb).getByTimeline(
     opts.timelineId
   );
@@ -65678,7 +66229,12 @@ async function inspectAtTime(pb, opts) {
       isLocked: record2?.isLocked ?? false,
       active: active ? {
         ...toClipInfo(active),
-        sourceTime: active.clip.start + (opts.at - active.globalStart),
+        // Mapped through the clip's windowed edit list — a composite
+        // reports the source time actually playing, never a gap time.
+        sourceTime: clipSourceTimeAtOffset(
+          active.clip,
+          opts.at - active.globalStart
+        ),
         remaining: active.globalEnd - opts.at
       } : null,
       nextStart: next ? next.globalStart : null
@@ -65688,6 +66244,81 @@ async function inspectAtTime(pb, opts) {
     at: opts.at,
     computedDuration: computeTimelineDuration(clips, trackRecords),
     tracks
+  };
+}
+async function mapClipTime(pb, clipId, input) {
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Timeline clip not found: ${clipId}`);
+  }
+  assertOnTimeline(clip, input.timelineId);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 time mapping applies to media-backed clips, not captions or nested timelines.`
+    );
+  }
+  const media = await new MediaMutator(pb).getById(clip.MediaRef);
+  if (!media) {
+    throw new Error(`Media not found for clip ${clipId}: ${clip.MediaRef}`);
+  }
+  const editList = await resolveTimelineEditList(pb, clip);
+  const segments = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  if (!entry) {
+    throw new Error(`Clip ${clipId} is not placed on its timeline's tracks.`);
+  }
+  const placement = {
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  };
+  const times = timelineClipTimes(clip, placement);
+  const effective = times.effective.duration;
+  let offset;
+  let clamped = false;
+  let inGap = false;
+  let gap;
+  if (input.domain === "source") {
+    offset = clipOffsetAtSourceTime(clip, input.value);
+    for (let i2 = 0; i2 < segments.length - 1; i2++) {
+      if (input.value > segments[i2].end && input.value < segments[i2 + 1].start) {
+        inGap = true;
+        gap = { start: segments[i2].end, end: segments[i2 + 1].start };
+        break;
+      }
+    }
+  } else {
+    const rawOffset = input.domain === "timeline" ? input.value - placement.timelineStart : input.value;
+    offset = Math.min(Math.max(0, rawOffset), effective);
+    clamped = Math.abs(offset - rawOffset) > TIMELINE_EPSILON;
+  }
+  const source = clipSourceTimeAtOffset(clip, offset);
+  if (input.domain === "source" && !inGap) {
+    clamped = Math.abs(source - input.value) > TIMELINE_EPSILON;
+  }
+  const segIndex = editList.source === "trim" ? -1 : segments.findIndex(
+    (s2) => source >= s2.start - TIMELINE_EPSILON && source <= s2.end + TIMELINE_EPSILON
+  );
+  return {
+    clipId,
+    timelineId: clip.TimelineRef,
+    layer: track.layer,
+    input,
+    point: {
+      timeline: roundToMs(placement.timelineStart + offset),
+      offset: roundToMs(offset),
+      source: roundToMs(source),
+      segment: segIndex >= 0 ? {
+        index: segIndex,
+        start: segments[segIndex].start,
+        end: segments[segIndex].end
+      } : null
+    },
+    inGap,
+    ...gap ? { gap } : {},
+    clamped,
+    composite: times.composite,
+    times
   };
 }
 function provenanceExpands() {
@@ -65700,7 +66331,8 @@ function provenanceExpands() {
     ];
   });
 }
-async function clipLabelDetail(pb, clip, limitPerType = 10) {
+async function clipLabelDetail(pb, clip, opts = {}) {
+  const limitPerType = opts.limitPerType ?? 10;
   const provenance = [];
   if (clip.MediaClipRef) {
     const links = await new MediaClipLabelMutator(pb).getByClip(
@@ -65725,16 +66357,49 @@ async function clipLabelDetail(pb, clip, limitPerType = 10) {
       });
     }
   }
-  let overlapping = [];
+  const overlapping = [];
+  let hiddenInCutGaps = 0;
   if (clip.MediaRef) {
     const { hits } = await listLabels(pb, {
       mediaId: clip.MediaRef,
       limit: limitPerType,
       window: { start: clip.start, end: clip.end }
     });
-    overlapping = hits;
+    const editList = await resolveTimelineEditList(pb, clip);
+    const windowed = [
+      ...windowCompositeSegments(editList.segments, clip.start, clip.end)
+    ].sort((a, b) => a.start - b.start);
+    const placedStart = opts.placement?.timelineStart;
+    for (const hit of hits) {
+      const record2 = hit.record;
+      const played = windowed.filter((s2) => record2.end > s2.start && record2.start < s2.end).map((s2) => {
+        const sourceStart = Math.max(record2.start, s2.start);
+        const sourceEnd = Math.min(record2.end, s2.end);
+        const clipStart = roundToMs(
+          compositeOffsetAtSourceTime(windowed, sourceStart)
+        );
+        const clipEnd = roundToMs(
+          compositeOffsetAtSourceTime(windowed, sourceEnd)
+        );
+        return {
+          sourceStart: roundToMs(sourceStart),
+          sourceEnd: roundToMs(sourceEnd),
+          clipStart,
+          clipEnd,
+          ...placedStart !== void 0 ? {
+            timelineStart: roundToMs(placedStart + clipStart),
+            timelineEnd: roundToMs(placedStart + clipEnd)
+          } : {}
+        };
+      });
+      if (played.length === 0) {
+        hiddenInCutGaps++;
+        continue;
+      }
+      overlapping.push({ ...hit, played });
+    }
   }
-  return { provenance, overlapping };
+  return { provenance, overlapping, hiddenInCutGaps };
 }
 
 // src/lib/export.ts
@@ -66098,7 +66763,15 @@ N }\`. All times are seconds.
   \`height\` describe the source.
 - **MediaClip** \u2014 a reusable, named sub-range of one media; \`start\`/\`end\`
   are positions in the source media. Created by hand
-  (\`vw media clip create\`) or from a label (\`vw label clip\`).
+  (\`vw media clip create\`) or from a label (\`vw label clip\`). A clip may
+  carry an **edit list** (\`clipData.segments\` here, \`meta.segments\` on
+  timeline clips): 2+ \`{start, end}\` source ranges that fine-tune the cut
+  (umms removed in place). Such a "composite" clip plays only its segments \u2014
+  its effective duration is their sum, not \`end - start\`, and text/labels
+  inside the gaps are NOT part of the cut. Read composites through
+  \`vw ... segments <id>\` (the list), \`vw ... transcript <id>\` (what the
+  cut says, gap words trimmed), and \`vw timeline clips map <id>\`
+  (source \u2194 timeline time translation) \u2014 never by their outer trim alone.
 - **Labels** \u2014 machine annotations of a media, one file per label under a
   per-type folder: \`speech\` (transcripts), \`speaker\` (diarized
   per-speaker utterances; each carries a \`speakerId\` and word timings),
@@ -66121,7 +66794,10 @@ N }\`. All times are seconds.
   ordered by \`layer\` (0 = bottom of the visual stack, at most 4). Each
   track's clips carry computed \`timelineStart\`/\`timelineEnd\` (position on
   the timeline) while \`clip.start\`/\`clip.end\` are the trim window in the
-  source media.
+  source media. Each placed clip also embeds a canonical \`times\` block
+  (\`timeline\`/\`source\`/\`effective\`/\`segments\`/\`composite\`) \u2014 when
+  \`composite\` is true, the source span is larger than what plays; use the
+  \`effective\` duration and the segment commands above.
 
 Timeline placement semantics: every clip sits at an explicit
 \`timelineStart\`. \`vw timeline insert\` appends to the end of the target
@@ -66139,6 +66815,13 @@ Ids in these files (folder names, \`id\` fields) plug directly into \`vw\`
 flags. Always pass explicit ids and \`-w ${workspace.id}\` \u2014 commands fall
 back to interactive pickers when an id is omitted, which blocks without a
 TTY. Add \`--json\` for machine-readable output.
+
+\`-w\` is accepted by **every** \`vw\` command and in any position
+(\`vw -w ${workspace.id} media list\` == \`vw media list -w ${workspace.id}\`),
+so it is safe to pass on every call: workspace-scoped commands act on it, and
+id-addressed commands validate it against the record instead of rejecting it.
+It applies to that one command only \u2014 \`vw workspace use\` is what changes the
+active workspace.
 
 \`\`\`bash
 # 1. Find moments and turn the good ones into MediaClips
@@ -66202,8 +66885,8 @@ var workspaceListSpec = {
   ],
   hint: "`vw workspace use <id>` switches the active workspace"
 };
-function registerWorkspaceCommands(program3) {
-  const ws = program3.command("workspace").alias("ws").description("Manage the active workspace");
+function registerWorkspaceCommands(program2) {
+  const ws = program2.command("workspace").alias("ws").description("Manage the active workspace");
   withListOptions(
     ws.command("list").alias("ls").description("List workspaces"),
     workspaceListSpec
@@ -66225,13 +66908,17 @@ function registerWorkspaceCommands(program3) {
       handleError(err);
     }
   });
-  ws.command("use [workspaceId]").description("Set the active workspace (interactive when no id is given)").action(async (workspaceId) => {
+  ws.command("use [workspaceId]").description(
+    "Set the active workspace for this machine \u2014 id, slug, or name (interactive when none is given; -w works as the positional here)"
+  ).action(async (workspaceId) => {
     try {
       const pb = await requireClient();
-      if (workspaceId) {
-        const found = await new WorkspaceMutator(pb).getById(workspaceId);
+      const ref = workspaceId ?? workspaceOverride();
+      if (ref) {
+        const id = await resolveWorkspaceRef(pb, ref);
+        const found = await new WorkspaceMutator(pb).getById(id);
         if (!found) {
-          handleError(new Error(`Workspace not found: ${workspaceId}`));
+          handleError(new Error(`Workspace not found: ${ref}`));
         }
         updateConfig({ workspaceId: found.id, workspaceName: found.name });
         success(`Active workspace: ${found.name} (${found.id})`);
@@ -66247,14 +66934,14 @@ function registerWorkspaceCommands(program3) {
   withJsonOption(
     ws.command("export [dir]").description(
       "Export the workspace (media, clips, labels, timelines) as a directory of JSON files for AI agents (default dir: ./vw-export)"
-    ).option("-w, --workspace <id>", "workspace id override").option("--no-labels", "skip per-media label data").option(
+    ).option("--no-labels", "skip per-media label data").option(
       "--force",
       "write into a non-empty directory that is not a previous export"
     )
   ).action(async (dir, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await exportWorkspace(
         pb,
         {
@@ -66537,9 +67224,9 @@ async function mediaByUploadIds(pb, uploadIds) {
   }
   return map2;
 }
-function resolveAppUrl(override) {
+function resolveAppUrl(override2) {
   const strip = (url2) => url2.replace(/\/+$/, "");
-  if (override) return strip(override);
+  if (override2) return strip(override2);
   const cfg = loadConfig();
   if (cfg.appUrl) return strip(cfg.appUrl);
   if (process.env.VW_APP_URL) return strip(process.env.VW_APP_URL);
@@ -66912,14 +67599,14 @@ async function uploadOne(pb, filePath, validated, ctx) {
   if (!quiet) success(`Uploaded ${name} \u2192 upload ${upload.id}`);
   return { file: filePath, upload };
 }
-function registerUploadCommands(program3) {
-  const upload = program3.command("upload").description(
+function registerUploadCommands(program2) {
+  const upload = program2.command("upload").description(
     "Upload media files: create new media, or replace the source of an existing one"
   );
   withJsonOption(
     upload.command("create <files...>", { isDefault: true }).description(
       "Upload local video/audio/image files into the active workspace as new media (default intent)"
-    ).option("-w, --workspace <id>", "workspace id override").option(
+    ).option(
       "--directory <dir>",
       'file the new media into a directory (name or id; omit or "/" = workspace root)'
     ).option(
@@ -66929,7 +67616,7 @@ function registerUploadCommands(program3) {
   ).action(async (files, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const directoryId = opts.directory && !isRootDirRef(opts.directory) ? (await resolveDirectory(pb, workspaceId, opts.directory)).id : void 0;
       const appUrl = resolveAppUrl(opts.appUrl);
       const validated = /* @__PURE__ */ new Map();
@@ -66990,10 +67677,7 @@ function registerUploadCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const ctx = {
-        pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
-      };
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
       await runList({
         spec: uploadListSpec,
         opts,
@@ -67536,6 +68220,7 @@ var mediaClipListSpec = {
       })
     })
   },
+  toRows: (clips) => clips.map((c) => ({ ...c, times: mediaClipTimes(c) })),
   columns: [
     { header: "ID", value: (c) => c.id },
     { header: "LABEL", value: (c) => c.label ?? "" },
@@ -67543,7 +68228,12 @@ var mediaClipListSpec = {
     { header: "TYPE", value: (c) => String(c.type) },
     { header: "START", value: (c) => `${c.start.toFixed(2)}s` },
     { header: "END", value: (c) => `${c.end.toFixed(2)}s` },
-    { header: "DURATION", value: (c) => formatDuration(c.duration) }
+    {
+      // Effective gap-skipping length; ` ◆N` marks an N-segment composite
+      // whose START–END span is larger than it plays.
+      header: "DURATION",
+      value: (c) => `${c.duration.toFixed(2)}s${compositeMarker(c.times)}`
+    }
   ],
   hint: "`vw media clip segments <id>` shows a composite clip\u2019s edit list"
 };
@@ -67638,10 +68328,7 @@ var mediaClipUpdateOptions = {
 };
 async function updateMediaClip(pb, clipId, opts) {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const patch = {
     ...opts.label !== void 0 ? { label: opts.label } : {},
     ...opts.description !== void 0 ? { description: opts.description } : {}
@@ -67699,10 +68386,7 @@ async function updateMediaClip(pb, clipId, opts) {
 }
 async function deleteMediaClip(pb, clipId) {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const refs = await new TimelineClipMutator(pb).getList(
     1,
     500,
@@ -67840,7 +68524,7 @@ function segmentGaps(segments) {
   }
   return gaps;
 }
-async function requireMedia(pb, clipId, mediaId) {
+async function requireMedia2(pb, clipId, mediaId) {
   const media = await new MediaMutator(pb).getById(mediaId);
   if (!media) {
     throw new Error(`Clip ${clipId} references missing media ${mediaId}.`);
@@ -67849,11 +68533,8 @@ async function requireMedia(pb, clipId, mediaId) {
 }
 async function editMediaClipSegments(pb, clipId, op, opts = {}) {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
-  const media = await requireMedia(pb, clipId, clip.MediaRef);
+  const clip = await requireMediaClip(pb, clipId);
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
   const bounds = mediaBounds(media);
   const existing = getCompositeSegments(clip);
   const before = normalizeSegments(
@@ -67925,7 +68606,7 @@ async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
       `Clip ${clipId} has no source media \u2014 segment edits apply to media-backed clips, not captions or nested timelines.`
     );
   }
-  const media = await requireMedia(pb, clipId, clip.MediaRef);
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
   const bounds = mediaBounds(media);
   const editList = await resolveTimelineEditList(pb, clip);
   const before = normalizeSegments(editList.segments, bounds);
@@ -68023,10 +68704,7 @@ async function editTimelineClipSegments(pb, clipId, op, opts = {}) {
 }
 async function clearMediaClipSegments(pb, clipId, opts = {}) {
   const mutator = new MediaClipMutator(pb);
-  const clip = await mutator.getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
+  const clip = await requireMediaClip(pb, clipId);
   const existing = getCompositeSegments(clip);
   const times = {
     start: clip.start,
@@ -68168,11 +68846,8 @@ async function clearTimelineClipSegments(pb, clipId, opts = {}) {
   };
 }
 async function inspectMediaClipSegments(pb, clipId) {
-  const clip = await new MediaClipMutator(pb).getById(clipId);
-  if (!clip) {
-    throw new Error(`Media clip not found: ${clipId}`);
-  }
-  const media = await requireMedia(pb, clipId, clip.MediaRef);
+  const clip = await requireMediaClip(pb, clipId);
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
   const existing = getCompositeSegments(clip);
   const segments = normalizeSegments(
     existing?.length ? existing : [{ start: clip.start, end: clip.end }],
@@ -68180,7 +68855,7 @@ async function inspectMediaClipSegments(pb, clipId) {
   );
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: mediaClipTimes(clip),
     source: existing?.length ? "clipData" : "trim",
     gaps: segmentGaps(segments),
     mediaId: media.id,
@@ -68198,16 +68873,25 @@ async function inspectTimelineClipSegments(pb, clipId, timelineId) {
       `Clip ${clipId} has no source media \u2014 segment edits apply to media-backed clips, not captions or nested timelines.`
     );
   }
-  const media = await requireMedia(pb, clipId, clip.MediaRef);
+  const media = await requireMedia2(pb, clipId, clip.MediaRef);
   const editList = await resolveTimelineEditList(pb, clip);
   const segments = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  const placement = entry ? {
+    layer: track.layer,
+    trackId: track.id,
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  } : void 0;
   return {
     segments,
-    times: deriveClipTimes(segments),
+    times: timelineClipTimes(clip, placement),
     source: editList.source,
     gaps: segmentGaps(segments),
     mediaId: media.id,
-    mediaDuration: media.duration
+    mediaDuration: media.duration,
+    ...placement ? { placement } : {}
   };
 }
 
@@ -68235,18 +68919,12 @@ async function withConflictRetry(run, opts) {
 }
 
 // src/commands/clip-segments.ts
-var secs3 = (v) => `${v.toFixed(2)}s`;
-var range = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 var signed3 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}s`;
-var workspaceOption = (cmd) => cmd.option(
-  "-w, --workspace <id>",
-  "workspace id (accepted for flag consistency; clips are addressed by id)"
-);
 var effectiveOf = (segments) => segments.reduce((total, s2) => total + Math.max(0, s2.end - s2.start), 0);
 function describeOp(op) {
   switch (op.kind) {
     case "split":
-      return `Split at ${op.at.map(secs3).join(", ")}:`;
+      return `Split at ${op.at.map(secs).join(", ")}:`;
     case "cut":
       return `Cut ${range(op.from, op.to)} from`;
     case "trim":
@@ -68263,7 +68941,7 @@ function reportEdit(clipId, op, result, opts) {
       noopMessage(result.warnings) ?? "Nothing to write \u2014 the edit list is unchanged."
     );
   } else {
-    const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed3(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs3(effectiveOf(result.before))} \u2192 ${secs3(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
+    const summary = `${describeOp(op)} clip ${clipId}` + (op.kind === "slip" ? ` by ${signed3(result.appliedBy ?? 0)}` : "") + ` \u2014 effective ${secs(effectiveOf(result.before))} \u2192 ${secs(result.times.duration)} (${result.after.length} segment${result.after.length === 1 ? "" : "s"})`;
     if (result.dryRun) {
       info(`Dry run \u2014 nothing written. Would have: ${summary}`);
     } else {
@@ -68286,7 +68964,7 @@ function reportEdit(clipId, op, result, opts) {
     if ("rippled" in result) {
       for (const shift of result.rippled) {
         info(
-          `  rippled: ${shift.clipId} ${secs3(shift.from)} \u2192 ${secs3(shift.to)}`
+          `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
         );
       }
     }
@@ -68301,7 +68979,7 @@ function reportClear(clipId, result, opts) {
     info(noopMessage(result.warnings) ?? "Nothing to clear \u2014 no edit list.");
   } else {
     const removed = result.removed ?? [];
-    const summary = `Cleared the edit list of clip ${clipId} (${removed.length} segment${removed.length === 1 ? "" : "s"} removed) \u2014 effective ${secs3(effectiveOf(removed))} \u2192 ${secs3(result.times.duration)}`;
+    const summary = `Cleared the edit list of clip ${clipId} (${removed.length} segment${removed.length === 1 ? "" : "s"} removed) \u2014 effective ${secs(effectiveOf(removed))} \u2192 ${secs(result.times.duration)}`;
     if (result.dryRun) {
       info(`Dry run \u2014 nothing written. Would have: ${summary}`);
     } else {
@@ -68315,7 +68993,7 @@ function reportClear(clipId, result, opts) {
     if ("rippled" in result) {
       for (const shift of result.rippled) {
         info(
-          `  rippled: ${shift.clipId} ${secs3(shift.from)} \u2192 ${secs3(shift.to)}`
+          `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
         );
       }
     }
@@ -68330,10 +69008,15 @@ function reportInspection(clipId, inspection, json2) {
   }
   const sourceHint = inspection.source === "trim" ? "trim window \u2014 no edit list yet; an edit leaving 2+ segments creates one" : inspection.source;
   info(
-    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs3(inspection.times.duration)}, span ${range(inspection.times.start, inspection.times.end)}`
+    `Clip ${clipId} \u2014 ${inspection.segments.length} segment(s), effective ${secs(inspection.times.effective.duration)}, span ${range(inspection.times.source.start, inspection.times.source.end)}`
   );
+  if (inspection.placement) {
+    info(
+      `  timeline: ${range(inspection.placement.timelineStart, inspection.placement.timelineEnd)} (track layer ${inspection.placement.layer})`
+    );
+  }
   info(
-    `  media ${inspection.mediaId} (${secs3(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
+    `  media ${inspection.mediaId} (${secs(inspection.mediaDuration)}) \u2014 edit list source: ${sourceHint}`
   );
   const gapAfter = new Map(
     inspection.gaps.map((g) => [g.afterIndex, g.seconds])
@@ -68342,14 +69025,14 @@ function reportInspection(clipId, inspection, json2) {
     inspection.segments.map((seg, index) => ({ seg, index })),
     [
       { header: "IDX", value: (r2) => String(r2.index) },
-      { header: "START", value: (r2) => secs3(r2.seg.start) },
-      { header: "END", value: (r2) => secs3(r2.seg.end) },
-      { header: "DUR", value: (r2) => secs3(r2.seg.end - r2.seg.start) },
+      { header: "START", value: (r2) => secs(r2.seg.start) },
+      { header: "END", value: (r2) => secs(r2.seg.end) },
+      { header: "DUR", value: (r2) => secs(r2.seg.end - r2.seg.start) },
       {
         header: "GAP-AFTER",
         value: (r2) => {
           const gap = gapAfter.get(r2.index);
-          return gap !== void 0 ? secs3(gap) : "";
+          return gap !== void 0 ? secs(gap) : "";
         }
       }
     ]
@@ -68359,15 +69042,7 @@ function segmentEditCommand(parent, name, description) {
   return withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          parent.command(`${name} <clipId>`).description(description).option(
-            "--dry-run",
-            "print the resulting edit list without writing"
-          ).addHelpText(
-            "after",
-            editResultHelp({ noop: true, conflict: true })
-          )
-        )
+        parent.command(`${name} <clipId>`).description(description).option("--dry-run", "print the resulting edit list without writing").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
       )
     )
   );
@@ -68480,17 +69155,12 @@ function registerMediaClipSegmentCommands(clip) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          clip.command("segments <clipId>").description(
-            "Show a media clip's edit list (segments and gaps), or remove it with --clear"
-          ).option(
-            "--clear",
-            "remove the edit list \u2014 the clip reverts to its plain start/end trim (the explicit un-composite)"
-          ).option(
-            "--dry-run",
-            "with --clear: print the result without writing"
-          )
-        )
+        clip.command("segments <clipId>").description(
+          "Show a media clip's edit list (segments and gaps), or remove it with --clear"
+        ).option(
+          "--clear",
+          "remove the edit list \u2014 the clip reverts to its plain start/end trim (the explicit un-composite)"
+        ).option("--dry-run", "with --clear: print the result without writing")
       )
     )
   ).action(async (clipId, opts) => {
@@ -68641,20 +69311,18 @@ function registerTimelineClipSegmentCommands(clips) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption(
-          timelineOption(
-            clips.command("segments <clipId>").description(
-              "Show a timeline clip's edit list (segments, gaps, source), or remove its override with --clear"
-            ).option(
-              "--clear",
-              "remove the meta.segments override \u2014 playback reverts to the source MediaClip's edit list (if any) or the plain trim"
-            ).option(
-              "--ripple",
-              "with --clear: shift later clips by the duration change"
-            ).option(
-              "--dry-run",
-              "with --clear: print the result without writing"
-            )
+        timelineOption(
+          clips.command("segments <clipId>").description(
+            "Show a timeline clip's edit list (segments, gaps, source), or remove its override with --clear"
+          ).option(
+            "--clear",
+            "remove the meta.segments override \u2014 playback reverts to the source MediaClip's edit list (if any) or the plain trim"
+          ).option(
+            "--ripple",
+            "with --clear: shift later clips by the duration change"
+          ).option(
+            "--dry-run",
+            "with --clear: print the result without writing"
           )
         )
       )
@@ -68688,21 +69356,314 @@ function registerTimelineClipSegmentCommands(clips) {
   });
 }
 
+// src/lib/clip-transcript.ts
+function segmentGapsOf(segments) {
+  const gaps = [];
+  for (let i2 = 0; i2 < segments.length - 1; i2++) {
+    const gap = roundToMs(segments[i2 + 1].start - segments[i2].end);
+    if (gap > 0) gaps.push({ afterIndex: i2, seconds: gap });
+  }
+  return gaps;
+}
+async function fetchUtterances(pb, type, mediaId, window2) {
+  const mutator = labelMutator(pb, type);
+  const filter = pb.filter(
+    "MediaRef = {:media} && start < {:wEnd} && end > {:wStart}",
+    { media: mediaId, wEnd: window2.end, wStart: window2.start }
+  );
+  const rows = [];
+  let page = 1;
+  for (; ; ) {
+    const result = await mutator.getList(
+      page,
+      200,
+      filter,
+      "start",
+      attributionExpands(type)
+    );
+    rows.push(...result.items);
+    if (page >= result.totalPages || result.items.length === 0) break;
+    page++;
+  }
+  return rows;
+}
+function speakerOf(record2, labelType) {
+  const fields = record2;
+  const entity = attributedEntitySummaryOf(record2) ?? void 0;
+  if (labelType === "speaker") {
+    const speakerId = typeof fields.speakerId === "string" ? fields.speakerId : void 0;
+    if (!speakerId) return void 0;
+    return {
+      speakerId,
+      label: speakerTranscriptLabel(speakerId, entity?.name),
+      ...entity ? { entity } : {}
+    };
+  }
+  if (entity) return { label: entity.name, entity };
+  const speakerTag = fields.speakerTag;
+  if (typeof speakerTag === "number") {
+    return { label: `Speaker tag ${speakerTag}` };
+  }
+  return void 0;
+}
+async function transcriptFor(pb, ctx, opts) {
+  const window2 = {
+    start: Math.min(...ctx.windowed.map((s2) => s2.start)),
+    end: Math.max(...ctx.windowed.map((s2) => s2.end))
+  };
+  let labelType;
+  let rows;
+  if (opts.type) {
+    rows = await fetchUtterances(
+      pb,
+      opts.type === "speaker" ? LabelType.SPEAKER : LabelType.SPEECH,
+      ctx.mediaId,
+      window2
+    );
+    labelType = rows.length > 0 ? opts.type : null;
+  } else {
+    rows = await fetchUtterances(pb, LabelType.SPEAKER, ctx.mediaId, window2);
+    labelType = "speaker";
+    if (rows.length === 0) {
+      rows = await fetchUtterances(pb, LabelType.SPEECH, ctx.mediaId, window2);
+      labelType = rows.length > 0 ? "speech" : null;
+    }
+  }
+  const transcript = buildClipTranscript(
+    rows,
+    ctx.windowed
+  );
+  const byId = new Map(rows.map((r2) => [r2.id, r2]));
+  const placedStart = ctx.placement?.timelineStart;
+  const utterances = transcript.utterances.map(
+    (u) => {
+      const record2 = byId.get(u.id);
+      const speaker = record2 && labelType ? speakerOf(record2, labelType) : void 0;
+      return {
+        ...u,
+        parts: u.parts.map((part) => ({
+          ...opts.words ? part : { ...part, words: void 0 },
+          ...placedStart !== void 0 ? {
+            timelineStart: roundToMs(placedStart + part.clipStart),
+            timelineEnd: roundToMs(placedStart + part.clipEnd)
+          } : {}
+        })),
+        ...speaker ? { speaker } : {},
+        ...placedStart !== void 0 ? {
+          timelineStart: roundToMs(placedStart + u.clipStart),
+          timelineEnd: roundToMs(placedStart + u.clipEnd)
+        } : {}
+      };
+    }
+  );
+  const text = utterances.map((u) => u.speaker ? `${u.speaker.label}: ${u.text}` : u.text).join("\n");
+  return {
+    clipId: ctx.clipId,
+    domain: ctx.domain,
+    mediaId: ctx.mediaId,
+    labelType,
+    labelTypeSelected: opts.type ? "forced" : "auto",
+    editListSource: ctx.editListSource,
+    segments: ctx.windowed,
+    gaps: segmentGapsOf(ctx.windowed),
+    times: ctx.times,
+    ...ctx.placement ? { placement: ctx.placement } : {},
+    utterances,
+    totals: transcript.totals,
+    text
+  };
+}
+async function requireMedia3(pb, clipId, mediaId) {
+  const media = await new MediaMutator(pb).getById(mediaId);
+  if (!media) {
+    throw new Error(`Media not found for clip ${clipId}: ${mediaId}`);
+  }
+  return media;
+}
+async function mediaClipTranscript(pb, clipId, opts = {}) {
+  const clip = await requireMediaClip(pb, clipId);
+  const media = await requireMedia3(pb, clipId, clip.MediaRef);
+  const existing = getCompositeSegments(clip);
+  const normalized = normalizeSegments(
+    existing?.length ? existing : [{ start: clip.start, end: clip.end }],
+    mediaBounds(media)
+  );
+  return transcriptFor(
+    pb,
+    {
+      clipId,
+      domain: "mediaClip",
+      mediaId: media.id,
+      editListSource: existing?.length ? "clipData" : "trim",
+      windowed: windowCompositeSegments(normalized, clip.start, clip.end),
+      times: mediaClipTimes(clip)
+    },
+    opts
+  );
+}
+async function timelineClipTranscript(pb, clipId, opts = {}) {
+  const clip = await new TimelineClipMutator(pb).getById(clipId);
+  if (!clip) {
+    throw new Error(`Timeline clip not found: ${clipId}`);
+  }
+  assertOnTimeline(clip, opts.timelineId);
+  if (!clip.MediaRef) {
+    throw new Error(
+      `Clip ${clipId} has no source media \u2014 transcripts apply to media-backed clips, not captions or nested timelines.`
+    );
+  }
+  const media = await requireMedia3(pb, clipId, clip.MediaRef);
+  const editList = await resolveTimelineEditList(pb, clip);
+  const normalized = normalizeSegments(editList.segments, mediaBounds(media));
+  const { track, entries } = await resolveClipLane(pb, clip);
+  const entry = entries.find((e2) => e2.clip.id === clipId);
+  const placement = entry ? {
+    timelineId: clip.TimelineRef,
+    layer: track.layer,
+    timelineStart: entry.range.start,
+    timelineEnd: entry.range.end
+  } : void 0;
+  return transcriptFor(
+    pb,
+    {
+      clipId,
+      domain: "timelineClip",
+      mediaId: media.id,
+      editListSource: editList.source,
+      windowed: windowCompositeSegments(normalized, clip.start, clip.end),
+      times: timelineClipTimes(clip, placement),
+      ...placement ? { placement } : {}
+    },
+    opts
+  );
+}
+
+// src/commands/clip-transcript.ts
+function parseTranscriptType(value) {
+  if (value !== "speaker" && value !== "speech") {
+    throw new Error(`Invalid --type "${value}" \u2014 use speaker or speech.`);
+  }
+  return value;
+}
+function transcriptCommand(parent) {
+  return withJsonOption(
+    parent.command("transcript <clipId>").description(
+      "What the clip actually says: transcript trimmed to the clip's edit list at word level (cut gaps omitted)"
+    ).option(
+      "--type <speaker|speech>",
+      "force the label source (default: speaker labels, falling back to speech)",
+      parseTranscriptType
+    ).option(
+      "--full-text",
+      "print only the flowing speaker-labeled text (audit mode)"
+    ).option("--words", "include per-word timing arrays in --json output")
+  );
+}
+function partPrefix(part, clipStart, clipEnd, timelineStart, timelineEnd) {
+  const pieces = [
+    `src ${range(part.sourceStart, part.sourceEnd)}`,
+    `clip ${range(clipStart, clipEnd)}`,
+    ...timelineStart !== void 0 && timelineEnd !== void 0 ? [`tl ${range(timelineStart, timelineEnd)}`] : []
+  ];
+  return `[${pieces.join(" | ")}]`;
+}
+function reportTranscript(result, opts) {
+  if (opts.json) {
+    printRecord(result, [], true);
+    return;
+  }
+  const estimated = result.utterances.filter((u) => u.estimatedTimings).length;
+  if (estimated > 0) {
+    warn(
+      `word timings estimated for ${estimated} utterance(s) \u2014 cut filtering is approximate`
+    );
+  }
+  if (opts.fullText) {
+    if (result.text) info(result.text);
+    else info("(no transcript content overlaps this clip)");
+    return;
+  }
+  const sourceLabel = result.labelType ? `${result.labelType} labels` : "no labels";
+  info(
+    `Clip ${result.clipId} \u2014 transcript from ${sourceLabel} (${result.segments.length} segment(s), effective ${secs(result.times.effective.duration)}, span ${range(result.times.source.start, result.times.source.end)} of media ${result.mediaId})`
+  );
+  if (result.placement) {
+    info(
+      `  timeline: ${range(result.placement.timelineStart, result.placement.timelineEnd)} (track layer ${result.placement.layer}) \u2014 edit list source: ${result.editListSource}`
+    );
+  } else {
+    info(`  edit list source: ${result.editListSource}`);
+  }
+  if (result.labelType === null) {
+    info(
+      `  no speaker/speech labels overlap this clip's played content \u2014 queue detection with \`vw job label -m ${result.mediaId} -t speaker,speech\``
+    );
+    return;
+  }
+  if (result.utterances.length === 0) {
+    info("  (every overlapping utterance falls inside cut gaps)");
+  }
+  const flat = result.utterances.flatMap((u) => u.parts.map((part) => ({ u, part }))).sort((a, b) => a.part.clipStart - b.part.clipStart);
+  let prevSegment;
+  for (const { u, part } of flat) {
+    if (prevSegment !== void 0 && part.segmentIndex > prevSegment) {
+      const removed = result.gaps.filter(
+        (g) => g.afterIndex >= prevSegment && g.afterIndex < part.segmentIndex
+      ).reduce((sum, g) => sum + g.seconds, 0);
+      if (removed > 0) {
+        info(`  \u2500\u2500 cut: ${secs(removed)} of source removed \u2500\u2500`);
+      }
+    }
+    prevSegment = Math.max(prevSegment ?? part.segmentIndex, part.segmentIndex);
+    const speaker = u.speaker ? `${u.speaker.label}: ` : "";
+    info(
+      `  ${partPrefix(part, part.clipStart, part.clipEnd, part.timelineStart, part.timelineEnd)} ${speaker}${part.text}`
+    );
+  }
+  const { droppedUtterances, omittedWords } = result.totals;
+  if (droppedUtterances > 0 || omittedWords > 0) {
+    const hidden = droppedUtterances > 0 ? `${droppedUtterances} utterance(s) hidden entirely by cuts; ` : "";
+    info(
+      `  (${hidden}${omittedWords} word(s) omitted \u2014 \`segments\` shows the gaps)`
+    );
+  }
+}
+async function runTranscript(clipId, opts, domain2) {
+  const pb = await requireClient();
+  const shared = { type: opts.type, words: opts.words };
+  const result = domain2 === "media" ? await mediaClipTranscript(pb, clipId, shared) : await timelineClipTranscript(pb, clipId, {
+    ...shared,
+    timelineId: opts.timeline
+  });
+  reportTranscript(result, opts);
+}
+function registerMediaClipTranscriptCommand(clip) {
+  transcriptCommand(clip).action(async (clipId, opts) => {
+    try {
+      await runTranscript(clipId, opts, "media");
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+function registerTimelineClipTranscriptCommand(clips) {
+  transcriptCommand(clips).option("-t, --timeline <id>", "timeline id (validated when passed)").action(async (clipId, opts) => {
+    try {
+      await runTranscript(clipId, opts, "timeline");
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+
 // src/commands/media.ts
 var tagColumns = [
   { header: "ENTITY", value: (t2) => t2.expand?.EntityRef?.name ?? t2.EntityRef },
   { header: "KIND", value: (t2) => String(t2.expand?.EntityRef?.kind ?? "?") },
   { header: "ENTITY ID", value: (t2) => t2.EntityRef }
 ];
-async function requireMedia2(pb, mediaId) {
-  const media = await new MediaMutator(pb).getById(mediaId);
-  if (!media) {
-    throw new Error(`Media not found: ${mediaId}`);
-  }
-  return media;
-}
-function registerMediaCommands(program3) {
-  const media = program3.command("media").description("Browse workspace media");
+function registerMediaCommands(program2) {
+  const media = program2.command("media").description("Browse workspace media");
   withListOptions(
     media.command("list").alias("ls").description(
       "List media in the active workspace (narrow with --search/--type/-d)"
@@ -68713,7 +69674,7 @@ function registerMediaCommands(program3) {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
+        workspaceId: await resolveWorkspaceId(pb)
       };
       await runList({
         spec: mediaListSpec,
@@ -68733,13 +69694,13 @@ function registerMediaCommands(program3) {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
+        workspaceId: await resolveWorkspaceId(pb)
       };
       await runList({
         spec: { ...mediaListSpec, command: "media search" },
         opts: { ...opts, search: opts.search ?? query },
         ctx,
-        fetchPage: (resolved) => fetchMediaPage(pb, resolved)
+        fetchPage: (resolved2) => fetchMediaPage(pb, resolved2)
       });
     } catch (err) {
       handleError(err);
@@ -68772,7 +69733,7 @@ function registerMediaCommands(program3) {
   withJsonOption(mediaShow).action(async (mediaId, opts) => {
     try {
       const pb = await requireClient();
-      const found = await requireMedia2(pb, mediaId);
+      const found = await requireMedia(pb, mediaId);
       const tags = await new MediaTagMutator(pb).getByMedia(
         found.id,
         1,
@@ -68812,7 +69773,7 @@ function registerMediaCommands(program3) {
     async (mediaId, entityNameOrId, opts) => {
       try {
         const pb = await requireClient();
-        const found = await requireMedia2(pb, mediaId);
+        const found = await requireMedia(pb, mediaId);
         const entity = await resolveEntity(
           pb,
           found.WorkspaceRef,
@@ -68840,7 +69801,7 @@ function registerMediaCommands(program3) {
     async (mediaId, entityNameOrId, opts) => {
       try {
         const pb = await requireClient();
-        const found = await requireMedia2(pb, mediaId);
+        const found = await requireMedia(pb, mediaId);
         const entity = await resolveEntity(
           pb,
           found.WorkspaceRef,
@@ -68871,11 +69832,11 @@ function registerMediaCommands(program3) {
   const clip = media.command("clip").description(
     "Create and browse media clips (reusable sub-ranges of media) \u2014 clips have no directory of their own; they follow their parent media"
   );
-  const clipCreate = clip.command("create").description("Create a media clip from a media sub-range").option("-w, --workspace <id>", "workspace id override").option("-m, --media <id>", "source media id");
+  const clipCreate = clip.command("create").description("Create a media clip from a media sub-range").option("-m, --media <id>", "source media id");
   applyOptions(clipCreate, clipFieldOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       let mediaId = opts.media;
       if (!mediaId) {
         mediaId = (await pickMedia(pb, workspaceId)).id;
@@ -68906,7 +69867,7 @@ function registerMediaCommands(program3) {
       }
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
+        workspaceId: await resolveWorkspaceId(pb)
       };
       await runList({
         spec: mediaClipListSpec,
@@ -68962,11 +69923,12 @@ function registerMediaCommands(program3) {
     }
   });
   registerMediaClipSegmentCommands(clip);
+  registerMediaClipTranscriptCommand(clip);
 }
 
 // src/commands/directory.ts
-function registerDirectoryCommands(program3) {
-  const directory = program3.command("directory").alias("dir").description(
+function registerDirectoryCommands(program2) {
+  const directory = program2.command("directory").alias("dir").description(
     'Optional, flat media folders (e.g. per shoot or location) \u2014 purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media\u2019s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
   );
   withListOptions(
@@ -68977,7 +69939,7 @@ function registerDirectoryCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       await runList({
         spec: directoryListSpec,
         opts,
@@ -68995,11 +69957,11 @@ function registerDirectoryCommands(program3) {
     }
   });
   withJsonOption(
-    directory.command("show <dir>").description("Show one directory (name or id) and the media filed in it").option("-w, --workspace <id>", "workspace id override")
+    directory.command("show <dir>").description("Show one directory (name or id) and the media filed in it")
   ).action(async (ref, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const dir = resolveDirectoryIn(
         (await listDirectories(pb, workspaceId)).items,
         ref
@@ -69026,11 +69988,11 @@ function registerDirectoryCommands(program3) {
   withJsonOption(
     directory.command("create <name>").description(
       "Create a directory \u2014 flat, unique per workspace; names allow letters, digits, dashes, and underscores (idempotent)"
-    ).option("-w, --workspace <id>", "workspace id override")
+    )
   ).action(async (name, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await createDirectory(pb, workspaceId, name);
       if (opts.json) {
         printRecord({ ...result.directory, existed: result.existed }, [], true);
@@ -69055,11 +70017,11 @@ function registerDirectoryCommands(program3) {
   withJsonOption(
     directory.command("rename <dir> <newName>").description(
       "Rename a directory (name or id; new name must be path-safe and unique)"
-    ).option("-w, --workspace <id>", "workspace id override")
+    )
   ).action(async (ref, newName, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await renameDirectory(pb, workspaceId, ref, newName);
       if (opts.json) {
         printRecord(result.directory, [], true);
@@ -69075,11 +70037,11 @@ function registerDirectoryCommands(program3) {
   withJsonOption(
     directory.command("move <dir> <mediaIds...>").alias("mv").description(
       'Move media into a directory (name or id) \u2014 "/" or "none" re-files them at the workspace root'
-    ).option("-w, --workspace <id>", "workspace id override")
+    )
   ).action(async (ref, mediaIds, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await moveMedia(pb, workspaceId, ref, mediaIds);
       if (opts.json) {
         printRecord(result, [], true);
@@ -69094,14 +70056,14 @@ function registerDirectoryCommands(program3) {
   withJsonOption(
     directory.command("delete <dir>").alias("rm").description(
       "Delete a directory (name or id). Refuses while media is filed in it; --force unfiles the media first \u2014 media are never deleted"
-    ).option("-w, --workspace <id>", "workspace id override").option(
+    ).option(
       "-f, --force",
       "unfile any contained media back to the workspace root, then delete"
     )
   ).action(async (ref, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const result = await deleteDirectory(pb, workspaceId, ref, {
         force: opts.force
       });
@@ -69127,8 +70089,8 @@ function registerDirectoryCommands(program3) {
 function tagScopeLine(result) {
   return result.via === "track" ? `via its track (trackId ${result.targetName}) \u2014 identifies this instance across the whole media` : `via its provider cluster "${result.targetName}" \u2014 applies to every label in the cluster, workspace-wide`;
 }
-function registerLabelCommands(program3) {
-  const label = program3.command("label").description(
+function registerLabelCommands(program2) {
+  const label = program2.command("label").description(
     "Search and browse media labels (speech, objects, faces, \u2026) and create clips from them"
   );
   withListOptions(
@@ -69140,7 +70102,7 @@ function registerLabelCommands(program3) {
   ).action(async (query, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const merged = { ...opts, search: opts.search ?? query };
       const entityId = merged.entity ? (await resolveEntity(pb, workspaceId, merged.entity)).id : void 0;
       const types = resolveLabelTypes(merged);
@@ -69150,12 +70112,12 @@ function registerLabelCommands(program3) {
         ctx: { pb, workspaceId },
         // The resolved sort drives both the per-source server sort and this
         // comparator, so they cannot drift apart.
-        compare: (resolved) => labelHitCompare(resolved.sort),
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
         narrowWith: "-t <type>, -m <mediaId>",
-        sources: (resolved) => labelMergeSources(pb, {
+        sources: (resolved2) => labelMergeSources(pb, {
           types,
-          baseFilter: resolved.filter,
-          sort: resolved.sort,
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
           perType: labelPerTypeClauses(pb, { ...merged, entityId }),
           expand: ["MediaRef.UploadRef"]
         })
@@ -69171,22 +70133,61 @@ function registerLabelCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
-      const entityId = opts.entity ? (await resolveEntity(pb, workspaceId, opts.entity)).id : void 0;
-      const types = resolveLabelTypes(opts);
+      if (opts.clip && opts.timelineClip) {
+        throw new Error("Pass --clip or --timeline-clip, not both.");
+      }
+      const clipScoped = Boolean(opts.clip || opts.timelineClip);
+      if (clipScoped && (opts.from !== void 0 || opts.to !== void 0)) {
+        throw new Error(
+          "--from/--to cannot be combined with --clip/--timeline-clip \u2014 the clip supplies its own window."
+        );
+      }
+      let editList;
+      const scope = {};
+      if (clipScoped) {
+        editList = await clipEditListFilter(pb, {
+          clip: opts.clip,
+          timelineClip: opts.timelineClip
+        });
+        if (opts.media && opts.media !== editList.mediaId) {
+          throw new Error(
+            `Clip ${opts.clip ?? opts.timelineClip} belongs to media ${editList.mediaId}, not ${opts.media} \u2014 drop -m.`
+          );
+        }
+        scope.media = editList.mediaId;
+        scope.from = Math.min(...editList.segments.map((s2) => s2.start));
+        scope.to = Math.max(...editList.segments.map((s2) => s2.end));
+      }
+      const merged = { ...opts, ...scope };
+      const workspaceId = await resolveWorkspaceId(pb);
+      const entityId = merged.entity ? (await resolveEntity(pb, workspaceId, merged.entity)).id : void 0;
+      const types = resolveLabelTypes(merged);
+      const segments = editList?.segments;
       await runMergedList({
         spec: labelListSpec,
-        opts,
+        opts: merged,
         ctx: { pb, workspaceId },
         // The resolved sort drives both the per-source server sort and this
         // comparator, so they cannot drift apart.
-        compare: (resolved) => labelHitCompare(resolved.sort),
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
         narrowWith: "-t <type>",
-        sources: (resolved) => labelMergeSources(pb, {
+        // Edit-list scope means "what plays": the server window is the outer
+        // span, so labels landing entirely in a cut gap can only go here.
+        refine: segments && {
+          filter: (hits) => hits.filter(
+            (h) => overlapsSegments(h.record.start, h.record.end, segments)
+          ),
+          extras: (hidden) => ({
+            editList: { segments, source: editList.source },
+            hiddenInCutGaps: hidden
+          }),
+          note: (hidden) => `(edit-list filtered: ${hidden} label(s) inside cut gaps hidden)`
+        },
+        sources: (resolved2) => labelMergeSources(pb, {
           types,
-          baseFilter: resolved.filter,
-          sort: resolved.sort,
-          perType: labelPerTypeClauses(pb, { ...opts, entityId })
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
+          perType: labelPerTypeClauses(pb, { ...merged, entityId })
         })
       });
     } catch (err) {
@@ -69239,12 +70240,12 @@ function registerLabelCommands(program3) {
   );
   const tag = label.command("tag <type> <labelId> <entityNameOrId>").description(
     "Attribute a label to a real-world entity \u2014 writes the label's track when it has one (this instance across the media), else its provider cluster (workspace-wide)"
-  ).option("-w, --workspace <id>", "workspace id override");
+  );
   withJsonOption(tag).action(
     async (typeArg, labelId, entityNameOrId, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const type = parseLabelType(typeArg);
         const entity = await resolveEntity(pb, workspaceId, entityNameOrId);
         const result = await tagLabel(pb, type, labelId, entity.id);
@@ -69327,11 +70328,11 @@ var taggedMediaColumns = [
   { header: "TYPE", value: (t2) => t2.mediaType },
   { header: "DURATION", value: (t2) => formatDuration(t2.duration) }
 ];
-function registerEntityCommands(program3) {
-  const entity = program3.command("entity").description(
+function registerEntityCommands(program2) {
+  const entity = program2.command("entity").description(
     "Real-world entities (people, products, places, things) \u2014 create them, link label tracks/clusters, and query appearances and spoken words across media"
   );
-  const create = entity.command("create <name>").description("Create an entity in the workspace").option("-w, --workspace <id>", "workspace id override").option(
+  const create = entity.command("create <name>").description("Create an entity in the workspace").option(
     "-k, --kind <kind>",
     `entity kind (${Object.values(EntityKind).join(", ")}; default: person)`,
     parseEntityKind
@@ -69343,7 +70344,7 @@ function registerEntityCommands(program3) {
   withJsonOption(create).action(async (name, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const created = await new EntityMutator(pb).create({
         WorkspaceRef: workspaceId,
         name,
@@ -69372,7 +70373,7 @@ function registerEntityCommands(program3) {
       const pb = await requireClient();
       const ctx = {
         pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
+        workspaceId: await resolveWorkspaceId(pb)
       };
       await runList({
         spec: entityListSpec,
@@ -69380,7 +70381,7 @@ function registerEntityCommands(program3) {
         // with --kind and page identically.
         opts: { ...opts, search: opts.search ?? query },
         ctx,
-        fetchPage: (resolved) => fetchEntityPage(pb, resolved)
+        fetchPage: (resolved2) => fetchEntityPage(pb, resolved2)
       });
     } catch (err) {
       handleError(err);
@@ -69388,11 +70389,11 @@ function registerEntityCommands(program3) {
   });
   const show = entity.command("show <nameOrId>").description(
     "Show one entity with its linked tracks, appearances, and tagged media"
-  ).option("-w, --workspace <id>", "workspace id override");
+  );
   withJsonOption(show).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const { appearances, totalItems } = await getEntityAppearances(
         pb,
@@ -69441,12 +70442,12 @@ function registerEntityCommands(program3) {
   });
   const link = entity.command("link <nameOrId>").description(
     "Attribute label tracks or provider clusters to an entity (repeatable across media, or within one media when the provider id changes)"
-  ).option("-w, --workspace <id>", "workspace id override");
+  );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const targets = await resolveLinkTargets(
         pb,
@@ -69464,7 +70465,7 @@ function registerEntityCommands(program3) {
       handleError(err);
     }
   });
-  const unlink = entity.command("unlink").description("Clear the entity link on label tracks or provider clusters").option("-w, --workspace <id>", "workspace id override");
+  const unlink = entity.command("unlink").description("Clear the entity link on label tracks or provider clusters");
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -69484,12 +70485,12 @@ function registerEntityCommands(program3) {
   withListOptions(
     entity.command("words <nameOrId>").description(
       "Everything the entity said across media (diarized speaker labels)"
-    ).option("-w, --workspace <id>", "workspace id override").option("--text", "print a plain transcript instead of a table"),
+    ).option("--text", "print a plain transcript instead of a table"),
     entityWordsSpec
   ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       if (opts.text) {
         const utterances = await fetchAll(
@@ -69516,25 +70517,25 @@ function registerEntityCommands(program3) {
   withListOptions(
     entity.command("labels <nameOrId>").description(
       "Every label attributed to the entity across media, all label types (tagged tracks and clusters)"
-    ).option("-w, --workspace <id>", "workspace id override"),
+    ),
     entityLabelsSpec,
     { merged: true }
   ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       const types = resolveLabelTypes(opts);
       await runMergedList({
         spec: entityLabelsSpec,
         opts,
         ctx: { pb, workspaceId },
-        compare: (resolved) => labelHitCompare(resolved.sort),
+        compare: (resolved2) => labelHitCompare(resolved2.sort),
         narrowWith: "-t <type>, -m <mediaId>",
-        sources: (resolved) => labelMergeSources(pb, {
+        sources: (resolved2) => labelMergeSources(pb, {
           types,
-          baseFilter: resolved.filter,
-          sort: resolved.sort,
+          baseFilter: resolved2.filter,
+          sort: resolved2.sort,
           perType: labelPerTypeClauses(pb, {
             ...opts,
             entityId: found.id
@@ -69549,12 +70550,12 @@ function registerEntityCommands(program3) {
   withListOptions(
     entity.command("appearances <nameOrId>").description(
       "When the entity is on screen / speaking, per media (linked track ranges)"
-    ).option("-w, --workspace <id>", "workspace id override"),
+    ),
     entityAppearancesSpec
   ).action(async (nameOrId, opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const found = await resolveEntity(pb, workspaceId, nameOrId);
       await runList({
         spec: entityAppearancesSpec,
@@ -69841,9 +70842,9 @@ async function deleteCaption(pb, captionId, opts = {}) {
 
 // src/commands/caption.ts
 var secs4 = (v) => `${v.toFixed(2)}s`;
-function registerCaptionCommands(program3) {
-  const caption = program3.command("caption").alias("cap").description("Create and manage captions and title cards");
-  const create = caption.command("create").description("Create a caption (subtitle) or a title card").option("-w, --workspace <id>", "workspace id override").option(
+function registerCaptionCommands(program2) {
+  const caption = program2.command("caption").alias("cap").description("Create and manage captions and title cards");
+  const create = caption.command("create").description("Create a caption (subtitle) or a title card").option(
     "--animate",
     "split the text into evenly-timed cues (one per line)"
   );
@@ -69853,7 +70854,7 @@ function registerCaptionCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const created = await createCaption(pb, {
         workspaceId,
         animate: !!opts.animate,
@@ -69884,10 +70885,7 @@ function registerCaptionCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const ctx = {
-        pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
-      };
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
       await runList({
         spec: captionListSpec,
         opts,
@@ -69981,6 +70979,119 @@ function registerCaptionCommands(program3) {
       handleError(err);
     }
   });
+}
+
+// src/lib/timeline-compact.ts
+async function compactTimeline(pb, timelineId, opts = {}) {
+  const timeline = await new TimelineMutator(pb).getById(timelineId);
+  if (!timeline) {
+    throw new Error(`Timeline not found: ${timelineId}`);
+  }
+  const trackList = (await new TimelineTrackMutator(pb).getByTimeline(timelineId)).items;
+  if (trackList.length === 0) {
+    trackList.push(await ensureDefaultTrack(pb, timelineId));
+  }
+  const clipMutator = new TimelineClipMutator(pb);
+  const allClips = await clipMutator.getByTimeline(timelineId);
+  const lanes = opts.track ? [await resolveTrackRef(pb, timelineId, opts.track)] : [...trackList].sort((a, b) => a.layer - b.layer);
+  const tracks = [];
+  const writes = [];
+  for (const track of lanes) {
+    const laneClips = clipsOnTrack(allClips, trackList, track.id);
+    const sorted = getSortedTrackClips(laneClips);
+    const ranges = getClipRanges(laneClips);
+    const moves = [];
+    let closedGapSeconds = 0;
+    let cursor = 0;
+    let prevOriginalEnd = 0;
+    sorted.forEach((clip, i2) => {
+      const range2 = ranges[i2];
+      const to = roundToMs(cursor);
+      const duration3 = range2.end - range2.start;
+      const gap = range2.start - prevOriginalEnd;
+      if (gap > TIMELINE_EPSILON) closedGapSeconds += gap;
+      prevOriginalEnd = Math.max(prevOriginalEnd, range2.end);
+      const needsPin = clip.timelineStart === void 0 || clip.timelineStart === null || !clip.TimelineTrackRef;
+      if (Math.abs(range2.start - to) > TIMELINE_EPSILON || needsPin) {
+        moves.push({ clipId: clip.id, from: range2.start, to });
+        writes.push({
+          clipId: clip.id,
+          to,
+          ...clip.TimelineTrackRef ? {} : { trackRef: track.id },
+          snapshot: clip
+        });
+      }
+      cursor = to + duration3;
+    });
+    if (moves.length > 0) {
+      tracks.push({
+        trackId: track.id ?? null,
+        layer: track.layer,
+        moves,
+        closedGapSeconds: roundToMs(closedGapSeconds)
+      });
+    }
+  }
+  const warnings = [];
+  if (writes.length === 0) {
+    return {
+      timelineId,
+      tracks: [],
+      moveCount: 0,
+      applied: false,
+      dryRun: !!opts.dryRun,
+      warnings: [
+        noopNotice("every clip is already flush \u2014 nothing to write", [])
+      ]
+    };
+  }
+  if (opts.dryRun) {
+    return {
+      timelineId,
+      tracks,
+      moveCount: writes.length,
+      applied: false,
+      dryRun: true,
+      warnings
+    };
+  }
+  await assertShiftTargetsUnchanged(
+    pb,
+    timelineId,
+    writes.map((w) => w.snapshot)
+  );
+  let written = 0;
+  try {
+    for (const write of writes) {
+      await clipMutator.updateWithGuard(
+        write.clipId,
+        {
+          timelineStart: write.to,
+          ...write.trackRef ? { TimelineTrackRef: write.trackRef } : {}
+        },
+        { expectedUpdated: write.snapshot.updated, snapshot: write.snapshot }
+      );
+      written++;
+    }
+  } catch (err) {
+    throw partialShiftError(err, written, writes.length, timelineId);
+  }
+  const check3 = await syncTimelineAfterWrite(
+    pb,
+    timelineId,
+    writes.map((w) => w.clipId)
+  );
+  warnings.push(
+    ...check3.conflicts.map((f) => postWriteOverlapWarning(f, timelineId))
+  );
+  return {
+    timelineId,
+    tracks,
+    moveCount: writes.length,
+    applied: true,
+    dryRun: false,
+    warnings
+  };
 }
 
 // src/lib/timeline-reflow.ts
@@ -70495,15 +71606,13 @@ function registerTimelineTrackCommands(timeline) {
 }
 
 // src/commands/timeline-clips.ts
-var range2 = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
-var secs5 = (v) => `${v.toFixed(2)}s`;
 async function fetchTimelineClipRows(pb, opts) {
   const overview = await getTimelineOverview(pb, opts.timelineId);
-  if (opts.workspaceId && overview.timeline.WorkspaceRef !== opts.workspaceId) {
-    throw new Error(
-      `Timeline ${opts.timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspaceId}.`
-    );
-  }
+  await assertWorkspaceMatch(
+    pb,
+    overview.timeline.WorkspaceRef,
+    `Timeline ${opts.timelineId}`
+  );
   let tracks = overview.tracks;
   if (opts.track) {
     const target = await resolveTrackRef(pb, opts.timelineId, opts.track);
@@ -70530,10 +71639,6 @@ async function fetchTimelineClipRows(pb, opts) {
     items: rows.slice(start, start + opts.perPage)
   };
 }
-var workspaceOption2 = (cmd) => cmd.option(
-  "-w, --workspace <id>",
-  "workspace id (accepted for flag consistency; clips are addressed by id)"
-);
 var timelineClipListSpec = {
   command: "timeline clips list",
   workspaceScoped: false,
@@ -70560,12 +71665,16 @@ var timelineClipListSpec = {
     { header: "ORDER", value: (r2) => String(r2.clip.order) },
     {
       header: "TIMELINE",
-      value: (r2) => range2(r2.timelineStart, r2.timelineEnd)
+      value: (r2) => range(r2.timelineStart, r2.timelineEnd)
     },
-    { header: "SOURCE", value: (r2) => range2(r2.clip.start, r2.clip.end) },
+    {
+      // Outer source span; ` ◆N` marks a composite (DUR is effective).
+      header: "SOURCE",
+      value: (r2) => range(r2.clip.start, r2.clip.end) + compositeMarker(r2.times)
+    },
     {
       header: "DUR",
-      value: (r2) => formatDuration(r2.timelineEnd - r2.timelineStart)
+      value: (r2) => secs(r2.timelineEnd - r2.timelineStart)
     },
     { header: "KIND", value: (r2) => r2.kind },
     { header: "LABEL", value: (r2) => truncate(r2.labelHint, 40) }
@@ -70575,7 +71684,7 @@ var timelineClipListSpec = {
 function registerTimelineClipCommands(timeline) {
   const clips = timeline.command("clips").description("List and edit the clips placed on a timeline");
   withListOptions(
-    clips.command("list").alias("ls").description("List a timeline's clips with computed positions").option("-w, --workspace <id>", "workspace id (validated when passed)"),
+    clips.command("list").alias("ls").description("List a timeline's clips with computed positions"),
     timelineClipListSpec
   ).action(async (opts) => {
     try {
@@ -70583,12 +71692,11 @@ function registerTimelineClipCommands(timeline) {
       await runList({
         spec: timelineClipListSpec,
         opts,
-        // `-w` is a validation check against the timeline's own workspace
-        // (in fetchTimelineClipRows), not a filter, so it stays out of ctx.
+        // `-w` is validated against the timeline's own workspace (in
+        // fetchTimelineClipRows), not used as a filter, so it stays out of ctx.
         ctx: { pb },
         fetchPage: (query) => fetchTimelineClipRows(pb, {
           timelineId: opts.timeline,
-          workspaceId: opts.workspace,
           track: opts.track,
           page: query.page,
           perPage: query.perPage,
@@ -70600,11 +71708,9 @@ function registerTimelineClipCommands(timeline) {
     }
   });
   withJsonOption(
-    workspaceOption2(
-      clips.command("show <clipId>").description("Show a timeline clip with its computed placement").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
-        "--labels",
-        "include label detail (provenance + overlapping labels)"
-      )
+    clips.command("show <clipId>").description("Show a timeline clip with its computed placement").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
+      "--labels",
+      "include label detail (provenance + overlapping labels)"
     )
   ).action(async (clipId, opts) => {
     try {
@@ -70626,7 +71732,23 @@ function registerTimelineClipCommands(timeline) {
         const found = track.clips.find((c) => c.clip.id === clipId);
         if (found) placement = { ...found, layer: track.layer };
       }
-      const labels = opts.labels ? await clipLabelDetail(pb, clip) : void 0;
+      const labels = opts.labels ? await clipLabelDetail(
+        pb,
+        clip,
+        placement ? { placement: { timelineStart: placement.timelineStart } } : {}
+      ) : void 0;
+      const times = placement?.times ?? timelineClipTimes(clip);
+      const regions = placement && clip.MediaRef ? clipPlaybackRegions({
+        clip,
+        globalStart: placement.timelineStart,
+        globalEnd: placement.timelineEnd
+      }).map((region, index) => ({
+        index,
+        timelineStart: roundToMs(region.timelineStart),
+        timelineEnd: roundToMs(region.timelineEnd),
+        sourceStart: roundToMs(region.sourceStart),
+        sourceEnd: roundToMs(regionSourceEnd(region))
+      })) : void 0;
       if (opts.json) {
         printRecord(
           {
@@ -70638,6 +71760,8 @@ function registerTimelineClipCommands(timeline) {
               kind: placement.kind,
               labelHint: placement.labelHint
             } : null,
+            times,
+            ...regions ? { regions } : {},
             ...labels ? { labels } : {}
           },
           [],
@@ -70651,14 +71775,23 @@ function registerTimelineClipCommands(timeline) {
       if (placement) {
         const trackName = placement.layer;
         info(
-          `  timeline: ${range2(placement.timelineStart, placement.timelineEnd)} (track layer ${trackName})`
+          `  timeline: ${range(placement.timelineStart, placement.timelineEnd)} (track layer ${trackName})`
         );
       }
       info(
-        `  source: ${range2(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef}`
+        `  source: ${range(clip.start, clip.end)} of ${clip.MediaRef ?? clip.CaptionRef ?? clip.SourceTimelineRef}`
       );
+      if (times.composite && times.segments) {
+        info(
+          `  composite: ${times.segments.count} segments (source: ${times.segments.source}) \u2014 effective ${secs(times.effective.duration)} of ${secs(times.source.span)} span; \`vw timeline clips segments ${clip.id}\``
+        );
+      } else if (times.segments?.source === "meta") {
+        info(
+          "  edit-list mask: 1 segment (masks the source MediaClip's edit list)"
+        );
+      }
       const gain = clip.meta?.gain;
-      const stored = clip.timelineStart !== void 0 && clip.timelineStart !== null ? `   timelineStart: ${secs5(clip.timelineStart)}` : "   (no stored position \u2014 legacy clip; `clips move` pins it)";
+      const stored = clip.timelineStart !== void 0 && clip.timelineStart !== null ? `   timelineStart: ${secs(clip.timelineStart)}` : "   (no stored position \u2014 legacy clip; `clips move` pins it)";
       info(
         `  order: ${clip.order}${stored}${gain !== void 0 ? `   gain: ${gain}` : ""}`
       );
@@ -70671,11 +71804,7 @@ function registerTimelineClipCommands(timeline) {
   });
   const update = withForceOption(
     withStrictOption(
-      workspaceOption2(
-        clips.command("update <clipId>").description(
-          "Update a timeline clip (label, description, trim, gain)"
-        ).option("-t, --timeline <id>", "timeline id (validated when passed)").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
-      )
+      clips.command("update <clipId>").description("Update a timeline clip (label, description, trim, gain)").option("-t, --timeline <id>", "timeline id (validated when passed)").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
     )
   );
   applyOptions(withJsonOption(update), clipUpdateOptions).action(
@@ -70702,7 +71831,7 @@ function registerTimelineClipCommands(timeline) {
           info(noopMessage(result.warnings) ?? "Nothing to write.");
         } else {
           success(
-            `Updated clip ${result.clip.id} (${range2(result.clip.start, result.clip.end)}, ${formatDuration(result.clip.duration)})`
+            `Updated clip ${result.clip.id} (${range(result.clip.start, result.clip.end)}, ${formatDuration(result.clip.duration)})`
           );
         }
         printOpWarnings(result.warnings);
@@ -70715,33 +71844,20 @@ function registerTimelineClipCommands(timeline) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption2(
-          clips.command("move <clipId>").description(
-            "Move a clip to another track and/or timeline position"
-          ).option(
-            "-t, --timeline <id>",
-            "timeline id (validated when passed)"
-          ).option(
-            "--track <layer|id>",
-            "destination track (default: current)"
-          ).option(
-            "--at <seconds>",
-            "new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)",
-            parseSeconds
-          ).option(
-            "--overwrite",
-            "with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)"
-          ).option(
-            "--ripple",
-            "land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)"
-          ).option(
-            "--dry-run",
-            "print the placement plan without writing anything"
-          ).addHelpText(
-            "after",
-            editResultHelp({ noop: true, conflict: true })
-          )
-        )
+        clips.command("move <clipId>").description("Move a clip to another track and/or timeline position").option("-t, --timeline <id>", "timeline id (validated when passed)").option("--track <layer|id>", "destination track (default: current)").option(
+          "--at <seconds>",
+          "new timeline position; nudges past collisions unless --ripple/--overwrite (default: keep current position)",
+          parseSeconds
+        ).option(
+          "--overwrite",
+          "with --at: trim/remove overlapping clips instead of nudging forward (mutually exclusive with --ripple)"
+        ).option(
+          "--ripple",
+          "land at the exact time and shift later clips right to make room (mutually exclusive with --overwrite)"
+        ).option(
+          "--dry-run",
+          "print the placement plan without writing anything"
+        ).addHelpText("after", editResultHelp({ noop: true, conflict: true }))
       )
     )
   ).action(async (clipId, opts) => {
@@ -70764,7 +71880,7 @@ function registerTimelineClipCommands(timeline) {
       if (opts.json) {
         printRecord(result, [], true);
       } else {
-        const where = `${range2(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
+        const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer} (${result.track.name})`;
         if (result.noop) {
           info(noopMessage(result.warnings) ?? "Nothing to write.");
         } else if (result.dryRun) {
@@ -70783,21 +71899,13 @@ function registerTimelineClipCommands(timeline) {
   withJsonOption(
     withForceOption(
       withStrictOption(
-        workspaceOption2(
-          clips.command("ripple <clipId>").description(
-            "Shift a clip and everything after it on its track by \xB1seconds"
-          ).requiredOption(
-            "--by <seconds>",
-            "seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)",
-            parseSignedSeconds
-          ).option(
-            "-t, --timeline <id>",
-            "timeline id (validated when passed)"
-          ).option("--dry-run", "print the shifts without writing anything").addHelpText(
-            "after",
-            editResultHelp({ noop: true, conflict: true })
-          )
-        )
+        clips.command("ripple <clipId>").description(
+          "Shift a clip and everything after it on its track by \xB1seconds"
+        ).requiredOption(
+          "--by <seconds>",
+          "seconds to shift, e.g. 2.5 or --by=-2.5 (negative pulls left)",
+          parseSignedSeconds
+        ).option("-t, --timeline <id>", "timeline id (validated when passed)").option("--dry-run", "print the shifts without writing anything").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
       )
     )
   ).action(async (clipId, opts) => {
@@ -70827,7 +71935,7 @@ function registerTimelineClipCommands(timeline) {
           );
         }
         for (const shift of result.shifted) {
-          info(`  ${shift.clipId}: ${secs5(shift.from)} \u2192 ${secs5(shift.to)}`);
+          info(`  ${shift.clipId}: ${secs(shift.from)} \u2192 ${secs(shift.to)}`);
         }
       }
       printOpWarnings(result.warnings);
@@ -70838,15 +71946,13 @@ function registerTimelineClipCommands(timeline) {
   });
   withJsonOption(
     withStrictOption(
-      workspaceOption2(
-        clips.command("remove <clipId>").description("Remove a clip from its timeline").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
-          "--ripple",
-          "shift later clips on the track left to close the gap"
-        ).option(
-          "--force",
-          "with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting"
-        ).addHelpText("after", editResultHelp({ conflict: true }))
-      )
+      clips.command("remove <clipId>").description("Remove a clip from its timeline").option("-t, --timeline <id>", "timeline id (validated when passed)").option(
+        "--ripple",
+        "shift later clips on the track left to close the gap"
+      ).option(
+        "--force",
+        "with --ripple: re-apply the gap-closing shifts over a concurrent edit instead of aborting"
+      ).addHelpText("after", editResultHelp({ conflict: true }))
     )
   ).action(async (clipId, opts) => {
     try {
@@ -70866,7 +71972,7 @@ function registerTimelineClipCommands(timeline) {
         );
         for (const shift of result.shifted) {
           info(
-            `  rippled: ${shift.clipId} ${secs5(shift.from)} \u2192 ${secs5(shift.to)}`
+            `  rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
           );
         }
       }
@@ -70878,11 +71984,9 @@ function registerTimelineClipCommands(timeline) {
   });
   withJsonOption(
     withStrictOption(
-      workspaceOption2(
-        clips.command("reorder <clipIds...>").description(
-          "Replace the clip order: pass every clip id in the new sequence"
-        ).requiredOption("-t, --timeline <id>", "timeline id").addHelpText("after", editResultHelp({ noop: true }))
-      )
+      clips.command("reorder <clipIds...>").description(
+        "Replace the clip order: pass every clip id in the new sequence"
+      ).requiredOption("-t, --timeline <id>", "timeline id").addHelpText("after", editResultHelp({ noop: true }))
     )
   ).action(async (clipIds, opts) => {
     try {
@@ -70912,12 +72016,81 @@ function registerTimelineClipCommands(timeline) {
       handleError(err);
     }
   });
+  withJsonOption(
+    clips.command("map <clipId>").description(
+      "Translate a time through a clip: source-media time \u2194 clip-effective offset \u2194 timeline time (edit-list aware)"
+    ).option("-t, --timeline <id>", "timeline id (validated when passed)").option(
+      "--source-time <seconds>",
+      "locate a source-media time (gap times report the cut and collapse to its boundary)",
+      parseSeconds
+    ).option(
+      "--timeline-time <seconds>",
+      "locate an absolute timeline time",
+      parseSeconds
+    ).option(
+      "--offset <seconds>",
+      "locate a clip-effective offset (0 = first visible frame)",
+      parseSeconds
+    )
+  ).action(async (clipId, opts) => {
+    try {
+      const pb = await requireClient();
+      const candidates = [
+        { domain: "source", value: opts.sourceTime },
+        { domain: "timeline", value: opts.timelineTime },
+        { domain: "offset", value: opts.offset }
+      ];
+      const inputs = candidates.filter((i2) => i2.value !== void 0);
+      if (inputs.length !== 1) {
+        throw new Error(
+          "Pass exactly one of --source-time, --timeline-time, or --offset."
+        );
+      }
+      const { domain: domain2, value } = inputs[0];
+      const result = await mapClipTime(pb, clipId, {
+        domain: domain2,
+        value,
+        timelineId: opts.timeline
+      });
+      if (opts.json) {
+        printRecord(result, [], true);
+        return;
+      }
+      const placed = result.times.timeline;
+      info(
+        `Clip ${result.clipId} on timeline ${result.timelineId} (track layer ${result.layer}${placed ? `, ${range(placed.start, placed.end)}` : ""})`
+      );
+      if (result.inGap && result.gap) {
+        info(
+          `  source ${secs(value)} falls in a cut gap (${range(result.gap.start, result.gap.end)}) \u2014 this moment is not played`
+        );
+        info(
+          `  collapses to: source ${secs(result.point.source)}  =  offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      } else {
+        info(
+          `  source ${secs(result.point.source)}  =  offset ${secs(result.point.offset)}  =  timeline ${secs(result.point.timeline)}`
+        );
+      }
+      if (result.point.segment) {
+        info(
+          `  segment ${result.point.segment.index} (${range(result.point.segment.start, result.point.segment.end)})`
+        );
+      }
+      if (result.clamped) {
+        warn(
+          `input ${secs(value)} is outside the clip's played content \u2014 clamped to the nearest edge`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
   registerTimelineClipSegmentCommands(clips);
+  registerTimelineClipTranscriptCommand(clips);
 }
 
 // src/commands/timeline.ts
-var secs6 = (v) => `${v.toFixed(2)}s`;
-var range3 = (start, end) => `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
 function trackHeaderLine(overview) {
   const track = overview.track;
   if (!track) {
@@ -70939,15 +72112,17 @@ var showClipColumns = [
   { header: "CLIP", value: (c) => c.clip.id },
   {
     header: "TIMELINE",
-    value: (c) => range3(c.timelineStart, c.timelineEnd)
+    value: (c) => range(c.timelineStart, c.timelineEnd)
   },
   {
+    // Outer source span; ` ◆N` marks a composite whose edit list skips gaps
+    // inside it (the DUR column is the effective playback length).
     header: "SOURCE",
-    value: (c) => range3(c.clip.start, c.clip.end)
+    value: (c) => range(c.clip.start, c.clip.end) + compositeMarker(c.times)
   },
   {
     header: "DUR",
-    value: (c) => formatDuration(c.timelineEnd - c.timelineStart)
+    value: (c) => secs(c.timelineEnd - c.timelineStart)
   },
   { header: "KIND", value: (c) => c.kind },
   {
@@ -70959,17 +72134,17 @@ function reportPlacement(result) {
   const would = result.dryRun ? "would be " : "";
   for (const trim of result.trims) {
     info(
-      `  ${would}trimmed: ${trim.clipId} \u2192 source ${range3(trim.start, trim.end)}, timeline ${secs6(trim.timelineStart)}`
+      `  ${would}trimmed: ${trim.clipId} \u2192 source ${range(trim.start, trim.end)}, timeline ${secs(trim.timelineStart)}`
     );
   }
   for (const shift of result.shifted) {
     info(
-      `  ${would}rippled: ${shift.clipId} ${secs6(shift.from)} \u2192 ${secs6(shift.to)}`
+      `  ${would}rippled: ${shift.clipId} ${secs(shift.from)} \u2192 ${secs(shift.to)}`
     );
   }
 }
 function placementPhrase(result) {
-  const where = `${range3(result.placedAt, result.placedEnd)} on track ${result.track.layer}`;
+  const where = `${range(result.placedAt, result.placedEnd)} on track ${result.track.layer}`;
   const afterHint = result.afterClip ? `after "${truncate(
     timelineClipLabelHint(result.afterClip),
     40
@@ -70997,31 +72172,36 @@ function printLabelDetail(detail) {
     }
   }
   if (detail.overlapping.length > 0) {
-    info("  overlapping labels in the source window:");
+    info("  overlapping labels in the played content:");
     for (const hit of detail.overlapping) {
       const r2 = hit.record;
       const snippet = LABEL_TYPE_CONFIG[hit.type].snippet(r2);
+      const first = hit.played[0];
+      const plays = first ? first.timelineStart !== void 0 && first.timelineEnd !== void 0 ? `  plays tl ${range(first.timelineStart, first.timelineEnd)}` : `  plays clip ${range(first.clipStart, first.clipEnd)}` : "";
+      const more = hit.played.length > 1 ? ` +${hit.played.length - 1} more` : "";
       info(
-        `    ${hit.type}  ${r2.id}  ${range3(r2.start, r2.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` + withWho(snippet, hit.attributedEntity?.name)
+        `    ${hit.type}  ${r2.id}  ${range(r2.start, r2.end)}  conf ${confidenceOf(hit).toFixed(2)}  ` + withWho(snippet, hit.attributedEntity?.name) + plays + more
       );
     }
   }
-  if (detail.provenance.length === 0 && detail.overlapping.length === 0) {
+  if (detail.hiddenInCutGaps > 0) {
+    info(
+      `  (${detail.hiddenInCutGaps} label(s) inside cut gaps hidden \u2014 not played by this clip)`
+    );
+  }
+  if (detail.provenance.length === 0 && detail.overlapping.length === 0 && detail.hiddenInCutGaps === 0) {
     info("  (no labels found for this clip)");
   }
 }
-function registerTimelineCommands(program3) {
-  const timeline = program3.command("timeline").alias("tl").description("Work with timelines");
+function registerTimelineCommands(program2) {
+  const timeline = program2.command("timeline").alias("tl").description("Work with timelines");
   withListOptions(
     timeline.command("list").alias("ls").description("List timelines in the active workspace"),
     timelineListSpec
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const ctx = {
-        pb,
-        workspaceId: await resolveWorkspaceId(pb, opts.workspace)
-      };
+      const ctx = { pb, workspaceId: await resolveWorkspaceId(pb) };
       await runList({
         spec: timelineListSpec,
         opts,
@@ -71032,12 +72212,12 @@ function registerTimelineCommands(program3) {
       handleError(err);
     }
   });
-  const create = timeline.command("create <name>").description("Create a timeline with its tracks").option("-w, --workspace <id>", "workspace id override");
+  const create = timeline.command("create <name>").description("Create a timeline with its tracks");
   applyOptions(withJsonOption(create), timelineCreateOptions).action(
     async (name, opts) => {
       try {
         const pb = await requireClient();
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         const created = await createTimeline(pb, {
           workspaceId,
           name,
@@ -71077,7 +72257,7 @@ function registerTimelineCommands(program3) {
     }
   );
   withJsonOption(
-    timeline.command("show [timelineId]").description("Inspect a timeline: tracks, settings, and placed clips").option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override")
+    timeline.command("show [timelineId]").description("Inspect a timeline: tracks, settings, and placed clips").option("-t, --timeline <id>", "timeline id (alternative to positional)")
   ).action(async (timelineIdArg, opts) => {
     try {
       const pb = await requireClient();
@@ -71088,15 +72268,10 @@ function registerTimelineCommands(program3) {
       }
       let timelineId = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
       const overview = await getTimelineOverview(pb, timelineId);
-      if (opts.workspace && overview.timeline.WorkspaceRef !== opts.workspace) {
-        throw new Error(
-          `Timeline ${timelineId} belongs to workspace ${overview.timeline.WorkspaceRef}, not ${opts.workspace}.`
-        );
-      }
       if (opts.json) {
         printRecord(overview, [], true);
         return;
@@ -71136,7 +72311,7 @@ function registerTimelineCommands(program3) {
     }
   });
   withJsonOption(
-    timeline.command("inspect").description("Show what plays on each track at a timeline time").option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").requiredOption(
+    timeline.command("inspect").description("Show what plays on each track at a timeline time").option("-t, --timeline <id>", "timeline id").requiredOption(
       "--at <seconds>",
       "timeline time to inspect",
       parseSeconds
@@ -71147,7 +72322,7 @@ function registerTimelineCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const timelineId = opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
       const result = await inspectAtTime(pb, {
         timelineId,
@@ -71160,7 +72335,9 @@ function registerTimelineCommands(program3) {
           if (track.active) {
             labelDetails.set(
               track.active.clip.id,
-              await clipLabelDetail(pb, track.active.clip)
+              await clipLabelDetail(pb, track.active.clip, {
+                placement: { timelineStart: track.active.timelineStart }
+              })
             );
           }
         }
@@ -71182,7 +72359,7 @@ function registerTimelineCommands(program3) {
         );
         return;
       }
-      info(`At ${secs6(result.at)} of ${secs6(result.computedDuration)}:`);
+      info(`At ${secs(result.at)} of ${secs(result.computedDuration)}:`);
       table(result.tracks, [
         { header: "LAYER", value: (t2) => String(t2.layer) },
         {
@@ -71199,24 +72376,25 @@ function registerTimelineCommands(program3) {
         },
         {
           header: "TIMELINE",
-          value: (t2) => t2.active ? range3(t2.active.timelineStart, t2.active.timelineEnd) : "\u2014"
+          value: (t2) => t2.active ? range(t2.active.timelineStart, t2.active.timelineEnd) : "\u2014"
         },
         {
+          // ` ◆` marks a source time mapped through a composite's edit list.
           header: "SOURCE@T",
-          value: (t2) => t2.active ? secs6(t2.active.sourceTime) : "\u2014"
+          value: (t2) => t2.active ? secs(t2.active.sourceTime) + (t2.active.times.composite ? " \u25C6" : "") : "\u2014"
         },
         {
           header: "REMAINING",
-          value: (t2) => t2.active ? secs6(t2.active.remaining) : "\u2014"
+          value: (t2) => t2.active ? secs(t2.active.remaining) : "\u2014"
         },
         {
           header: "NEXT",
-          value: (t2) => t2.nextStart !== null ? secs6(t2.nextStart) : "\u2014"
+          value: (t2) => t2.nextStart !== null ? secs(t2.nextStart) : "\u2014"
         }
       ]);
       if (result.at >= result.computedDuration) {
         info(
-          `(${secs6(opts.at)} is at or beyond the computed duration \u2014 all tracks idle)`
+          `(${secs(opts.at)} is at or beyond the computed duration \u2014 all tracks idle)`
         );
       }
       if (opts.labels) {
@@ -71235,7 +72413,7 @@ function registerTimelineCommands(program3) {
   });
   const insert = timeline.command("insert").description(
     "Insert media, a MediaClip, a caption, or another timeline (nested) into a timeline track (appends to the end of the track unless --at/--after)"
-  ).option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option(
+  ).option("-t, --timeline <id>", "timeline id").option(
     "--clips <ids>",
     "comma-separated MediaClip ids to append in order (batch mode)",
     parseIdList
@@ -71255,7 +72433,7 @@ function registerTimelineCommands(program3) {
   applyOptions(withJsonOption(insert), insertOptions).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       const timelineId = opts.timeline ?? (await pickTimeline(pb, workspaceId)).id;
       const picked = pickOptions(opts, insertOptions);
       if (opts.clips) {
@@ -71339,7 +72517,7 @@ function registerTimelineCommands(program3) {
   withJsonOption(
     timeline.command("doctor [timelineId]").description(
       "Health-check a timeline: overlaps, gaps, stale durations, dangling refs, deleted tracks, duplicate layers"
-    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override").addHelpText("after", DOCTOR_HELP)
+    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").addHelpText("after", DOCTOR_HELP)
   ).action(async (timelineIdArg, opts) => {
     try {
       const pb = await requireClient();
@@ -71350,7 +72528,7 @@ function registerTimelineCommands(program3) {
       }
       let timelineId = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
       const report = await doctorTimeline(pb, timelineId);
@@ -71387,7 +72565,7 @@ function registerTimelineCommands(program3) {
   withJsonOption(
     timeline.command("reflow [timelineId]").description(
       "Heal nested-timeline clip drift (gap-preserving reflow of each track)"
-    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("-w, --workspace <id>", "workspace id override").option("--dry-run", "compute and report the plan without writing")
+    ).option("-t, --timeline <id>", "timeline id (alternative to positional)").option("--dry-run", "compute and report the plan without writing")
   ).action(async (timelineIdArg, opts) => {
     try {
       const pb = await requireClient();
@@ -71398,7 +72576,7 @@ function registerTimelineCommands(program3) {
       }
       let timelineId = timelineIdArg ?? opts.timeline;
       if (!timelineId) {
-        const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+        const workspaceId = await resolveWorkspaceId(pb);
         timelineId = (await pickTimeline(pb, workspaceId)).id;
       }
       const result = await reflowTimelineClips(pb, timelineId, {
@@ -71417,9 +72595,9 @@ function registerTimelineCommands(program3) {
         info(`${scope}: ${plan.changes.length} clip change(s)`);
         for (const change of plan.changes) {
           const parts = [
-            change.timelineStart !== void 0 ? `at ${secs6(change.timelineStart)}` : "",
-            change.start !== void 0 && change.end !== void 0 ? `window ${range3(change.start, change.end)}` : "",
-            change.duration !== void 0 ? `duration ${secs6(change.duration)}` : "",
+            change.timelineStart !== void 0 ? `at ${secs(change.timelineStart)}` : "",
+            change.start !== void 0 && change.end !== void 0 ? `window ${range(change.start, change.end)}` : "",
+            change.duration !== void 0 ? `duration ${secs(change.duration)}` : "",
             change.meta ? "meta" : ""
           ];
           info(`  ${change.clipId}  ${parts.filter(Boolean).join("  ")}`);
@@ -71436,7 +72614,69 @@ function registerTimelineCommands(program3) {
       handleError(err);
     }
   });
-  timeline.command("render").description("Render a timeline").option("-w, --workspace <id>", "workspace id override").option("-t, --timeline <id>", "timeline id").option("--format <fmt>", "output container format (default: mp4)").option("--codec <codec>", "video codec (default: h264)").option("--resolution <WxH>", "output resolution, e.g. 1920x1080").option("--width <px>", "output width (use with --height)").option("--height <px>", "output height (use with --width)").option("--fps <rate>", "output frame rate, e.g. 24 or 30 (default: 30)").option("--no-wait", "enqueue and exit without polling for completion").option(
+  withJsonOption(
+    withStrictOption(
+      timeline.command("compact [timelineId]").description(
+        "Close gaps track-by-track: re-place each clip flush after the previous one, order preserved (contrast: reflow heals nested drift and PRESERVES gaps)"
+      ).option(
+        "-t, --timeline <id>",
+        "timeline id (alternative to positional)"
+      ).option(
+        "--track <layer|id>",
+        "compact only this track (overlay tracks often keep gaps on purpose)"
+      ).option("--dry-run", "print the moves without writing anything").option(
+        "--force",
+        "re-apply over a concurrent edit to clip positions instead of aborting"
+      ).addHelpText("after", editResultHelp({ noop: true, conflict: true }))
+    )
+  ).action(async (timelineIdArg, opts) => {
+    try {
+      const pb = await requireClient();
+      if (timelineIdArg && opts.timeline && timelineIdArg !== opts.timeline) {
+        throw new Error(
+          `The positional timeline id (${timelineIdArg}) and -t (${opts.timeline}) disagree.`
+        );
+      }
+      let timelineId = timelineIdArg ?? opts.timeline;
+      if (!timelineId) {
+        const workspaceId = await resolveWorkspaceId(pb);
+        timelineId = (await pickTimeline(pb, workspaceId)).id;
+      }
+      const result = await withConflictRetry(
+        () => compactTimeline(pb, timelineId, {
+          track: opts.track,
+          dryRun: opts.dryRun
+        }),
+        { patchKeys: ["timelineStart"], force: opts.force }
+      );
+      if (opts.json) {
+        printRecord(result, [], true);
+      } else if (result.moveCount === 0) {
+        info(noopMessage(result.warnings) ?? "Nothing to compact.");
+      } else {
+        for (const track of result.tracks) {
+          info(
+            `TRACK ${track.layer}: ${track.moves.length} move(s), ${secs(track.closedGapSeconds)} of gap closed`
+          );
+          for (const move of track.moves) {
+            info(`  ${move.clipId}: ${secs(move.from)} \u2192 ${secs(move.to)}`);
+          }
+        }
+        if (result.applied) {
+          success(`Compacted ${result.moveCount} clip(s).`);
+        } else {
+          info(
+            `Dry run \u2014 ${result.moveCount} move(s) pending; re-run without --dry-run to apply.`
+          );
+        }
+      }
+      printOpWarnings(result.warnings);
+      enforceStrict(result.warnings, opts.strict);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  timeline.command("render").description("Render a timeline").option("-t, --timeline <id>", "timeline id").option("--format <fmt>", "output container format (default: mp4)").option("--codec <codec>", "video codec (default: h264)").option("--resolution <WxH>", "output resolution, e.g. 1920x1080").option("--width <px>", "output width (use with --height)").option("--height <px>", "output height (use with --width)").option("--fps <rate>", "output frame rate, e.g. 24 or 30 (default: 30)").option("--no-wait", "enqueue and exit without polling for completion").option(
     "--timeout <seconds>",
     "max seconds to wait for completion before giving up (default: 1800)"
   ).option("--download <path>", "download the output file on success").option(
@@ -71445,7 +72685,7 @@ function registerTimelineCommands(program3) {
   ).action(async (opts) => {
     try {
       const pb = await requireClient();
-      const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+      const workspaceId = await resolveWorkspaceId(pb);
       let timelineId = opts.timeline;
       if (!timelineId) {
         timelineId = (await pickTimeline(pb, workspaceId)).id;
@@ -71660,16 +72900,16 @@ async function createTranscodeJobTask(pb, opts) {
 // src/commands/job.ts
 async function resolveMediaId(pb, opts) {
   if (opts.media) return opts.media;
-  const workspaceId = await resolveWorkspaceId(pb, opts.workspace);
+  const workspaceId = await resolveWorkspaceId(pb);
   return (await pickMedia(pb, workspaceId)).id;
 }
-function registerJobCommands(program3) {
-  const job = program3.command("job").description(
+function registerJobCommands(program2) {
+  const job = program2.command("job").description(
     "(dev) Manually queue worker jobs for a media item \u2014 re-run transcode or label detection"
   );
   const label = job.command("label").description(
     "(dev) Queue label detection (a detect_labels task) for a media item"
-  ).option("-w, --workspace <id>", "workspace id override").option("-m, --media <id>", "source media id").option(
+  ).option("-m, --media <id>", "source media id").option(
     "-t, --types <types>",
     `comma-separated label types to run: ${LABEL_JOB_TYPES.join(", ")} (default: all; intent only \u2014 the worker's ENABLE_* env flags gate what actually runs)`,
     parseLabelJobTypes
@@ -71701,7 +72941,7 @@ function registerJobCommands(program3) {
   });
   const transcode = job.command("transcode").description(
     "(dev) Queue transcode/preview generation (a process_upload task) for a media item"
-  ).option("-w, --workspace <id>", "workspace id override").option("-m, --media <id>", "source media id").option(
+  ).option("-m, --media <id>", "source media id").option(
     "-a, --assets <assets>",
     `comma-separated assets to regenerate: ${TRANSCODE_ASSETS.join(", ")} (default: all that apply to the media type)`,
     parseTranscodeAssets
@@ -71728,10 +72968,10 @@ function registerJobCommands(program3) {
   });
 }
 
-// src/cli.ts
+// src/program.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.5";
+    return "0.10.7";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");
@@ -71743,21 +72983,26 @@ function resolveVersion() {
     return "0.0.0";
   }
 }
-var program2 = new Command();
-program2.name("vw").description(
-  "video-ware CLI \u2014 log in, choose a workspace, list media, build and render timelines"
-).version(resolveVersion());
-registerAuthCommands(program2);
-registerWorkspaceCommands(program2);
-registerUploadCommands(program2);
-registerMediaCommands(program2);
-registerDirectoryCommands(program2);
-registerLabelCommands(program2);
-registerEntityCommands(program2);
-registerCaptionCommands(program2);
-registerTimelineCommands(program2);
-registerJobCommands(program2);
-program2.parseAsync(process.argv).catch((err) => {
+function buildProgram() {
+  const program2 = new Command();
+  program2.name("vw").description(
+    "video-ware CLI \u2014 log in, choose a workspace, list media, build and render timelines"
+  ).version(resolveVersion());
+  registerAuthCommands(program2);
+  registerWorkspaceCommands(program2);
+  registerUploadCommands(program2);
+  registerMediaCommands(program2);
+  registerDirectoryCommands(program2);
+  registerLabelCommands(program2);
+  registerEntityCommands(program2);
+  registerCaptionCommands(program2);
+  registerTimelineCommands(program2);
+  registerJobCommands(program2);
+  return installWorkspaceOption(program2);
+}
+
+// src/cli.ts
+buildProgram().parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

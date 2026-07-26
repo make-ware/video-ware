@@ -22,6 +22,24 @@ import {
   type PageRequest,
 } from './paginate.js';
 
+/**
+ * An in-memory narrowing the server filter cannot express.
+ *
+ * The only case today is an edit list's cut gaps: PocketBase can window a
+ * clip's outer span, but "does this label overlap any played segment" is a
+ * predicate over the whole segment list. Declaring a refinement forces the
+ * full walk (see `runList`) — filtering one page would make `--limit` mean "up
+ * to N" and leave the footer counting rows the caller never saw.
+ */
+export interface ListRefinement<T> {
+  /** Keep the rows that survive; `dropped` is derived from what it removes. */
+  filter: (items: T[]) => T[];
+  /** Extra `--json` keys explaining the narrowing (e.g. the edit list). */
+  extras?: (dropped: number) => Record<string, unknown>;
+  /** Footer note, shown only when rows were actually dropped. */
+  note?: (dropped: number) => string | null;
+}
+
 /** Shared inputs of both runners. */
 interface RunListBase<T, TRow> {
   spec: ListSpec<T, TRow>;
@@ -32,6 +50,8 @@ interface RunListBase<T, TRow> {
   argv?: readonly string[];
   /** Whether an interactive `pick` may run; defaults to stdin's TTY. */
   isTTY?: boolean;
+  /** Narrowing that only holds in memory; forces every page to be fetched. */
+  refine?: ListRefinement<T>;
 }
 
 export interface RunListArgs<T, TRow> extends RunListBase<T, TRow> {
@@ -71,11 +91,21 @@ async function present<T, TRow>(args: {
   query: ResolvedListQuery;
   totalItems: number;
   totalPages: number;
+  refine?: ListRefinement<T>;
 }): Promise<void> {
-  const { spec, ctx, query } = args;
+  const { spec, ctx, query, refine } = args;
+
+  // A refinement always sees the complete set (runList forces the walk), so
+  // the surviving count IS the total — the server's count includes the rows it
+  // could not express a filter for.
+  const kept = refine ? refine.filter(args.items) : args.items;
+  const dropped = args.items.length - kept.length;
+  const totalItems = refine ? kept.length : args.totalItems;
+  const totalPages = refine ? 1 : args.totalPages;
+
   const rows = spec.toRows
-    ? await spec.toRows(args.items, ctx)
-    : (args.items as unknown as TRow[]);
+    ? await spec.toRows(kept, ctx)
+    : (kept as unknown as TRow[]);
 
   const view: ListView = {
     command: spec.command,
@@ -83,14 +113,21 @@ async function present<T, TRow>(args: {
     page: query.page,
     perPage: query.perPage,
     shown: rows.length,
-    totalItems: args.totalItems,
-    totalPages: args.totalPages,
+    totalItems,
+    totalPages,
     all: query.all,
   };
 
   if (args.opts.json) {
     console.log(
-      JSON.stringify(listEnvelope(spec, rows, view, query.applied), null, 2)
+      JSON.stringify(
+        {
+          ...listEnvelope(spec, rows, view, query.applied),
+          ...(refine?.extras?.(dropped) ?? {}),
+        },
+        null,
+        2
+      )
     );
     return;
   }
@@ -99,15 +136,19 @@ async function present<T, TRow>(args: {
   for (const line of listFooter(spec, view, query.applied)) {
     info(line);
   }
+  const note = dropped > 0 ? refine?.note?.(dropped) : null;
+  if (note) info(note);
 }
 
 /** Run a single-collection list command end to end. */
 export async function runList<T, TRow = T>(
   args: RunListArgs<T, TRow>
 ): Promise<void> {
-  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const resolved = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY,
   });
+  // A refinement can only be honest over the complete set — see ListRefinement.
+  const query = args.refine ? { ...resolved, all: true } : resolved;
 
   const result = query.all
     ? await fetchAllPages((page) => args.fetchPage({ ...query, page }))
@@ -122,6 +163,7 @@ export async function runList<T, TRow = T>(
     query,
     totalItems: result.totalItems,
     totalPages: result.totalPages,
+    refine: args.refine,
   });
 }
 
@@ -129,9 +171,11 @@ export async function runList<T, TRow = T>(
 export async function runMergedList<T, TRow = T>(
   args: RunMergedListArgs<T, TRow>
 ): Promise<void> {
-  const query = await resolveListQuery(args.spec, args.opts, args.ctx, {
+  const resolved = await resolveListQuery(args.spec, args.opts, args.ctx, {
     isTTY: args.isTTY,
   });
+  // A refinement can only be honest over the complete set — see ListRefinement.
+  const query = args.refine ? { ...resolved, all: true } : resolved;
   const sources = await args.sources(query);
   const compare = args.compare(query);
 
@@ -155,6 +199,7 @@ export async function runMergedList<T, TRow = T>(
     query,
     totalItems: merged.totalItems,
     totalPages: merged.totalPages,
+    refine: args.refine,
   });
 }
 

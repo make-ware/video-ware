@@ -146,6 +146,7 @@ export class TextDetectionNormalizer {
         },
         keyframes,
         trackHash,
+        labelType: LabelType.TEXT,
         // LabelEntityRef will be set by step processor
       });
 

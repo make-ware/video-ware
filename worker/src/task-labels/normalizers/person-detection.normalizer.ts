@@ -172,6 +172,7 @@ export class PersonDetectionNormalizer {
         },
         keyframes,
         trackHash,
+        labelType: LabelType.PERSON,
         // LabelEntityRef will be set by step processor
       });
 

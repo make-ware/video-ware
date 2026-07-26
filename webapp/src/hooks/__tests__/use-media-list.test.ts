@@ -37,6 +37,7 @@ describe('buildMediaMatches', () => {
     workspaceId: 'ws-1',
     directoryId: null as string | null,
     mediaType: 'all',
+    entityId: null as string | null,
     search: '',
   };
 
@@ -87,6 +88,23 @@ describe('buildMediaMatches', () => {
   it('treats whitespace-only search as no search', () => {
     const matches = buildMediaMatches({ ...base, search: '   ' });
     expect(matches(makeMedia())).toBe(true);
+  });
+
+  it('filters by entity using the linked-media id set', () => {
+    const matches = buildMediaMatches({
+      ...base,
+      entityId: 'e-1',
+      entityLinkedIds: new Set(['m1']),
+    });
+    expect(matches(makeMedia({ id: 'm1' }))).toBe(true);
+    expect(matches(makeMedia({ id: 'm2' }))).toBe(false);
+  });
+
+  it('passes the entity clause while the linked-media set is loading', () => {
+    // Unknown-means-pass: a live update must never evict a row the server
+    // itself returned for the filtered query.
+    const matches = buildMediaMatches({ ...base, entityId: 'e-1' });
+    expect(matches(makeMedia({ id: 'm2' }))).toBe(true);
   });
 });
 

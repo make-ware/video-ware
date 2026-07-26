@@ -1,11 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import pb from '@/lib/pocketbase-client';
-import type {
-  Media,
-  MediaClip,
-  MediaRelations,
-  Expanded,
-} from '@project/shared';
+import type { Media, MediaRelations, Expanded } from '@project/shared';
 import { MediaMutator } from '@project/shared/mutator';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from './use-auth';
@@ -21,9 +16,14 @@ type MediaWithExpands = Expanded<
   | 'UploadRef'
 >;
 
+/**
+ * Clips deliberately do NOT live here. They are a paged, filterable, realtime
+ * list of their own (`useClipList` with a `mediaId` scope) — bundling them into
+ * this query capped them at 200 rows and made every route that only needs the
+ * media record re-fetch them.
+ */
 interface UseMediaDetailsResult {
   media: MediaWithExpands | null;
-  clips: MediaClip[];
   isLoading: boolean;
   error: Error | null;
   hasActiveLabelTask: boolean;
@@ -39,7 +39,7 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
     enabled: !!mediaId && isAuthenticated,
     queryFn: async () => {
       const mediaMutator = new MediaMutator(pb);
-      const [media, clipsList, activeTasks] = await Promise.all([
+      const [media, activeTasks] = await Promise.all([
         mediaMutator.getById(mediaId, [
           'thumbnailFileRef',
           'spriteFileRef',
@@ -48,10 +48,6 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
           'filmstripFileRefs',
           'UploadRef',
         ]),
-        pb.collection('MediaClips').getList<MediaClip>(1, 200, {
-          filter: `MediaRef = "${mediaId}"`,
-          sort: 'start',
-        }),
         pb.collection('Tasks').getList(1, 1, {
           filter: `sourceId = "${mediaId}" && type = "detect_labels" && (status = "queued" || status = "running")`,
         }),
@@ -59,7 +55,6 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
 
       return {
         media,
-        clips: clipsList.items,
         hasActiveLabelTask: activeTasks.totalItems > 0,
       };
     },
@@ -67,7 +62,6 @@ export function useMediaDetails(mediaId: string): UseMediaDetailsResult {
 
   return {
     media: query.data?.media ?? null,
-    clips: query.data?.clips ?? [],
     hasActiveLabelTask: query.data?.hasActiveLabelTask ?? false,
     // isPending, not isLoading: a disabled query (auth still hydrating) must
     // read as "loading", or consumers flash their not-found state before the

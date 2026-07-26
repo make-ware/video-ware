@@ -88,10 +88,109 @@ export function useTagMedia() {
       void queryClient.invalidateQueries({
         queryKey: qk.mediaTags.byEntity(entityId),
       });
+      // The media list's card chips come from the MediaEntities view, which
+      // emits no realtime events — refresh them explicitly.
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
     },
     onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : 'Failed to tag media'
+      );
+    },
+  });
+}
+
+/** Outcome of a bulk tag/untag: partial failures are tolerated, not fatal. */
+export interface BulkTagResult {
+  total: number;
+  failed: number;
+}
+
+async function settleTagWrites(
+  writes: Array<Promise<unknown>>
+): Promise<BulkTagResult> {
+  const results = await Promise.allSettled(writes);
+  return {
+    total: results.length,
+    failed: results.filter((r) => r.status === 'rejected').length,
+  };
+}
+
+/**
+ * Tag many media with one entity — the media list's multi-select action.
+ * `tag()` is idempotent, so already-tagged media are a no-op rather than a
+ * duplicate or an error.
+ */
+export function useTagMediaBulk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      workspaceId: string;
+      mediaIds: string[];
+      entityId: string;
+    }): Promise<BulkTagResult> => {
+      const mutator = new MediaTagMutator(pb);
+      return settleTagWrites(
+        input.mediaIds.map((mediaId) =>
+          mutator.tag({
+            WorkspaceRef: input.workspaceId,
+            MediaRef: mediaId,
+            EntityRef: input.entityId,
+          })
+        )
+      );
+    },
+    onSuccess: ({ total, failed }) => {
+      const tagged = total - failed;
+      if (failed > 0) {
+        toast.warning(`Tagged ${tagged} of ${total} — ${failed} failed`);
+      } else {
+        toast.success(`Tagged ${tagged} ${tagged === 1 ? 'item' : 'items'}`);
+      }
+      void queryClient.invalidateQueries({ queryKey: qk.mediaTags.all });
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to tag media'
+      );
+    },
+  });
+}
+
+/**
+ * Remove one entity tag from many media. Media without the tag are quiet
+ * no-ops, so this is safe over a mixed selection.
+ */
+export function useUntagMediaBulk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      mediaIds: string[];
+      entityId: string;
+    }): Promise<BulkTagResult> => {
+      const mutator = new MediaTagMutator(pb);
+      return settleTagWrites(
+        input.mediaIds.map((mediaId) => mutator.untag(mediaId, input.entityId))
+      );
+    },
+    onSuccess: ({ total, failed }) => {
+      const removed = total - failed;
+      if (failed > 0) {
+        toast.warning(
+          `Removed the tag from ${removed} of ${total} — ${failed} failed`
+        );
+      } else {
+        toast.success(
+          `Removed the tag from ${removed} ${removed === 1 ? 'item' : 'items'}`
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: qk.mediaTags.all });
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to remove tags'
       );
     },
   });
@@ -114,6 +213,9 @@ export function useUntagMedia() {
       void queryClient.invalidateQueries({
         queryKey: qk.mediaTags.byEntity(entityId),
       });
+      // The media list's card chips come from the MediaEntities view, which
+      // emits no realtime events — refresh them explicitly.
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
     },
     onError: (error) => {
       toast.error(

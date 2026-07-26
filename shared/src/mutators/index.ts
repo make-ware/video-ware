@@ -10,6 +10,7 @@ export { FileMutator } from './file';
 export { DirectoryMutator } from './directory';
 export { MediaMutator } from './media';
 export { MediaTagMutator } from './media-tag';
+export { MediaEntitiesMutator } from './media-entities';
 export { CaptionMutator } from './caption';
 export { LabelTrackMutator } from './label-track';
 export { MediaClipMutator, type ActualizableLabel } from './media-clip';
@@ -20,6 +21,8 @@ export {
 export { LabelFaceMutator } from './label-face';
 export {
   LabelSpeakerMutator,
+  SPEAKER_PANEL_FIELDS,
+  SPEAKER_PANEL_OMITTED_FIELDS,
   type LabelSpeakerRelations,
 } from './label-speaker';
 export { LabelSpeechMutator } from './label-speech';

@@ -8,6 +8,7 @@ export * from './generate-tracks.js';
 export * from './composite-utils.js';
 export * from './segment-edits.js';
 export * from './captions.js';
+export * from './clip-transcript.js';
 export * from './timeline-placement.js';
 export * from './timeline-doctor.js';
 export * from './nested-timeline.js';

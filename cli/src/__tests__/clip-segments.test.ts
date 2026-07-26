@@ -778,8 +778,14 @@ describe('inspectMediaClipSegments', () => {
       { start: 20, end: 30 },
     ]);
     expect(inspection.gaps).toEqual([{ afterIndex: 0, seconds: 10 }]);
-    expect(inspection.times).toEqual({ start: 0, end: 30, duration: 20 });
+    expect(inspection.times).toEqual({
+      source: { start: 0, end: 30, span: 30 },
+      effective: { duration: 20 },
+      segments: { count: 2, source: 'clipData' },
+      composite: true,
+    });
     expect(inspection.mediaDuration).toBe(60);
+    expect(inspection.placement).toBeUndefined();
   });
 
   it('reports the trim window for plain clips', async () => {
@@ -809,6 +815,37 @@ describe('inspectTimelineClipSegments', () => {
     await expect(inspectTimelineClipSegments(pb, 'tc1', 'tl2')).rejects.toThrow(
       /belongs to timeline tl1/i
     );
+  });
+
+  it('reports canonical times and the lane placement', async () => {
+    // Window [0,30] over a composite list summing 20s effective.
+    const clip = {
+      ...baseTimelineClip,
+      duration: 20,
+      meta: {
+        segments: [
+          { start: 0, end: 10 },
+          { start: 20, end: 30 },
+        ],
+      },
+    };
+    const pb = fakePb(segStubs({ timelineClips: [clip] }));
+
+    const inspection = await inspectTimelineClipSegments(pb, 'tc1');
+
+    expect(inspection.placement).toEqual({
+      layer: 0,
+      trackId: 'trk0',
+      timelineStart: 0,
+      timelineEnd: 20,
+    });
+    expect(inspection.times).toEqual({
+      timeline: { start: 0, end: 20, duration: 20 },
+      source: { start: 0, end: 30, span: 30 },
+      effective: { duration: 20 },
+      segments: { count: 2, source: 'meta' },
+      composite: true,
+    });
   });
 });
 

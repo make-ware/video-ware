@@ -3,9 +3,11 @@ import {
   MediaMutator,
   FileMutator,
   MediaClipMutator,
+  MediaTagMutator,
   TaskMutator,
   UploadMutator,
   LabelJobMutator,
+  trackEntityAttributionFilter,
 } from '@project/shared/mutator';
 import type {
   Media,
@@ -49,6 +51,8 @@ export interface MediaListQuery {
   directoryId?: string | null;
   /** 'all'/undefined = no type filter. */
   mediaType?: string;
+  /** null/undefined = no entity filter; id = tagged with or appearing as it. */
+  entityId?: string | null;
   /** Matched against label, description, and UploadRef.name. */
   search?: string;
 }
@@ -173,6 +177,22 @@ export class MediaService {
         this.pb.filter('mediaType = {:type}', { type: query.mediaType })
       );
     }
+    if (query.entityId) {
+      // "Tagged with, or appears as" — the curator's tag plus label
+      // attribution through the media's tracks (direct link, else the
+      // provider cluster's link). PB can't correlate two conditions on the
+      // same back-relation, so a track re-linked away from a cluster that
+      // points at this entity still matches its media: marginally broader
+      // than the MediaEntities view's per-track precedence.
+      clauses.push(
+        this.pb.filter(
+          '(MediaTags_via_MediaRef.EntityRef ?= {:entity}' +
+            ' || LabelTrack_via_MediaRef.EntityRef ?= {:entity}' +
+            ' || LabelTrack_via_MediaRef.LabelEntityRef.EntityRef ?= {:entity})',
+          { entity: query.entityId }
+        )
+      );
+    }
     const search = query.search?.trim();
     if (search) {
       clauses.push(
@@ -192,6 +212,32 @@ export class MediaService {
     );
 
     return { ...result, items: result.items.map((m) => this.enrichMedia(m)) };
+  }
+
+  /**
+   * Media ids linked to an entity — the client-side mirror of `listMedia`'s
+   * entity filter, used to decide whether a realtime Media event belongs in a
+   * filtered list (a Media record carries no tag or label data of its own).
+   *
+   * Best-effort by design: `cap` bounds both sweeps, so on a very heavily
+   * linked entity the tail is missing and those media simply don't get
+   * live-inserted until the next refetch. Never used as the server filter.
+   */
+  async listMediaIdsLinkedToEntity(
+    entityId: string,
+    cap = 2000
+  ): Promise<Set<string>> {
+    const [tags, tracks] = await Promise.all([
+      new MediaTagMutator(this.pb).getByEntity(entityId, 1, cap),
+      this.pb.collection('LabelTrack').getList(1, cap, {
+        filter: trackEntityAttributionFilter(entityId),
+        fields: 'MediaRef',
+      }),
+    ]);
+    const ids = new Set<string>();
+    for (const tag of tags.items) ids.add(tag.MediaRef);
+    for (const track of tracks.items) ids.add(track.MediaRef);
+    return ids;
   }
 
   /**

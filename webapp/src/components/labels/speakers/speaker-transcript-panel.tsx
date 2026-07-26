@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { LabelType } from '@project/shared';
-import { useMediaLabelTracks } from '@/hooks/use-media-label-tracks';
+import { useMediaTracksByType } from '@/hooks/use-media-tracks-by-type';
 import { useAssignTrackEntity } from '@/hooks/use-entities';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
 import {
   deriveSpeakerSummaries,
+  missingTrackLabel,
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
@@ -46,7 +47,6 @@ export function SpeakerTranscriptPanel({
   workspaceId,
   onSeek,
 }: SpeakerTranscriptPanelProps) {
-  const { byTrackId } = useMediaLabelTracks(mediaId);
   const assignEntity = useAssignTrackEntity();
   const createClip = useCreateClipFromLabel();
 
@@ -60,6 +60,17 @@ export function SpeakerTranscriptPanel({
     () => deriveSpeakerSummaries(utterances),
     [utterances]
   );
+
+  // Speakers arrive with their track already expanded off LabelTrackRef, so
+  // normally nothing is fetched here. Only rows predating that FK fall back to
+  // a by-type lookup, matched on the provider speaker id.
+  const {
+    byTrackId,
+    isPending: tracksPending,
+    error: tracksError,
+  } = useMediaTracksByType(mediaId, LabelType.SPEAKER, {
+    enabled: speakers.some((s) => !s.track),
+  });
   const colorIndexBySpeaker = useMemo(
     () => new Map(speakers.map((s) => [s.speakerId, s.colorIndex])),
     [speakers]
@@ -146,7 +157,7 @@ export function SpeakerTranscriptPanel({
           </div>
           <div className="space-y-1.5">
             {speakers.map((s) => {
-              const track = byTrackId.get(s.speakerId);
+              const track = s.track ?? byTrackId.get(s.speakerId);
               return (
                 <div
                   key={s.speakerId}
@@ -178,7 +189,10 @@ export function SpeakerTranscriptPanel({
                     />
                   ) : (
                     <span className="ml-auto text-xs text-muted-foreground">
-                      No track record
+                      {missingTrackLabel({
+                        isPending: tracksPending,
+                        error: tracksError,
+                      })}
                     </span>
                   )}
                 </div>

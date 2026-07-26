@@ -2,6 +2,7 @@ import { RecordService } from 'pocketbase';
 import type { ListResult } from 'pocketbase';
 import { LabelTrackInputSchema } from '../schema';
 import type { LabelTrack, LabelTrackInput } from '../schema';
+import type { LabelType } from '../enums';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
 import { trackEntityAttributionFilter } from './entity';
@@ -18,9 +19,12 @@ export class LabelTrackMutator extends BaseMutator<
     return this.pb.collection('LabelTrack');
   }
 
+  // No default expand: a track list is often hundreds of rows per media, and
+  // expanding MediaRef re-serializes the same Media record onto every one of
+  // them. The handful of callers that need it ask explicitly.
   protected setDefaults(): MutatorOptions {
     return {
-      expand: ['MediaRef'],
+      expand: [],
       filter: [],
       sort: ['-created'],
     };
@@ -48,12 +52,30 @@ export class LabelTrackMutator extends BaseMutator<
   }
 
   /**
-   * Get the latest media label for a media item
+   * A media's tracks of one label kind — its diarized speakers, its face
+   * tracks.
+   *
+   * Always prefer this to filtering `getByMedia` client-side. LabelTrack
+   * holds every label kind in one collection and object tracking alone emits
+   * hundreds of rows per media, so an unfiltered page silently drops the
+   * handful of rows a speaker- or face-identification UI is after. Served by
+   * idx_label_track_media_type.
    * @param mediaId The media ID
-   * @returns The latest media label record or null if not found
+   * @param labelType The label kind to return
+   * @param page Page number (default: 1)
+   * @param perPage Items per page (default: 200)
    */
-  async getLatestByMedia(mediaId: string): Promise<LabelTrack | null> {
-    return this.getFirstByFilter(`MediaRef = "${mediaId}"`, '-created');
+  async getByMediaAndType(
+    mediaId: string,
+    labelType: LabelType,
+    page = 1,
+    perPage = 200
+  ): Promise<ListResult<LabelTrack>> {
+    return this.getList(
+      page,
+      perPage,
+      `MediaRef = "${mediaId}" && labelType = "${labelType}"`
+    );
   }
 
   /**

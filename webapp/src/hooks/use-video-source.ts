@@ -9,6 +9,7 @@ import type {
 } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
+import type { ExpandedMediaClip } from '@/types/expanded-types';
 
 export interface VideoSource {
   src: string;
@@ -25,7 +26,8 @@ export function useVideoSource<
     | 'audioFileRef',
 >(
   media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
-  clip?: MediaClip
+  // Union because a clip can arrive from a list (expanded) or a by-id fetch.
+  clip?: MediaClip | ExpandedMediaClip
 ): VideoSource {
   const proxyFromExpand =
     media && 'expand' in media && media.expand && 'proxyFileRef' in media.expand

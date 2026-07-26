@@ -8,8 +8,10 @@ import type { ClipListItem } from '@/services/media-clip';
 import { buildClipMatches } from '../use-clip-list';
 import {
   CLIP_SORT_OPTIONS,
+  MEDIA_SCOPED_CLIP_SORT_OPTIONS,
   getClipSortOption,
   DEFAULT_CLIP_SORT,
+  DEFAULT_MEDIA_CLIP_SORT,
 } from '@/components/clip/clip-sort';
 
 const T0 = '2026-07-18 10:00:00.000Z';
@@ -65,6 +67,7 @@ function makeClip(
 describe('buildClipMatches', () => {
   const base = {
     workspaceId: 'ws-1',
+    mediaId: null as string | null,
     directoryId: null as string | null,
     clipType: 'all',
     mediaType: 'all',
@@ -127,6 +130,54 @@ describe('buildClipMatches', () => {
   it('treats whitespace-only search as no search', () => {
     const matches = buildClipMatches({ ...base, search: '   ' });
     expect(matches(makeClip())).toBe(true);
+  });
+
+  it('ignores the media scope when mediaId is null', () => {
+    const matches = buildClipMatches(base);
+    expect(matches(makeClip({ MediaRef: 'md-other' }))).toBe(true);
+  });
+
+  it('restricts to one media when mediaId is set', () => {
+    const matches = buildClipMatches({ ...base, mediaId: 'md1' });
+    expect(matches(makeClip({ MediaRef: 'md1' }))).toBe(true);
+    expect(matches(makeClip({ MediaRef: 'md2' }))).toBe(false);
+  });
+
+  it('tests the media scope without needing the MediaRef expand', () => {
+    // MediaRef is an own field, so an expand-less delete event still reads as
+    // matching — which is what lets live-list decrement totalItems correctly.
+    // Contrast the directory case above, where a bare delete cannot match.
+    const matches = buildClipMatches({ ...base, mediaId: 'md1' });
+    expect(matches(makeClip({ MediaRef: 'md1' }, null))).toBe(true);
+  });
+
+  it('combines the media scope with the clip-type filter', () => {
+    const matches = buildClipMatches({
+      ...base,
+      mediaId: 'md1',
+      clipType: 'shot',
+    });
+    expect(matches(makeClip({ MediaRef: 'md1', type: 'shot' }))).toBe(true);
+    expect(matches(makeClip({ MediaRef: 'md1', type: 'user' }))).toBe(false);
+    expect(matches(makeClip({ MediaRef: 'md2', type: 'shot' }))).toBe(false);
+  });
+
+  it('drops the media text fields from a media-scoped search', () => {
+    // Mirrors searchExpr() in services/media-clip.ts: inside one media the
+    // media's own text is constant, so matching it would return every clip.
+    const scoped = buildClipMatches({
+      ...base,
+      mediaId: 'md1',
+      search: 'SUNSET',
+    });
+    expect(scoped(makeClip({ label: 'Beach sunset' }))).toBe(true);
+    expect(scoped(makeClip({}, { label: 'Sunset reel' }))).toBe(false);
+    expect(scoped(makeClip({}, { uploadName: 'Sunset.mp4' }))).toBe(false);
+
+    // Unscoped, those same records do match — the two mirrors differ on purpose.
+    const unscoped = buildClipMatches({ ...base, search: 'SUNSET' });
+    expect(unscoped(makeClip({}, { label: 'Sunset reel' }))).toBe(true);
+    expect(unscoped(makeClip({}, { uploadName: 'Sunset.mp4' }))).toBe(true);
   });
 });
 
@@ -193,5 +244,50 @@ describe('CLIP_SORT_OPTIONS', () => {
 
     expect(option.canCompare?.(dated)).toBe(true);
     expect(option.canCompare?.(makeClip({ id: 'b' }, null))).toBe(false);
+  });
+
+  it('timeline sorts by start ascending, then recency', () => {
+    const option = byValue('timeline');
+    const early = makeClip({ id: 'e', start: 1 });
+    const late = makeClip({ id: 'l', start: 9 });
+    expect(option.compare(early, late)).toBeLessThan(0);
+    expect(option.pbSort).toBe('start,-created');
+
+    // Equal starts are common (0, or two labels on the same frame).
+    const newer = makeClip({ id: 'n', start: 1, created: T1 });
+    expect(option.compare(newer, early)).toBeLessThan(0);
+  });
+
+  it('timeline needs no expand to compare', () => {
+    // `start` is an own field, so unlike name/media_time a media-scoped list
+    // can position live-inserted records exactly instead of bumping the total.
+    const option = byValue('timeline');
+    expect(option.canCompare).toBeUndefined();
+    expect(
+      option.compare(
+        makeClip({ id: 'a', start: 1 }, null),
+        makeClip({ id: 'b', start: 9 }, null)
+      )
+    ).toBeLessThan(0);
+  });
+
+  it('offers timeline first for media-scoped lists', () => {
+    expect(MEDIA_SCOPED_CLIP_SORT_OPTIONS.map((o) => o.value)).toEqual([
+      'timeline',
+      'recent',
+      'duration',
+    ]);
+    expect(DEFAULT_MEDIA_CLIP_SORT).toBe('timeline');
+  });
+
+  it('resolves every offered sort value', () => {
+    // Guards the silent-fallback footgun: a subset built from a value missing
+    // from the registry would resolve to `recent` instead of erroring.
+    for (const option of [
+      ...CLIP_SORT_OPTIONS,
+      ...MEDIA_SCOPED_CLIP_SORT_OPTIONS,
+    ]) {
+      expect(getClipSortOption(option.value).value).toBe(option.value);
+    }
   });
 });

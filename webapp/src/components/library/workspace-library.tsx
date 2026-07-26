@@ -2,18 +2,10 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  AlertCircle,
-  Film,
-  FolderOpen,
-  Loader2,
-  Scissors,
-  Video,
-} from 'lucide-react';
+import { AlertCircle, Film, FolderOpen, Scissors, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LibraryLoadMore, LibraryItemSkeleton } from './library-load-more';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
 import { CLIP_GRID_CLASS } from '@/components/timeline/constants';
 import { useWorkspace } from '@/hooks/use-workspace';
@@ -86,6 +78,8 @@ export function WorkspaceLibrary({
   // multiplexes them over its single realtime connection.
   const clipsLib = useClipList({
     workspaceId: currentWorkspace?.id,
+    // The library browses the whole workspace; media scoping is the viewer's.
+    mediaId: null,
     directoryFilter,
     clipTypeFilter: clipType,
     mediaTypeFilter: clipMediaType,
@@ -352,7 +346,7 @@ function LibraryGrid({
       {isLoading && childrenCount === 0 ? (
         <div className={CLIP_GRID_CLASS}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <ItemSkeleton key={i} />
+            <LibraryItemSkeleton key={i} />
           ))}
         </div>
       ) : error ? (
@@ -385,45 +379,16 @@ function LibraryGrid({
       ) : (
         <>
           <div className={CLIP_GRID_CLASS}>{children}</div>
-          {hasNextPage && (
-            <div className="mt-4 pb-8 flex flex-col items-center gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onLoadMore}
-                disabled={isFetchingNextPage}
-              >
-                {isFetchingNextPage ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  'Load More'
-                )}
-              </Button>
-              <span className="text-[10px] text-muted-foreground">
-                Showing {loadedCount} of {totalItems}
-              </span>
-            </div>
-          )}
+          <LibraryLoadMore
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            loadedCount={loadedCount}
+            totalItems={totalItems}
+            onLoadMore={onLoadMore}
+          />
           {!hasNextPage && <div className="pb-8" />}
         </>
       )}
     </div>
-  );
-}
-
-function ItemSkeleton() {
-  return (
-    <Card className="overflow-hidden w-full h-40">
-      <CardContent className="p-2.5 h-full flex flex-col">
-        <Skeleton className="w-full h-24 rounded mb-2 flex-shrink-0" />
-        <div className="flex-1 flex flex-col gap-1 min-h-0 text-xs">
-          <Skeleton className="h-3 w-3/4" />
-          <Skeleton className="h-2.5 w-1/2" />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

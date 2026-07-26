@@ -50,6 +50,8 @@ export const qk = {
     lists: ['clips', 'list'] as const,
     list: (args: {
       workspaceId: string;
+      /** null = every media in the workspace, id = one media's clips. */
+      mediaId: string | null;
       /** null = all directories, '' = workspace root, id = one directory. */
       directoryId: string | null;
       /** 'all' | one ClipType. */
@@ -59,6 +61,8 @@ export const qk = {
       sort: string;
       search: string;
     }) => ['clips', 'list', args] as const,
+    /** One clip by id — resolves a `?clip=` deep link outside the loaded window. */
+    detail: (id: string) => ['clips', 'detail', id] as const,
   },
   directories: {
     list: (workspaceId: string) => ['directories', workspaceId] as const,

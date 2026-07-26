@@ -11,6 +11,7 @@ import {
 import Image from 'next/image';
 import { Music } from 'lucide-react';
 import { useVideoSource } from '@/hooks/use-video-source';
+import type { ExpandedMediaClip } from '@/types/expanded-types';
 import { VideoPlayerUI } from './video-player-ui';
 import {
   MediaTypeIcon,
@@ -21,7 +22,8 @@ interface MediaVideoPlayerProps<
   E extends keyof MediaRelations = 'proxyFileRef' | 'thumbnailFileRef',
 > {
   media: Media | Expanded<Media, MediaRelations, E>;
-  clip?: MediaClip;
+  // Union because a clip can arrive from a list (expanded) or a by-id fetch.
+  clip?: MediaClip | ExpandedMediaClip;
   autoPlay?: boolean;
   className?: string;
   onTimeUpdate?: (time: number) => void;

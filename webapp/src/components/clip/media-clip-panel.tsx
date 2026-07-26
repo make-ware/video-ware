@@ -8,11 +8,15 @@ import { cn } from '@/lib/utils';
 
 interface MediaClipPanelProps {
   clipsContent: React.ReactNode;
+  /**
+   * Pinned above the clips scroll area (the filter/search/sort toolbar), so it
+   * stays put while a long, paged clip list scrolls under it.
+   */
+  clipsHeaderContent?: React.ReactNode;
   transcriptsContent: React.ReactNode;
   activeTab?: string;
   onTabChange?: (tab: string) => void;
   defaultTab?: string;
-  clipCount?: number;
   transcriptCount?: number;
   transcriptsHeaderContent?: React.ReactNode;
   className?: string;
@@ -20,11 +24,11 @@ interface MediaClipPanelProps {
 
 export function MediaClipPanel({
   clipsContent,
+  clipsHeaderContent,
   transcriptsContent,
   activeTab,
   onTabChange,
   defaultTab = 'clips',
-  clipCount: _clipCount,
   transcriptCount,
   transcriptsHeaderContent,
   className,
@@ -52,9 +56,16 @@ export function MediaClipPanel({
       <CardContent className="flex-1 flex flex-col overflow-hidden px-0 pt-0">
         <TabsContent
           value="clips"
-          className="flex-1 overflow-y-auto px-3 sm:px-6 max-h-[400px] lg:max-h-none mt-0"
+          className="flex-1 flex flex-col overflow-hidden max-h-[400px] lg:max-h-none mt-0"
         >
-          {clipsContent}
+          {/* Full-bleed: LibraryToolbar brings its own padding + border-b, so
+              it spans the card and reads as a real toolbar. */}
+          {clipsHeaderContent && (
+            <div className="flex-shrink-0">{clipsHeaderContent}</div>
+          )}
+          <div className="flex-1 overflow-y-auto px-3 sm:px-6 pt-3">
+            {clipsContent}
+          </div>
         </TabsContent>
 
         <TabsContent

@@ -116,7 +116,7 @@ describe('label search fan-out', () => {
     expect(perPage).toBe(100);
     expect(options.filter).toContain('WorkspaceRef = ws1');
     expect(options.filter).toContain('transcript ~ hello');
-    expect(options.sort).toBe('-confidence');
+    expect(options.sort).toBe('-confidence,id');
     // Attribution expands ride along so the ENTITY column resolves live.
     expect(options.expand).toBe(
       'MediaRef.UploadRef,LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
@@ -201,7 +201,7 @@ describe('label search fan-out', () => {
     const options = faces.getList.mock.calls[0][2];
     expect(options.filter).toContain('faceId = F1');
     expect(options.filter).toContain('avgConfidence >= 0.5');
-    expect(options.sort).toBe('-avgConfidence');
+    expect(options.sort).toBe('-avgConfidence,id');
     expect(hits).toHaveLength(1);
     expect(hits[0].type).toBe(LabelType.FACE);
   });
@@ -261,9 +261,10 @@ describe('label search fan-out', () => {
     });
 
     // The per-collection sort and the merge comparator must agree, or a
-    // source's "top K" would not be the top K.
-    expect(speech.getList.mock.calls[0][2].sort).toBe('start,MediaRef');
-    expect(objects.getList.mock.calls[0][2].sort).toBe('start,MediaRef');
+    // source's "top K" would not be the top K. The trailing `id` matches the
+    // comparator's id tiebreak, making each source's order total.
+    expect(speech.getList.mock.calls[0][2].sort).toBe('start,MediaRef,id');
+    expect(objects.getList.mock.calls[0][2].sort).toBe('start,MediaRef,id');
     expect(hits.map((h) => h.record.id)).toEqual(['ob1', 'sp1']);
   });
 

@@ -10,6 +10,7 @@ import {
   fetchUploadPage,
   formatBytes,
   mediaByUpload,
+  mediaByUploadIds,
   mediaTypeForFile,
   parseUploadStatus,
   replaceUploadFile,
@@ -733,11 +734,11 @@ describe('uploadListSpec', () => {
     });
   }
 
-  it('scopes to the workspace, newest first, 100 rows', async () => {
+  it('scopes to the workspace, newest first, at the pre-pagination 200 rows', async () => {
     const query = await queryFor({});
     expect(query.filter).toBe('WorkspaceRef = ws1');
     expect(query.sort).toBe('-created');
-    expect(query.perPage).toBe(100);
+    expect(query.perPage).toBe(200);
   });
 
   it('narrows to a status', async () => {
@@ -820,6 +821,29 @@ describe('attachUploadMedia', () => {
     const pb = fakePb({ Media: { getList } });
     expect(await attachUploadMedia(pb, [])).toEqual([]);
     expect(getList).not.toHaveBeenCalled();
+  });
+});
+
+describe('mediaByUploadIds', () => {
+  it('chunks the id filter so a 500-row page stays proxy-safe', async () => {
+    // A single `UploadRef = ... || ...` filter over hundreds of ids would
+    // outgrow the query-string limits of proxies in front of PocketBase.
+    const getList = vi.fn(
+      async (_page: number, _perPage: number, _opts: { filter?: string }) =>
+        listResult([])
+    );
+    const pb = fakePb({ Media: { getList } });
+
+    await mediaByUploadIds(
+      pb,
+      Array.from({ length: 250 }, (_, i) => `up${i}`)
+    );
+
+    expect(getList).toHaveBeenCalledTimes(3); // 100 + 100 + 50
+    const clauseCounts = getList.mock.calls.map(
+      (call) => call[2].filter!.split(' || ').length
+    );
+    expect(clauseCounts).toEqual([100, 100, 50]);
   });
 });
 

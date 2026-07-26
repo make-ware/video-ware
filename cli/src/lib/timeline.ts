@@ -104,6 +104,9 @@ export function parseTrackNames(value: string): string[] {
 export const timelineListSpec: ListSpec<Timeline> = {
   command: 'timeline list',
   sorts: TIMELINE_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     search: listFilter({
       flags: '--search <text>',

@@ -76,7 +76,7 @@ describe('TimelineClipMutator.getByTimeline', () => {
     expect(clips.map((c) => c.order)).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
-  it('sorts by order and filters to the timeline on every page', async () => {
+  it('sorts by order with an id tiebreak and filters to the timeline on every page', async () => {
     const items = Array.from({ length: 4 }, (_, i) => clip(`c${i}`, i));
     const getList = vi.fn(
       async (
@@ -99,7 +99,10 @@ describe('TimelineClipMutator.getByTimeline', () => {
     expect(getList).toHaveBeenCalledTimes(2);
     for (const [, , options] of getList.mock.calls) {
       expect(options.filter).toContain('TimelineRef = "tl1"');
-      expect(options.sort).toBe('order');
+      // The id tiebreak makes the order total: `order` uniqueness is only an
+      // app-level convention, and a tie at an OFFSET boundary would otherwise
+      // duplicate or drop a clip.
+      expect(options.sort).toBe('order,id');
     }
   });
 });

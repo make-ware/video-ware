@@ -6,6 +6,7 @@ import {
   fetchMergedAll,
   fetchMergedPage,
   maxMergedPage,
+  windowItems,
   type MergeSource,
 } from '../lib/list/index.js';
 import { listResult } from './fake-pb.js';
@@ -47,6 +48,35 @@ function rows(key: string, count: number, offset: number): Row[] {
     score: (i * 7 + offset) % 100,
   }));
 }
+
+describe('windowItems', () => {
+  const rows = ['a', 'b', 'c', 'd', 'e'];
+
+  it('returns everything as one page under --all', async () => {
+    const result = windowItems(rows, { page: 3, perPage: 2, all: true });
+    expect(result.items).toEqual(rows);
+    expect(result).toMatchObject({ page: 1, totalPages: 1, totalItems: 5 });
+  });
+
+  it('slices the requested window, keeping the full total', async () => {
+    const result = windowItems(rows, { page: 2, perPage: 2, all: false });
+    expect(result.items).toEqual(['c', 'd']);
+    // The envelope reports the REQUESTED window, so --limit/--page are never
+    // silently ignored and `hasMore` stays truthful.
+    expect(result).toMatchObject({
+      page: 2,
+      perPage: 2,
+      totalItems: 5,
+      totalPages: 3,
+    });
+  });
+
+  it('returns an empty page past the end', async () => {
+    expect(
+      windowItems(rows, { page: 9, perPage: 2, all: false }).items
+    ).toEqual([]);
+  });
+});
 
 describe('fetchAll / fetchAllPages', () => {
   it('walks every page in order', async () => {

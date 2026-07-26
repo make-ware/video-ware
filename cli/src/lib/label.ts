@@ -329,15 +329,23 @@ export const LABEL_LIST_SORTS: SortRegistry = [
   },
 ];
 
-/** One collection's sort string for a logical label sort key. */
+/**
+ * One collection's sort string for a logical label sort key.
+ *
+ * Each string ends in `id`, mirroring `labelHitCompare`'s id tiebreak: the
+ * per-source query must itself be a total order, because `fetchMergedPage`
+ * re-reads each source's top K on every page request — two rows tied on the
+ * primary keys could otherwise swap sides of that cutoff between requests,
+ * duplicating or dropping a row before the client-side comparator ever runs.
+ */
 export function labelPbSort(type: LabelType, logical: string): string {
   switch (logical) {
     case LABEL_SORT_CONFIDENCE:
-      return `-${LABEL_TYPE_META[type].confidenceField}`;
+      return `-${LABEL_TYPE_META[type].confidenceField},id`;
     case LABEL_SORT_MEDIA:
-      return 'MediaRef,start';
+      return 'MediaRef,start,id';
     default:
-      return 'start,MediaRef';
+      return 'start,MediaRef,id';
   }
 }
 

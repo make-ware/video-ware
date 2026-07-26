@@ -35,6 +35,13 @@ export interface ResolvedListQuery {
   all: boolean;
   /** Filter keys actually applied — drives the "narrow instead" footer. */
   applied: readonly string[];
+  /**
+   * The applied filters' values, parsed, keyed like `applied`. Fetchers MUST
+   * read filter values from here rather than the options bag: a required
+   * filter resolved through its interactive `pick` exists only in this record
+   * — commander's `opts` never learns about it.
+   */
+  values: Readonly<Record<string, unknown>>;
 }
 
 /** Environment the resolver needs but shouldn't read globally (testability). */
@@ -200,6 +207,7 @@ export async function resolveListQuery<T, TRow>(
   if (base) clauses.push(bindClause(ctx, base));
 
   const applied: string[] = [];
+  const appliedValues: Record<string, unknown> = {};
   // Spec key order, not caller order, so the same flags always compose the
   // same filter string (stable assertions, stable PB query cache keys).
   for (const [key, filter] of Object.entries(filters)) {
@@ -210,6 +218,7 @@ export async function resolveListQuery<T, TRow>(
     ) as never;
     const clause = await filter.clause(value, ctx);
     applied.push(key);
+    appliedValues[key] = value;
     if (!clause) continue;
     clauses.push(bindClause(ctx, clause));
   }
@@ -221,5 +230,6 @@ export async function resolveListQuery<T, TRow>(
     sort: resolveSort(spec, opts.sort),
     all,
     applied,
+    values: appliedValues,
   };
 }

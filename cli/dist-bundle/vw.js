@@ -60189,21 +60189,12 @@ var TimelineClipMutator = class extends BaseMutator {
    */
   async getByTimeline(timelineId) {
     const perPage = 500;
-    const first = await this.getList(
-      1,
-      perPage,
-      `TimelineRef = "${timelineId}"`,
-      "order"
-      // Explicit sort by order
-    );
+    const sort = "order,id";
+    const filter = `TimelineRef = "${timelineId}"`;
+    const first = await this.getList(1, perPage, filter, sort);
     const clips = [...first.items];
     for (let page = 2; page <= first.totalPages; page++) {
-      const next = await this.getList(
-        page,
-        perPage,
-        `TimelineRef = "${timelineId}"`,
-        "order"
-      );
+      const next = await this.getList(page, perPage, filter, sort);
       clips.push(...next.items);
     }
     return clips;
@@ -63810,12 +63801,14 @@ async function resolveListQuery(spec, opts, ctx, env = {}) {
   const base = spec.baseFilter?.(opts, ctx);
   if (base) clauses.push(bindClause(ctx, base));
   const applied = [];
+  const appliedValues = {};
   for (const [key, filter] of Object.entries(filters)) {
     if (!values.has(key)) continue;
     const raw = values.get(key);
     const value = filter.parse && typeof raw === "string" ? filter.parse(raw) : raw;
     const clause = await filter.clause(value, ctx);
     applied.push(key);
+    appliedValues[key] = value;
     if (!clause) continue;
     clauses.push(bindClause(ctx, clause));
   }
@@ -63825,7 +63818,8 @@ async function resolveListQuery(spec, opts, ctx, env = {}) {
     filter: joinClauses(clauses),
     sort: resolveSort(spec, opts.sort),
     all,
-    applied
+    applied,
+    values: appliedValues
   };
 }
 
@@ -64069,6 +64063,25 @@ async function fetchAllPages(getPage) {
     items
   };
 }
+function windowItems(rows, window2) {
+  if (window2.all) {
+    return {
+      page: 1,
+      perPage: rows.length,
+      totalItems: rows.length,
+      totalPages: 1,
+      items: [...rows]
+    };
+  }
+  const start = (window2.page - 1) * window2.perPage;
+  return {
+    page: window2.page,
+    perPage: window2.perPage,
+    totalItems: rows.length,
+    totalPages: Math.max(1, Math.ceil(rows.length / window2.perPage)),
+    items: rows.slice(start, start + window2.perPage)
+  };
+}
 function maxMergedPage(perPage, maxDepth = DEFAULT_MAX_MERGE_DEPTH) {
   return Math.max(1, Math.floor(maxDepth / Math.max(1, perPage)));
 }
@@ -64141,7 +64154,8 @@ async function present(args) {
       JSON.stringify(
         {
           ...listEnvelope(spec, rows, view, query.applied),
-          ...refine2?.extras?.(dropped) ?? {}
+          ...refine2?.extras?.(dropped) ?? {},
+          ...await args.jsonExtras?.() ?? {}
         },
         null,
         2
@@ -64171,7 +64185,8 @@ async function runList(args) {
     query,
     totalItems: result.totalItems,
     totalPages: result.totalPages,
-    refine: args.refine
+    refine: args.refine,
+    jsonExtras: args.jsonExtras
   });
 }
 async function runMergedList(args) {
@@ -64198,7 +64213,8 @@ async function runMergedList(args) {
     query,
     totalItems: merged.totalItems,
     totalPages: merged.totalPages,
-    refine: args.refine
+    refine: args.refine,
+    jsonExtras: args.jsonExtras
   });
 }
 
@@ -64279,13 +64295,17 @@ var LABEL_RANGE_SORTS = [
   {
     value: "media",
     description: "grouped by media, then chronological",
-    pbSort: "MediaRef,start"
+    pbSort: "MediaRef,start,id"
   },
-  { value: "start", description: "chronological", pbSort: "start,MediaRef" },
+  {
+    value: "start",
+    description: "chronological",
+    pbSort: "start,MediaRef,id"
+  },
   {
     value: "duration",
     description: "longest first",
-    pbSort: "-duration,MediaRef,start"
+    pbSort: "-duration,MediaRef,start,id"
   }
 ];
 
@@ -64313,6 +64333,9 @@ function parseTrackNames(value) {
 var timelineListSpec = {
   command: "timeline list",
   sorts: TIMELINE_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     search: listFilter({
       flags: "--search <text>",
@@ -65809,11 +65832,11 @@ var LABEL_LIST_SORTS = [
 function labelPbSort(type, logical) {
   switch (logical) {
     case LABEL_SORT_CONFIDENCE:
-      return `-${LABEL_TYPE_META[type].confidenceField}`;
+      return `-${LABEL_TYPE_META[type].confidenceField},id`;
     case LABEL_SORT_MEDIA:
-      return "MediaRef,start";
+      return "MediaRef,start,id";
     default:
-      return "start,MediaRef";
+      return "start,MediaRef,id";
   }
 }
 function labelHitCompare(logical) {
@@ -65974,7 +65997,10 @@ var labelListSpec = {
       flags: "--from <seconds>",
       description: "only labels overlapping at/after this source time",
       parse: parseSeconds,
-      clause: (start) => ({ expr: "end > {:wStart}", params: { wStart: start } })
+      clause: (start) => ({
+        expr: "end > {:wStart}",
+        params: { wStart: start }
+      })
     }),
     to: listFilter({
       flags: "--to <seconds>",
@@ -66874,15 +66900,17 @@ var workspaceListSpec = {
       })
     })
   },
-  columns: [
-    {
-      header: " ",
-      value: (w) => w.id === loadConfig().workspaceId ? "*" : ""
-    },
-    { header: "ID", value: (w) => w.id },
-    { header: "NAME", value: (w) => w.name },
-    { header: "SLUG", value: (w) => w.slug ?? "" }
-  ],
+  // A function so the config file is read once per render, not once per row
+  // (`loadConfig` is a synchronous disk read).
+  columns: () => {
+    const activeId = loadConfig().workspaceId;
+    return [
+      { header: " ", value: (w) => w.id === activeId ? "*" : "" },
+      { header: "ID", value: (w) => w.id },
+      { header: "NAME", value: (w) => w.name },
+      { header: "SLUG", value: (w) => w.slug ?? "" }
+    ];
+  },
   hint: "`vw workspace use <id>` switches the active workspace"
 };
 function registerWorkspaceCommands(program2) {
@@ -66984,31 +67012,33 @@ async function listDirectories(pb, workspaceId) {
     )
   );
 }
-var directoryListSpec = {
-  command: "directory list",
-  sorts: DIRECTORY_SORTS,
-  unpaged: true,
-  filters: {
-    search: listFilter({
-      flags: "--search <text>",
-      description: "match the directory name",
-      clause: (q) => ({ expr: "name ~ {:q}", params: { q } })
-    })
-  },
-  toRows: async (items, { pb, workspaceId }) => {
-    const counts = await mediaCountsByDirectory(pb, workspaceId);
-    return items.map((dir) => ({
-      ...dir,
-      mediaCount: counts.byDirectory.get(dir.id) ?? 0
-    }));
-  },
-  columns: [
-    { header: "ID", value: (d) => d.id },
-    { header: "NAME", value: (d) => d.name },
-    { header: "MEDIA", value: (d) => String(d.mediaCount) }
-  ],
-  hint: "`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId\u2026>` files media"
-};
+function makeDirectoryListSpec(counts) {
+  return {
+    command: "directory list",
+    sorts: DIRECTORY_SORTS,
+    unpaged: true,
+    filters: {
+      search: listFilter({
+        flags: "--search <text>",
+        description: "match the directory name",
+        clause: (q) => ({ expr: "name ~ {:q}", params: { q } })
+      })
+    },
+    toRows: async (items, { pb, workspaceId }) => {
+      const resolved2 = await counts(pb, workspaceId);
+      return items.map((dir) => ({
+        ...dir,
+        mediaCount: resolved2.byDirectory.get(dir.id) ?? 0
+      }));
+    },
+    columns: [
+      { header: "ID", value: (d) => d.id },
+      { header: "NAME", value: (d) => d.name },
+      { header: "MEDIA", value: (d) => String(d.mediaCount) }
+    ],
+    hint: "`vw media list -d <dir>` filters, `vw dir move <dir> <mediaId\u2026>` files media"
+  };
+}
 function fetchDirectoryPage(pb, query) {
   return directoryMutator(pb).getList(
     query.page,
@@ -67164,6 +67194,9 @@ function parseUploadStatus(value) {
 var uploadListSpec = {
   command: "upload list",
   sorts: UPLOAD_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     status: listFilter({
       flags: "--status <status>",
@@ -67212,14 +67245,26 @@ async function attachUploadMedia(pb, uploads) {
     return media ? { ...upload, mediaId: media.id } : upload;
   });
 }
+var UPLOAD_IDS_PER_REQUEST = 100;
 async function mediaByUploadIds(pb, uploadIds) {
   const map2 = /* @__PURE__ */ new Map();
   if (uploadIds.length === 0) return map2;
-  const filter = uploadIds.map((id) => pb.filter("UploadRef = {:u}", { u: id })).join(" || ");
-  const items = await fetchAll(
-    (page) => new MediaMutator(pb).getList(page, 200, filter)
+  const chunks = [];
+  for (let i2 = 0; i2 < uploadIds.length; i2 += UPLOAD_IDS_PER_REQUEST) {
+    chunks.push([...uploadIds.slice(i2, i2 + UPLOAD_IDS_PER_REQUEST)]);
+  }
+  const results = await Promise.all(
+    chunks.map(
+      (chunk) => fetchAll(
+        (page) => new MediaMutator(pb).getList(
+          page,
+          200,
+          chunk.map((id) => pb.filter("UploadRef = {:u}", { u: id })).join(" || ")
+        )
+      )
+    )
   );
-  for (const media of items) {
+  for (const media of results.flat()) {
     if (media.UploadRef) map2.set(media.UploadRef, media);
   }
   return map2;
@@ -68171,6 +68216,9 @@ var mediaSearchFilter = listFilter({
 var mediaListSpec = {
   command: "media list",
   sorts: MEDIA_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   filters: {
     directory: directoryFilter("DirectoryRef"),
     type: listFilter({
@@ -68196,6 +68244,8 @@ function fetchMediaPage(pb, query) {
 var mediaClipListSpec = {
   command: "media clip list",
   sorts: MEDIA_CLIP_SORTS,
+  // Pre-pagination page size — see mediaListSpec.
+  defaultLimit: 200,
   filters: {
     media: listFilter({
       flags: "-m, --media <id>",
@@ -69931,6 +69981,9 @@ function registerDirectoryCommands(program2) {
   const directory = program2.command("directory").alias("dir").description(
     'Optional, flat media folders (e.g. per shoot or location) \u2014 purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media\u2019s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
   );
+  let countsPromise;
+  const countsOnce = (pb, workspaceId) => countsPromise ??= mediaCountsByDirectory(pb, workspaceId);
+  const directoryListSpec = makeDirectoryListSpec(countsOnce);
   withListOptions(
     directory.command("list").alias("ls").description(
       "List directories in the active workspace with media counts"
@@ -69944,10 +69997,16 @@ function registerDirectoryCommands(program2) {
         spec: directoryListSpec,
         opts,
         ctx: { pb, workspaceId },
-        fetchPage: (query) => fetchDirectoryPage(pb, query)
+        fetchPage: (query) => fetchDirectoryPage(pb, query),
+        // Workspace-wide counts scripts have always read from this envelope —
+        // kept top-level alongside the pagination keys.
+        jsonExtras: async () => {
+          const counts = await countsOnce(pb, workspaceId);
+          return { unfiledMedia: counts.root, totalMedia: counts.total };
+        }
       });
       if (!opts.json) {
-        const counts = await mediaCountsByDirectory(pb, workspaceId);
+        const counts = await countsOnce(pb, workspaceId);
         info(
           counts.byDirectory.size === 0 ? `Directories are optional \u2014 all ${counts.total} media sit at the workspace root. vw dir create <name> makes one.` : `${counts.root} of ${counts.total} media are unfiled (workspace root) \u2014 vw media list -d / lists them.`
         );
@@ -70582,6 +70641,9 @@ function captionTypeOf(caption) {
 var captionListSpec = {
   command: "caption list",
   sorts: CAPTION_SORTS,
+  // The pre-pagination handler read a fixed 200 rows; keep that page size so
+  // scripts that read `.items` without checking `hasMore` see no fewer rows.
+  defaultLimit: 200,
   baseFilter: (opts) => opts.includeTranscripts || opts.media ? null : { expr: 'MediaRef = ""' },
   filters: {
     includeTranscripts: listFilter({
@@ -71528,15 +71590,13 @@ function registerTimelineTrackCommands(timeline) {
         spec: timelineTrackListSpec,
         opts,
         ctx: { pb },
-        fetchPage: async () => {
-          const result = await listTracks(pb, opts.timeline);
-          return {
-            page: 1,
-            perPage: result.items.length,
-            totalItems: result.totalItems,
-            totalPages: 1,
-            items: result.items
-          };
+        // `query.values.timeline`, not `opts.timeline`: when the timeline came
+        // from the interactive picker it exists only on the resolved query.
+        // Rows are derived whole (CLIPS counts need the full timeline), then
+        // `--limit`/`--page` window that view like `timeline clips list`.
+        fetchPage: async (query) => {
+          const result = await listTracks(pb, query.values.timeline);
+          return windowItems(result.items, query);
         }
       });
     } catch (err) {
@@ -71621,23 +71681,7 @@ async function fetchTimelineClipRows(pb, opts) {
   const rows = tracks.flatMap(
     (t2) => t2.clips.map((c) => ({ ...c, layer: t2.layer }))
   );
-  if (opts.all) {
-    return {
-      page: 1,
-      perPage: rows.length,
-      totalItems: rows.length,
-      totalPages: 1,
-      items: rows
-    };
-  }
-  const start = (opts.page - 1) * opts.perPage;
-  return {
-    page: opts.page,
-    perPage: opts.perPage,
-    totalItems: rows.length,
-    totalPages: Math.max(1, Math.ceil(rows.length / opts.perPage)),
-    items: rows.slice(start, start + opts.perPage)
-  };
+  return windowItems(rows, opts);
 }
 var timelineClipListSpec = {
   command: "timeline clips list",
@@ -71695,9 +71739,11 @@ function registerTimelineClipCommands(timeline) {
         // `-w` is validated against the timeline's own workspace (in
         // fetchTimelineClipRows), not used as a filter, so it stays out of ctx.
         ctx: { pb },
+        // `query.values`, not `opts`: a timeline resolved through the
+        // interactive picker exists only on the resolved query.
         fetchPage: (query) => fetchTimelineClipRows(pb, {
-          timelineId: opts.timeline,
-          track: opts.track,
+          timelineId: query.values.timeline,
+          track: query.values.track,
           page: query.page,
           perPage: query.perPage,
           all: query.all

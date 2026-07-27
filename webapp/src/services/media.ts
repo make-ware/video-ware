@@ -7,7 +7,6 @@ import {
   TaskMutator,
   UploadMutator,
   LabelJobMutator,
-  trackEntityAttributionFilter,
 } from '@project/shared/mutator';
 import type {
   Media,
@@ -179,16 +178,16 @@ export class MediaService {
     }
     if (query.entityId) {
       // "Tagged with, or appears as" — the curator's tag plus label
-      // attribution through the media's tracks (direct link, else the
-      // provider cluster's link). PB can't correlate two conditions on the
-      // same back-relation, so a track re-linked away from a cluster that
-      // points at this entity still matches its media: marginally broader
-      // than the MediaEntities view's per-track precedence.
+      // attribution. The label side reads LabelEntity directly rather than
+      // hopping through LabelTrack: LabelEntity is per-media and is the only
+      // link point, so this is one hop AND it covers shots and segments,
+      // which carry no LabelTrackRef and were invisible to a track-rooted
+      // filter. Kept in step with `listMediaIdsLinkedToEntity` below, which
+      // mirrors this filter client-side for realtime inserts.
       clauses.push(
         this.pb.filter(
           '(MediaTags_via_MediaRef.EntityRef ?= {:entity}' +
-            ' || LabelTrack_via_MediaRef.EntityRef ?= {:entity}' +
-            ' || LabelTrack_via_MediaRef.LabelEntityRef.EntityRef ?= {:entity})',
+            ' || LabelEntity_via_MediaRef.EntityRef ?= {:entity})',
           { entity: query.entityId }
         )
       );
@@ -227,16 +226,21 @@ export class MediaService {
     entityId: string,
     cap = 2000
   ): Promise<Set<string>> {
-    const [tags, tracks] = await Promise.all([
+    const [tags, labelEntities] = await Promise.all([
       new MediaTagMutator(this.pb).getByEntity(entityId, 1, cap),
-      this.pb.collection('LabelTrack').getList(1, cap, {
-        filter: trackEntityAttributionFilter(entityId),
+      this.pb.collection('LabelEntity').getList(1, cap, {
+        filter: this.pb.filter('EntityRef = {:entity}', { entity: entityId }),
         fields: 'MediaRef',
       }),
     ]);
     const ids = new Set<string>();
     for (const tag of tags.items) ids.add(tag.MediaRef);
-    for (const track of tracks.items) ids.add(track.MediaRef);
+    // MediaRef is optional on LabelEntity: the per-instance migration's
+    // safety catch leaves a legacy workspace-wide row in place if anything
+    // still points at it. Such a row belongs to no media.
+    for (const entity of labelEntities.items) {
+      if (entity.MediaRef) ids.add(entity.MediaRef);
+    }
     return ids;
   }
 

@@ -17,7 +17,7 @@ import { useMultiSelect } from '@/hooks/use-multi-select';
 import { useRegisterPageMenu } from '@/hooks/use-page-menu';
 import type { PageMenuItem } from '@/contexts/page-menu-context';
 import {
-  useAssignTracksEntity,
+  useAssignLabelEntities,
   useWorkspaceEntities,
 } from '@/hooks/use-entities';
 import type { EntityDisplay } from '@/components/labels/entity/entity-badge';
@@ -163,16 +163,18 @@ export function LabelInspectorPage({
     });
   };
 
-  const assignTracks = useAssignTracksEntity();
+  const assignLabels = useAssignLabelEntities();
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.has(r.id)),
     [records, selectedIds]
   );
-  const selectedTrackIds = useMemo(() => {
+  // Bulk-assign writes LabelEntity, which every label row carries — so the
+  // two trackless types (shots, segments) are now bulk-linkable too.
+  const selectedLabelEntityIds = useMemo(() => {
     const ids = new Set<string>();
     for (const record of selectedRecords) {
-      const trackId = (record as { LabelTrackRef?: string }).LabelTrackRef;
-      if (trackId) ids.add(trackId);
+      const id = (record as { LabelEntityRef?: string }).LabelEntityRef;
+      if (id) ids.add(id);
     }
     return [...ids];
   }, [selectedRecords]);
@@ -182,12 +184,12 @@ export function LabelInspectorPage({
   }, [selectedRecords]);
 
   const handleBulkAssign = (entityId: string | null) => {
-    if (selectedTrackIds.length === 0) {
-      toast.error('None of the selected labels have a track to link');
+    if (selectedLabelEntityIds.length === 0) {
+      toast.error('None of the selected labels can be linked');
       return;
     }
-    assignTracks.mutate(
-      { trackIds: selectedTrackIds, entityId },
+    assignLabels.mutate(
+      { labelEntityIds: selectedLabelEntityIds, entityId },
       { onSuccess: () => multi.clearSelection() }
     );
   };
@@ -239,7 +241,7 @@ export function LabelInspectorPage({
               total={records.length}
               sharedEntityId={sharedEntityId}
               workspaceId={workspaceId}
-              isAssigning={assignTracks.isPending}
+              isAssigning={assignLabels.isPending}
               onAssign={handleBulkAssign}
               onSelectAll={selectAll}
               onClear={clearSelection}

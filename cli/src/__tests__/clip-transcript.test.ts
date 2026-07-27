@@ -99,7 +99,7 @@ const speakerRow = {
     { text: 'this', start: 51, end: 52, speakerId: 'speaker_0' },
   ],
   expand: {
-    LabelTrackRef: {
+    LabelEntityRef: {
       expand: { EntityRef: { id: 'e1', name: 'Erik', kind: 'person' } },
     },
   },
@@ -147,7 +147,7 @@ describe('mediaClipTranscript', () => {
     expect(u.speaker).toEqual({
       speakerId: 'speaker_0',
       label: 'Speaker 1 (Erik)',
-      entity: { id: 'e1', name: 'Erik', kind: 'person', via: 'track' },
+      entity: { id: 'e1', name: 'Erik', kind: 'person' },
     });
     expect(u.omittedWords).toBe(2);
     expect(u.timelineStart).toBeUndefined();

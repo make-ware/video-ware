@@ -7,39 +7,22 @@ import { BaseMutator, type MutatorOptions } from './base';
 import { EntityKind } from '../enums';
 
 /**
- * PB filter matching label rows attributed to an entity, applying the
- * precedence rule: an explicit per-media track link wins; the provider
- * cluster (LabelEntity) link only applies to rows whose track is unlinked.
- * Works for any label collection carrying LabelTrackRef + LabelEntityRef.
+ * PB filter matching rows attributed to an entity.
+ *
+ * One hop, one shape, for every collection that carries a LabelEntityRef —
+ * all eight leaf label types AND LabelTrack itself. LabelEntity is the single
+ * link point: it is per-media and per-instance, so there is nothing left to
+ * take precedence over.
+ *
+ * This replaced three separate filters encoding a two-level precedence rule
+ * (track link wins, cluster link is the fallback, plus a third variant for
+ * the two collections with no track at all). That rule was written out in
+ * eight places across PB filters, two view definitions, the webapp and the
+ * CLI; keeping them in agreement was a standing liability. Existing links
+ * were folded into LabelEntity.EntityRef by the per-instance migration, so
+ * this filter returns exactly what the old precedence chain returned.
  */
 export function entityAttributionFilter(entityId: string): string {
-  return (
-    `(LabelTrackRef.EntityRef = "${entityId}" || ` +
-    `(LabelTrackRef.EntityRef = "" && LabelEntityRef.EntityRef = "${entityId}"))`
-  );
-}
-
-/**
- * The same precedence rule expressed for the LabelTrack collection itself,
- * where the two link points are the track's own EntityRef and its provider
- * cluster's LabelEntityRef.EntityRef. Each matching track is one appearance
- * range (start/end) of the entity in one media.
- */
-export function trackEntityAttributionFilter(entityId: string): string {
-  return (
-    `(EntityRef = "${entityId}" || ` +
-    `(EntityRef = "" && LabelEntityRef.EntityRef = "${entityId}"))`
-  );
-}
-
-/**
- * Attribution filter for label collections that have no LabelTrackRef field
- * (LabelShot, LabelSegment): the provider cluster's Entity link is the only
- * link point, so referencing LabelTrackRef there would be a PocketBase
- * unknown-field error. Use entityAttributionFilter for collections that
- * carry a track.
- */
-export function clusterEntityAttributionFilter(entityId: string): string {
   return `LabelEntityRef.EntityRef = "${entityId}"`;
 }
 

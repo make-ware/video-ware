@@ -2,13 +2,12 @@
 
 import { useMemo, useState } from 'react';
 import { LabelType } from '@project/shared';
-import { useMediaTracksByType } from '@/hooks/use-media-tracks-by-type';
-import { useAssignTrackEntity } from '@/hooks/use-entities';
+import { useAssignLabelEntity } from '@/hooks/use-entities';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
 import {
   deriveSpeakerSummaries,
-  missingTrackLabel,
+  missingEntityLabel,
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
@@ -27,7 +26,6 @@ interface SpeakerTranscriptPanelProps {
   /** Diarized speaker utterances, sorted by start (from useMediaSpeakers). */
   utterances: SpeakerUtterance[];
   isLoading: boolean;
-  mediaId: string;
   workspaceId: string;
   /** Seek (and play) the video to a timestamp, in seconds. */
   onSeek: (timeSeconds: number) => void;
@@ -43,11 +41,10 @@ interface SpeakerTranscriptPanelProps {
 export function SpeakerTranscriptPanel({
   utterances,
   isLoading,
-  mediaId,
   workspaceId,
   onSeek,
 }: SpeakerTranscriptPanelProps) {
-  const assignEntity = useAssignTrackEntity();
+  const assignEntity = useAssignLabelEntity();
   const createClip = useCreateClipFromLabel();
 
   const [query, setQuery] = useState('');
@@ -60,17 +57,6 @@ export function SpeakerTranscriptPanel({
     () => deriveSpeakerSummaries(utterances),
     [utterances]
   );
-
-  // Speakers arrive with their track already expanded off LabelTrackRef, so
-  // normally nothing is fetched here. Only rows predating that FK fall back to
-  // a by-type lookup, matched on the provider speaker id.
-  const {
-    byTrackId,
-    isPending: tracksPending,
-    error: tracksError,
-  } = useMediaTracksByType(mediaId, LabelType.SPEAKER, {
-    enabled: speakers.some((s) => !s.track),
-  });
   const colorIndexBySpeaker = useMemo(
     () => new Map(speakers.map((s) => [s.speakerId, s.colorIndex])),
     [speakers]
@@ -157,7 +143,7 @@ export function SpeakerTranscriptPanel({
           </div>
           <div className="space-y-1.5">
             {speakers.map((s) => {
-              const track = s.track ?? byTrackId.get(s.speakerId);
+              const labelEntity = s.labelEntity;
               return (
                 <div
                   key={s.speakerId}
@@ -177,21 +163,24 @@ export function SpeakerTranscriptPanel({
                   >
                     {prettySpeakerId(s.speakerId)}
                   </span>
-                  {track ? (
+                  {labelEntity ? (
                     <EntityPicker
                       workspaceId={workspaceId}
-                      value={track.EntityRef}
+                      value={labelEntity.EntityRef}
                       onChange={(entityId) =>
-                        assignEntity.mutate({ trackId: track.id, entityId })
+                        assignEntity.mutate({
+                          labelEntityId: labelEntity.id,
+                          entityId,
+                        })
                       }
                       disabled={assignEntity.isPending}
                       className="ml-auto w-40"
                     />
                   ) : (
                     <span className="ml-auto text-xs text-muted-foreground">
-                      {missingTrackLabel({
-                        isPending: tracksPending,
-                        error: tracksError,
+                      {missingEntityLabel({
+                        isPending: isLoading,
+                        error: null,
                       })}
                     </span>
                   )}

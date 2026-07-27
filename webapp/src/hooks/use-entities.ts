@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   EntityMutator,
   EntityStatsMutator,
+  LabelEntityMutator,
   LabelSpeakerMutator,
-  LabelTrackMutator,
   entityAttributionFilter,
-  trackEntityAttributionFilter,
 } from '@project/shared/mutator';
 import type {
   Entity,
+  LabelEntity,
   LabelSpeaker,
   LabelTrack,
   Media,
@@ -80,26 +80,31 @@ export function useCreateEntity(workspaceId: string) {
 }
 
 /**
- * Link (or, with null, unlink) a label track to an entity — the per-media
- * "this face track / this speaker is Erik" operation. Invalidates every
- * query that renders the link: entity views, track lists, label inspectors.
+ * Link (or, with null, unlink) a label to an entity — the "this speaker /
+ * this face / this object is Erik" operation.
+ *
+ * Writes LabelEntity, the single link point. It is per-media and
+ * per-instance, so linking one media's "Speaker 1" says nothing about any
+ * other media's. Invalidates every query that renders the link: entity views,
+ * track lists, label inspectors, speaker transcripts.
  */
-export function useAssignTrackEntity() {
+export function useAssignLabelEntity() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
-      trackId: string;
+      labelEntityId: string;
       entityId: string | null;
-    }): Promise<LabelTrack> =>
-      new LabelTrackMutator(pb).setEntity(input.trackId, input.entityId),
-    onSuccess: (_track, { entityId }) => {
+    }): Promise<LabelEntity> =>
+      new LabelEntityMutator(pb).setEntity(input.labelEntityId, input.entityId),
+    onSuccess: (_labelEntity, { entityId }) => {
       toast.success(entityId ? 'Linked to entity' : 'Entity link removed');
       void queryClient.invalidateQueries({ queryKey: qk.entities.all });
       void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
       void queryClient.invalidateQueries({ queryKey: ['labels'] });
-      // Speaker utterances expand LabelTrackRef.EntityRef for transcript
-      // labels, so a re-link makes that cached expand stale.
+      // Speaker utterances expand LabelEntityRef for both the display name and
+      // the linked entity, so a re-link makes that cached expand stale.
       void queryClient.invalidateQueries({ queryKey: ['speakers'] });
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
     },
     onError: (error) => {
       toast.error(
@@ -110,23 +115,21 @@ export function useAssignTrackEntity() {
 }
 
 /**
- * Bulk variant of useAssignTrackEntity for the label inspectors'
- * multi-select: link (or, with null, unlink) many tracks to one entity in a
+ * Bulk variant of useAssignLabelEntity for the label inspectors'
+ * multi-select: link (or, with null, unlink) many labels to one entity in a
  * single action. Partial failures are tolerated — successful links land and
  * the toast reports the failure count.
  */
-export function useAssignTracksEntity() {
+export function useAssignLabelEntities() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
-      trackIds: string[];
+      labelEntityIds: string[];
       entityId: string | null;
     }): Promise<{ total: number; failed: number }> => {
-      const mutator = new LabelTrackMutator(pb);
+      const mutator = new LabelEntityMutator(pb);
       const results = await Promise.allSettled(
-        input.trackIds.map((trackId) =>
-          mutator.setEntity(trackId, input.entityId)
-        )
+        input.labelEntityIds.map((id) => mutator.setEntity(id, input.entityId))
       );
       return {
         total: results.length,
@@ -135,10 +138,10 @@ export function useAssignTracksEntity() {
     },
     onSuccess: ({ total, failed }, { entityId }) => {
       const linked = total - failed;
-      const noun = `track${linked === 1 ? '' : 's'}`;
+      const noun = `label${linked === 1 ? '' : 's'}`;
       if (failed > 0) {
         toast.warning(
-          `Updated ${linked} of ${total} tracks — ${failed} failed`
+          `Updated ${linked} of ${total} labels — ${failed} failed`
         );
       } else {
         toast.success(
@@ -151,6 +154,7 @@ export function useAssignTracksEntity() {
       void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
       void queryClient.invalidateQueries({ queryKey: ['labels'] });
       void queryClient.invalidateQueries({ queryKey: ['speakers'] });
+      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
     },
     onError: (error) => {
       toast.error(
@@ -317,7 +321,7 @@ export function useEntityStats(entityId: string) {
     queryFn: async () => {
       const [tracks, speakers] = await Promise.all([
         pb.collection('LabelTrack').getFullList({
-          filter: trackEntityAttributionFilter(entityId),
+          filter: entityAttributionFilter(entityId),
           fields: 'MediaRef',
         }),
         new LabelSpeakerMutator(pb).getList(

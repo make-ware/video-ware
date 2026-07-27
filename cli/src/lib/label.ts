@@ -40,12 +40,11 @@ import {
 
 /**
  * A label row, possibly expanded with its media (and that media's upload)
- * and the two entity link points its attribution resolves through.
+ * and the LabelEntity its attribution resolves through.
  */
 export type LabelRecord = ActualizableLabel & {
   expand?: {
     MediaRef?: MediaWithUpload;
-    LabelTrackRef?: { expand?: { EntityRef?: Entity } };
     LabelEntityRef?: { expand?: { EntityRef?: Entity } };
   };
 };
@@ -60,8 +59,6 @@ export interface AttributedEntity {
   id: string;
   name: string;
   kind: Entity['kind'];
-  /** Which link point resolved it: the row's own track, or its cluster. */
-  via: 'track' | 'cluster';
 }
 
 /** One search/list result: a label row tagged with its label type. */
@@ -96,36 +93,24 @@ function textField(record: LabelRecord, key: string): string {
 }
 
 /**
- * The Entity a label row is attributed to, resolved from the expanded link
- * points with the model's precedence: the row's track link wins, the
- * provider cluster's link is the fallback. Null when unattributed (or when
- * the query didn't request the attribution expands).
+ * The Entity a label row is attributed to, read off its expanded
+ * LabelEntity — one hop, the model's only link point. Null when unattributed
+ * (or when the query didn't request the attribution expands).
  */
 export function attributedEntityOf(record: LabelRecord): Entity | null {
-  return (
-    record.expand?.LabelTrackRef?.expand?.EntityRef ??
-    record.expand?.LabelEntityRef?.expand?.EntityRef ??
-    null
-  );
+  return record.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
 }
 
 /**
- * The attributed Entity as the compact summary label outputs embed, with
- * the link point it resolved through. Same precedence (and same null cases)
- * as attributedEntityOf.
+ * The attributed Entity as the compact summary label outputs embed. Same
+ * resolution (and same null cases) as attributedEntityOf.
  */
 export function attributedEntitySummaryOf(
   record: LabelRecord
 ): AttributedEntity | null {
-  const viaTrack = record.expand?.LabelTrackRef?.expand?.EntityRef;
-  const entity = viaTrack ?? record.expand?.LabelEntityRef?.expand?.EntityRef;
+  const entity = attributedEntityOf(record);
   if (!entity) return null;
-  return {
-    id: entity.id,
-    name: entity.name,
-    kind: entity.kind,
-    via: viaTrack ? 'track' : 'cluster',
-  };
+  return { id: entity.id, name: entity.name, kind: entity.kind };
 }
 
 /** Build a LabelHit, attaching the attributed-entity context when present. */

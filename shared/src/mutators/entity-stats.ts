@@ -1,5 +1,5 @@
 import { RecordService } from 'pocketbase';
-import type { EntityStats } from '../schema/entity-stats';
+import type { EntityStats } from '../schema/entity-stats-view';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator } from './base';
 

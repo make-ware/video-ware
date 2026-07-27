@@ -1,6 +1,6 @@
 import { RecordService } from 'pocketbase';
-import type { MediaEntities } from '../schema/media-entities';
-import { mediaEntityLinksOf } from '../schema/media-entities';
+import type { MediaEntities } from '../schema/media-entities-view';
+import { mediaEntityLinksOf } from '../schema/media-entities-view';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator } from './base';
 

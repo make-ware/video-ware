@@ -33,8 +33,12 @@ export const LabelTrackSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     MediaRef: RelationField({ collection: 'Media' }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
-    // Manual link to a real-world Entity ("this track is Erik"). Per-media
-    // instance identity — takes precedence over LabelEntity.EntityRef.
+    // RETIRED — do not read, do not write. The manual "this track is Erik"
+    // link moved to LabelEntity.EntityRef when LabelEntity became per-media
+    // and per-instance; the per-instance migration folded every value here
+    // into that field and left this one populated purely as a recovery net.
+    // A write lands in the database and changes nothing, which is why the
+    // mutator no longer offers one. Dropped by a later migration.
     EntityRef: RelationField({ collection: 'Entities' }).optional(),
 
     // --- Identification ---
@@ -77,6 +81,9 @@ export const LabelTrackInputSchema = z.object({
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   MediaRef: z.string().min(1, 'Media is required'),
   LabelEntityRef: z.string().optional(),
+  // Retired alongside the schema field above — declared so a stray write is
+  // at least visible in the record rather than silently dropped, never sent
+  // by anything in the codebase.
   EntityRef: z.string().optional(),
 
   // --- Identification ---
@@ -85,7 +92,7 @@ export const LabelTrackInputSchema = z.object({
   // Must be listed here or it never persists: this is a non-strict z.object,
   // so validateInput silently drops any key it doesn't declare (which is why
   // the worker's provider/processor/version writes vanish).
-  labelType: z.nativeEnum(LabelType).optional(),
+  labelType: z.enum(LabelType).optional(),
 
   // --- Timing ---
   start: z.number().min(0),
@@ -110,10 +117,11 @@ export const LabelTrackCollection = defineCollection({
     'CREATE INDEX idx_label_track_media_entity ON LabelTrack (MediaRef, LabelEntityRef)',
     // Index for workspace + media queries
     'CREATE INDEX idx_label_track_workspace_media ON LabelTrack (WorkspaceRef, MediaRef)',
-    // Index for entity queries ("all tracks linked to this entity")
+    // Vestigial, like the EntityRef field it covers — kept only so the index
+    // set matches the live database until the drop migration removes both.
     'CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)',
-    // Workspace-wide cluster traversal in trackEntityAttributionFilter —
-    // the (MediaRef, LabelEntityRef) composite can't serve it alone.
+    // The attribution hop: "tracks whose LabelEntity is linked to X", which
+    // the (MediaRef, LabelEntityRef) composite can't serve on its own.
     'CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)',
     // "This media's tracks of kind X" — the speaker/face identification UIs.
     'CREATE INDEX idx_label_track_media_type ON LabelTrack (MediaRef, labelType)',

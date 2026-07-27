@@ -162,22 +162,13 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
         }
       );
 
-      // Step 4: Batch insert LabelEntity records
-      // Map speaker tags to entity IDs
-      const entityMap = new Map<number, string>();
-      for (const entity of normalizedData.labelEntities) {
-        const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-          entity.WorkspaceRef,
-          entity.labelType,
-          entity.canonicalName,
-          entity.provider as ProcessingProvider.GOOGLE_SPEECH,
-          entity.processor,
-          entity.metadata
-        );
-        const speakerTag =
-          (entity.metadata as { speakerTag?: number })?.speakerTag ?? 0;
-        entityMap.set(speakerTag, entityId);
-      }
+      // Step 4: Resolve one LabelEntity per speaker tag, scoped to this media.
+      // Keyed by the tag as a string — the entity's instanceId. Previously
+      // keyed by name alone, which is how a single "Track 0" record ended up
+      // shared between two unrelated videos.
+      const entityMap = await this.labelEntityService.resolveEntities(
+        normalizedData.labelEntities
+      );
       this.logger.debug(`Processed ${entityMap.size} speaker entities`);
 
       // Step 5: Upsert one LabelTrack per speaker tag.
@@ -189,7 +180,9 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
           (track.trackData as { speakerTag?: number })?.speakerTag ?? 0;
         return {
           speakerTag,
-          data: { ...track, LabelEntityRef: entityMap.get(speakerTag) },
+          // entityMap is keyed by instanceId, which for speech is the tag as
+          // a string (it is also the track's trackId).
+          data: { ...track, LabelEntityRef: entityMap.get(String(speakerTag)) },
         };
       });
 
@@ -205,7 +198,7 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
           const speakerTag = speech.speakerTag ?? 0;
           return {
             ...speech,
-            LabelEntityRef: entityMap.get(speakerTag),
+            LabelEntityRef: entityMap.get(String(speakerTag)),
             LabelTrackRef: tracks.idsBySpeakerTag.get(speakerTag),
           };
         }
@@ -215,9 +208,6 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
       this.logger.debug(
         `Upserted ${speech.ids.length} of ${speechToUpsert.length} label speech segments`
       );
-
-      // Clear entity cache after processing
-      this.labelEntityService.clearCache();
 
       // A speaker with no LabelTrack row cannot be linked to an Entity in the
       // UI, so a partial write is a failed step. Segments are written first so
@@ -272,9 +262,10 @@ export class SpeechTranscriptionStepProcessor extends BaseStepProcessor<
    *
    * Returns the record id for every speaker tag whose track is now in the DB,
    * so callers can link segments by tag rather than by array position.
-   * Existing tracks have their provider cluster link reconciled so a re-run
-   * repairs rows left unlinked by an earlier partial write; `EntityRef` — the
-   * editor's manual link — is never touched.
+   * Existing tracks have their LabelEntity link reconciled so a re-run
+   * repairs rows left unlinked by an earlier partial write. Nothing else on
+   * the track is rewritten; the editor's manual link lives on the LabelEntity
+   * and survives regeneration with it.
    */
   private async upsertLabelTracks(
     tracks: Array<{ speakerTag: number; data: LabelTrackData }>

@@ -57540,7 +57540,10 @@ var EntityStatsSchema = external_exports.object({
   WorkspaceRef: external_exports.string(),
   /** Attributed LabelTrack rows — the entity's tracked appearances. */
   trackCount: external_exports.number(),
-  /** Distinct media those tracks appear in. */
+  /**
+   * Distinct media with any attributed LabelEntity — includes media whose
+   * only link is a trackless shot or segment.
+   */
   mediaCount: external_exports.number(),
   /** Attributed LabelSpeaker rows — what the entity spoke. */
   utteranceCount: external_exports.number(),
@@ -57896,6 +57899,11 @@ var FileCollection = defineCollection({
 });
 var LabelEntitySchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
+  // The media this instance was detected in. Optional at the PocketBase
+  // layer only so the per-instance backfill could not fail on rows with
+  // nothing to derive a media from; LabelEntityInputSchema requires it, so
+  // every write since is media-scoped.
+  MediaRef: RelationField({ collection: "Media" }).optional(),
   labelType: SelectField([
     "object",
     "shot",
@@ -57917,17 +57925,27 @@ var LabelEntitySchema = external_exports.object({
   ]),
   processor: TextField(),
   // e.g., "object-tracking:1.0.0"
+  // The provider's key for this instance within the media: the trackId for
+  // the six tracked types, the row's own shotHash/segmentHash for the two
+  // cluster-only ones. Paired with MediaRef it is what makes one row mean
+  // one thing rather than one word.
+  instanceId: TextField().optional(),
   metadata: JSONField().optional(),
   // Provider-specific data
+  // Uniqueness key, a readable composite rather than a digest —
+  // "ws:media:labelType:instanceId:provider". Kept plain deliberately: it is
+  // never compared across systems, and SQL migrations have to be able to
+  // reconstruct it (SQLite has no SHA-256).
   entityHash: TextField({ min: 1 }),
-  // Unique constraint for deduplication
-  // Manual link to a real-world Entity ("every label in this cluster is
-  // this product/person"). Workspace-wide semantic identity — a track-level
-  // LabelTrack.EntityRef takes precedence over this fallback.
+  // The link to a real-world Entity — "this speaker is Erik". Per-media,
+  // per-instance, and the single source of truth: nothing overrides it.
   EntityRef: RelationField({ collection: "Entities" }).optional()
 }).extend(baseSchema);
 var LabelEntityInputSchema = external_exports.object({
   WorkspaceRef: external_exports.string().min(1, "Workspace is required"),
+  // Required here even though the PB field is optional — a new LabelEntity
+  // without a media is the workspace-wide row this model exists to eliminate.
+  MediaRef: external_exports.string().min(1, "Media is required"),
   labelType: external_exports.enum([
     "object",
     "shot",
@@ -57947,6 +57965,7 @@ var LabelEntityInputSchema = external_exports.object({
     /* ELEVENLABS */
   ]),
   processor: external_exports.string().min(1, "Processor is required"),
+  instanceId: external_exports.string().min(1, "Instance id is required"),
   metadata: JSONField().optional(),
   entityHash: external_exports.string().min(1, "Entity hash is required"),
   EntityRef: external_exports.string().optional()
@@ -57963,7 +57982,11 @@ var LabelEntityCollection = defineCollection({
     // Index for canonicalName searches
     "CREATE INDEX idx_label_entity_canonical_name ON LabelEntity (canonicalName)",
     // Index for entity queries ("all label clusters linked to this entity")
-    "CREATE INDEX idx_label_entity_entity ON LabelEntity (EntityRef)"
+    "CREATE INDEX idx_label_entity_entity ON LabelEntity (EntityRef)",
+    // "This media's speaker/face entities" — the identification UIs.
+    "CREATE INDEX idx_label_entity_media_type ON LabelEntity (MediaRef, labelType)",
+    // Resolving one provider instance within a media.
+    "CREATE INDEX idx_label_entity_media_instance ON LabelEntity (MediaRef, instanceId)"
   ]
 });
 var LabelFaceSchema = external_exports.object({
@@ -58046,7 +58069,7 @@ var LabelFaceCollection = defineCollection({
     "CREATE INDEX idx_label_face_workspace ON LabelFaces (WorkspaceRef)",
     "CREATE INDEX idx_label_face_media ON LabelFaces (MediaRef)",
     "CREATE INDEX idx_label_face_track ON LabelFaces (LabelTrackRef)",
-    // Entity-attribution join via the provider-cluster fallback.
+    // Entity-attribution join through the row's LabelEntity.
     "CREATE INDEX idx_label_face_entity ON LabelFaces (LabelEntityRef)"
   ]
 });
@@ -58125,7 +58148,7 @@ var LabelObjectCollection = defineCollection({
     "CREATE INDEX idx_label_object_track ON LabelObjects (LabelTrackRef)",
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
     'CREATE INDEX idx_label_object_media_range ON LabelObjects (MediaRef, start, "end")',
-    // Entity-attribution join via the provider-cluster fallback.
+    // Entity-attribution join through the row's LabelEntity.
     "CREATE INDEX idx_label_object_entity ON LabelObjects (LabelEntityRef)"
   ]
 });
@@ -58187,7 +58210,7 @@ var LabelPersonCollection = defineCollection({
     "CREATE INDEX idx_label_person_workspace ON LabelPerson (WorkspaceRef)",
     "CREATE INDEX idx_label_person_media ON LabelPerson (MediaRef)",
     "CREATE INDEX idx_label_person_track ON LabelPerson (LabelTrackRef)",
-    // Entity-attribution join via the provider-cluster fallback.
+    // Entity-attribution join through the row's LabelEntity.
     "CREATE INDEX idx_label_person_entity ON LabelPerson (LabelEntityRef)"
   ]
 });
@@ -58424,8 +58447,8 @@ var LabelSpeechCollection = defineCollection({
     "CREATE INDEX idx_label_speech_media ON LabelSpeech (MediaRef)",
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
     'CREATE INDEX idx_label_speech_media_range ON LabelSpeech (MediaRef, start, "end")',
-    // Entity-attribution joins (track link wins, cluster is the fallback).
     "CREATE INDEX idx_label_speech_track ON LabelSpeech (LabelTrackRef)",
+    // Entity-attribution join through the row's LabelEntity.
     "CREATE INDEX idx_label_speech_entity ON LabelSpeech (LabelEntityRef)"
   ]
 });
@@ -58469,8 +58492,8 @@ var LabelTextCollection = defineCollection({
     "CREATE UNIQUE INDEX idx_label_text_hash ON LabelText (textHash)",
     "CREATE INDEX idx_label_text_workspace ON LabelText (WorkspaceRef)",
     "CREATE INDEX idx_label_text_media ON LabelText (MediaRef)",
+    // Entity-attribution join through the row's LabelEntity.
     "CREATE INDEX idx_label_text_entity ON LabelText (LabelEntityRef)",
-    // Entity-attribution join via the row's track link.
     "CREATE INDEX idx_label_text_track ON LabelText (LabelTrackRef)"
   ]
 });
@@ -58490,8 +58513,12 @@ var LabelTrackSchema = external_exports.object({
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media" }),
   LabelEntityRef: RelationField({ collection: "LabelEntity" }).optional(),
-  // Manual link to a real-world Entity ("this track is Erik"). Per-media
-  // instance identity — takes precedence over LabelEntity.EntityRef.
+  // RETIRED — do not read, do not write. The manual "this track is Erik"
+  // link moved to LabelEntity.EntityRef when LabelEntity became per-media
+  // and per-instance; the per-instance migration folded every value here
+  // into that field and left this one populated purely as a recovery net.
+  // A write lands in the database and changes nothing, which is why the
+  // mutator no longer offers one. Dropped by a later migration.
   EntityRef: RelationField({ collection: "Entities" }).optional(),
   // --- Identification ---
   trackId: TextField(),
@@ -58532,6 +58559,9 @@ var LabelTrackInputSchema = external_exports.object({
   WorkspaceRef: external_exports.string().min(1, "Workspace is required"),
   MediaRef: external_exports.string().min(1, "Media is required"),
   LabelEntityRef: external_exports.string().optional(),
+  // Retired alongside the schema field above — declared so a stray write is
+  // at least visible in the record rather than silently dropped, never sent
+  // by anything in the codebase.
   EntityRef: external_exports.string().optional(),
   // --- Identification ---
   trackId: external_exports.string().min(1, "Track ID is required"),
@@ -58539,7 +58569,7 @@ var LabelTrackInputSchema = external_exports.object({
   // Must be listed here or it never persists: this is a non-strict z.object,
   // so validateInput silently drops any key it doesn't declare (which is why
   // the worker's provider/processor/version writes vanish).
-  labelType: external_exports.nativeEnum(LabelType).optional(),
+  labelType: external_exports.enum(LabelType).optional(),
   // --- Timing ---
   start: external_exports.number().min(0),
   end: external_exports.number().min(0),
@@ -58560,10 +58590,11 @@ var LabelTrackCollection = defineCollection({
     "CREATE INDEX idx_label_track_media_entity ON LabelTrack (MediaRef, LabelEntityRef)",
     // Index for workspace + media queries
     "CREATE INDEX idx_label_track_workspace_media ON LabelTrack (WorkspaceRef, MediaRef)",
-    // Index for entity queries ("all tracks linked to this entity")
+    // Vestigial, like the EntityRef field it covers — kept only so the index
+    // set matches the live database until the drop migration removes both.
     "CREATE INDEX idx_label_track_entity ON LabelTrack (EntityRef)",
-    // Workspace-wide cluster traversal in trackEntityAttributionFilter —
-    // the (MediaRef, LabelEntityRef) composite can't serve it alone.
+    // The attribution hop: "tracks whose LabelEntity is linked to X", which
+    // the (MediaRef, LabelEntityRef) composite can't serve on its own.
     "CREATE INDEX idx_label_track_cluster ON LabelTrack (LabelEntityRef)",
     // "This media's tracks of kind X" — the speaker/face identification UIs.
     "CREATE INDEX idx_label_track_media_type ON LabelTrack (MediaRef, labelType)"
@@ -62171,12 +62202,6 @@ var CaptionMutator = class extends BaseMutator {
   }
 };
 function entityAttributionFilter(entityId) {
-  return `(LabelTrackRef.EntityRef = "${entityId}" || (LabelTrackRef.EntityRef = "" && LabelEntityRef.EntityRef = "${entityId}"))`;
-}
-function trackEntityAttributionFilter(entityId) {
-  return `(EntityRef = "${entityId}" || (EntityRef = "" && LabelEntityRef.EntityRef = "${entityId}"))`;
-}
-function clusterEntityAttributionFilter(entityId) {
   return `LabelEntityRef.EntityRef = "${entityId}"`;
 }
 var EntityMutator = class extends BaseMutator {
@@ -62291,25 +62316,15 @@ var LabelTrackMutator = class extends BaseMutator {
       `MediaRef = "${mediaId}" && labelType = "${labelType}"`
     );
   }
-  /**
-   * Link (or, with null, unlink) a track to a real-world Entity. The track
-   * is the per-media cluster — one face track, one diarized speaker — so
-   * this is the "this track is Erik" operation. Track record ids are stable
-   * across label re-runs (processors dedup by trackHash), so links survive
-   * regeneration.
-   * @param trackId The label track ID
-   * @param entityId The entity ID, or null to unlink
-   */
-  async setEntity(trackId, entityId) {
-    return this.update(trackId, {
-      EntityRef: entityId ?? ""
-    });
-  }
+  // No setEntity here on purpose. LabelTrack.EntityRef still exists in
+  // PocketBase as the pre-migration recovery net, but nothing reads it, so
+  // writing it is a silent no-op that reports success. "This track is Erik"
+  // is LabelEntityMutator.setEntity on the track's LabelEntityRef — the
+  // per-media, per-instance row that every reader resolves through.
   /**
    * All tracks attributed to an entity, across media — each row is one
-   * appearance range (start/end) of the entity in one media. Includes
-   * tracks whose provider cluster (LabelEntity) is linked, unless the track
-   * itself is linked elsewhere.
+   * appearance range (start/end) of the entity in one media. Matched through
+   * the track's own LabelEntity, the single link point.
    * @param entityId The entity ID
    * @param page Page number (default: 1)
    * @param perPage Items per page (default: 100)
@@ -62318,7 +62333,7 @@ var LabelTrackMutator = class extends BaseMutator {
     return this.getList(
       page,
       perPage,
-      trackEntityAttributionFilter(entityId),
+      entityAttributionFilter(entityId),
       "MediaRef,start",
       ["MediaRef", "LabelEntityRef"]
     );
@@ -62824,10 +62839,14 @@ var LabelEntityMutator = class extends BaseMutator {
     );
   }
   /**
-   * Link (or, with null, unlink) a provider label cluster to a real-world
-   * Entity — the workspace-wide "every label in this cluster is this
-   * product/person" operation. A per-media LabelTrack.EntityRef takes
-   * precedence over this fallback.
+   * Link (or, with null, unlink) one detected instance to a real-world
+   * Entity — "this speaker / this face track / this tracked object, in this
+   * media, is Erik". THE write for entity attribution: a LabelEntity is
+   * per-media and per-instance, and every reader resolves a label's entity
+   * through it, so nothing overrides what this sets.
+   *
+   * Stable across label re-runs: processors dedup by entityHash, so the row
+   * (and the link on it) survives regeneration.
    * @param labelEntityId The label entity ID
    * @param entityId The entity ID, or null to unlink
    */
@@ -62925,11 +62944,11 @@ var LABEL_TYPE_META = {
     title: "Text"
   }
 };
-function labelAttributionFilter(type, entityId) {
-  return LABEL_TYPE_META[type].hasTrack ? entityAttributionFilter(entityId) : clusterEntityAttributionFilter(entityId);
+function labelAttributionFilter(_type, entityId) {
+  return entityAttributionFilter(entityId);
 }
-function attributionExpands(type) {
-  return LABEL_TYPE_META[type].hasTrack ? ["LabelTrackRef.EntityRef", "LabelEntityRef.EntityRef"] : ["LabelEntityRef.EntityRef"];
+function attributionExpands(_type) {
+  return ["LabelEntityRef.EntityRef"];
 }
 var LabelSegmentMutator = class extends BaseMutator {
   constructor(pb) {
@@ -65710,18 +65729,12 @@ function textField(record2, key) {
   return value == null ? "" : String(value);
 }
 function attributedEntityOf(record2) {
-  return record2.expand?.LabelTrackRef?.expand?.EntityRef ?? record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
+  return record2.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
 }
 function attributedEntitySummaryOf(record2) {
-  const viaTrack = record2.expand?.LabelTrackRef?.expand?.EntityRef;
-  const entity = viaTrack ?? record2.expand?.LabelEntityRef?.expand?.EntityRef;
+  const entity = attributedEntityOf(record2);
   if (!entity) return null;
-  return {
-    id: entity.id,
-    name: entity.name,
-    kind: entity.kind,
-    via: viaTrack ? "track" : "cluster"
-  };
+  return { id: entity.id, name: entity.name, kind: entity.kind };
 }
 function toLabelHit(type, record2) {
   const attributedEntity = attributedEntitySummaryOf(record2);
@@ -66375,11 +66388,7 @@ async function mapClipTime(pb, clipId, input) {
 function provenanceExpands() {
   return Object.values(LabelType).flatMap((type) => {
     const ref = LABEL_TYPE_TO_REF_FIELD[type];
-    return [
-      ref,
-      `${ref}.LabelEntityRef.EntityRef`,
-      ...LABEL_TYPE_META[type].hasTrack ? [`${ref}.LabelTrackRef.EntityRef`] : []
-    ];
+    return [ref, `${ref}.LabelEntityRef.EntityRef`];
   });
 }
 async function clipLabelDetail(pb, clip, opts = {}) {
@@ -66683,26 +66692,33 @@ async function exportWorkspace(pb, opts, report = () => {
       PER_PAGE
     )
   );
-  const linkedFilter = pb.filter('WorkspaceRef = {:ws} && EntityRef != ""', {
-    ws: opts.workspaceId
-  });
-  const linkedTracks = await fetchAll(
-    (page) => new LabelTrackMutator(pb, { expand: [] }).getList(
-      page,
-      PER_PAGE,
-      linkedFilter,
-      "MediaRef,start"
-    )
-  );
   const linkedClusters = await fetchAll(
     (page) => new LabelEntityMutator(pb, { expand: [] }).getList(
       page,
       PER_PAGE,
-      linkedFilter,
+      pb.filter('WorkspaceRef = {:ws} && EntityRef != ""', {
+        ws: opts.workspaceId
+      }),
       "canonicalName"
     )
   );
-  const tracksByEntity = groupBy(linkedTracks, (t2) => t2.EntityRef ?? "");
+  const entityByCluster = new Map(
+    linkedClusters.map((c) => [c.id, c.EntityRef ?? ""])
+  );
+  const linkedTracks = await fetchAll(
+    (page) => new LabelTrackMutator(pb, { expand: [] }).getList(
+      page,
+      PER_PAGE,
+      pb.filter('WorkspaceRef = {:ws} && LabelEntityRef.EntityRef != ""', {
+        ws: opts.workspaceId
+      }),
+      "MediaRef,start"
+    )
+  );
+  const tracksByEntity = groupBy(
+    linkedTracks,
+    (t2) => entityByCluster.get(t2.LabelEntityRef ?? "") ?? ""
+  );
   const clustersByEntity = groupBy(linkedClusters, (c) => c.EntityRef ?? "");
   const entityIndex = entities.map((e2) => ({
     id: e2.id,
@@ -66829,16 +66845,16 @@ N }\`. All times are seconds.
   \`text\` (on-screen text), \`object\`, \`shot\`, \`segment\`, \`person\`,
   \`face\`. Each carries \`start\`/\`end\` in source-media seconds plus a
   confidence. A label identified as a real-world entity also carries
-  \`attributedEntity: { id, name, kind, via }\` \u2014 e.g. a \`speaker\` label
+  \`attributedEntity: { id, name, kind }\` \u2014 e.g. a \`speaker\` label
   with \`"attributedEntity": { "name": "Erik", ... }\` is Erik speaking.
   Search them for moments worth turning into clips.
 - **Entities** \u2014 real-world identities (\`entities/index.json\`) that label
   data is attributed to ("speaker_0 in this media is Erik"). A label never
-  stores its entity directly; it resolves through its \`LabelTrackRef\`
-  (listed in an entity's \`linkedTracks\` \u2014 the per-media instance link,
-  wins) or its \`LabelEntityRef\` (\`linkedClusters\` \u2014 the workspace-wide
-  provider-cluster fallback); the winning link is snapshotted onto each
-  label file as \`attributedEntity\`. Use \`vw label tag\` /
+  stores its entity directly; it resolves through its \`LabelEntityRef\` \u2014
+  one row per detected instance per media, listed in an entity's
+  \`linkedClusters\`, with the tracks reaching the same entity listed in
+  \`linkedTracks\` as its appearance ranges. That link is snapshotted onto
+  each label file as \`attributedEntity\`. Use \`vw label tag\` /
   \`vw label search --entity\` to write and query these live.
 - **Timeline** \u2014 an edit. \`timelines/<id>.json\` holds
   \`{ timeline, computedDuration, clipCount, tracks }\`; \`tracks\` are
@@ -66882,7 +66898,7 @@ vw media clip create -m ${mediaId} -s 5 -e 12.5 --label "Opening shot"
 
 # 1b. Identify who/what labels show (entity tags), then search by identity
 vw entity create "Erik" -w ${workspace.id}
-vw label tag speaker LABEL_ID "Erik"            # tags the row's track/cluster
+vw label tag speaker LABEL_ID "Erik"        # tags this instance in this media
 vw label search --entity "Erik" -w ${workspace.id} -t speaker,face --json
 vw entity labels "Erik" -w ${workspace.id} -m ${mediaId}
 
@@ -67871,17 +67887,17 @@ function mediaNameOf(record2) {
 var linkTargetOptions = {
   track: {
     flags: "--track <ids>",
-    description: "comma-separated LabelTrack record ids",
+    description: "comma-separated LabelTrack record ids \u2014 links each track's LabelEntity",
     parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
   },
   cluster: {
     flags: "--cluster <ids>",
-    description: "comma-separated LabelEntity (provider cluster) record ids \u2014 links every label in the cluster, across all media",
+    description: "comma-separated LabelEntity record ids \u2014 links every label of that detected instance within its media",
     parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
   },
   label: {
     flags: "--label <pairs>",
-    description: "comma-separated type:labelId pairs (e.g. face:abc123) \u2014 links each label row's track",
+    description: "comma-separated type:labelId pairs (e.g. face:abc123) \u2014 links each label row's LabelEntity",
     parse: (v) => v.split(",").map((s2) => s2.trim()).filter(Boolean)
   },
   speaker: {
@@ -67900,36 +67916,46 @@ function splitPair(value, flag) {
   }
   return [value.slice(0, idx), value.slice(idx + 1)];
 }
-async function trackByMediaAndTrackId(pb, mediaId, trackId) {
-  const track = await new LabelTrackMutator(pb).getFirstByFilter(
-    pb.filter("MediaRef = {:media} && trackId = {:trackId}", {
-      media: mediaId,
-      trackId
-    }),
-    void 0,
-    "-created"
+async function labelEntityByInstance(pb, mediaId, instanceId, labelType) {
+  const row = await new LabelEntityMutator(pb).getFirstByFilter(
+    pb.filter(
+      "MediaRef = {:media} && instanceId = {:instance} && labelType = {:type}",
+      { media: mediaId, instance: instanceId, type: labelType }
+    )
   );
-  if (!track) {
+  if (!row) {
     throw new Error(
-      `No label track "${trackId}" in media ${mediaId} \u2014 vw label list -m ${mediaId} shows its labels`
+      `No ${labelType} "${instanceId}" in media ${mediaId} \u2014 vw label list -m ${mediaId} -t ${labelType} shows its labels`
     );
   }
-  return track;
+  return row.id;
 }
-async function trackOfLabelPair(pb, pair) {
+async function labelEntityOfTrack(pb, trackId) {
+  const track = await new LabelTrackMutator(pb).getById(trackId);
+  if (!track) {
+    throw new Error(`No label track with id ${trackId}`);
+  }
+  if (!track.LabelEntityRef) {
+    throw new Error(
+      `Label track ${trackId} has no LabelEntity \u2014 there is nothing to attach an entity link to (re-run labels for its media to mint one)`
+    );
+  }
+  return track.LabelEntityRef;
+}
+async function labelEntityOfLabelPair(pb, pair) {
   const [typeArg, labelId] = splitPair(pair, "--label");
   const type = parseLabelType(typeArg);
   const record2 = await labelMutator(pb, type).getById(labelId);
   if (!record2) {
     throw new Error(`No ${type} label with id ${labelId}`);
   }
-  const trackRef = record2.LabelTrackRef;
-  if (typeof trackRef !== "string" || !trackRef) {
+  const entityRef = record2.LabelEntityRef;
+  if (typeof entityRef !== "string" || !entityRef) {
     throw new Error(
-      `${type} label ${labelId} has no track \u2014 link its provider cluster instead (vw entity link <entity> --cluster <labelEntityId>), or let vw label tag ${type} ${labelId} <entity> resolve that for you`
+      `${type} label ${labelId} has no LabelEntity \u2014 nothing to attach an entity link to`
     );
   }
-  return trackRef;
+  return entityRef;
 }
 async function tagLabel(pb, type, labelId, entityId) {
   const record2 = await labelMutator(pb, type).getById(labelId);
@@ -67939,69 +67965,53 @@ async function tagLabel(pb, type, labelId, entityId) {
     );
   }
   const row = record2;
-  const trackRef = row.LabelTrackRef;
-  if (typeof trackRef === "string" && trackRef) {
-    const track = await new LabelTrackMutator(pb).setEntity(trackRef, entityId);
-    return {
-      type,
-      labelId,
-      via: "track",
-      targetId: track.id,
-      targetName: track.trackId
-    };
-  }
-  const clusterRef = row.LabelEntityRef;
-  if (typeof clusterRef === "string" && clusterRef) {
-    const cluster = await new LabelEntityMutator(pb).setEntity(
-      clusterRef,
+  const entityRef = row.LabelEntityRef;
+  if (typeof entityRef === "string" && entityRef) {
+    const labelEntity = await new LabelEntityMutator(pb).setEntity(
+      entityRef,
       entityId
     );
     return {
       type,
       labelId,
-      via: "cluster",
-      targetId: cluster.id,
-      targetName: cluster.canonicalName
+      targetId: labelEntity.id,
+      targetName: labelEntity.canonicalName
     };
   }
   throw new Error(
-    `${type} label ${labelId} has neither a track nor a provider cluster \u2014 nothing to attach an entity tag to`
+    `${type} label ${labelId} has no LabelEntity \u2014 nothing to attach an entity tag to`
   );
 }
 async function resolveLinkTargets(pb, opts) {
-  const trackIds = [...opts.track ?? []];
-  const clusterIds = [...opts.cluster ?? []];
-  for (const pair of opts.label ?? []) {
-    trackIds.push(await trackOfLabelPair(pb, pair));
+  const labelEntityIds = [...opts.cluster ?? []];
+  for (const trackId of opts.track ?? []) {
+    labelEntityIds.push(await labelEntityOfTrack(pb, trackId));
   }
-  for (const [flag, value] of [
-    ["--speaker", opts.speaker],
-    ["--face", opts.face]
+  for (const pair of opts.label ?? []) {
+    labelEntityIds.push(await labelEntityOfLabelPair(pb, pair));
+  }
+  for (const [flag, value, type] of [
+    ["--speaker", opts.speaker, LabelType.SPEAKER],
+    ["--face", opts.face, LabelType.FACE]
   ]) {
     if (!value) continue;
-    const [mediaId, providerId] = splitPair(value, flag);
-    trackIds.push((await trackByMediaAndTrackId(pb, mediaId, providerId)).id);
+    const [mediaId, instanceId] = splitPair(value, flag);
+    labelEntityIds.push(
+      await labelEntityByInstance(pb, mediaId, instanceId, type)
+    );
   }
-  if (trackIds.length === 0 && clusterIds.length === 0) {
+  if (labelEntityIds.length === 0) {
     throw new Error(
       "Provide at least one target: --track, --cluster, --label, --speaker, or --face"
     );
   }
-  return {
-    trackIds: [...new Set(trackIds)],
-    clusterIds: [...new Set(clusterIds)]
-  };
+  return { labelEntityIds: [...new Set(labelEntityIds)] };
 }
 async function applyEntityLinks(pb, entityId, targets) {
-  const trackMutator = new LabelTrackMutator(pb);
-  const clusterMutator = new LabelEntityMutator(pb);
-  const tracks = await Promise.all(
-    targets.trackIds.map((id) => trackMutator.setEntity(id, entityId))
+  const mutator = new LabelEntityMutator(pb);
+  return Promise.all(
+    targets.labelEntityIds.map((id) => mutator.setEntity(id, entityId))
   );
-  const clusters = await Promise.all(
-    targets.clusterIds.map((id) => clusterMutator.setEntity(id, entityId))
-  );
-  return { tracks, clusters };
 }
 var entityListSpec = {
   command: "entity list",
@@ -68055,8 +68065,7 @@ var entityAppearancesSpec = {
     { header: "TRACK", value: (a) => a.track.trackId },
     { header: "START", value: (a) => `${a.track.start.toFixed(2)}s` },
     { header: "END", value: (a) => `${a.track.end.toFixed(2)}s` },
-    { header: "DUR", value: (a) => formatDuration(a.track.duration) },
-    { header: "VIA", value: (a) => a.via }
+    { header: "DUR", value: (a) => formatDuration(a.track.duration) }
   ],
   hint: "`vw label clip <type> <labelId>` turns a label into a clip"
 };
@@ -68064,7 +68073,7 @@ function fetchEntityAppearancePage(pb, entityId, query) {
   return new LabelTrackMutator(pb).getList(
     query.page,
     query.perPage,
-    andFilters(trackEntityAttributionFilter(entityId), query.filter),
+    andFilters(entityAttributionFilter(entityId), query.filter),
     query.sort,
     ["MediaRef.UploadRef", "LabelEntityRef"]
   );
@@ -68100,12 +68109,11 @@ function toEntityAppearance(track) {
   return {
     track: t2,
     mediaName: mediaNameOf(t2),
-    labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? "",
-    via: t2.EntityRef ? "track" : "cluster"
+    labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? ""
   };
 }
 async function getEntityAppearances(pb, entityId, opts = {}) {
-  const clauses = [trackEntityAttributionFilter(entityId)];
+  const clauses = [entityAttributionFilter(entityId)];
   if (opts.media) {
     clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
   }
@@ -68122,8 +68130,7 @@ async function getEntityAppearances(pb, entityId, opts = {}) {
     return {
       track: t2,
       mediaName: mediaNameOf(t2),
-      labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? "",
-      via: t2.EntityRef === entityId ? "track" : "cluster"
+      labelType: Array.isArray(labelType) ? labelType.join(",") : labelType ?? ""
     };
   });
   return { appearances, totalItems: result.totalItems };
@@ -70171,7 +70178,7 @@ function registerDirectoryCommands(program2) {
 
 // src/commands/label.ts
 function tagScopeLine(result) {
-  return result.via === "track" ? `via its track (trackId ${result.targetName}) \u2014 identifies this instance across the whole media` : `via its provider cluster "${result.targetName}" \u2014 applies to every label in the cluster, workspace-wide`;
+  return `via its label record "${result.targetName}" \u2014 identifies this instance throughout the media`;
 }
 function registerLabelCommands(program2) {
   const label = program2.command("label").description(
@@ -70299,7 +70306,7 @@ function registerLabelCommands(program2) {
         ];
         if (attributed) {
           lines.push(
-            `entity: ${attributed.name} (${attributed.kind}, ${attributed.id}) \u2014 ` + (attributed.via === "track" ? "tagged via its track" : "tagged via its provider cluster")
+            `entity: ${attributed.name} (${attributed.kind}, ${attributed.id})`
           );
         }
         if (links) {
@@ -70323,7 +70330,7 @@ function registerLabelCommands(program2) {
     }
   );
   const tag = label.command("tag <type> <labelId> <entityNameOrId>").description(
-    "Attribute a label to a real-world entity \u2014 writes the label's track when it has one (this instance across the media), else its provider cluster (workspace-wide)"
+    "Attribute a label to a real-world entity \u2014 writes the label's LabelEntity, identifying this detected instance throughout its media"
   );
   withJsonOption(tag).action(
     async (typeArg, labelId, entityNameOrId, opts) => {
@@ -70346,7 +70353,7 @@ function registerLabelCommands(program2) {
     }
   );
   const untag = label.command("untag <type> <labelId>").description(
-    "Clear a label's entity attribution (from its track, or its provider cluster when trackless)"
+    "Clear a label's entity attribution (from its LabelEntity, for every detection of this instance in the media)"
   );
   withJsonOption(untag).action(
     async (typeArg, labelId, opts) => {
@@ -70403,9 +70410,12 @@ var appearanceColumns = [
   { header: "TRACK", value: (a) => a.track.trackId },
   { header: "START", value: (a) => `${a.track.start.toFixed(2)}s` },
   { header: "END", value: (a) => `${a.track.end.toFixed(2)}s` },
-  { header: "DUR", value: (a) => formatDuration(a.track.duration) },
-  { header: "VIA", value: (a) => a.via }
+  { header: "DUR", value: (a) => formatDuration(a.track.duration) }
 ];
+function namesOf(rows) {
+  const names = rows.map((row) => row.canonicalName).filter(Boolean);
+  return names.length > 0 ? ` (${names.join(", ")})` : "";
+}
 var taggedMediaColumns = [
   { header: "MEDIA ID", value: (t2) => t2.mediaId },
   { header: "NAME", value: (t2) => t2.mediaName },
@@ -70414,7 +70424,7 @@ var taggedMediaColumns = [
 ];
 function registerEntityCommands(program2) {
   const entity = program2.command("entity").description(
-    "Real-world entities (people, products, places, things) \u2014 create them, link label tracks/clusters, and query appearances and spoken words across media"
+    "Real-world entities (people, products, places, things) \u2014 create them, link detected label instances, and query appearances and spoken words across media"
   );
   const create = entity.command("create <name>").description("Create an entity in the workspace").option(
     "-k, --kind <kind>",
@@ -70441,7 +70451,7 @@ function registerEntityCommands(program2) {
         [
           `\u2713 Created ${created.kind} entity ${created.id} "${created.name}"`,
           `vw entity link "${created.name}" --speaker <mediaId>:<speakerId> (or --face/--track/--cluster/--label) attributes labels to it`,
-          `vw label tag <type> <labelId> "${created.name}" tags a single label's track/cluster; vw label search --entity "${created.name}" finds everything attributed to it`
+          `vw label tag <type> <labelId> "${created.name}" tags a single label's instance; vw label search --entity "${created.name}" finds everything attributed to it`
         ],
         opts.json
       );
@@ -70525,7 +70535,7 @@ function registerEntityCommands(program2) {
     }
   });
   const link = entity.command("link <nameOrId>").description(
-    "Attribute label tracks or provider clusters to an entity (repeatable across media, or within one media when the provider id changes)"
+    "Attribute detected label instances to an entity (repeatable across media, or within one media when the provider id changes)"
   );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId, opts) => {
@@ -70537,19 +70547,15 @@ function registerEntityCommands(program2) {
         pb,
         pickOptions(opts, linkTargetOptions)
       );
-      const { tracks, clusters } = await applyEntityLinks(
-        pb,
-        found.id,
-        targets
-      );
+      const linked = await applyEntityLinks(pb, found.id, targets);
       success(
-        `Linked ${tracks.length} track(s) and ${clusters.length} cluster(s) to ${found.kind} "${found.name}"`
+        `Linked ${linked.length} label instance(s) to ${found.kind} "${found.name}"` + namesOf(linked)
       );
     } catch (err) {
       handleError(err);
     }
   });
-  const unlink = entity.command("unlink").description("Clear the entity link on label tracks or provider clusters");
+  const unlink = entity.command("unlink").description("Clear the entity link on detected label instances");
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -70558,9 +70564,9 @@ function registerEntityCommands(program2) {
         pb,
         pickOptions(opts, linkTargetOptions)
       );
-      const { tracks, clusters } = await applyEntityLinks(pb, null, targets);
+      const unlinked = await applyEntityLinks(pb, null, targets);
       success(
-        `Unlinked ${tracks.length} track(s) and ${clusters.length} cluster(s)`
+        `Unlinked ${unlinked.length} label instance(s)` + namesOf(unlinked)
       );
     } catch (err) {
       handleError(err);
@@ -73045,7 +73051,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.7";
+    return "0.10.8";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

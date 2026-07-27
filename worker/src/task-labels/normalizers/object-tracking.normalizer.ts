@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import { deriveInstanceId, uniqueInstanceId } from '../utils/instance-id';
 import type {
   ObjectTrackingResponse,
   NormalizerInput,
@@ -63,37 +64,48 @@ export class ObjectTrackingNormalizer {
     const labelEntities: LabelEntityData[] = [];
     const labelTracks: LabelTrackData[] = [];
     const labelObjects: LabelObjectData[] = [];
-    const seenLabels = new Set<string>();
+    // Guards against a provider response listing the same detection twice.
+    const seenInstanceIds = new Map<string, number>();
 
     // Process each tracked object
-    for (let i = 0; i < response.objects.length; i++) {
-      const obj = response.objects[i];
-      // Generate a unique trackId for this specific object segment/track
-      // GCVI often returns "0" for many tracks, so we append the index.
-      const uniqueTrackId = `${obj.trackId}_${i}`;
-
-      // Create LabelEntity for this object type if not seen before
-      const entityHash = this.generateEntityHash(
-        workspaceRef,
-        LabelType.OBJECT,
-        obj.entity,
-        ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
+    for (const obj of response.objects) {
+      // Identity comes from the detection's content, never from its position
+      // in the response. This used to be `${obj.trackId}_${i}`, which put the
+      // loop index into the LabelEntity key: a re-detect that returned the
+      // objects in a different order — or one more, one fewer, which raising
+      // the executor's confidence threshold alone can cause — minted a whole
+      // new set of entities and stranded every manual tag on the old ones.
+      // The provider's trackId is no better: the executor falls back to the
+      // array index whenever GCVI omits it, which is often.
+      const uniqueTrackId = uniqueInstanceId(
+        deriveInstanceId({ kind: 'obj', name: obj.entity, frames: obj.frames }),
+        seenInstanceIds
       );
 
-      if (!seenLabels.has(entityHash)) {
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          labelType: LabelType.OBJECT,
-          canonicalName: obj.entity,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            trackingConfidence: obj.confidence,
-          },
-        });
-        seenLabels.add(entityHash);
-      }
+      // One LabelEntity per tracked object, not per object name: two "food"
+      // detections in the same media can be different products, and each
+      // needs its own link point to be identified separately.
+      const entityHash = labelEntityKey({
+        workspaceRef,
+        mediaId,
+        labelType: LabelType.OBJECT,
+        instanceId: uniqueTrackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+      });
+
+      labelEntities.push({
+        WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
+        labelType: LabelType.OBJECT,
+        canonicalName: obj.entity,
+        instanceId: uniqueTrackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        processor: processorVersion,
+        entityHash,
+        metadata: {
+          trackingConfidence: obj.confidence,
+        },
+      });
 
       // Extract keyframes from frames.
       // Round the normalized (0-1) bbox coords and confidence: full-precision
@@ -200,20 +212,6 @@ export class ObjectTrackingNormalizer {
       labelObjects,
       labelMediaUpdate: {}, // Writing only to specified entities
     };
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-    return createHash('sha256').update(hashInput).digest('hex');
   }
 
   /**

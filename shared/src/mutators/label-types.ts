@@ -1,8 +1,5 @@
 import { LabelType } from '../enums';
-import {
-  clusterEntityAttributionFilter,
-  entityAttributionFilter,
-} from './entity';
+import { entityAttributionFilter } from './entity';
 
 /** The PB collection name backing each label type. */
 export type LabelCollectionName =
@@ -18,10 +15,11 @@ export type LabelCollectionName =
 export interface LabelTypeMeta {
   collection: LabelCollectionName;
   /**
-   * Whether rows carry a LabelTrackRef link point. Shots and segments are
-   * classifications, not tracked instances, so their only entity link is
-   * the provider cluster — filters referencing LabelTrackRef would be a
-   * PocketBase unknown-field error there.
+   * Whether rows carry a LabelTrackRef relation (track payload: keyframes,
+   * bounding boxes). Shots and segments are classifications, not tracked
+   * instances, so filters or expands referencing LabelTrackRef would be a
+   * PocketBase unknown-field error there. Entity attribution doesn't depend
+   * on this — every type links through LabelEntityRef.
    */
   hasTrack: boolean;
   /** Confidence field name — LabelFaces uses avgConfidence. */
@@ -83,25 +81,24 @@ export const LABEL_TYPE_META: Record<LabelType, LabelTypeMeta> = {
 };
 
 /**
- * PB filter matching one label type's rows attributed to an entity, using
- * the link points that type actually has (track > cluster, or cluster only).
+ * PB filter matching one label type's rows attributed to an entity.
+ *
+ * No longer dispatches on `hasTrack`: every type resolves through
+ * LabelEntityRef, the one ref all eight leaf collections share. Kept as a
+ * named wrapper so call sites read by intent, and because the type argument
+ * documents what is being filtered.
  */
 export function labelAttributionFilter(
-  type: LabelType,
+  _type: LabelType,
   entityId: string
 ): string {
-  return LABEL_TYPE_META[type].hasTrack
-    ? entityAttributionFilter(entityId)
-    : clusterEntityAttributionFilter(entityId);
+  return entityAttributionFilter(entityId);
 }
 
 /**
- * Expand paths that resolve a label row's attributed Entity: the row's track
- * link and its provider cluster's link, skipping LabelTrackRef where the
- * collection lacks it.
+ * Expand paths that resolve a label row's attributed Entity. One path for
+ * every type — the row's LabelEntity carries the link.
  */
-export function attributionExpands(type: LabelType): string[] {
-  return LABEL_TYPE_META[type].hasTrack
-    ? ['LabelTrackRef.EntityRef', 'LabelEntityRef.EntityRef']
-    : ['LabelEntityRef.EntityRef'];
+export function attributionExpands(_type: LabelType): string[] {
+  return ['LabelEntityRef.EntityRef'];
 }

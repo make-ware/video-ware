@@ -4,14 +4,13 @@ import { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { LabelType } from '@project/shared';
 import { useMediaSpeakers } from '@/hooks/use-media-speakers';
-import { useMediaTracksByType } from '@/hooks/use-media-tracks-by-type';
-import { useAssignTrackEntity } from '@/hooks/use-entities';
+import { useAssignLabelEntity } from '@/hooks/use-entities';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
 import {
   deriveSpeakerSummaries,
   formatDiarizedTranscript,
-  missingTrackLabel,
+  missingEntityLabel,
   prettySpeakerId,
   speakerBadgeClass,
   speakerDotClass,
@@ -44,7 +43,7 @@ export default function LabelSpeakersPage() {
   const mediaId = params.id as string;
   const workspaceId = params.workspaceId as string;
   const { utterances, isLoading } = useMediaSpeakers(mediaId);
-  const assignEntity = useAssignTrackEntity();
+  const assignEntity = useAssignLabelEntity();
   const createClip = useCreateClipFromLabel();
 
   const [query, setQuery] = useState('');
@@ -57,17 +56,6 @@ export default function LabelSpeakersPage() {
     () => deriveSpeakerSummaries(utterances),
     [utterances]
   );
-
-  // Speakers arrive with their track already expanded off LabelTrackRef, so
-  // normally nothing is fetched here. Only rows predating that FK fall back to
-  // a by-type lookup, matched on the provider speaker id.
-  const {
-    byTrackId,
-    isPending: tracksPending,
-    error: tracksError,
-  } = useMediaTracksByType(mediaId, LabelType.SPEAKER, {
-    enabled: speakers.some((s) => !s.track),
-  });
   const colorIndexBySpeaker = useMemo(
     () => new Map(speakers.map((s) => [s.speakerId, s.colorIndex])),
     [speakers]
@@ -180,7 +168,7 @@ export default function LabelSpeakersPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {speakers.map((s) => {
-                  const track = s.track ?? byTrackId.get(s.speakerId);
+                  const labelEntity = s.labelEntity;
                   return (
                     <div
                       key={s.speakerId}
@@ -200,13 +188,13 @@ export default function LabelSpeakersPage() {
                       >
                         {prettySpeakerId(s.speakerId)}
                       </span>
-                      {track ? (
+                      {labelEntity ? (
                         <EntityPicker
                           workspaceId={workspaceId}
-                          value={track.EntityRef}
+                          value={labelEntity.EntityRef}
                           onChange={(entityId) =>
                             assignEntity.mutate({
-                              trackId: track.id,
+                              labelEntityId: labelEntity.id,
                               entityId,
                             })
                           }
@@ -215,9 +203,9 @@ export default function LabelSpeakersPage() {
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          {missingTrackLabel({
-                            isPending: tracksPending,
-                            error: tracksError,
+                          {missingEntityLabel({
+                            isPending: isLoading,
+                            error: null,
                           })}
                         </span>
                       )}

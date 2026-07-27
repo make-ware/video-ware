@@ -101,17 +101,18 @@ export class PersonDetectionExecutor {
 
       // Process person annotations
       const persons = (annotation.personDetectionAnnotations || []).map(
-        (person, index) => {
+        (person) => {
           // Extract track ID from the first track (persons typically have one track)
           const track = person.tracks?.[0];
           const rawTrackId = (track as unknown as { trackId?: string })
             ?.trackId;
+          // Empty when GCVI omits one — deliberately not the array index,
+          // which would make this person's identity depend on their position
+          // in the response. The normalizer derives a content-based id.
           const trackId =
-            rawTrackId !== undefined &&
-            rawTrackId !== null &&
-            String(rawTrackId) !== ''
+            rawTrackId !== undefined && rawTrackId !== null
               ? String(rawTrackId)
-              : String(index);
+              : '';
 
           // Process frames with bounding boxes, attributes, and landmarks
           const frames: PersonFrame[] = (track?.timestampedObjects || []).map(

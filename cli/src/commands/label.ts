@@ -31,15 +31,11 @@ import {
 } from '../lib/output.js';
 
 /** Human summary of what a tag/untag write actually landed on. */
-function tagScopeLine(result: {
-  via: 'track' | 'cluster';
-  targetName: string;
-}): string {
-  return result.via === 'track'
-    ? `via its track (trackId ${result.targetName}) — identifies this ` +
-        `instance across the whole media`
-    : `via its provider cluster "${result.targetName}" — applies to every ` +
-        `label in the cluster, workspace-wide`;
+function tagScopeLine(result: { targetName: string }): string {
+  return (
+    `via its label record "${result.targetName}" — identifies this ` +
+    `instance throughout the media`
+  );
 }
 
 export function registerLabelCommands(program: Command): void {
@@ -203,10 +199,7 @@ export function registerLabelCommands(program: Command): void {
         ];
         if (attributed) {
           lines.push(
-            `entity: ${attributed.name} (${attributed.kind}, ${attributed.id}) — ` +
-              (attributed.via === 'track'
-                ? 'tagged via its track'
-                : 'tagged via its provider cluster')
+            `entity: ${attributed.name} (${attributed.kind}, ${attributed.id})`
           );
         }
         if (links) {
@@ -235,9 +228,8 @@ export function registerLabelCommands(program: Command): void {
   const tag = label
     .command('tag <type> <labelId> <entityNameOrId>')
     .description(
-      "Attribute a label to a real-world entity — writes the label's track " +
-        'when it has one (this instance across the media), else its ' +
-        'provider cluster (workspace-wide)'
+      "Attribute a label to a real-world entity — writes the label's " +
+        'LabelEntity, identifying this detected instance throughout its media'
     );
   withJsonOption(tag).action(
     async (typeArg: string, labelId: string, entityNameOrId: string, opts) => {
@@ -264,7 +256,7 @@ export function registerLabelCommands(program: Command): void {
   const untag = label
     .command('untag <type> <labelId>')
     .description(
-      "Clear a label's entity attribution (from its track, or its provider cluster when trackless)"
+      "Clear a label's entity attribution (from its LabelEntity, for every detection of this instance in the media)"
     );
   withJsonOption(untag).action(
     async (typeArg: string, labelId: string, opts) => {

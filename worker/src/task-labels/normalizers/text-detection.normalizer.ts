@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
 import type {
   TextDetectionResponse,
   NormalizerInput,
@@ -71,7 +71,6 @@ export class TextDetectionNormalizer {
     const labelEntities: LabelEntityData[] = [];
     const labelTracks: LabelTrackData[] = [];
     const labelTexts: LabelTextData[] = [];
-    const seenLabels = new Set<string>();
 
     for (const run of runs) {
       // Content-based track id: the same detection re-run on the same
@@ -80,28 +79,30 @@ export class TextDetectionNormalizer {
       // same string can't collide — they'd have been merged if they touched.
       const trackId = this.generateRunTrackId(run);
 
-      // Create LabelEntity for this text string if not seen before
-      const entityHash = this.generateEntityHash(
+      // One LabelEntity per detected run. The run track id is content-based,
+      // so re-running the detection upserts the same rows rather than
+      // duplicating them.
+      const entityHash = labelEntityKey({
         workspaceRef,
-        LabelType.TEXT,
-        run.text,
-        ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      );
+        mediaId,
+        labelType: LabelType.TEXT,
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+      });
 
-      if (!seenLabels.has(entityHash)) {
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          labelType: LabelType.TEXT,
-          canonicalName: run.text,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            confidence: run.confidence,
-          },
-        });
-        seenLabels.add(entityHash);
-      }
+      labelEntities.push({
+        WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
+        labelType: LabelType.TEXT,
+        canonicalName: run.text,
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        processor: processorVersion,
+        entityHash,
+        metadata: {
+          confidence: run.confidence,
+        },
+      });
 
       // Keyframes from the per-frame boxes; rounded like the object-tracking
       // normalizer (4 decimals is sub-pixel even at 4K).
@@ -204,20 +205,6 @@ export class TextDetectionNormalizer {
       .digest('hex')
       .slice(0, 12);
     return `text_${textHash}_${Math.round(run.start * 1000)}`;
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-    return createHash('sha256').update(hashInput).digest('hex');
   }
 
   /**

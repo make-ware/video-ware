@@ -11,8 +11,18 @@ import type { LabelType, ProcessingProvider } from '@project/shared';
  */
 export interface LabelEntityData {
   WorkspaceRef: string;
+  /** The media this instance was detected in — part of its identity. */
+  MediaRef: string;
   labelType: LabelType;
   canonicalName: string;
+  /**
+   * The provider's key for this instance within the media — trackId for
+   * tracked types, the leaf row's own hash for shots and segments. Normalizers
+   * emit one LabelEntityData per instance, not one per distinct name: two
+   * objects in a single media can both be "food" and still be different
+   * products, and every media has its own "Speaker 1".
+   */
+  instanceId: string;
   provider: ProcessingProvider;
   processor: string;
   metadata?: Record<string, unknown>;
@@ -149,7 +159,7 @@ export interface LabelTrackData {
   LabelEntityRef?: string; // Optional - will be set by step processor
   LabelFaceRef?: string; // Optional - will be set by step processor
   trackId: string;
-  // Denormalized copy of the cluster's type, so "this media's speaker tracks"
+  // Denormalized from the LabelEntity, so "this media's speaker tracks"
   // is an indexed filter instead of a scan of every track for the media.
   // Persisted; unlike provider/processor/version below, which are stripped by
   // LabelTrackInputSchema because LabelTrack no longer has those columns.

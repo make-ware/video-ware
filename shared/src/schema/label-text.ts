@@ -62,8 +62,8 @@ export const LabelTextCollection = defineCollection({
     'CREATE UNIQUE INDEX idx_label_text_hash ON LabelText (textHash)',
     'CREATE INDEX idx_label_text_workspace ON LabelText (WorkspaceRef)',
     'CREATE INDEX idx_label_text_media ON LabelText (MediaRef)',
+    // Entity-attribution join through the row's LabelEntity.
     'CREATE INDEX idx_label_text_entity ON LabelText (LabelEntityRef)',
-    // Entity-attribution join via the row's track link.
     'CREATE INDEX idx_label_text_track ON LabelText (LabelTrackRef)',
   ],
 });

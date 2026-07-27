@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
 import type {
   SpeechTranscriptionResponse,
   NormalizerInput,
@@ -85,17 +85,23 @@ export class SpeechTranscriptionNormalizer {
       // Format: "Clip Speaker Y" or "Track Z"
       const speakerName = tag > 0 ? `Clip Speaker ${tag}` : `Track ${trackId}`;
 
-      const entityHash = this.generateEntityHash(
+      // Keyed by the speaker tag within this media. Previously keyed by name
+      // alone, which is how one "Track 0" row ended up shared by two
+      // unrelated videos.
+      const entityHash = labelEntityKey({
         workspaceRef,
-        LabelType.SPEECH,
-        speakerName,
-        ProcessingProvider.GOOGLE_SPEECH
-      );
+        mediaId,
+        labelType: LabelType.SPEECH,
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_SPEECH,
+      });
 
       labelEntities.push({
         WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
         labelType: LabelType.SPEECH,
         canonicalName: speakerName,
+        instanceId: trackId,
         provider: ProcessingProvider.GOOGLE_SPEECH,
         processor: processorVersion,
         entityHash,
@@ -348,20 +354,6 @@ export class SpeechTranscriptionNormalizer {
     processor: string
   ): string {
     const hashInput = `${mediaId}:${start.toFixed(1)}:${end.toFixed(1)}:${processor}:speech`;
-    return createHash('sha256').update(hashInput).digest('hex');
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
     return createHash('sha256').update(hashInput).digest('hex');
   }
 }

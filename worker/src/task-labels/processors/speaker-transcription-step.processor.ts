@@ -207,22 +207,13 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
           processorVersion: this.processorVersion,
         });
 
-      // Step 4: Batch insert LabelEntity records
-      // Map provider speaker ids to entity IDs
-      const entityMap = new Map<string, string>();
-      for (const entity of normalizedData.labelEntities) {
-        const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-          entity.WorkspaceRef,
-          entity.labelType,
-          entity.canonicalName,
-          entity.provider as ProcessingProvider.ELEVENLABS,
-          entity.processor,
-          entity.metadata
-        );
-        const speakerId =
-          (entity.metadata as { speakerId?: string })?.speakerId ?? '';
-        entityMap.set(speakerId, entityId);
-      }
+      // Step 4: Resolve one LabelEntity per speaker, scoped to this media.
+      // Keyed by the provider speaker id, which is the entity's instanceId —
+      // so "Speaker 1" here is a different record from "Speaker 1" in any
+      // other media, and identifying one never claims the other.
+      const entityMap = await this.labelEntityService.resolveEntities(
+        normalizedData.labelEntities
+      );
       this.logger.debug(`Processed ${entityMap.size} speaker entities`);
 
       // Step 5: Upsert one LabelTrack per speaker.
@@ -260,9 +251,6 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
       this.logger.debug(
         `Upserted ${speakers.ids.length} of ${speakersToUpsert.length} speaker utterances`
       );
-
-      // Clear entity cache after processing
-      this.labelEntityService.clearCache();
 
       // A speaker with no LabelTrack row cannot be identified in the UI at all
       // (the track carries the Entity link), so a partial write is a failed
@@ -467,10 +455,10 @@ export class SpeakerTranscriptionStepProcessor extends BaseStepProcessor<
    *
    * Existing tracks are reconciled, not just reused: a run that failed to
    * write its tracks leaves utterances with no LabelTrackRef, and re-running
-   * the task is the documented repair path, so the provider cluster link is
-   * refreshed on the way through. `EntityRef` is deliberately never touched —
-   * that is the editor's manual "this speaker is Erik" link, which must
-   * survive label regeneration.
+   * the task is the documented repair path, so the LabelEntity link is
+   * refreshed on the way through. Only that ref is written — the editor's
+   * manual "this speaker is Erik" link lives on the LabelEntity itself, and
+   * re-labelling reuses that row by entityHash, so it survives regeneration.
    */
   private async upsertLabelTracks(
     tracks: Array<{ speakerId: string; data: LabelTrackData }>

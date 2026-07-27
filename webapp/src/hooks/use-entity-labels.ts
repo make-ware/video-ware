@@ -16,13 +16,7 @@ import {
   labelAttributionFilter,
   type ActualizableLabel,
 } from '@project/shared/mutator';
-import type {
-  Entity,
-  LabelEntity,
-  LabelTrack,
-  Media,
-  Upload,
-} from '@project/shared';
+import type { Entity, LabelEntity, Media, Upload } from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { mediaDisplayName } from './use-entities';
@@ -30,14 +24,12 @@ import { useAuth } from './use-auth';
 
 /**
  * A leaf label row attributed to an entity, with the expands the entity
- * detail page renders from: the source media (named via its upload), the
- * row's track (for previews/unlink and the direct-vs-cluster distinction),
- * and its provider cluster.
+ * detail page renders from: the source media (named via its upload) and the
+ * row's LabelEntity, which carries the entity link.
  */
 export type EntityLabelRow = ActualizableLabel & {
   expand?: {
     MediaRef?: Media & { expand?: { UploadRef?: Upload } };
-    LabelTrackRef?: LabelTrack & { expand?: { EntityRef?: Entity } };
     LabelEntityRef?: LabelEntity & { expand?: { EntityRef?: Entity } };
   };
 };

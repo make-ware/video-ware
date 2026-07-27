@@ -1,22 +1,21 @@
 'use client';
 
-import { useState } from 'react';
 import type { EntityKind } from '@project/shared';
-import { useEntitiesByKind, useEntityCardThumbs } from '@/hooks/use-entities';
-import { PaginationControls } from '@/components/pagination/pagination-controls';
+import { useEntityList } from '@/hooks/use-entity-list';
+import { useEntityCardThumbs } from '@/hooks/use-entities';
+import { LibraryLoadMore } from '@/components/library/library-load-more';
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 import { ENTITY_KIND_META } from './entity-kind';
 import { EntityCard } from './entity-card';
 
-const PER_PAGE = 12;
-
 /**
  * One kind's section on the entities home page: header (icon, label, count),
- * a paginated card grid, and a "no matches" line while a search excludes the
- * whole kind. The page only mounts sections for kinds that have entities;
- * a stale page number after a search/delete self-heals inside the fetch
- * (useEntitiesByKind falls back to the real last page).
+ * a card grid that grows via Load More, and a "no matches" line while a
+ * search excludes the whole kind.
+ *
+ * The page only mounts sections for kinds that have entities. Each section is
+ * an independent list, so paging one kind never refetches another.
  */
 export function EntityKindSection({
   workspaceId,
@@ -27,17 +26,21 @@ export function EntityKindSection({
   kind: EntityKind;
   search: string;
 }) {
-  const [page, setPage] = useState(1);
-
   const meta = ENTITY_KIND_META[kind];
 
   const {
-    entities,
-    page: currentPage,
-    totalPages,
+    items: entities,
     totalItems,
     isLoading,
-  } = useEntitiesByKind(workspaceId, kind, page, PER_PAGE, search);
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+    error,
+  } = useEntityList({ workspaceId, kind, searchQuery: search });
+
+  // Grows as pages load, so later pages get their thumbnails too. While the
+  // widened set refetches, unknown ids read as undefined and those cards fall
+  // back to the kind icon — never another entity's image.
   const { thumbsById } = useEntityCardThumbs(entities.map((e) => e.id));
 
   return (
@@ -52,6 +55,8 @@ export function EntityKindSection({
         <div className="flex justify-center p-8">
           <Loader2 className="animate-spin h-6 w-6 text-primary" />
         </div>
+      ) : error ? (
+        <p className="text-sm text-destructive">{error}</p>
       ) : entities.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {search.trim()
@@ -71,10 +76,12 @@ export function EntityKindSection({
         </div>
       )}
 
-      <PaginationControls
-        page={currentPage}
-        totalPages={totalPages}
-        onPageChange={setPage}
+      <LibraryLoadMore
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        loadedCount={entities.length}
+        totalItems={totalItems}
+        onLoadMore={loadMore}
       />
     </section>
   );

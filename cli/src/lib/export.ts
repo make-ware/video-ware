@@ -565,8 +565,8 @@ media/
                         labelCounts, directory (only when the media is filed
                         in one) — scan this first
   <mediaId>/
-    media.json          the Media record (expand.UploadRef.name is the
-                        original filename)
+    media.json          the Media record (its "name" is the original
+                        filename)
     clips/<clipId>.json one MediaClip cut from this media, per file
                         (folder absent = no clips)
     labels/<type>/<labelId>.json

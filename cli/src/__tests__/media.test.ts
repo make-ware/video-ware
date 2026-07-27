@@ -12,7 +12,7 @@ import {
   updateMedia,
   updateMediaClip,
 } from '../lib/media.js';
-import type { MediaWithUpload } from '../lib/select.js';
+import { mediaLabel, type MediaWithUpload } from '../lib/select.js';
 import { resolveListQuery } from '../lib/list/index.js';
 import { fakePb, listResult, type Stub } from './fake-pb.js';
 
@@ -45,7 +45,8 @@ describe('mediaListSpec', () => {
     expect(query.filter).toContain('WorkspaceRef = ws1');
     expect(query.filter).toContain('label ~ beach');
     expect(query.filter).toContain('description ~ beach');
-    expect(query.filter).toContain('UploadRef.name ~ beach');
+    expect(query.filter).toContain('name ~ beach');
+    expect(query.filter).not.toContain('UploadRef');
     expect(query.filter).not.toContain('DirectoryRef');
   });
 
@@ -85,9 +86,7 @@ describe('mediaListSpec', () => {
   });
 
   it('offers the webapp’s sort names', async () => {
-    expect((await filterFor({ sort: 'name' })).sort).toBe(
-      'UploadRef.name,-created'
-    );
+    expect((await filterFor({ sort: 'name' })).sort).toBe('name,-created');
     expect((await filterFor({ sort: 'duration' })).sort).toBe(
       '-duration,-created'
     );
@@ -157,7 +156,7 @@ describe('mediaClipListSpec', () => {
       { pb: fakePb({}), workspaceId: 'ws1' }
     );
     expect(query.filter).toContain('label ~ hero');
-    expect(query.filter).toContain('MediaRef.UploadRef.name ~ hero');
+    expect(query.filter).toContain('MediaRef.name ~ hero');
   });
 });
 
@@ -249,6 +248,36 @@ describe('moveMedia', () => {
   });
 });
 
+describe('mediaLabel', () => {
+  const media = (extra: Partial<MediaWithUpload>): MediaWithUpload =>
+    ({ id: 'm1', ...extra }) as MediaWithUpload;
+
+  it('reads the denormalized name, no Uploads expand required', () => {
+    expect(mediaLabel(media({ name: 'beach.mp4' }))).toBe('beach.mp4');
+  });
+
+  it('prefers the denormalized name over a stale upload expand', () => {
+    const row = media({
+      name: 'beach.mp4',
+      expand: { UploadRef: { id: 'u1', name: 'old.mp4' } },
+    } as Partial<MediaWithUpload>);
+    expect(mediaLabel(row)).toBe('beach.mp4');
+  });
+
+  it('falls back to the upload expand when the backfill left name empty', () => {
+    const row = media({
+      name: '',
+      expand: { UploadRef: { id: 'u1', name: 'beach.mp4' } },
+    } as Partial<MediaWithUpload>);
+    expect(mediaLabel(row)).toBe('beach.mp4');
+  });
+
+  it('falls back to the id when neither is available', () => {
+    expect(mediaLabel(media({ name: '' }))).toBe('m1');
+    expect(mediaLabel(media({}))).toBe('m1');
+  });
+});
+
 describe('mediaColumns', () => {
   const media = (extra: Partial<MediaWithUpload>): MediaWithUpload =>
     ({
@@ -259,6 +288,15 @@ describe('mediaColumns', () => {
       height: 1080,
       ...extra,
     }) as MediaWithUpload;
+
+  it('shows the media name in NAME and keeps LABEL separate', () => {
+    const rows = [media({ name: 'beach.mp4', label: 'Opening shot' })];
+    const columns = mediaColumns(rows);
+    const value = (header: string) =>
+      columns.find((c) => c.header === header)!.value(rows[0]);
+    expect(value('NAME')).toBe('beach.mp4');
+    expect(value('LABEL')).toBe('Opening shot');
+  });
 
   it('omits the DIRECTORY column when no row has a directory', () => {
     const columns = mediaColumns([media({}), media({ id: 'm2' })]);

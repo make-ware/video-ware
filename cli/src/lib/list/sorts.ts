@@ -20,7 +20,7 @@ export const MEDIA_SORTS: SortRegistry = [
   {
     value: 'name',
     description: 'source filename A→Z',
-    pbSort: 'UploadRef.name,-created',
+    pbSort: 'name,-created',
   },
   {
     value: 'duration',

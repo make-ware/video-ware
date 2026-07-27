@@ -63432,7 +63432,7 @@ async function assertWorkspaceMatch(pb, workspaceRef, subject) {
 
 // src/lib/select.ts
 function mediaLabel(media) {
-  return media.expand?.UploadRef?.name ?? media.id;
+  return media.name || media.expand?.UploadRef?.name || media.id;
 }
 async function pickWorkspace(pb) {
   const result = await new WorkspaceMutator(pb).getList(1, 100);
@@ -64343,7 +64343,7 @@ var MEDIA_SORTS = [
   {
     value: "name",
     description: "source filename A\u2192Z",
-    pbSort: "UploadRef.name,-created"
+    pbSort: "name,-created"
   },
   {
     value: "duration",
@@ -66875,8 +66875,8 @@ media/
                         labelCounts, directory (only when the media is filed
                         in one) \u2014 scan this first
   <mediaId>/
-    media.json          the Media record (expand.UploadRef.name is the
-                        original filename)
+    media.json          the Media record (its "name" is the original
+                        filename)
     clips/<clipId>.json one MediaClip cut from this media, per file
                         (folder absent = no clips)
     labels/<type>/<labelId>.json
@@ -68286,7 +68286,8 @@ function distinctMedia(rows) {
 
 // src/lib/media.ts
 function mediaClipMediaLabel(clip) {
-  return clip.expand?.MediaRef?.expand?.UploadRef?.name ?? clip.MediaRef;
+  const media = clip.expand?.MediaRef;
+  return media ? mediaLabel(media) : clip.MediaRef;
 }
 function mediaColumns(items) {
   const columns = [
@@ -68326,7 +68327,7 @@ var mediaSearchFilter = listFilter({
   flags: "--search <text>",
   description: "match the media's label, description, or source filename",
   clause: (q) => ({
-    expr: "(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})",
+    expr: "(label ~ {:q} || description ~ {:q} || name ~ {:q})",
     params: { q }
   })
 });
@@ -68382,7 +68383,7 @@ var mediaClipListSpec = {
       flags: "--search <query>",
       description: "match the clip's label, description, or source filename",
       clause: (q) => ({
-        expr: "(label ~ {:q} || description ~ {:q} || MediaRef.UploadRef.name ~ {:q})",
+        expr: "(label ~ {:q} || description ~ {:q} || MediaRef.name ~ {:q})",
         params: { q }
       })
     })
@@ -73126,7 +73127,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "1.0.0";
+    return "1.0.1";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

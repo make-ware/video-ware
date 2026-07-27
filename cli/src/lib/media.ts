@@ -43,7 +43,8 @@ export type MediaClipWithMedia = MediaClip & {
 
 /** Human-readable label for a clip's source media. */
 export function mediaClipMediaLabel(clip: MediaClipWithMedia): string {
-  return clip.expand?.MediaRef?.expand?.UploadRef?.name ?? clip.MediaRef;
+  const media = clip.expand?.MediaRef;
+  return media ? mediaLabel(media) : clip.MediaRef;
 }
 
 /**
@@ -112,7 +113,7 @@ const mediaSearchFilter = listFilter({
   flags: '--search <text>',
   description: "match the media's label, description, or source filename",
   clause: (q) => ({
-    expr: '(label ~ {:q} || description ~ {:q} || UploadRef.name ~ {:q})',
+    expr: '(label ~ {:q} || description ~ {:q} || name ~ {:q})',
     params: { q },
   }),
 });
@@ -184,9 +185,7 @@ export const mediaClipListSpec: ListSpec<MediaClipWithMedia, MediaClipRow> = {
       flags: '--search <query>',
       description: "match the clip's label, description, or source filename",
       clause: (q) => ({
-        expr:
-          '(label ~ {:q} || description ~ {:q} || ' +
-          'MediaRef.UploadRef.name ~ {:q})',
+        expr: '(label ~ {:q} || description ~ {:q} || MediaRef.name ~ {:q})',
         params: { q },
       }),
     }),

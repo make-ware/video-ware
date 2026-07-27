@@ -20,14 +20,18 @@ import {
   workspaceOverride,
 } from './workspace-option.js';
 
-/** Media expanded with its source upload (for a human-readable label) and,
- * when one is set, its directory. */
+/** Media expanded with its source upload and, when one is set, its directory. */
 export type MediaWithUpload = Media & {
   expand?: { UploadRef?: Upload; DirectoryRef?: Directory };
 };
 
+/**
+ * A media's source file name — the denormalized `Media.name`, so no Uploads
+ * expand is needed. `||`, not `??`: the backfill stores `""` when a media's
+ * Upload is gone, and an empty name must fall through.
+ */
 export function mediaLabel(media: MediaWithUpload): string {
-  return media.expand?.UploadRef?.name ?? media.id;
+  return media.name || media.expand?.UploadRef?.name || media.id;
 }
 
 /** Interactive workspace picker. */

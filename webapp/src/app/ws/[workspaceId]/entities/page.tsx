@@ -8,7 +8,7 @@ import { EntityKindSection } from '@/components/entities/entity-list';
 import { EntityFormDialog } from '@/components/entities/entity-dialogs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Loader2, Plus, Search, UsersRound } from 'lucide-react';
 
 /**
  * Entities home: the real-world people, places, products, and things that
@@ -34,22 +34,28 @@ export default function EntitiesPage() {
   const visibleKinds = ENTITY_KIND_ORDER.filter((k) => (counts?.[k] ?? 0) > 0);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Entities</h1>
-          <p className="text-muted-foreground">
+    <div className="container mx-auto max-w-7xl px-3 pt-4 pb-8 space-y-4 sm:px-6 sm:pt-6 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold sm:gap-3 sm:text-3xl">
+            <UsersRound className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" />
+            Entities
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground sm:text-base">
             People, places, products, and things — link speaker and face tracks
             to them to identify who or what appears across your media.
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
+        <Button
+          className="w-full sm:w-auto sm:shrink-0"
+          onClick={() => setCreateOpen(true)}
+        >
           <Plus className="h-4 w-4 mr-1.5" />
           New Entity
         </Button>
       </div>
 
-      <div className="relative max-w-sm">
+      <div className="relative w-full sm:max-w-sm">
         <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
@@ -69,7 +75,7 @@ export default function EntitiesPage() {
           Speakers → Identify tab, or faces from the label inspector.
         </p>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6 sm:space-y-8">
           {visibleKinds.map((k) => (
             <EntityKindSection
               key={k}

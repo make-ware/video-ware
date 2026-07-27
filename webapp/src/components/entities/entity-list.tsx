@@ -44,10 +44,10 @@ export function EntityKindSection({
   const { thumbsById } = useEntityCardThumbs(entities.map((e) => e.id));
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2 sm:space-y-3">
       <div className="flex items-center gap-2">
-        <meta.icon className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-lg font-medium">{meta.label}</h2>
+        <meta.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <h2 className="text-base font-medium sm:text-lg">{meta.label}</h2>
         {totalItems > 0 && <Badge variant="secondary">{totalItems}</Badge>}
       </div>
 
@@ -64,7 +64,9 @@ export function EntityKindSection({
             : `No ${meta.label.toLowerCase()} yet.`}
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        // Two columns on a phone: one full-width 16:9 banner per row would put
+        // barely two entities on screen.
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
           {entities.map((entity) => (
             <EntityCard
               key={entity.id}

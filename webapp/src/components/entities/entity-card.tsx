@@ -63,18 +63,24 @@ export function EntityCard({
             </div>
           )}
         </div>
-        <CardContent className="p-3">
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-medium truncate">{entity.name}</span>
-              {aliases.map((alias) => (
-                <Badge key={alias} variant="secondary" className="shrink-0">
-                  {alias}
-                </Badge>
-              ))}
-            </div>
+        <CardContent className="p-2.5 sm:p-3">
+          <div className="min-w-0 space-y-1">
+            <span className="block truncate text-sm font-medium sm:text-base">
+              {entity.name}
+            </span>
+            {/* Aliases wrap onto their own line: as `shrink-0` siblings of the
+                name they would overflow a two-column phone card. */}
+            {aliases.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {aliases.map((alias) => (
+                  <Badge key={alias} variant="secondary" className="max-w-full">
+                    <span className="truncate">{alias}</span>
+                  </Badge>
+                ))}
+              </div>
+            )}
             {entity.description && (
-              <p className="text-sm text-muted-foreground truncate">
+              <p className="truncate text-xs text-muted-foreground sm:text-sm">
                 {entity.description}
               </p>
             )}

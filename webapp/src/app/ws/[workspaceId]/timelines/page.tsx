@@ -158,21 +158,25 @@ function TimelinesPageContent() {
     pageNumbers.length > 0 && pageNumbers[pageNumbers.length - 1] < totalPages;
 
   return (
-    <div className="container mx-auto px-4 pt-6 pb-8 max-w-7xl">
+    <div className="container mx-auto px-3 pt-4 pb-8 sm:px-4 sm:pt-6 max-w-7xl">
       {/* Page Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-4xl font-bold text-foreground mb-2 flex items-center gap-3">
-              <Film className="h-8 w-8" />
+      <div className="mb-4 sm:mb-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-1 sm:mb-2 flex items-center gap-2 sm:gap-3">
+              <Film className="h-6 w-6 sm:h-8 sm:w-8" />
               Timelines
             </h1>
-            <p className="text-lg text-muted-foreground">
+            <p className="text-sm sm:text-lg text-muted-foreground">
               Create timelines and review recent renders in{' '}
               {currentWorkspace.name}
             </p>
           </div>
-          <Button onClick={handleCreateTimeline} size="default">
+          <Button
+            onClick={handleCreateTimeline}
+            size="default"
+            className="w-full sm:w-auto sm:shrink-0"
+          >
             <Plus className="h-4 w-4 mr-2" />
             New Timeline
           </Button>
@@ -180,16 +184,16 @@ function TimelinesPageContent() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="animate-pulse">
               <CardHeader>
                 <div className="h-5 w-1/2 rounded bg-muted" />
                 <div className="mt-2 h-4 w-1/3 rounded bg-muted" />
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="h-10 rounded bg-muted" />
-                <div className="h-10 rounded bg-muted" />
+              <CardContent className="space-y-2">
+                <div className="h-3 w-24 rounded bg-muted" />
+                <div className="h-16 rounded bg-muted" />
               </CardContent>
             </Card>
           ))}
@@ -202,14 +206,14 @@ function TimelinesPageContent() {
         </Alert>
       ) : items.length === 0 ? (
         <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <CardContent className="flex flex-col items-center justify-center px-4 py-12 text-center sm:py-16">
             <Film className="mb-3 h-10 w-10 text-muted-foreground" />
             <h3 className="mb-1 text-lg font-semibold">No timelines yet</h3>
-            <p className="mb-4 text-muted-foreground">
+            <p className="mb-4 text-sm text-muted-foreground sm:text-base">
               Create your first timeline to start assembling clips into a video
               sequence.
             </p>
-            <Button onClick={handleCreateTimeline}>
+            <Button onClick={handleCreateTimeline} className="w-full sm:w-auto">
               <Plus className="h-4 w-4 mr-2" />
               Create Timeline
             </Button>
@@ -217,12 +221,12 @@ function TimelinesPageContent() {
         </Card>
       ) : (
         <>
-          <div className="grid gap-6 md:grid-cols-2">
-            {items.map(({ timeline, renders }) => (
+          <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+            {items.map(({ timeline, latestRender }) => (
               <TimelineOverviewCard
                 key={timeline.id}
                 timeline={timeline}
-                renders={renders}
+                latestRender={latestRender}
                 workspaceId={currentWorkspace.id}
                 onDelete={setTimelineToDelete}
               />

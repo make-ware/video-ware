@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { mediaDisplayName } from '@/hooks/use-entities';
 import { useUntagMedia, type MediaTagWithMedia } from '@/hooks/use-media-tags';
+import { useDrilldownSelection } from '@/hooks/use-drilldown-selection';
 import { LabelPreview } from '@/components/labels/label-preview';
 import { PaginationControls } from '@/components/pagination/pagination-controls';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +18,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { ExternalLink, Film, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Film, X } from 'lucide-react';
 
 const MEDIA_PER_PAGE = 50;
 
@@ -45,6 +46,9 @@ function formatMediaDuration(seconds: number): string {
  * the left, a whole-media preview of the selected one on the right. Tags are
  * not labels — there is no time range to scrub, so the preview deliberately
  * spans 0 → duration, the span a tag actually asserts.
+ *
+ * A phone drills down between the two panels instead of splitting the height
+ * (see useDrilldownSelection).
  */
 export function EntityTaggedMediaPanel({
   workspaceId,
@@ -58,9 +62,9 @@ export function EntityTaggedMediaPanel({
   tags: MediaTagWithMedia[];
 }) {
   const [page, setPage] = useState(1);
-  const [selectedId, setSelectedId] = useState<string>();
 
-  const selected = tags.find((tag) => tag.id === selectedId) ?? tags[0] ?? null;
+  const { selected, select, clear, showList, showDetail } =
+    useDrilldownSelection(tags, (tag) => tag.id);
 
   const totalPages = Math.ceil(tags.length / MEDIA_PER_PAGE);
   const currentPage = Math.min(page, Math.max(1, totalPages));
@@ -70,39 +74,44 @@ export function EntityTaggedMediaPanel({
   );
 
   return (
-    <div className="flex-1 min-h-0 grid gap-3 grid-cols-1 grid-rows-[2fr_3fr] md:grid-rows-1 md:grid-cols-3">
-      <Card className="min-h-0 flex flex-col md:col-span-1 py-3 gap-2">
-        <CardHeader className="shrink-0 px-4">
-          <CardTitle className="text-sm">Media · {tags.length}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 flex flex-col px-2 gap-2">
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
-            {pagedTags.map((tag) => (
-              <TaggedMediaRow
-                key={tag.id}
-                tag={tag}
-                entityId={entityId}
-                isSelected={selected?.id === tag.id}
-                onSelect={() => setSelectedId(tag.id)}
-              />
-            ))}
-          </div>
-          <PaginationControls
-            page={currentPage}
-            totalPages={totalPages}
-            onPageChange={setPage}
-            className="shrink-0"
-          />
-        </CardContent>
-      </Card>
+    <div className="flex-1 min-h-0 grid gap-2 grid-cols-1 sm:gap-3 md:grid-cols-3">
+      {showList && (
+        <Card className="min-h-0 flex flex-col md:col-span-1 py-3 gap-2">
+          <CardHeader className="shrink-0 px-3 sm:px-4">
+            <CardTitle className="text-sm">Media · {tags.length}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 min-h-0 flex flex-col px-2 gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
+              {pagedTags.map((tag) => (
+                <TaggedMediaRow
+                  key={tag.id}
+                  tag={tag}
+                  entityId={entityId}
+                  isSelected={selected?.id === tag.id}
+                  onSelect={() => select(tag.id)}
+                />
+              ))}
+            </div>
+            <PaginationControls
+              page={currentPage}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              className="shrink-0"
+            />
+          </CardContent>
+        </Card>
+      )}
 
-      <TaggedMediaPreviewPane
-        key={selected?.id ?? 'none'}
-        workspaceId={workspaceId}
-        entityId={entityId}
-        entityName={entityName}
-        tag={selected}
-      />
+      {showDetail && (
+        <TaggedMediaPreviewPane
+          key={selected?.id ?? 'none'}
+          workspaceId={workspaceId}
+          entityId={entityId}
+          entityName={entityName}
+          tag={selected}
+          onBack={clear}
+        />
+      )}
     </div>
   );
 }
@@ -133,7 +142,7 @@ function TaggedMediaRow({
         }
       }}
       className={cn(
-        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2 text-left cursor-pointer transition-colors hover:bg-accent/50',
+        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2.5 text-left cursor-pointer transition-colors hover:bg-accent/50 sm:py-2',
         isSelected && 'bg-secondary'
       )}
     >
@@ -164,17 +173,20 @@ function TaggedMediaRow({
 /**
  * The selected tag's detail: a looping preview of the entire media (a tag
  * covers the whole file) plus where the tag came from and where to go next.
+ * `onBack` returns a phone to the media list this pane replaced.
  */
 function TaggedMediaPreviewPane({
   workspaceId,
   entityId,
   entityName,
   tag,
+  onBack,
 }: {
   workspaceId: string;
   entityId: string;
   entityName: string;
   tag: MediaTagWithMedia | null;
+  onBack?: () => void;
 }) {
   const untagMedia = useUntagMedia();
 
@@ -194,7 +206,18 @@ function TaggedMediaPreviewPane({
 
   return (
     <Card className="min-h-0 flex flex-col md:col-span-2 py-3 gap-2">
-      <CardHeader className="shrink-0 px-4">
+      <CardHeader className="shrink-0 px-3 sm:px-4">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            className="-ml-2 h-8 justify-self-start px-2 text-muted-foreground md:hidden"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Media
+          </Button>
+        )}
         <CardTitle className="text-sm truncate">{name}</CardTitle>
         <CardDescription>
           Tagged with {entityName} — the tag covers the full{' '}
@@ -208,25 +231,29 @@ function TaggedMediaPreviewPane({
             onClick={() =>
               untagMedia.mutate({ mediaId: tag.MediaRef, entityId })
             }
+            aria-label="Remove tag"
           >
-            <X className="h-4 w-4 mr-1.5" />
-            Remove tag
+            <X className="h-4 w-4 sm:mr-1.5" />
+            <span className="hidden sm:inline">Remove tag</span>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href={`/ws/${workspaceId}/media/${tag.MediaRef}`}>
-              <ExternalLink className="h-4 w-4 mr-1.5" />
-              Open media
+            <Link
+              href={`/ws/${workspaceId}/media/${tag.MediaRef}`}
+              aria-label="Open media"
+            >
+              <ExternalLink className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Open media</span>
             </Link>
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 flex flex-col px-4 gap-3">
+      <CardContent className="flex-1 min-h-0 flex flex-col px-3 gap-3 sm:px-4">
         <LabelPreview
           media={media}
           start={0}
           end={duration}
           speed={Math.max(1, duration / FULL_SWEEP_SECONDS)}
-          className="shrink-0 h-32 md:h-48 mx-auto"
+          className="shrink-0 h-24 sm:h-32 md:h-48 mx-auto"
         />
         <div className="flex flex-wrap gap-2">
           <TagFact label="Scope" value="Whole media" />

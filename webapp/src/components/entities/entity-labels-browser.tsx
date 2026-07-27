@@ -8,6 +8,7 @@ import {
   type EntityLabelMediaGroup,
 } from '@/hooks/use-entity-labels';
 import { useEntityTaggedMedia } from '@/hooks/use-media-tags';
+import { useDrilldownSelection } from '@/hooks/use-drilldown-selection';
 import { PaginationControls } from '@/components/pagination/pagination-controls';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,9 +114,11 @@ export function EntityLabelsBrowser({
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-3">
+      {/* w-max so a phone scrolls the tab strip sideways instead of squeezing
+          every trigger's pill down to its border. */}
       <div className="shrink-0 overflow-x-auto">
         <Tabs value={activeTab.value} onValueChange={handleTypeChange}>
-          <TabsList>
+          <TabsList className="w-max">
             {tabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
                 {tab.title}
@@ -151,6 +154,10 @@ export function EntityLabelsBrowser({
  * One label type's master–detail: the media the labels appear in on the
  * left, all of the selected media's labels on the right. Mounted per active
  * type tab, so selection state resets naturally when the type changes.
+ *
+ * A phone gets the same two panels as a drill-down (see
+ * useDrilldownSelection) — side by side they would leave the label list a
+ * couple of rows tall inside the page's fixed-height shell.
  */
 function EntityLabelTypePanel({
   workspaceId,
@@ -164,17 +171,14 @@ function EntityLabelTypePanel({
   config: EntityLabelTypeConfig;
 }) {
   const [mediaPage, setMediaPage] = useState(1);
-  const [selectedMediaId, setSelectedMediaId] = useState<string>();
 
   const { mediaGroups, isLoading } = useEntityLabelMedia(
     entityId,
     config.labelType
   );
 
-  const selected =
-    mediaGroups.find((group) => group.mediaId === selectedMediaId) ??
-    mediaGroups[0] ??
-    null;
+  const { selected, select, clear, showList, showDetail } =
+    useDrilldownSelection(mediaGroups, (group) => group.mediaId);
 
   const totalMediaPages = Math.ceil(mediaGroups.length / MEDIA_PER_PAGE);
   const currentMediaPage = Math.min(mediaPage, Math.max(1, totalMediaPages));
@@ -192,41 +196,46 @@ function EntityLabelTypePanel({
   }
 
   return (
-    <div className="flex-1 min-h-0 grid gap-3 grid-cols-1 grid-rows-[2fr_3fr] md:grid-rows-1 md:grid-cols-3">
-      <Card className="min-h-0 flex flex-col md:col-span-1 py-3 gap-2">
-        <CardHeader className="shrink-0 px-4">
-          <CardTitle className="text-sm">
-            Media · {mediaGroups.length}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 flex flex-col px-2 gap-2">
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
-            {pagedGroups.map((group) => (
-              <MediaGroupRow
-                key={group.mediaId}
-                group={group}
-                isSelected={selected?.mediaId === group.mediaId}
-                onSelect={() => setSelectedMediaId(group.mediaId)}
-              />
-            ))}
-          </div>
-          <PaginationControls
-            page={currentMediaPage}
-            totalPages={totalMediaPages}
-            onPageChange={setMediaPage}
-            className="shrink-0"
-          />
-        </CardContent>
-      </Card>
+    <div className="flex-1 min-h-0 grid gap-2 grid-cols-1 sm:gap-3 md:grid-cols-3">
+      {showList && (
+        <Card className="min-h-0 flex flex-col md:col-span-1 py-3 gap-2">
+          <CardHeader className="shrink-0 px-3 sm:px-4">
+            <CardTitle className="text-sm">
+              Media · {mediaGroups.length}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 min-h-0 flex flex-col px-2 gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
+              {pagedGroups.map((group) => (
+                <MediaGroupRow
+                  key={group.mediaId}
+                  group={group}
+                  isSelected={selected?.mediaId === group.mediaId}
+                  onSelect={() => select(group.mediaId)}
+                />
+              ))}
+            </div>
+            <PaginationControls
+              page={currentMediaPage}
+              totalPages={totalMediaPages}
+              onPageChange={setMediaPage}
+              className="shrink-0"
+            />
+          </CardContent>
+        </Card>
+      )}
 
-      <EntityMediaLabelsPane
-        key={selected?.mediaId ?? 'none'}
-        workspaceId={workspaceId}
-        entityId={entityId}
-        entityName={entityName}
-        config={config}
-        mediaGroup={selected}
-      />
+      {showDetail && (
+        <EntityMediaLabelsPane
+          key={selected?.mediaId ?? 'none'}
+          workspaceId={workspaceId}
+          entityId={entityId}
+          entityName={entityName}
+          config={config}
+          mediaGroup={selected}
+          onBack={clear}
+        />
+      )}
     </div>
   );
 }
@@ -252,7 +261,7 @@ function MediaGroupRow({
         }
       }}
       className={cn(
-        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2 text-left cursor-pointer transition-colors hover:bg-accent/50',
+        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2.5 text-left cursor-pointer transition-colors hover:bg-accent/50 sm:py-2',
         isSelected && 'bg-secondary'
       )}
     >

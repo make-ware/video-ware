@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { formatClipTime } from '@/utils/format-clip-time';
-import { ExternalLink, Loader2, Unlink } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Loader2, Unlink } from 'lucide-react';
 import {
   entityLabelConfidence,
   type EntityLabelTypeConfig,
@@ -36,6 +36,9 @@ const PER_PAGE = 25;
  * a scrollable, paginated list of every label of the active type attributed
  * to the entity in that media (per-row unlink clears the row's LabelEntity
  * link). Mounted per selected media, so page/selection reset when it changes.
+ *
+ * `onBack` returns a phone to the media list, where this pane replaced it
+ * rather than sitting beside it.
  */
 export function EntityMediaLabelsPane({
   workspaceId,
@@ -43,12 +46,14 @@ export function EntityMediaLabelsPane({
   entityName,
   config,
   mediaGroup,
+  onBack,
 }: {
   workspaceId: string;
   entityId: string;
   entityName: string;
   config: EntityLabelTypeConfig;
   mediaGroup: EntityLabelMediaGroup | null;
+  onBack?: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string>();
@@ -90,7 +95,18 @@ export function EntityMediaLabelsPane({
 
   return (
     <Card className="min-h-0 flex flex-col md:col-span-2 py-3 gap-2">
-      <CardHeader className="shrink-0 px-4">
+      <CardHeader className="shrink-0 px-3 sm:px-4">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            className="-ml-2 h-8 justify-self-start px-2 text-muted-foreground md:hidden"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Media
+          </Button>
+        )}
         <CardTitle className="text-sm truncate">{mediaGroup.name}</CardTitle>
         <CardDescription>
           {totalItems || mediaGroup.count} linked{' '}
@@ -102,13 +118,13 @@ export function EntityMediaLabelsPane({
             <Link
               href={`/ws/${workspaceId}/media/${mediaGroup.mediaId}/labels/${config.mediaLabelsRoute}`}
             >
-              <ExternalLink className="h-4 w-4 mr-1.5" />
-              Open media
+              <ExternalLink className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Open media</span>
             </Link>
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 flex flex-col px-4 gap-3">
+      <CardContent className="flex-1 min-h-0 flex flex-col px-3 gap-3 sm:px-4">
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="animate-spin h-6 w-6 text-primary" />
@@ -121,7 +137,7 @@ export function EntityMediaLabelsPane({
                 track={selectedPreviewTrack}
                 start={selected.start}
                 end={selected.end}
-                className="shrink-0 h-32 md:h-48 mx-auto"
+                className="shrink-0 h-24 sm:h-32 md:h-48 mx-auto"
               />
             )}
             <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
@@ -190,7 +206,7 @@ function MediaLabelRow({
         }
       }}
       className={cn(
-        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left cursor-pointer transition-colors hover:bg-accent/50',
+        'w-full flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2 text-left cursor-pointer transition-colors hover:bg-accent/50 sm:py-1.5',
         isSelected && 'bg-secondary'
       )}
     >

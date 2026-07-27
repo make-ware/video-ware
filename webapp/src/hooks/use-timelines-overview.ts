@@ -5,8 +5,6 @@ import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import type { File, Timeline, TimelineRender } from '@project/shared';
 
-const MAX_RENDERS_PER_TIMELINE = 3;
-
 // PocketBase back-relation expand: `<referencingCollection>_via_<field>`.
 // TimelineRenders.TimelineRef points at Timelines, so this pulls every render
 // for each timeline (with its output File nested) in a single request.
@@ -17,10 +15,10 @@ export type OverviewRender = TimelineRender & {
   expand?: { FileRef?: File };
 };
 
-/** One timeline paired with its most-recent renders. */
+/** One timeline paired with its most-recent render, if it has one. */
 export interface TimelineOverviewItem {
   timeline: Timeline;
-  renders: OverviewRender[];
+  latestRender?: OverviewRender;
 }
 
 /** One page of overview items plus PocketBase pagination metadata. */
@@ -39,9 +37,9 @@ type TimelineWithRenders = Timeline & {
 
 /**
  * Fetches one page of a workspace's timelines (newest-updated first) together
- * with each timeline's recent renders, cached/memoized by TanStack Query.
- * Renders are pulled as an expanded edge (no second request) and trimmed to
- * the newest few per timeline.
+ * with each timeline's most-recent render, cached/memoized by TanStack Query.
+ * Renders are pulled as an expanded edge (no second request); the overview
+ * only surfaces the newest one per timeline — the renders page has the rest.
  */
 export function useTimelinesOverview(
   workspaceId: string | undefined,
@@ -69,14 +67,16 @@ export function useTimelinesOverview(
         });
 
       const items = result.items.map((timeline) => {
-        // Back-relation expands come back unordered, so sort newest-first here
-        // and keep only the few most-recent renders for the overview.
-        const renders = [...(timeline.expand?.[RENDER_EXPAND_KEY] ?? [])]
-          .sort((a, b) =>
-            a.created < b.created ? 1 : a.created > b.created ? -1 : 0
-          )
-          .slice(0, MAX_RENDERS_PER_TIMELINE);
-        return { timeline, renders };
+        // Back-relation expands come back unordered, so pick the newest render
+        // by `created` rather than trusting the expand's order.
+        const latestRender = (
+          timeline.expand?.[RENDER_EXPAND_KEY] ?? []
+        ).reduce<OverviewRender | undefined>(
+          (newest, render) =>
+            !newest || render.created > newest.created ? render : newest,
+          undefined
+        );
+        return { timeline, latestRender };
       });
 
       return {

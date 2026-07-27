@@ -11,6 +11,7 @@ import {
   Upload,
   Film,
   Clapperboard,
+  UsersRound,
   Activity,
   BarChart,
   HelpCircle,
@@ -317,6 +318,12 @@ export function NavigationBar({ className }: NavigationBarProps) {
                           isActive={pathname.startsWith(
                             `${wsPrefix}/timelines`
                           )}
+                        />
+                        <MobileNavLink
+                          href={`${wsPrefix}/entities`}
+                          icon={UsersRound}
+                          label="Entities"
+                          isActive={pathname.startsWith(`${wsPrefix}/entities`)}
                         />
                       </div>
                     )}

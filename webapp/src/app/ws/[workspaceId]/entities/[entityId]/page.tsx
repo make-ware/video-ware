@@ -63,8 +63,10 @@ export default function EntityDetailPage() {
 
   return (
     // 2.5625rem = NavigationBar's fixed h-10 content + its border-b. The
-    // page itself never scrolls — each browser panel scrolls internally.
-    <div className="container mx-auto px-6 py-3 h-[calc(100vh-2.5625rem)] flex flex-col gap-3">
+    // page itself never scrolls — each browser panel scrolls internally. dvh,
+    // not vh: mobile browser chrome would otherwise push the bottom panel
+    // (and its pagination) under the viewport.
+    <div className="container mx-auto flex h-[calc(100dvh-2.5625rem)] flex-col gap-2 px-3 py-2 sm:gap-3 sm:px-6 sm:py-3">
       <Link
         href={`/ws/${workspaceId}/entities`}
         className="shrink-0 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"

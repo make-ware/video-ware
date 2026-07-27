@@ -59,7 +59,9 @@ export function EntityHeaderCard({
 
   return (
     <Card className="shrink-0 py-3 gap-2">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 px-4">
+      {/* Identity and actions stack on a phone — three buttons beside a
+          wrapping name row leaves neither enough width. */}
+      <CardHeader className="flex flex-col items-stretch gap-2 space-y-0 px-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-4">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -74,12 +76,12 @@ export function EntityHeaderCard({
             ))}
           </div>
           {entity.description && (
-            <CardDescription className="truncate">
+            <CardDescription className="line-clamp-2 sm:truncate">
               {entity.description}
             </CardDescription>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:shrink-0">
           {onEdit && (
             <Button
               variant="outline"
@@ -101,21 +103,31 @@ export function EntityHeaderCard({
               <Trash2 className="h-4 w-4" />
             </Button>
           )}
-          <Button asChild variant="outline" size="sm">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="min-w-0 flex-1 sm:flex-none"
+          >
             <Link href={`/ws/${workspaceId}/entities/${entity.id}/transcripts`}>
-              <MessageSquareText className="h-4 w-4 mr-1.5" />
-              Spoken transcripts
-              <ArrowRight className="h-4 w-4 ml-1.5" />
+              <MessageSquareText className="h-4 w-4 mr-1.5 shrink-0" />
+              <span className="truncate">
+                <span className="hidden sm:inline">Spoken </span>
+                transcripts
+              </span>
+              <ArrowRight className="h-4 w-4 ml-1.5 hidden shrink-0 sm:inline" />
             </Link>
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="px-4">
-        <div className="flex gap-2 overflow-x-auto">
+      <CardContent className="px-3 sm:px-4">
+        {/* Five tiles never fit a phone row; they scroll sideways rather than
+            stacking into three rows of the page's fixed-height shell. */}
+        <div className="flex gap-2 overflow-x-auto pb-0.5">
           {tiles.map((tile) => (
             <div
               key={tile.label}
-              className="flex-1 min-w-28 shrink-0 px-2.5 py-1.5 border rounded bg-muted/20"
+              className="flex-1 min-w-24 shrink-0 px-2.5 py-1.5 border rounded bg-muted/20 sm:min-w-28"
             >
               <h4 className="text-[10px] font-medium uppercase text-muted-foreground">
                 {tile.label}

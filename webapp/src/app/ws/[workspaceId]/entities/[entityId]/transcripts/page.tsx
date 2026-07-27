@@ -95,7 +95,7 @@ export default function EntityTranscriptsPage() {
   const Icon = meta.icon;
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    <div className="container mx-auto max-w-7xl px-3 pt-4 pb-8 space-y-4 sm:px-6 sm:pt-6">
       <Link
         href={`/ws/${workspaceId}/entities/${entityId}`}
         className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
@@ -120,7 +120,7 @@ export default function EntityTranscriptsPage() {
         </CardHeader>
       </Card>
 
-      <div className="relative max-w-sm">
+      <div className="relative w-full sm:max-w-sm">
         <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
@@ -158,7 +158,7 @@ export default function EntityTranscriptsPage() {
         <div className="space-y-4">
           {mediaGroups.map((group) => (
             <div key={group.mediaId} className="border rounded-lg">
-              <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
+              <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between gap-2 sm:px-4">
                 <Link
                   href={`/ws/${workspaceId}/media/${group.mediaId}/labels/speakers`}
                   className="font-medium hover:underline truncate"
@@ -172,8 +172,14 @@ export default function EntityTranscriptsPage() {
               </div>
               <div className="divide-y">
                 {group.rows.map((u) => (
-                  <div key={u.id} className="flex items-start gap-3 p-3">
-                    <div className="w-40 shrink-0 space-y-1">
+                  // A phone puts the time/speaker gutter above the text: as a
+                  // fixed 10rem column it left the transcript itself a
+                  // three-words-per-line ribbon.
+                  <div
+                    key={u.id}
+                    className="flex flex-col gap-1 p-3 sm:flex-row sm:items-start sm:gap-3"
+                  >
+                    <div className="flex items-center gap-2 sm:w-40 sm:shrink-0 sm:flex-col sm:items-start sm:gap-1">
                       <div className="text-xs font-mono text-muted-foreground">
                         {formatClipTime(u.start)} – {formatClipTime(u.end)}
                       </div>

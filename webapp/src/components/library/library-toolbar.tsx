@@ -71,9 +71,9 @@ export function LibraryToolbar({
     clipTypeFilter !== undefined && onClipTypeFilterChange !== undefined;
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3 border-b flex-shrink-0">
+    <div className="flex flex-col gap-2 px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 border-b flex-shrink-0">
       <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={searchPlaceholder}
@@ -83,7 +83,8 @@ export function LibraryToolbar({
           />
         </div>
         <Select value={sortBy} onValueChange={onSortChange}>
-          <SelectTrigger className="w-[120px] h-9">
+          {/* A 120px select plus the search box overflowed a phone's row. */}
+          <SelectTrigger className="w-24 shrink-0 sm:w-[120px] h-9">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
@@ -98,18 +99,21 @@ export function LibraryToolbar({
       {(showTypeFilter || showClipTypeFilter || totalItems !== undefined) && (
         <div className="flex items-center justify-between gap-2">
           {showTypeFilter || showClipTypeFilter ? (
-            <div className="flex items-center gap-2 min-w-0">
+            // The two fixed-width selects can't share a phone's row with the
+            // count, so they split a grid and the count keeps its own column.
+            <div className="grid flex-1 grid-cols-2 gap-2 min-w-0 sm:flex sm:flex-none sm:items-center">
               {showClipTypeFilter && (
                 <ClipTypeFilter
                   value={clipTypeFilter!}
                   onChange={onClipTypeFilterChange!}
-                  className="w-[130px] h-7 text-xs"
+                  className="w-full h-8 text-xs sm:h-7 sm:w-[130px]"
                 />
               )}
               {showTypeFilter && (
                 <MediaTypeFilter
                   value={mediaTypeFilter!}
                   onChange={onMediaTypeFilterChange!}
+                  className="w-full h-8 text-xs sm:h-7 sm:w-[150px]"
                 />
               )}
             </div>
@@ -117,7 +121,7 @@ export function LibraryToolbar({
             <div />
           )}
           {totalItems !== undefined && (
-            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
+            <div className="shrink-0 text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
               {totalItems}{' '}
               {totalItems === 1
                 ? itemLabel
@@ -128,11 +132,13 @@ export function LibraryToolbar({
       )}
 
       {showDirectoryNav && (
-        <div className="flex items-center gap-1.5 flex-wrap">
+        // A scroll strip on phones (wrapping folders ate the whole sheet) and
+        // 32px-tall chips, since 24px is under any touch-target guidance.
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
           <Button
             variant={directoryFilter == null ? 'default' : 'outline'}
             size="sm"
-            className="h-6 text-[11px] px-2"
+            className="h-8 shrink-0 text-[11px] px-2 sm:h-6"
             onClick={() => onDirectorySelect!(null)}
           >
             <Folder className="mr-1 h-3 w-3" />
@@ -143,7 +149,7 @@ export function LibraryToolbar({
               key={dir.id}
               variant={directoryFilter === dir.id ? 'default' : 'outline'}
               size="sm"
-              className="h-6 text-[11px] px-2"
+              className="h-8 shrink-0 text-[11px] px-2 sm:h-6"
               onClick={() => onDirectorySelect!(dir.id)}
             >
               {directoryFilter === dir.id ? (

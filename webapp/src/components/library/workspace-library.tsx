@@ -7,7 +7,10 @@ import { AlertCircle, Film, FolderOpen, Scissors, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LibraryLoadMore, LibraryItemSkeleton } from './library-load-more';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
-import { CLIP_GRID_CLASS } from '@/components/timeline/constants';
+import {
+  CLIP_GRID_CLASS,
+  CLIP_THUMBNAIL_HEIGHT,
+} from '@/components/timeline/constants';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useTimeline } from '@/hooks/use-timeline';
 import { useDirectories } from '@/hooks/use-directories';
@@ -30,6 +33,8 @@ import { LibraryToolbar } from './library-toolbar';
 import { LibraryItemCard } from './library-item-card';
 import type { ExpandedMedia, ExpandedMediaClip } from '@/types/expanded-types';
 import type { MediaWithPreviews } from '@/services/media';
+import { formatTimecode } from '@/utils/format-clip-time';
+import { toast } from 'sonner';
 
 interface WorkspaceLibraryProps {
   directoryFilter?: string | null;
@@ -41,7 +46,7 @@ export function WorkspaceLibrary({
   onDirectoryFilterChange,
 }: WorkspaceLibraryProps) {
   const { currentWorkspace } = useWorkspace();
-  const { addClip } = useTimeline();
+  const { addClip, tracks, selectedTrackId, currentTime } = useTimeline();
   const { directories } = useDirectories(currentWorkspace?.id ?? '');
 
   const handleDirectorySelect = useCallback(
@@ -105,26 +110,42 @@ export function WorkspaceLibrary({
     setMediaSort(getMediaSortOption(value).value);
   }, []);
 
+  // On touch this button — not drag-and-drop — is how clips reach the timeline,
+  // and where they land depends on the selected lane and the playhead. Confirm
+  // it, or the placement looks arbitrary.
+  const addedToast = useCallback(() => {
+    const track = tracks.find((t) => t.id === selectedTrackId);
+    toast.success(
+      track && !track.isLocked
+        ? `Added to ${track.name || `Layer ${track.layer}`} at ${formatTimecode(currentTime)}`
+        : 'Added to the timeline'
+    );
+  }, [currentTime, selectedTrackId, tracks]);
+
   const handleAddClipToTimeline = useCallback(
     async (clip: ExpandedMediaClip | MediaClip) => {
       try {
         await addClip(clip.MediaRef, clip.start, clip.end, clip.id);
+        addedToast();
       } catch (err) {
         console.error('Failed to add clip:', err);
+        toast.error('Failed to add clip to the timeline');
       }
     },
-    [addClip]
+    [addClip, addedToast]
   );
 
   const handleAddMediaToTimeline = useCallback(
     async (media: ExpandedMedia | MediaWithPreviews) => {
       try {
         await addClip(media.id, 0, media.duration);
+        addedToast();
       } catch (err) {
         console.error('Failed to add media to timeline:', err);
+        toast.error('Failed to add media to the timeline');
       }
     },
-    [addClip]
+    [addClip, addedToast]
   );
 
   const handleCarveClipFromMedia = useCallback(
@@ -230,6 +251,7 @@ export function WorkspaceLibrary({
                 key={media.id}
                 item={{ kind: 'media', id: media.id, media }}
                 surface="timeline"
+                thumbnailHeight={CLIP_THUMBNAIL_HEIGHT}
                 onAddMediaToTimeline={handleAddMediaToTimeline}
                 onCarveClipFromMedia={handleCarveClipFromMedia}
               />
@@ -279,6 +301,7 @@ export function WorkspaceLibrary({
                 key={clip.id}
                 item={{ kind: 'clip', id: clip.id, clip }}
                 surface="timeline"
+                thumbnailHeight={CLIP_THUMBNAIL_HEIGHT}
                 onAddClipToTimeline={handleAddClipToTimeline}
               />
             ))}
@@ -340,7 +363,7 @@ function LibraryGrid({
 
   return (
     <div
-      className="flex-1 overflow-y-auto px-4 py-4"
+      className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
       style={{ scrollbarWidth: 'thin' }}
     >
       {isLoading && childrenCount === 0 ? (

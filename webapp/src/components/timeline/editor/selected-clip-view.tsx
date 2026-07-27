@@ -136,7 +136,10 @@ export function SelectedClipView() {
   const clipDuration = clip.end - clip.start;
 
   return (
-    <div className="flex w-full bg-background/30 rounded-lg overflow-hidden h-48 lg:h-40">
+    // h-14 on phones: the thumbnail is `aspect-video h-full`, so at h-48 it was
+    // 341px — 91% of a 375px viewport — leaving ~34px for every detail. At h-14
+    // it is 99px and the text has room.
+    <div className="flex w-full bg-background/30 rounded-lg overflow-hidden h-14 sm:h-48 lg:h-40">
       {/* Thumbnail */}
       <div
         className="relative shrink-0 h-full aspect-video bg-muted/30 border-r border-border/50 overflow-hidden"
@@ -184,8 +187,8 @@ export function SelectedClipView() {
       </div>
 
       {/* Details */}
-      <div className="flex-1 min-w-0 flex flex-col justify-between p-3 lg:p-4">
-        <div className="flex items-start justify-between gap-2 min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col justify-between p-2 sm:p-3 lg:p-4">
+        <div className="flex items-center sm:items-start justify-between gap-2 min-w-0">
           <div className="flex flex-col gap-0.5 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <div
@@ -198,23 +201,32 @@ export function SelectedClipView() {
                 </span>
               )}
             </div>
-            <span className="text-xs text-muted-foreground truncate">
-              {isCaption
-                ? caption?.text || 'Caption'
-                : isTimelineClip
-                  ? 'Nested timeline — trim on the track, edit in its own editor'
-                  : mediaName}
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground truncate">
+              {/* The detail grid is hidden in the strip, so the two figures
+                  worth keeping ride along with the subtitle. */}
+              <span className="shrink-0 font-mono tabular-nums sm:hidden">
+                {clipDuration.toFixed(1)}s @{' '}
+                {formatTime(effectiveTimelineStart)}
+              </span>
+              <span className="truncate">
+                {isCaption
+                  ? caption?.text || 'Caption'
+                  : isTimelineClip
+                    ? 'Nested timeline — trim on the track, edit in its own editor'
+                    : mediaName}
+              </span>
             </span>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {isTimelineClip ? (
               <Button
                 variant="default"
                 size="sm"
-                className="h-8 px-2 lg:px-3"
+                className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-2 lg:px-3"
                 disabled={sourceMissing}
                 title="Open the source timeline to edit its contents"
+                aria-label="Open the source timeline"
                 onClick={() =>
                   router.push(
                     `/ws/${timeline.WorkspaceRef}/timelines/${clip.SourceTimelineRef}`
@@ -228,8 +240,9 @@ export function SelectedClipView() {
               <Button
                 variant="default"
                 size="sm"
-                className="h-8 px-2 lg:px-3"
+                className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-2 lg:px-3"
                 onClick={() => setIsEditing(true)}
+                aria-label="Edit clip"
               >
                 <Pencil className="h-3.5 w-3.5 lg:mr-2" />
                 <span className="hidden lg:inline">Edit Clip</span>
@@ -240,8 +253,9 @@ export function SelectedClipView() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 px-2 text-destructive hover:text-destructive"
+                  className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-2 text-destructive hover:text-destructive"
                   title="Remove clip from timeline"
+                  aria-label="Remove clip from timeline"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -266,7 +280,9 @@ export function SelectedClipView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
+        {/* Five detail items cannot exist in a 56px strip; duration and track
+            are already on the clip block and its track header. */}
+        <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
           <DetailItem label="Duration" value={`${clipDuration.toFixed(1)}s`} />
           <DetailItem
             label="Timeline At"

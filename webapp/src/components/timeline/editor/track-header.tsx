@@ -74,13 +74,18 @@ export function TrackHeader({
   // Compact mode: badge-only column that stays aligned with 64px track lanes
   if (compact) {
     return (
-      <div
+      // A real button, not a div: at 48px wide this is the only handle on the
+      // track, and it was unreachable by keyboard or a screen reader.
+      <button
+        type="button"
         className={cn(
-          'h-16 border-b bg-muted/30 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors',
+          'w-full h-16 border-b bg-muted/30 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors',
           isSelected && 'bg-muted/60'
         )}
         onClick={onSelect}
         title={track.name || `Track ${track.layer}`}
+        aria-label={`Select ${track.name || `Track ${track.layer}`}`}
+        aria-pressed={isSelected}
       >
         <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
           {track.layer}
@@ -91,7 +96,7 @@ export function TrackHeader({
             {track.isLocked && <Lock className="h-2.5 w-2.5" />}
           </div>
         )}
-      </div>
+      </button>
     );
   }
 
@@ -163,6 +168,10 @@ export function TrackHeader({
                     e.stopPropagation();
                     onToggleMute();
                   }}
+                  // Radix tooltips are hover-only, so on touch these buttons
+                  // had no accessible name at all.
+                  aria-label={`${track.isMuted ? 'Unmute' : 'Mute'} track`}
+                  aria-pressed={track.isMuted}
                 >
                   {track.isMuted ? (
                     <VolumeX className="h-4 w-4" />
@@ -192,6 +201,8 @@ export function TrackHeader({
                     e.stopPropagation();
                     onToggleLock();
                   }}
+                  aria-label={`${track.isLocked ? 'Unlock' : 'Lock'} track`}
+                  aria-pressed={track.isLocked}
                 >
                   {track.isLocked ? (
                     <Lock className="h-4 w-4" />
@@ -218,6 +229,12 @@ export function TrackHeader({
                     e.stopPropagation();
                     setShowControls(!showControls);
                   }}
+                  aria-label={
+                    showControls
+                      ? 'Hide track volume and opacity'
+                      : 'Show track volume and opacity'
+                  }
+                  aria-expanded={showControls}
                 >
                   {showControls ? (
                     <EyeOff className="h-4 w-4" />

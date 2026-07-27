@@ -167,6 +167,8 @@ function ClipCard({
       }
     : null;
 
+  // These overlay buttons are always visible below lg (media-base-card), so on
+  // touch they are the primary handles on a card — 28px was too small.
   const overlayActions: React.ReactNode[] = [];
 
   overlayActions.push(
@@ -175,7 +177,7 @@ function ClipCard({
       size="icon"
       variant="secondary"
       onClick={handleViewDetails}
-      className="h-7 w-7 shadow-md"
+      className="h-9 w-9 sm:h-7 sm:w-7 shadow-md"
       title="View Details"
     >
       <Eye className="h-4 w-4" />
@@ -191,7 +193,7 @@ function ClipCard({
           e.stopPropagation();
           onAddClipToTimeline(clip);
         }}
-        className="h-7 w-7 shadow-md"
+        className="h-9 w-9 sm:h-7 sm:w-7 shadow-md"
         title="Add to Timeline"
       >
         <Plus className="h-4 w-4" />
@@ -206,7 +208,7 @@ function ClipCard({
         size="icon"
         variant="secondary"
         onClick={handleOpenEdit}
-        className="h-7 w-7 shadow-md"
+        className="h-9 w-9 sm:h-7 sm:w-7 shadow-md"
         title={isMediaClipComposite(clip) ? 'Fine-Tune Segments' : 'Edit Clip'}
       >
         <Edit className="h-4 w-4" />
@@ -219,7 +221,7 @@ function ClipCard({
           <Button
             variant="secondary"
             size="icon"
-            className="h-7 w-7 shadow-md hover:bg-destructive/90 hover:text-white"
+            className="h-9 w-9 sm:h-7 sm:w-7 shadow-md hover:bg-destructive/90 hover:text-white"
             disabled={isDeleting}
             onClick={(e) => e.stopPropagation()}
             title="Delete Clip"
@@ -411,7 +413,7 @@ function MediaCard({
             e.stopPropagation();
             onAddMediaToTimeline(media);
           }}
-          className="h-7 w-7 shadow-md"
+          className="h-9 w-9 sm:h-7 sm:w-7 shadow-md"
           title="Add full-length to timeline"
         >
           <Plus className="h-4 w-4" />
@@ -428,7 +430,7 @@ function MediaCard({
             e.stopPropagation();
             onCarveClipFromMedia(media);
           }}
-          className="h-7 w-7 shadow-md"
+          className="h-9 w-9 sm:h-7 sm:w-7 shadow-md"
           title="Carve new clip from media"
         >
           <Scissors className="h-4 w-4" />

@@ -69,7 +69,9 @@ const TRACK_HEADER_WIDTH = 200; // pixels
 const TRACK_HEADER_WIDTH_COLLAPSED = 48; // pixels
 const RULER_HEIGHT = 32; // h-8
 const TRACK_HEIGHT = 64; // h-16
-const DRAG_ACTIVATION_PX = 4; // pointer travel before a press becomes a drag
+const DRAG_ACTIVATION_PX = 4;
+/** Travel below which a touch on a lane counts as a tap, not a pan. */
+const LANE_TAP_SLOP_PX = 8; // pointer travel before a press becomes a drag
 
 // Ruler tick steps in seconds. The smallest whose on-screen spacing clears
 // MIN_LABEL_PX becomes the labeled interval, keeping the ruler readable at any
@@ -195,6 +197,9 @@ export function LayerTimelineView() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackAreaRef = useRef<HTMLDivElement>(null);
+  const headersListRef = useRef<HTMLDivElement>(null);
+  // Where a finger landed on a lane, so touchend can tell a tap from a pan.
+  const laneTapRef = useRef<{ x: number; y: number } | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [shiftPressed, setShiftPressed] = useState(false);
@@ -211,12 +216,35 @@ export function LayerTimelineView() {
   // Pending cursor anchor so a zoom keeps the same time under the pointer.
   const zoomAnchorRef = useRef<{ time: number; offsetX: number } | null>(null);
 
-  // Start with compact track headers on small screens
+  // Start with compact track headers on small screens, and keep re-evaluating
+  // so a rotation or a resize past lg is honoured — a mount-only check left a
+  // phone-shaped sidebar on a desktop and vice versa. An explicit toggle wins
+  // from then on.
+  const headersToggledRef = useRef(false);
   useEffect(() => {
-    if (window.matchMedia('(max-width: 1023px)').matches) {
-      setHeadersCollapsed(true);
-    }
+    const query = window.matchMedia('(max-width: 1023px)');
+    const apply = () => {
+      if (headersToggledRef.current) return;
+      setHeadersCollapsed(query.matches);
+    };
+    apply();
+    query.addEventListener('change', apply);
+    return () => query.removeEventListener('change', apply);
   }, []);
+
+  const toggleHeadersCollapsed = useCallback(() => {
+    headersToggledRef.current = true;
+    setHeadersCollapsed((collapsed) => !collapsed);
+  }, []);
+
+  // The header column has no scrollbar of its own; it follows the lanes.
+  const handleScrollerScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const list = headersListRef.current;
+      if (list) list.scrollTop = e.currentTarget.scrollTop;
+    },
+    []
+  );
 
   // Track container width for centering playhead
   useEffect(() => {
@@ -942,15 +970,26 @@ export function LayerTimelineView() {
       }
     };
 
+    // A cancelled touch (iOS scroll takeover, incoming call) must abandon the
+    // drag, not commit it — and without this the drag state stayed latched, so
+    // the clip followed every later touch.
+    const onCancel = () => {
+      setDragState(null);
+      dragInfoRef.current = null;
+      clearGuides();
+    };
+
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onCancel);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onCancel);
     };
   }, [
     dragState,
@@ -1209,8 +1248,24 @@ export function LayerTimelineView() {
       // If we are dragging a handle, don't scrub
       if (dragState) return;
 
-      setIsScrubbing(true);
-      handleTimelineClick(e);
+      // A finger pressed on a lane must pan the scroller, not scrub: it used to
+      // do both at once, so every attempt to scroll the timeline dragged the
+      // playhead with it. Continuous scrubbing on touch belongs to the ruler
+      // and the playhead ([data-scrub-zone]); a lane tap still jumps the
+      // playhead via the touchend handler below.
+      const isTouch = 'touches' in e;
+      const inScrubZone = !!(e.target as HTMLElement).closest?.(
+        '[data-scrub-zone]'
+      );
+      if (!isTouch || inScrubZone) {
+        setIsScrubbing(true);
+        handleTimelineClick(e);
+      } else {
+        laneTapRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
 
       // Deselect if clicking on the empty areas of the track
       // (The clip clicks stopPropagation)
@@ -1225,6 +1280,31 @@ export function LayerTimelineView() {
       }
     },
     [handleTimelineClick, dragState, clearClipSelection, setSelectedTrackId]
+  );
+
+  // Tap-to-position on touch, resolved explicitly: iOS suppresses synthesized
+  // mouse events after a momentum scroll, and a pan must never move the
+  // playhead — so only a press that barely travelled counts as a tap.
+  const handleTrackAreaTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const start = laneTapRef.current;
+      laneTapRef.current = null;
+      if (!start || dragState) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const travel = Math.hypot(
+        touch.clientX - start.x,
+        touch.clientY - start.y
+      );
+      if (travel > LANE_TAP_SLOP_PX) return;
+      if (!trackAreaRef.current) return;
+      const rect = trackAreaRef.current.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      setCurrentTime(
+        Math.max(0, Math.min(displayDuration, x / pixelsPerSecond))
+      );
+    },
+    [dragState, displayDuration, pixelsPerSecond, setCurrentTime]
   );
 
   useEffect(() => {
@@ -1247,12 +1327,16 @@ export function LayerTimelineView() {
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('touchmove', handleMouseMove, { passive: false });
     window.addEventListener('touchend', handleMouseUp);
+    // Without touchcancel an iOS scroll takeover (or an incoming call) leaves
+    // isScrubbing latched on and the playhead follows every later touch.
+    window.addEventListener('touchcancel', handleMouseUp);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('touchmove', handleMouseMove);
       window.removeEventListener('touchend', handleMouseUp);
+      window.removeEventListener('touchcancel', handleMouseUp);
     };
   }, [isScrubbing, displayDuration, setCurrentTime, pixelsPerSecond]);
 
@@ -1392,10 +1476,15 @@ export function LayerTimelineView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex flex-col w-full bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
-        {/* Selection toolbar (replaces single deselect button) */}
+      {/* h-full min-h-0 so the inner flex-1 row resolves against a real height
+          — without it the lanes could not scroll at any viewport size. */}
+      <div className="flex flex-col w-full h-full min-h-0 bg-background border rounded-lg overflow-hidden shadow-inner relative group/timeline">
+        {/* Selection toolbar (replaces single deselect button). The hover gate
+            made Delete literally unreachable on touch, so it only applies from
+            lg up; below sm the inspector strip carries the same two actions
+            without overlapping the ruler. */}
         {selectionCount > 0 && (
-          <div className="absolute top-2 right-2 z-50 flex items-center gap-2 opacity-0 group-hover/timeline:opacity-100 transition-opacity">
+          <div className="absolute top-2 right-2 z-50 hidden sm:flex items-center gap-2 opacity-100 lg:opacity-0 lg:group-hover/timeline:opacity-100 transition-opacity">
             <span className="text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded shadow">
               {selectionCount} selected
             </span>
@@ -1408,6 +1497,7 @@ export function LayerTimelineView() {
                 clearClipSelection();
               }}
               title="Clear Selection"
+              aria-label="Clear selection"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -1420,77 +1510,125 @@ export function LayerTimelineView() {
                 setClipDeleteDialogOpen(true);
               }}
               title="Delete Selected Clips"
+              aria-label="Delete selected clips"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         )}
 
-        {/* Drop mode + zoom controls */}
-        <div className="absolute bottom-3 right-3 z-50 flex items-center gap-0.5 rounded-md border bg-background/90 px-0.5 py-0.5 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/70">
-          {DROP_MODE_OPTIONS.map(({ mode, icon: Icon, title }) => (
-            <Button
-              key={mode}
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'h-7 w-7',
-                // Reflects the mode a release would use right now, so a held
-                // modifier lights up its button mid-drag
-                effectiveDropMode === mode && 'bg-accent text-accent-foreground'
-              )}
-              onClick={() => setDropMode(mode)}
-              title={title}
-            >
-              <Icon className="h-4 w-4" />
-            </Button>
-          ))}
-          <div className="mx-0.5 h-4 w-px bg-border" />
+        {/* Drop mode + zoom controls. Below lg this is an in-flow top strip:
+            floating bottom-right at z-50 it covered ~63% of the bottom lane on
+            a phone and swallowed its scrub and drag events. At lg it floats
+            exactly as before. */}
+        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-background/90 px-1 py-1 lg:absolute lg:bottom-3 lg:right-3 lg:z-50 lg:w-auto lg:overflow-visible lg:rounded-md lg:border lg:px-0.5 lg:py-0.5 lg:shadow-md lg:backdrop-blur lg:supports-[backdrop-filter]:bg-background/70">
+          <div
+            role="group"
+            aria-label="Clip drop mode"
+            className="flex shrink-0 items-center gap-0.5"
+          >
+            {DROP_MODE_OPTIONS.map(({ mode, icon: Icon, title }) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  'h-9 w-9 shrink-0 lg:h-7 lg:w-7',
+                  // Reflects the mode a release would use right now, so a held
+                  // modifier lights up its button mid-drag
+                  effectiveDropMode === mode &&
+                    'bg-accent text-accent-foreground'
+                )}
+                onClick={() => setDropMode(mode)}
+                title={title}
+                aria-label={title}
+                aria-pressed={effectiveDropMode === mode}
+              >
+                <Icon className="h-4 w-4" />
+              </Button>
+            ))}
+          </div>
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-9 w-9 shrink-0 lg:h-7 lg:w-7"
             onClick={handleZoomOut}
             disabled={pixelsPerSecond <= MIN_PPS}
             title="Zoom out (−)"
+            aria-label="Zoom out"
           >
             <ZoomOut className="h-4 w-4" />
           </Button>
           <button
             type="button"
             onClick={handleZoomReset}
-            className="min-w-[3.25rem] px-1 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+            className="min-w-[3.25rem] shrink-0 px-1 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
             title="Reset to 100%"
+            aria-label="Zoom level — reset to 100%"
           >
             {Math.round((pixelsPerSecond / DEFAULT_PPS) * 100)}%
           </button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-9 w-9 shrink-0 lg:h-7 lg:w-7"
             onClick={handleZoomIn}
             disabled={pixelsPerSecond >= MAX_PPS}
             title="Zoom in (+)"
+            aria-label="Zoom in"
           >
             <ZoomIn className="h-4 w-4" />
           </Button>
-          <div className="mx-0.5 h-4 w-px bg-border" />
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-9 w-9 shrink-0 lg:h-7 lg:w-7"
             onClick={handleZoomFit}
             title="Fit timeline to view (0)"
+            aria-label="Fit timeline to view"
           >
             <Maximize2 className="h-4 w-4" />
           </Button>
+
+          {/* Selection actions ride the in-flow strip below sm — the floating
+              toolbar above would sit on top of it here. */}
+          {selectionCount > 0 && (
+            <>
+              <div className="mx-0.5 h-4 w-px shrink-0 bg-border sm:hidden" />
+              <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+                <span className="px-1 font-mono text-xs tabular-nums text-muted-foreground">
+                  {selectionCount}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={clearClipSelection}
+                  aria-label="Clear selection"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 text-destructive"
+                  onClick={() => setClipDeleteDialogOpen(true)}
+                  aria-label="Delete selected clips"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Timeline Area */}
         <div className="flex flex-1 overflow-hidden">
           {/* Track Headers Sidebar */}
           <div
-            className="flex-shrink-0 border-r bg-muted/20 transition-[width] duration-200"
+            className="flex flex-col min-h-0 flex-shrink-0 border-r bg-muted/20 transition-[width] duration-200"
             style={{
               width: headersCollapsed
                 ? TRACK_HEADER_WIDTH_COLLAPSED
@@ -1500,7 +1638,7 @@ export function LayerTimelineView() {
             {/* Ruler Header Spacer + collapse toggle */}
             <div
               className={cn(
-                'h-8 border-b bg-muted/30 flex items-center',
+                'h-8 shrink-0 border-b bg-muted/30 flex items-center',
                 headersCollapsed ? 'justify-center' : 'justify-between px-2'
               )}
             >
@@ -1513,8 +1651,13 @@ export function LayerTimelineView() {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-muted-foreground"
-                onClick={() => setHeadersCollapsed(!headersCollapsed)}
+                onClick={toggleHeadersCollapsed}
                 title={
+                  headersCollapsed
+                    ? 'Expand track headers'
+                    : 'Collapse track headers'
+                }
+                aria-label={
                   headersCollapsed
                     ? 'Expand track headers'
                     : 'Collapse track headers'
@@ -1528,10 +1671,14 @@ export function LayerTimelineView() {
               </Button>
             </div>
 
-            {/* Track Headers */}
+            {/* Track Headers. The lane scroller owns vertical scrolling and
+                mirrors scrollTop into here, so headers can never drift out of
+                alignment with their lanes (they used to be two independent
+                scrollers). The old maxHeight resolved 100% against an
+                auto-height parent and did nothing. */}
             <div
-              className="overflow-y-auto"
-              style={{ maxHeight: 'calc(100% - 2rem)' }}
+              ref={headersListRef}
+              className="flex-1 min-h-0 overflow-hidden"
             >
               {hasNoTracks
                 ? !headersCollapsed && (
@@ -1566,34 +1713,38 @@ export function LayerTimelineView() {
                       onDelete={() => handleTrackDelete(track.id)}
                     />
                   ))}
+            </div>
 
-              {/* Add Track Button */}
-              <div className="p-2 border-t">
-                <Button
-                  variant="outline"
-                  size={headersCollapsed ? 'icon' : 'sm'}
-                  className={
-                    headersCollapsed ? 'w-8 h-8 mx-auto flex' : 'w-full'
-                  }
-                  onClick={handleCreateTrack}
-                  disabled={sortedTracks.length >= MAX_TIMELINE_TRACKS}
-                  title={
-                    sortedTracks.length >= MAX_TIMELINE_TRACKS
-                      ? `Maximum of ${MAX_TIMELINE_TRACKS} tracks`
-                      : 'Add Track'
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  {!headersCollapsed && <span className="ml-2">Add Track</span>}
-                </Button>
-              </div>
+            {/* Add Track lives outside the scrolling list so it stays reachable
+                when the tracks overflow — which is the norm on a phone. */}
+            <div className="shrink-0 p-2 border-t">
+              <Button
+                variant="outline"
+                size={headersCollapsed ? 'icon' : 'sm'}
+                className={headersCollapsed ? 'w-8 h-8 mx-auto flex' : 'w-full'}
+                onClick={handleCreateTrack}
+                disabled={sortedTracks.length >= MAX_TIMELINE_TRACKS}
+                title={
+                  sortedTracks.length >= MAX_TIMELINE_TRACKS
+                    ? `Maximum of ${MAX_TIMELINE_TRACKS} tracks`
+                    : 'Add Track'
+                }
+                aria-label="Add track"
+              >
+                <Plus className="h-4 w-4" />
+                {!headersCollapsed && <span className="ml-2">Add Track</span>}
+              </Button>
             </div>
           </div>
 
-          {/* Timeline Scrubber Area */}
+          {/* Timeline Scrubber Area. Sole owner of vertical scroll; the header
+              column follows it (one-way — mirroring both ways loops). */}
           <div
             ref={containerRef}
-            className="relative flex-1 overflow-x-auto overflow-y-auto bg-grid-white/[0.02]"
+            // touch-action: manipulation keeps native pan + pinch but drops the
+            // double-tap zoom that fought double-click-to-edit on a clip.
+            className="relative flex-1 overflow-x-auto overflow-y-auto overscroll-contain touch-manipulation bg-grid-white/[0.02]"
+            onScroll={handleScrollerScroll}
           >
             <div
               ref={trackAreaRef}
@@ -1605,9 +1756,17 @@ export function LayerTimelineView() {
               }}
               onMouseDown={handleMouseDown}
               onTouchStart={handleMouseDown}
+              onTouchEnd={handleTrackAreaTouchEnd}
+              onTouchCancel={() => {
+                laneTapRef.current = null;
+              }}
             >
-              {/* Ruler */}
-              <div className="sticky top-0 left-0 right-0 h-8 border-b bg-muted/30 z-20">
+              {/* Ruler. data-scrub-zone + touch-none: this is where a finger
+                  scrubs, so it must not also pan the scroller. */}
+              <div
+                data-scrub-zone
+                className="sticky top-0 left-0 right-0 h-8 border-b bg-muted/30 z-20 touch-none"
+              >
                 {ticks}
               </div>
 
@@ -1729,7 +1888,8 @@ export function LayerTimelineView() {
 
               {/* Playhead */}
               <div
-                className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize group/playhead"
+                data-scrub-zone
+                className="absolute top-0 bottom-0 w-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] z-40 cursor-ew-resize touch-none group/playhead"
                 style={{ left: currentTime * pixelsPerSecond }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
@@ -1742,7 +1902,13 @@ export function LayerTimelineView() {
                   handleTimelineClick(e);
                 }}
               >
-                <div className="absolute top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform" />
+                {/* The visible diamond is a ~16px target; this invisible pad
+                    makes it 32px for a fingertip without changing the look. */}
+                <div
+                  aria-hidden
+                  className="absolute top-6 left-1/2 h-8 w-8 -translate-x-1/2"
+                />
+                <div className="absolute top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rotate-45 -translate-y-2 rounded-sm shadow-sm group-hover/playhead:scale-110 active:group-hover/playhead:scale-95 transition-transform pointer-events-none" />
 
                 {/* Playhead Time Label */}
                 <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded opacity-0 group-hover/playhead:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md">

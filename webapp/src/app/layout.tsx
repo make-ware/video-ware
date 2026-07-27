@@ -50,7 +50,15 @@ export default function RootLayout({
                   >
                     <PageMenuProvider>
                       <NavigationBar />
-                      <main className="min-h-screen">{children}</main>
+                      {/* 2.5625rem = NavigationBar's h-10 content + its
+                          border-b. `min-h-screen` here made the body taller
+                          than the viewport by exactly the nav's height, so
+                          every full-height page scrolled ~41px. dvh so mobile
+                          browser chrome shrinks the page instead of
+                          overflowing it. */}
+                      <main className="min-h-[calc(100dvh-2.5625rem)]">
+                        {children}
+                      </main>
                       <Toaster />
                     </PageMenuProvider>
                   </ThemeProvider>

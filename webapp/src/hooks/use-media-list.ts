@@ -6,11 +6,12 @@
  * filters and sort, a workspace-scoped Media realtime subscription, and
  * synchronous preview enrichment of SSE records.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from '@/hooks/use-auth';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   useLiveInfiniteList,
   type LiveListSubscription,
@@ -99,11 +100,7 @@ export function useMediaList(
   const { isAuthenticated } = useAuth();
   const mediaService = useMemo(() => new MediaService(pb), []);
 
-  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  const debouncedSearch = useDebouncedValue(searchQuery);
 
   const sortOption = getMediaSortOption(sort);
 

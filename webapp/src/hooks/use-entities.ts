@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import {
   EntityMutator,
   EntityStatsMutator,
@@ -8,6 +13,7 @@ import {
 } from '@project/shared/mutator';
 import type {
   Entity,
+  EntityPatch,
   LabelEntity,
   LabelSpeaker,
   LabelTrack,
@@ -19,6 +25,50 @@ import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from './use-auth';
+
+/**
+ * Every cache that renders an entity's identity or its links.
+ *
+ * An entity's NAME is read through expands on labels, speakers, tracks and
+ * media tags, so a rename is as broad a change as a re-link — anything less
+ * leaves stale names on other pages.
+ */
+function invalidateEntityViews(queryClient: QueryClient): void {
+  const keys: readonly unknown[][] = [
+    [...qk.entities.all],
+    [...qk.labelTracks.all],
+    ['labels'],
+    // Speaker utterances expand LabelEntityRef for both the display name and
+    // the linked entity, so a rename/re-link makes that cached expand stale.
+    ['speakers'],
+    [...qk.mediaEntities.all],
+    [...qk.mediaTags.all],
+  ];
+  for (const queryKey of keys) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
+}
+
+/**
+ * Operator-readable copy for an entity write failure.
+ *
+ * Entities carry UNIQUE (WorkspaceRef, kind, name), so a create or rename onto
+ * an existing pair returns a PocketBase 400 whose per-field errors sit at
+ * `response.data`. Left alone it surfaces as the opaque "Failed to create
+ * record."
+ */
+export function entityWriteErrorMessage(
+  error: unknown,
+  fallback: string
+): string {
+  const data = (
+    error as { response?: { data?: Record<string, { code?: string }> } }
+  )?.response?.data;
+  if (data?.name?.code === 'validation_not_unique') {
+    return 'An entity with that name and kind already exists in this workspace.';
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 /** A workspace's real-world entities (people, products, places, things). */
 export function useWorkspaceEntities(workspaceId: string) {
@@ -72,9 +122,56 @@ export function useCreateEntity(workspaceId: string) {
       void queryClient.invalidateQueries({ queryKey: qk.entities.all });
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create entity'
-      );
+      toast.error(entityWriteErrorMessage(error, 'Failed to create entity'));
+    },
+  });
+}
+
+/** Patch an entity's editable fields (name, aliases, description). */
+export function useUpdateEntity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      entityId: string;
+      patch: EntityPatch;
+    }): Promise<Entity> =>
+      new EntityMutator(pb).updateEntity(input.entityId, input.patch),
+    onSuccess: (entity) => {
+      toast.success(`Updated "${entity.name}"`);
+      invalidateEntityViews(queryClient);
+    },
+    onError: (error) => {
+      toast.error(entityWriteErrorMessage(error, 'Failed to update entity'));
+    },
+  });
+}
+
+/**
+ * Delete an entity.
+ *
+ * PocketBase handles the fallout by relation config, so there is nothing to
+ * clean up first: LabelEntity.EntityRef and LabelTrack.EntityRef are
+ * `cascadeDelete: false`, so those references are cleared — the detected
+ * labels survive and simply lose their attribution, which is what "delete
+ * this identity" should mean. MediaTags.EntityRef is `cascadeDelete: true`,
+ * so tag rows go with the entity (a tag without its entity is meaningless).
+ */
+export function useDeleteEntity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (entityId: string): Promise<string> => {
+      // BaseMutator.delete swallows every error (including 403) into `false`,
+      // so a bare call would report success on failure.
+      const deleted = await new EntityMutator(pb).delete(entityId);
+      if (!deleted) throw new Error('Failed to delete entity');
+      return entityId;
+    },
+    onSuccess: () => {
+      toast.success('Entity deleted');
+      invalidateEntityViews(queryClient);
+    },
+    onError: (error) => {
+      toast.error(entityWriteErrorMessage(error, 'Failed to delete entity'));
     },
   });
 }
@@ -98,13 +195,7 @@ export function useAssignLabelEntity() {
       new LabelEntityMutator(pb).setEntity(input.labelEntityId, input.entityId),
     onSuccess: (_labelEntity, { entityId }) => {
       toast.success(entityId ? 'Linked to entity' : 'Entity link removed');
-      void queryClient.invalidateQueries({ queryKey: qk.entities.all });
-      void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
-      void queryClient.invalidateQueries({ queryKey: ['labels'] });
-      // Speaker utterances expand LabelEntityRef for both the display name and
-      // the linked entity, so a re-link makes that cached expand stale.
-      void queryClient.invalidateQueries({ queryKey: ['speakers'] });
-      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
+      invalidateEntityViews(queryClient);
     },
     onError: (error) => {
       toast.error(
@@ -150,11 +241,7 @@ export function useAssignLabelEntities() {
             : `Removed entity link from ${linked} ${noun}`
         );
       }
-      void queryClient.invalidateQueries({ queryKey: qk.entities.all });
-      void queryClient.invalidateQueries({ queryKey: qk.labelTracks.all });
-      void queryClient.invalidateQueries({ queryKey: ['labels'] });
-      void queryClient.invalidateQueries({ queryKey: ['speakers'] });
-      void queryClient.invalidateQueries({ queryKey: qk.mediaEntities.all });
+      invalidateEntityViews(queryClient);
     },
     onError: (error) => {
       toast.error(
@@ -199,53 +286,6 @@ export function groupByMedia<
     mediaId,
     ...group,
   }));
-}
-
-/**
- * One page of a workspace's entities of one kind, optionally searched.
- * A request past the last page (e.g. after deletes narrowed the set) falls
- * back to the real last page inside the fetch; `page` in the result is the
- * effective page actually served.
- */
-export function useEntitiesByKind(
-  workspaceId: string,
-  kind: EntityKind,
-  page: number,
-  perPage: number,
-  search: string
-) {
-  const { isAuthenticated } = useAuth();
-  const trimmed = search.trim();
-  const query = useQuery({
-    queryKey: qk.entities.byKind(workspaceId, kind, page, perPage, trimmed),
-    enabled: !!workspaceId && isAuthenticated,
-    placeholderData: (prev) => prev,
-    queryFn: async () => {
-      const mutator = new EntityMutator(pb);
-      const fetchPage = (p: number) =>
-        trimmed
-          ? mutator.search(workspaceId, trimmed, p, perPage, kind)
-          : mutator.getByWorkspace(workspaceId, kind, p, perPage);
-      let result = await fetchPage(page);
-      if (
-        result.items.length === 0 &&
-        result.totalPages > 0 &&
-        page > result.totalPages
-      ) {
-        result = await fetchPage(result.totalPages);
-      }
-      return result;
-    },
-  });
-  return {
-    entities: query.data?.items ?? [],
-    page: query.data?.page ?? page,
-    totalPages: query.data?.totalPages ?? 0,
-    totalItems: query.data?.totalItems ?? 0,
-    isLoading: query.isLoading,
-    isFetching: query.isFetching,
-    error: query.error,
-  };
 }
 
 /** An entity card's representative track, with its media for the preview. */

@@ -1,10 +1,15 @@
 'use client';
 
 /**
- * Generic "filterable live list with load-more" hook: a TanStack
- * `useInfiniteQuery` over PocketBase `ListResult` pages, kept fresh by a
- * PocketBase realtime subscription whose events fold into the cache via the
+ * `useInfiniteList` plus a PocketBase realtime subscription: the same
+ * load-more paging, kept fresh by SSE events folded into the cache via the
  * pure merges in `utils/live-list.ts`.
+ *
+ * Paging lives entirely in `use-infinite-list.ts` — this hook adds only the
+ * subscription. A list that does not need other clients' writes to appear
+ * without a refresh should use that hook directly rather than passing
+ * `subscription: null` here, since `spec` is meaningless without a
+ * subscription to apply it to.
  *
  * Realtime invariants (same contract as timeline-context.tsx — see root
  * CLAUDE.md): the subscription is identified by `subscription.key` alone,
@@ -16,15 +21,17 @@
  * setup are never lost; handlers only touch the query cache and never
  * write to the DB.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type PocketBase from 'pocketbase';
 import type { ListResult, RecordSubscription } from 'pocketbase';
 import pb from '@/lib/pocketbase-client';
 import {
+  useInfiniteList,
+  type UseInfiniteListResult,
+} from '@/hooks/use-infinite-list';
+import {
   applyListEvent,
-  dedupeById,
-  removeManyFromList,
   type LiveListData,
   type LiveListRecord,
   type LiveListSpec,
@@ -62,23 +69,8 @@ export interface UseLiveInfiniteListConfig<T extends LiveListRecord> {
   subscription: LiveListSubscription | null;
 }
 
-export interface UseLiveInfiniteListResult<T extends LiveListRecord> {
-  /** All loaded pages, flattened and deduped, in server sort order. */
-  items: T[];
-  /** Freshest server total (0 until the first page arrives). */
-  totalItems: number;
-  /** isPending — true while auth/enabled gating holds the first fetch. */
-  isLoading: boolean;
-  isFetching: boolean;
-  isFetchingNextPage: boolean;
-  hasNextPage: boolean;
-  /** Fetch the next page; no-op while showing placeholder data. */
-  loadMore: () => void;
-  error: string | null;
-  reload: () => Promise<unknown>;
-  /** Optimistically drop records from the current key's cache. */
-  removeFromCache: (ids: readonly string[]) => void;
-}
+export type UseLiveInfiniteListResult<T extends LiveListRecord> =
+  UseInfiniteListResult<T>;
 
 export function useLiveInfiniteList<T extends LiveListRecord>(
   config: UseLiveInfiniteListConfig<T>
@@ -86,17 +78,7 @@ export function useLiveInfiniteList<T extends LiveListRecord>(
   const { queryKey, enabled, fetchPage, spec, mapEvent, subscription } = config;
   const queryClient = useQueryClient();
 
-  const query = useInfiniteQuery({
-    queryKey,
-    enabled,
-    initialPageParam: 1,
-    getNextPageParam: (lastPage: ListResult<T>) =>
-      lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
-    queryFn: ({ pageParam }) => fetchPage(pageParam),
-    // Keep the previous list visible while a filter/sort/search change
-    // fetches its first page, avoiding a flicker to empty.
-    placeholderData: (prev) => prev,
-  });
+  const list = useInfiniteList<T>({ queryKey, enabled, fetchPage });
 
   // Volatile inputs flow to the (stable) subscription handler through refs
   // so events always merge into the CURRENT filter's cache entry with the
@@ -172,48 +154,5 @@ export function useLiveInfiniteList<T extends LiveListRecord>(
     };
   }, [subscriptionKey, enabled, queryClient]);
 
-  const items = useMemo(() => {
-    const flat = query.data?.pages.flatMap((page) => page.items) ?? [];
-    return dedupeById(flat);
-  }, [query.data]);
-
-  const totalItems =
-    query.data?.pages[query.data.pages.length - 1]?.totalItems ?? 0;
-
-  const { fetchNextPage, isPlaceholderData, isFetchingNextPage, hasNextPage } =
-    query;
-  const loadMore = useCallback(() => {
-    // While showing another key's placeholder data, "page 2" would belong
-    // to that other result set — wait for the real first page.
-    if (isPlaceholderData || isFetchingNextPage || !hasNextPage) return;
-    void fetchNextPage();
-  }, [fetchNextPage, isPlaceholderData, isFetchingNextPage, hasNextPage]);
-
-  const removeFromCache = useCallback(
-    (ids: readonly string[]) => {
-      queryClient.setQueryData<LiveListData<T>>(queryKeyRef.current, (prev) =>
-        prev ? removeManyFromList(prev, ids) : prev
-      );
-    },
-    [queryClient]
-  );
-
-  return {
-    items,
-    totalItems,
-    // isPending (not isLoading) so an auth-gated disabled query still reads
-    // as loading instead of flashing an empty state.
-    isLoading: query.isPending,
-    isFetching: query.isFetching,
-    isFetchingNextPage,
-    hasNextPage: hasNextPage ?? false,
-    loadMore,
-    error: query.error
-      ? query.error instanceof Error
-        ? query.error.message
-        : 'Failed to load list'
-      : null,
-    reload: () => query.refetch(),
-    removeFromCache,
-  };
+  return list;
 }

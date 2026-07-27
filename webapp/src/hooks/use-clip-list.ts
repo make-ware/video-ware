@@ -6,10 +6,11 @@
  * media-type/search filters and sort, plus a workspace-scoped MediaClips
  * realtime subscription.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from '@/hooks/use-auth';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   useLiveInfiniteList,
   type LiveListSubscription,
@@ -118,11 +119,7 @@ export function useClipList(
   const { isAuthenticated } = useAuth();
   const clipService = useMemo(() => new MediaClipService(pb), []);
 
-  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  const debouncedSearch = useDebouncedValue(searchQuery);
 
   const sortOption = getClipSortOption(sort);
 

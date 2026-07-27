@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, MessageSquareText } from 'lucide-react';
+import { ArrowRight, MessageSquareText, Pencil, Trash2 } from 'lucide-react';
 import { ENTITY_KIND_META } from './entity-kind';
 import { EntityTaggedMediaRow } from './entity-tagged-media-row';
 
@@ -32,10 +32,15 @@ export function EntityHeaderCard({
   workspaceId,
   entity,
   stats,
+  onEdit,
+  onDelete,
 }: {
   workspaceId: string;
   entity: Entity;
   stats: EntityHeaderStats;
+  /** Edit/delete actions render only when the page supplies a handler. */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const meta = ENTITY_KIND_META[entity.kind as EntityKind];
   const Icon = meta.icon;
@@ -72,13 +77,36 @@ export function EntityHeaderCard({
             </CardDescription>
           )}
         </div>
-        <Button asChild variant="outline" size="sm" className="shrink-0">
-          <Link href={`/ws/${workspaceId}/entities/${entity.id}/transcripts`}>
-            <MessageSquareText className="h-4 w-4 mr-1.5" />
-            Spoken transcripts
-            <ArrowRight className="h-4 w-4 ml-1.5" />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {onEdit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onEdit}
+              aria-label="Edit entity"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDelete}
+              className="text-destructive hover:text-destructive"
+              aria-label="Delete entity"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/ws/${workspaceId}/entities/${entity.id}/transcripts`}>
+              <MessageSquareText className="h-4 w-4 mr-1.5" />
+              Spoken transcripts
+              <ArrowRight className="h-4 w-4 ml-1.5" />
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="px-4">
         <div className="flex gap-2 overflow-x-auto">

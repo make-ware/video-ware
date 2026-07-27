@@ -207,6 +207,16 @@ interface LabelCollectionMutator {
     sort?: string,
     expand?: string[]
   ): Promise<ListResult<LabelRecord>>;
+  /**
+   * Narrowed to the one field the CLI writes on a label row: the link to its
+   * LabelEntity, repaired when a partial label run left it blank (see
+   * `labelEntityForRow`). Everything else about a label row is the provider's
+   * to write.
+   */
+  update(
+    id: string,
+    input: { LabelEntityRef: string }
+  ): Promise<LabelRecord | unknown>;
 }
 
 /** The per-type mutator backing a label type's collection. */

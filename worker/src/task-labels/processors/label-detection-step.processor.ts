@@ -8,6 +8,7 @@ import { LabelDetectionExecutor } from '../executors/label-detection.executor';
 import { LabelDetectionNormalizer } from '../normalizers/label-detection.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { relinkEntityRef } from '../utils/entity-ref';
+import { classificationInstanceId } from '../utils/instance-id';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { LabelDetectionStepInput } from '../types/step-inputs';
 import type { LabelDetectionStepOutput } from '../types/step-outputs';
@@ -197,9 +198,10 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
   /**
    * Upsert LabelSegment rows, keyed by segmentHash.
    *
-   * The row's own hash is its entity's instanceId, so the entity is looked up
-   * by that hash rather than re-derived here — re-deriving is how the two
-   * could silently disagree. A miss means the entity upsert failed upstream:
+   * The ROW is keyed by its hash; its ENTITY is keyed by the label class
+   * within the media, so every "mountain" stretch resolves to the same
+   * LabelEntity and one tag covers them all (see `classificationInstanceId`).
+   * A miss means the entity upsert failed upstream:
    * the row is skipped rather than written with an empty LabelEntityRef, which
    * would be an unlinkable segment indistinguishable from a deliberately
    * unlinked one, and would never be repaired because the hash still matches
@@ -215,7 +217,8 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
     const ids: string[] = [];
     for (const data of segments) {
       const entityId =
-        entityByInstance.get(data.segmentHash) || data.LabelEntityRef;
+        entityByInstance.get(classificationInstanceId(data.entity)) ||
+        data.LabelEntityRef;
       if (!entityId) {
         this.logger.warn(
           `No LabelEntity for segment ${data.segmentHash} ("${data.entity}"), skipping`
@@ -254,8 +257,9 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
 
   /**
    * Upsert LabelShot rows, keyed by shotHash. Same contract as
-   * `batchInsertLabelSegments`: the row's hash is its entity's instanceId,
-   * a missing entity is a warn-and-skip, and an existing row is repointed.
+   * `batchInsertLabelSegments`: the row is keyed by its hash and its entity by
+   * the label class within the media, a missing entity is a warn-and-skip, and
+   * an existing row is repointed.
    */
   private async batchInsertLabelShots(
     shots: LabelShotData[],
@@ -264,7 +268,8 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
     const ids: string[] = [];
     for (const data of shots) {
       const entityId =
-        entityByInstance.get(data.shotHash) || data.LabelEntityRef;
+        entityByInstance.get(classificationInstanceId(data.entity)) ||
+        data.LabelEntityRef;
       if (!entityId) {
         this.logger.warn(
           `No LabelEntity for shot ${data.shotHash} ("${data.entity}"), skipping`

@@ -15,9 +15,18 @@
 // carrying a LabelEntityRef but no LabelTrackRef contributes nothing here."
 // Reading LabelEntity directly is both cheaper and complete.
 //
-// `links` stays comparable: LabelEntity is 1:1 with LabelTrack for tracked
-// types and 1:1 with the leaf row for shots and segments, so the per-entity
-// counts match what the old three branches produced.
+// Reading the entity rows instead of the label rows means a LabelEntity that
+// outlives its labels would keep claiming a detection. Media deletion cascades
+// (LabelEntity.MediaRef), and pb_hooks/hook-label-entity-gc.pb.js collects the
+// finer-grained case — the last track or leaf row for an instance being
+// deleted — so this view stays honest without re-growing the join.
+//
+// `links` changes meaning slightly and deliberately: it counts the media's
+// LabelEntity rows for the entity, which is 1:1 with LabelTrack for tracked
+// types but one row per label class (not per interval) for shots and
+// segments. A media whose only link is a "mountain" segment label now reads
+// as one link rather than one per interval — the entity is listed either way,
+// which is what this view is read for.
 //
 // Structural constraints preserved: top level stays `FROM Media m` with a bare
 // m.WorkspaceRef (a wrapping subquery degrades every column to json and breaks

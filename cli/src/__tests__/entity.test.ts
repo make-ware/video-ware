@@ -355,12 +355,66 @@ describe('tagLabel', () => {
     );
   });
 
-  it('rejects labels with no LabelEntity', async () => {
+  // A partial label run can leave a leaf row with no LabelEntityRef while its
+  // track carries the identity. Those rows were reachable through the retired
+  // LabelTrack.EntityRef; without this fallback, retiring that field made them
+  // permanently untaggable.
+  it('falls back to the track, repairing the row on the way', async () => {
+    const labelEntities = {
+      update: vi.fn(async (id: string, data: object) => ({
+        id,
+        canonicalName: 'Speaker 1',
+        ...data,
+      })),
+    };
+    const speech = {
+      getOne: vi.fn(async () => ({ id: 'sp1', LabelTrackRef: 'tr1' })),
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    };
+    const pb = fakePb({
+      LabelSpeech: speech,
+      LabelTrack: {
+        getOne: vi.fn(async () => ({ id: 'tr1', LabelEntityRef: 'le9' })),
+      },
+      LabelEntity: labelEntities,
+    });
+
+    const result = await tagLabel(pb, LabelType.SPEECH, 'sp1', 'e1');
+
+    // The row is repaired, or the tag would land on the entity while every
+    // attribution query — which filters on the row's own ref — still misses it.
+    expect(speech.update).toHaveBeenCalledWith(
+      'sp1',
+      { LabelEntityRef: 'le9' },
+      expect.anything()
+    );
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le9',
+      { EntityRef: 'e1' },
+      expect.anything()
+    );
+    expect(result).toMatchObject({ targetId: 'le9' });
+  });
+
+  it('rejects labels with no LabelEntity and no track to borrow one from', async () => {
     const pb = fakePb({
       LabelText: { getOne: vi.fn(async () => ({ id: 'tx1' })) },
     });
     await expect(tagLabel(pb, LabelType.TEXT, 'tx1', 'e1')).rejects.toThrow(
-      /has no LabelEntity/i
+      /has no LabelEntity.*Re-run labels/is
+    );
+  });
+
+  it('rejects when the row and its track are both unlinked', async () => {
+    const pb = fakePb({
+      LabelSpeech: {
+        getOne: vi.fn(async () => ({ id: 'sp2', LabelTrackRef: 'tr2' })),
+        update: vi.fn(),
+      },
+      LabelTrack: { getOne: vi.fn(async () => ({ id: 'tr2' })) },
+    });
+    await expect(tagLabel(pb, LabelType.SPEECH, 'sp2', 'e1')).rejects.toThrow(
+      /neither does its track/i
     );
   });
 

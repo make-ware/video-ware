@@ -18,9 +18,10 @@ export interface LabelEntityRequest {
   /** Display name, e.g. "Speaker 1", "Car". NOT part of the identity. */
   canonicalName: string;
   /**
-   * The provider's key for this instance within the media — the trackId for
-   * tracked types, the leaf row's own hash for shots and segments. This is
-   * what separates two same-named things in one media.
+   * The key for this instance within the media — the provider's trackId for
+   * tracked types, which is what separates two same-named things in one
+   * media; the normalized label name for shots and segments, which have no
+   * track and whose instance is the class itself.
    */
   instanceId: string;
   provider:

@@ -48,9 +48,10 @@ export const LabelEntitySchema = z
     ]),
     processor: TextField(), // e.g., "object-tracking:1.0.0"
     // The provider's key for this instance within the media: the trackId for
-    // the six tracked types, the row's own shotHash/segmentHash for the two
-    // cluster-only ones. Paired with MediaRef it is what makes one row mean
-    // one thing rather than one word.
+    // the six tracked types, the normalized label name for the two trackless
+    // classification ones (shots and segments, where the instance is the class
+    // — every "mountain" interval in a media is one thing to tag). Paired with
+    // MediaRef it is what makes one row mean one thing rather than one word.
     instanceId: TextField().optional(),
     metadata: JSONField().optional(), // Provider-specific data
     // Uniqueness key, a readable composite rather than a digest —
@@ -126,10 +127,12 @@ export default LabelEntityCollection;
  * and the key is plain text, so a SQL migration can reconstruct it (SQLite
  * has no SHA-256) and a human can read it in the admin UI.
  *
- * `instanceId` is the provider's key for the instance — the trackId for the
- * six tracked types, the row's own shotHash/segmentHash for shots and
- * segments. It is NOT the canonical name: two objects in one media can both
- * be "food" and still be different products.
+ * `instanceId` is the key for the instance within the media — the provider's
+ * trackId for the six tracked types. For those it is NOT the canonical name:
+ * two objects in one media can both be "food" and still be different
+ * products. Shots and segments have no track and no tracked thing, so their
+ * instance is the label class itself (the normalized name), which keeps a tag
+ * on "mountain" covering every mountain interval in that media.
  *
  * Keep this in step with the SQL that rebuilds the key in
  * pb_migrations/1785110400_labelentity_per_instance.js.

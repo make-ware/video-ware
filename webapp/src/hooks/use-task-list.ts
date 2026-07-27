@@ -9,10 +9,11 @@
  * fields — so SSE records merge exactly as they arrive (no mapEvent, no
  * canCompare).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 import { useAuth } from '@/hooks/use-auth';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
   useLiveInfiniteList,
   type LiveListSubscription,
@@ -82,11 +83,7 @@ export function useTaskList(
   const { isAuthenticated } = useAuth();
   const taskService = useMemo(() => new TaskService(pb), []);
 
-  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  const debouncedSearch = useDebouncedValue(searchQuery);
 
   const sortOption = getTaskSortOption(sort);
 

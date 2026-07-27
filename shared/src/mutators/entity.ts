@@ -1,7 +1,7 @@
 import { RecordService } from 'pocketbase';
 import type { ListResult } from 'pocketbase';
-import { EntityInputSchema } from '../schema';
-import type { Entity, EntityInput } from '../schema';
+import { EntityInputSchema, EntityPatchSchema } from '../schema';
+import type { Entity, EntityInput, EntityPatch } from '../schema';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
 import { EntityKind } from '../enums';
@@ -26,6 +26,17 @@ export function entityAttributionFilter(entityId: string): string {
   return `LabelEntityRef.EntityRef = "${entityId}"`;
 }
 
+/**
+ * Server ordering for every entity listing.
+ *
+ * The `id` tiebreak is what makes load-more paging safe: `name` is unique only
+ * per (WorkspaceRef, kind), so a listing that spans kinds has no total order
+ * and SQLite may place equal-named rows differently per page — dropping or
+ * duplicating records across page boundaries. Offset pagination hid this
+ * because each page was read independently; an accumulating list does not.
+ */
+const ENTITY_LIST_SORT = 'name,id';
+
 export class EntityMutator extends BaseMutator<Entity, EntityInput> {
   constructor(pb: TypedPocketBase, options?: Partial<MutatorOptions>) {
     super(pb, options);
@@ -48,6 +59,25 @@ export class EntityMutator extends BaseMutator<Entity, EntityInput> {
   }
 
   /**
+   * Patch an entity's editable fields.
+   *
+   * `BaseMutator.update` runs no Zod validation — only `create` does — so the
+   * patch is parsed here. That is what stops a UI from clearing `name` to ''
+   * or moving the record to another workspace.
+   *
+   * Deliberately a plain update rather than `updateWithGuard`: entities are
+   * small workspace-level records with no concurrent-editor story, so the
+   * guard's extra read would buy a RecordConflictError nothing surfaces.
+   *
+   * @param id The entity ID
+   * @param patch The fields to change; absent fields are left untouched
+   */
+  async updateEntity(id: string, patch: EntityPatch): Promise<Entity> {
+    const parsed = EntityPatchSchema.parse(patch);
+    return this.update(id, parsed as Partial<Entity>);
+  }
+
+  /**
    * List a workspace's entities, optionally narrowed to one kind
    * @param workspaceId The workspace ID
    * @param kind Optional entity kind filter
@@ -64,7 +94,7 @@ export class EntityMutator extends BaseMutator<Entity, EntityInput> {
     if (kind) {
       filters.push(`kind = "${kind}"`);
     }
-    return this.getList(page, perPage, filters, 'name');
+    return this.getList(page, perPage, filters, ENTITY_LIST_SORT);
   }
 
   /**
@@ -102,6 +132,6 @@ export class EntityMutator extends BaseMutator<Entity, EntityInput> {
         (kind ? ' && kind = {:kind}' : ''),
       { ws: workspaceId, q: query, ...(kind ? { kind } : {}) }
     );
-    return this.getList(page, perPage, filter, 'name');
+    return this.getList(page, perPage, filter, ENTITY_LIST_SORT);
   }
 }

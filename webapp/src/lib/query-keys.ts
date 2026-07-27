@@ -85,22 +85,10 @@ export const qk = {
     byWorkspace: (workspaceId: string) =>
       ['entities', 'workspace', workspaceId] as const,
     detail: (id: string) => ['entities', 'detail', id] as const,
-    byKind: (
-      workspaceId: string,
-      kind: string,
-      page: number,
-      perPage: number,
-      search: string
-    ) =>
-      [
-        'entities',
-        'by-kind',
-        workspaceId,
-        kind,
-        page,
-        perPage,
-        search,
-      ] as const,
+    /** Invalidation prefix for every entity list. */
+    lists: ['entities', 'list'] as const,
+    list: (args: { workspaceId: string; kind: string; search: string }) =>
+      ['entities', 'list', args] as const,
     kindCounts: (workspaceId: string) =>
       ['entities', 'kind-counts', workspaceId] as const,
     stats: (id: string) => ['entities', 'stats', id] as const,

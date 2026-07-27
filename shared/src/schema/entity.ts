@@ -51,6 +51,14 @@ export const EntityInputSchema = z.object({
   metadata: JSONField().optional(),
 });
 
+// The editable subset, for patching an existing entity. WorkspaceRef is
+// omitted deliberately: an entity never moves workspaces, and the unique
+// index is scoped by it. `.partial()` keeps each field's validator, so an
+// omitted `name` is fine but `name: ''` is still rejected.
+export const EntityPatchSchema = EntityInputSchema.omit({
+  WorkspaceRef: true,
+}).partial();
+
 // Define the collection with workspace-scoped permissions
 export const EntityCollection = defineCollection({
   collectionName: 'Entities',
@@ -70,4 +78,5 @@ export default EntityCollection;
 // Export TypeScript types
 export type Entity = z.infer<typeof EntitySchema>;
 export type EntityInput = z.infer<typeof EntityInputSchema>;
+export type EntityPatch = z.infer<typeof EntityPatchSchema>;
 export type EntityUpdate = Partial<EntityInput>;

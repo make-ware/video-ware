@@ -1,11 +1,19 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useEntity, useEntityStats } from '@/hooks/use-entities';
+import { useParams, useRouter } from 'next/navigation';
+import {
+  useDeleteEntity,
+  useEntity,
+  useEntityStats,
+} from '@/hooks/use-entities';
 import { useEntityLabelCounts } from '@/hooks/use-entity-labels';
 import { EntityHeaderCard } from '@/components/entities/entity-header-card';
+import {
+  EntityDeleteDialog,
+  EntityFormDialog,
+} from '@/components/entities/entity-dialogs';
 import { EntityLabelsBrowser } from '@/components/entities/entity-labels-browser';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
@@ -19,9 +27,14 @@ export default function EntityDetailPage() {
   const workspaceId = params.workspaceId as string;
   const entityId = params.entityId as string;
 
+  const router = useRouter();
   const { entity, isLoading } = useEntity(entityId);
   const stats = useEntityStats(entityId);
   const { counts, isLoading: countsLoading } = useEntityLabelCounts(entityId);
+  const deleteEntity = useDeleteEntity();
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const labelTotal = useMemo(
     () =>
@@ -66,6 +79,30 @@ export default function EntityDetailPage() {
           utteranceCount: stats.utteranceCount,
           labelTotal,
         }}
+        onEdit={() => setEditOpen(true)}
+        onDelete={() => setDeleteOpen(true)}
+      />
+
+      <EntityFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        workspaceId={workspaceId}
+        entity={entity}
+      />
+
+      <EntityDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        entity={entity}
+        labelTotal={labelTotal}
+        mediaCount={stats.mediaCount}
+        isPending={deleteEntity.isPending}
+        onConfirm={() =>
+          deleteEntity.mutate(entity.id, {
+            // The record is gone — staying would render "Entity not found."
+            onSuccess: () => router.push(`/ws/${workspaceId}/entities`),
+          })
+        }
       />
 
       <div className="flex-1 min-h-0">

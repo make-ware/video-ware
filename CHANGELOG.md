@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.1...video-ware-v1.0.2) (2026-07-27)
+
+
+### Bug Fixes
+
+* improve entity page ([6790a5f](https://github.com/make-ware/video-ware/commit/6790a5fed34792562b2ff81a6a9457d218ab5d10))
+* improve media list layout ([59ac4f2](https://github.com/make-ware/video-ware/commit/59ac4f23ebd1df6c1af10c5b2942aa4df9133052))
+* improve media viewer layout ([2da5bc0](https://github.com/make-ware/video-ware/commit/2da5bc029203f1adce1bd5995a2254d9a354d46e))
+* improve timeline editor layout ([58732fe](https://github.com/make-ware/video-ware/commit/58732fe85efbee52601c5012998fdf95e46aa342))
+* use media name flield ([02597e2](https://github.com/make-ware/video-ware/commit/02597e23d48929f1084fd6c02d37ff9c9fc6c7f1))
+
 ## [1.0.1](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.0...video-ware-v1.0.1) (2026-07-27)
 
 

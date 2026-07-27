@@ -86,6 +86,7 @@ export class IngestOrchestratorService {
 
       // Idempotent placeholder Media (reused on re-ingest/retry)
       let media = await this.pocketbaseService.getMediaByUpload(uploadId);
+      const reusedMedia = media !== null;
       if (!media) {
         const dummyMediaData = {
           width: 0,
@@ -118,6 +119,8 @@ export class IngestOrchestratorService {
           WorkspaceRef: upload.WorkspaceRef as string,
           UploadRef: uploadId,
           mediaType,
+          // Denormalized source file name — see Media.name in shared/schema.
+          name: upload.name,
           mediaDate: new Date().toISOString(),
           duration: 0,
           width: 0,
@@ -137,6 +140,26 @@ export class IngestOrchestratorService {
 
       if (!media) {
         throw new Error('Failed to create or retrieve media record');
+      }
+
+      // Re-ingest of an EXISTING Media (retry, or a media ingested before
+      // Media.name existed): re-sync the denormalized file name. A media is
+      // (re)derived from its upload here, so this is the one place the copy
+      // can drift back into agreement. Editors override the display name via
+      // `label`, which this never touches. Best-effort — a failure to write a
+      // cosmetic field must not fail the ingest.
+      if (reusedMedia && upload.name && media.name !== upload.name) {
+        try {
+          await this.pocketbaseService.updateMedia(media.id, {
+            name: upload.name,
+          });
+        } catch (nameError) {
+          this.logger.warn(
+            `Failed to sync name onto media ${media.id} (continuing): ${
+              nameError instanceof Error ? nameError.message : String(nameError)
+            }`
+          );
+        }
       }
 
       const defaultTranscode: TranscodeFlowConfig = {

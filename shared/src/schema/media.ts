@@ -25,6 +25,10 @@ export const MediaSchema = z
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UploadRef: RelationField({ collection: 'Uploads' }),
     mediaType: SelectField([MediaType.VIDEO, MediaType.AUDIO, MediaType.IMAGE]),
+    // Source file name, denormalized from UploadRef.name at ingest so lists can
+    // sort/filter/display without expanding Uploads. `label` (below) is the
+    // editor's override; display order is label -> name.
+    name: TextField().optional(),
     label: TextField().optional(), // editor-facing name, searchable
     description: TextField().optional(), // editor-facing notes, searchable
     mediaDate: DateField().optional(),
@@ -52,6 +56,7 @@ export const MediaInputSchema = z.object({
   WorkspaceRef: z.string().min(1, 'Workspace is required'),
   UploadRef: z.string().min(1, 'Upload is required'),
   mediaType: z.enum([MediaType.VIDEO, MediaType.AUDIO, MediaType.IMAGE]),
+  name: z.string().max(255).optional(),
   label: z.string().optional(),
   description: z.string().optional(),
   mediaDate: DateField().optional(),
@@ -77,6 +82,11 @@ export const MediaCollection = defineCollection({
   collectionName: 'Media',
   schema: MediaSchema,
   permissions: workspaceScopedPermissions(),
+  indexes: [
+    // Workspace-scoped name sorts/searches — every media list is filtered by
+    // workspace first, so the pair is what the planner can actually use.
+    'CREATE INDEX idx_media_workspace_name ON Media (WorkspaceRef, name)',
+  ],
 });
 
 export default MediaCollection;

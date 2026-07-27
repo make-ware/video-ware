@@ -21,6 +21,7 @@ describe('IngestOrchestratorService', () => {
     getUpload: vi.fn(),
     getMediaByUpload: vi.fn(),
     createMedia: vi.fn(),
+    updateMedia: vi.fn(),
     updateTask: vi.fn(),
   };
 
@@ -53,6 +54,7 @@ describe('IngestOrchestratorService', () => {
     taskMutator.markFailed.mockResolvedValue(undefined);
     pb.getMediaByUpload.mockResolvedValue(null);
     pb.createMedia.mockResolvedValue({ id: 'm-1' });
+    pb.updateMedia.mockResolvedValue(undefined);
     pb.updateTask.mockResolvedValue(undefined);
     queueService.enqueueTask.mockResolvedValue('job-1');
 
@@ -72,6 +74,10 @@ describe('IngestOrchestratorService', () => {
     expect(mediaInput.UploadRef).toBe('u-1');
     expect(mediaInput.DirectoryRef).toBe('dir-1');
     expect(mediaInput.isActive).toBe(false);
+    // The file name is denormalized onto the Media at creation...
+    expect(mediaInput.name).toBe('clip.mp4');
+    // ...so no follow-up write is needed to set it.
+    expect(pb.updateMedia).not.toHaveBeenCalled();
 
     expect(taskMutator.createProcessUploadTask).toHaveBeenCalledTimes(1);
     expect(taskMutator.createDetectLabelsTask).toHaveBeenCalledTimes(1);
@@ -128,12 +134,43 @@ describe('IngestOrchestratorService', () => {
 
   it('reuses existing Media instead of creating a new one (idempotent re-ingest)', async () => {
     pb.getUpload.mockResolvedValue(videoUpload);
-    pb.getMediaByUpload.mockResolvedValue({ id: 'm-existing' });
+    pb.getMediaByUpload.mockResolvedValue({
+      id: 'm-existing',
+      name: 'clip.mp4',
+    });
 
     await service.orchestrate(fullIngestTask);
 
     expect(pb.createMedia).not.toHaveBeenCalled();
+    // Name already agrees with the upload — no redundant write.
+    expect(pb.updateMedia).not.toHaveBeenCalled();
     expect(taskMutator.createProcessUploadTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('backfills name onto a reused Media that predates the field', async () => {
+    pb.getUpload.mockResolvedValue(videoUpload);
+    pb.getMediaByUpload.mockResolvedValue({ id: 'm-existing' });
+
+    await service.orchestrate(fullIngestTask);
+
+    expect(pb.updateMedia).toHaveBeenCalledWith('m-existing', {
+      name: 'clip.mp4',
+    });
+  });
+
+  it('still orchestrates if syncing the name onto a reused Media fails', async () => {
+    pb.getUpload.mockResolvedValue(videoUpload);
+    pb.getMediaByUpload.mockResolvedValue({
+      id: 'm-existing',
+      name: 'old.mp4',
+    });
+    pb.updateMedia.mockRejectedValueOnce(new Error('pb blip'));
+
+    await service.orchestrate(fullIngestTask);
+
+    expect(taskMutator.createProcessUploadTask).toHaveBeenCalledTimes(1);
+    expect(taskMutator.markSuccess).toHaveBeenCalledTimes(1);
+    expect(taskMutator.markFailed).not.toHaveBeenCalled();
   });
 
   it('marks the full_ingest task failed when the upload is missing', async () => {

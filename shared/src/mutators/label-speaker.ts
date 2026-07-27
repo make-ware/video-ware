@@ -53,6 +53,28 @@ export const SPEAKER_PANEL_FIELDS = [
 ] as const;
 
 /**
+ * The subset of SPEAKER_PANEL_FIELDS needed to derive per-speaker summaries
+ * (who spoke, how often, for how long, linked to whom) without reading a
+ * single word of transcript.
+ *
+ * The speakers page pages its utterance list, but the speaker chips above it
+ * are a whole-media aggregate — counts and speaking time computed from a
+ * partial page would be wrong. This projection makes that aggregate cheap:
+ * `transcript` is the heavy remaining column once `words` is gone, and the
+ * summary never renders it.
+ */
+export const SPEAKER_SUMMARY_FIELDS = [
+  'id',
+  'MediaRef',
+  'LabelEntityRef',
+  'start',
+  'duration',
+  'speakerId',
+  'expand.LabelEntityRef.*',
+  'expand.LabelEntityRef.expand.EntityRef.*',
+] as const;
+
+/**
  * LabelSpeaker columns SPEAKER_PANEL_FIELDS drops on purpose. Kept explicit
  * so the drift test can tell "deliberately omitted" from "forgot to add".
  */

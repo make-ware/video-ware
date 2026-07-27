@@ -57523,6 +57523,9 @@ var EntityInputSchema = external_exports.object({
   description: external_exports.string().optional(),
   metadata: JSONField().optional()
 });
+var EntityPatchSchema = EntityInputSchema.omit({
+  WorkspaceRef: true
+}).partial();
 var EntityCollection = defineCollection({
   collectionName: "Entities",
   schema: EntitySchema,
@@ -62215,6 +62218,7 @@ var CaptionMutator = class extends BaseMutator {
 function entityAttributionFilter(entityId) {
   return `LabelEntityRef.EntityRef = "${entityId}"`;
 }
+var ENTITY_LIST_SORT = "name,id";
 var EntityMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
@@ -62233,6 +62237,24 @@ var EntityMutator = class extends BaseMutator {
     return EntityInputSchema.parse(input);
   }
   /**
+   * Patch an entity's editable fields.
+   *
+   * `BaseMutator.update` runs no Zod validation — only `create` does — so the
+   * patch is parsed here. That is what stops a UI from clearing `name` to ''
+   * or moving the record to another workspace.
+   *
+   * Deliberately a plain update rather than `updateWithGuard`: entities are
+   * small workspace-level records with no concurrent-editor story, so the
+   * guard's extra read would buy a RecordConflictError nothing surfaces.
+   *
+   * @param id The entity ID
+   * @param patch The fields to change; absent fields are left untouched
+   */
+  async updateEntity(id, patch) {
+    const parsed = EntityPatchSchema.parse(patch);
+    return this.update(id, parsed);
+  }
+  /**
    * List a workspace's entities, optionally narrowed to one kind
    * @param workspaceId The workspace ID
    * @param kind Optional entity kind filter
@@ -62244,7 +62266,7 @@ var EntityMutator = class extends BaseMutator {
     if (kind) {
       filters.push(`kind = "${kind}"`);
     }
-    return this.getList(page, perPage, filters, "name");
+    return this.getList(page, perPage, filters, ENTITY_LIST_SORT);
   }
   /**
    * Exact-name lookup within a workspace (any kind)
@@ -62273,7 +62295,7 @@ var EntityMutator = class extends BaseMutator {
       "WorkspaceRef = {:ws} && (name ~ {:q} || aliases ~ {:q} || description ~ {:q})" + (kind ? " && kind = {:kind}" : ""),
       { ws: workspaceId, q: query, ...kind ? { kind } : {} }
     );
-    return this.getList(page, perPage, filter, "name");
+    return this.getList(page, perPage, filter, ENTITY_LIST_SORT);
   }
 };
 var LabelTrackMutator = class extends BaseMutator {
@@ -62732,8 +62754,8 @@ var LabelSpeakerMutator = class extends BaseMutator {
   }
 };
 var LabelSpeechMutator = class extends BaseMutator {
-  constructor(pb) {
-    super(pb);
+  constructor(pb, options) {
+    super(pb, options);
   }
   getCollection() {
     return this.pb.collection("LabelSpeech");
@@ -62743,6 +62765,16 @@ var LabelSpeechMutator = class extends BaseMutator {
   }
   async getByMedia(mediaId, page = 1, perPage = 100) {
     return this.getList(page, perPage, `MediaRef = "${mediaId}"`);
+  }
+  /**
+   * Every speech segment in a media, sorted by start — the whole transcript,
+   * fetched in batches so a long recording can't be truncated. The paged
+   * surfaces use getByMedia; this is for the "give me the full text" reads
+   * (raw transcript view, copy to clipboard), which should pair it with a
+   * `fields` projection so the heavy per-word timings stay on the server.
+   */
+  async getAllByMedia(mediaId) {
+    return this.getFullList(`MediaRef = "${mediaId}"`, "start");
   }
 };
 var LabelEntityMutator = class extends BaseMutator {

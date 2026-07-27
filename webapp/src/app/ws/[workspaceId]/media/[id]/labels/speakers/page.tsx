@@ -2,14 +2,23 @@
 
 import { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { LabelType } from '@project/shared';
-import { useMediaSpeakers } from '@/hooks/use-media-speakers';
+import {
+  speakerTextQueryOptions,
+  useMediaSpeakerSummaries,
+  useMediaSpeakerText,
+} from '@/hooks/use-media-speakers';
+import {
+  labelSource,
+  useLabelList,
+  type LabelListFilters,
+} from '@/hooks/use-label-list';
 import { useAssignLabelEntity } from '@/hooks/use-entities';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
+import { LibraryLoadMore } from '@/components/library/library-load-more';
 import {
-  deriveSpeakerSummaries,
-  formatDiarizedTranscript,
   missingEntityLabel,
   prettySpeakerId,
   speakerBadgeClass,
@@ -38,41 +47,67 @@ import { cn } from '@/lib/utils';
 /** Gap between consecutive selected utterances that we consider noteworthy. */
 const GAP_THRESHOLD_SECONDS = 1;
 
+/**
+ * Diarized speakers for one media.
+ *
+ * Two reads with different shapes, deliberately: the utterance list is paged
+ * and server-filtered (`useLabelList` — speaker chip and search both become
+ * filter clauses, not client-side array work), while the speaker chips above
+ * it are a whole-media aggregate that a single page could not answer honestly.
+ * The chips' read carries no transcript text, so it stays cheap. Raw Text is a
+ * third, lazy read — nobody pays for the full transcript until they ask.
+ */
 export default function LabelSpeakersPage() {
   const params = useParams();
   const mediaId = params.id as string;
   const workspaceId = params.workspaceId as string;
-  const { utterances, isLoading } = useMediaSpeakers(mediaId);
+  const queryClient = useQueryClient();
   const assignEntity = useAssignLabelEntity();
   const createClip = useCreateClipFromLabel();
 
+  const [tab, setTab] = useState('conversation');
   const [query, setQuery] = useState('');
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
     new Set()
   );
 
-  const speakers = useMemo(
-    () => deriveSpeakerSummaries(utterances),
-    [utterances]
-  );
+  const {
+    speakers,
+    isLoading: isLoadingSpeakers,
+    error: speakersError,
+  } = useMediaSpeakerSummaries(mediaId);
+
+  const filters: LabelListFilters = {
+    minConfidence: 0,
+    minDuration: 0,
+    query,
+    equals: { speakerId: speakerFilter },
+  };
+  const {
+    items: utterances,
+    totalItems,
+    isLoading,
+    error,
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+  } = useLabelList<SpeakerUtterance>({
+    mediaId,
+    source: labelSource(LabelType.SPEAKER),
+    filters,
+  });
+
+  const { text: fullTranscript, isLoading: isLoadingText } =
+    useMediaSpeakerText(mediaId, tab === 'raw');
+
   const colorIndexBySpeaker = useMemo(
     () => new Map(speakers.map((s) => [s.speakerId, s.colorIndex])),
     [speakers]
   );
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return utterances.filter((u) => {
-      if (speakerFilter && u.speakerId !== speakerFilter) return false;
-      if (q && !u.transcript.toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [utterances, query, speakerFilter]);
-
-  const fullTranscript = useMemo(
-    () => formatDiarizedTranscript(utterances, speakerTranscriptLabelFor),
-    [utterances]
+  const totalUtterances = useMemo(
+    () => speakers.reduce((sum, s) => sum + s.utteranceCount, 0),
+    [speakers]
   );
 
   const selectedUtterances = useMemo(
@@ -126,18 +161,34 @@ export default function LabelSpeakersPage() {
     );
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(fullTranscript);
-    toast.success('Diarized transcript copied to clipboard');
+  // Copy is a whole-media action, so it fetches the full diarized transcript
+  // rather than copying whatever happens to be paged in.
+  const copyToClipboard = async () => {
+    try {
+      const text = await queryClient.fetchQuery(
+        speakerTextQueryOptions(mediaId)
+      );
+      if (!text) {
+        toast.error('No speaker transcript available');
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      toast.success('Diarized transcript copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy diarized transcript:', err);
+      toast.error('Failed to copy transcript');
+    }
   };
 
-  if (isLoading) {
+  if (isLoading || isLoadingSpeakers) {
     return (
       <div className="flex justify-center p-8">
         <Loader2 className="animate-spin h-8 w-8 text-primary" />
       </div>
     );
   }
+
+  const hasActiveFilters = !!speakerFilter || query.trim() !== '';
 
   return (
     <div className="h-full">
@@ -146,12 +197,16 @@ export default function LabelSpeakersPage() {
           <div>
             <CardTitle>Speakers</CardTitle>
             <CardDescription>
-              {utterances.length}{' '}
-              {utterances.length === 1 ? 'utterance' : 'utterances'} from{' '}
+              {totalUtterances}{' '}
+              {totalUtterances === 1 ? 'utterance' : 'utterances'} from{' '}
               {speakers.length} {speakers.length === 1 ? 'speaker' : 'speakers'}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={copyToClipboard}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void copyToClipboard()}
+          >
             <Copy className="h-4 w-4 mr-2" />
             Copy Transcript
           </Button>
@@ -204,8 +259,8 @@ export default function LabelSpeakersPage() {
                       ) : (
                         <span className="text-xs text-muted-foreground">
                           {missingEntityLabel({
-                            isPending: isLoading,
-                            error: null,
+                            isPending: isLoadingSpeakers,
+                            error: speakersError,
                           })}
                         </span>
                       )}
@@ -216,7 +271,8 @@ export default function LabelSpeakersPage() {
             </div>
           )}
           <Tabs
-            defaultValue="conversation"
+            value={tab}
+            onValueChange={setTab}
             className="flex-1 flex flex-col min-h-0"
           >
             <div className="px-6 pt-3 flex items-center gap-3 flex-wrap">
@@ -283,14 +339,15 @@ export default function LabelSpeakersPage() {
             >
               <ScrollArea className="h-full">
                 <div className="p-6 pt-0 space-y-3">
-                  {filtered.length === 0 ? (
+                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {utterances.length === 0 ? (
                     <p className="text-muted-foreground text-center py-8">
-                      {query || speakerFilter
+                      {hasActiveFilters
                         ? 'No utterances match your filters.'
                         : 'No speaker data found. Run label detection with speaker transcription enabled to see who says what.'}
                     </p>
                   ) : (
-                    filtered.map((u) => (
+                    utterances.map((u) => (
                       <div
                         key={u.id}
                         className="flex gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -338,6 +395,13 @@ export default function LabelSpeakersPage() {
                       </div>
                     ))
                   )}
+                  <LibraryLoadMore
+                    hasNextPage={hasNextPage}
+                    isFetchingNextPage={isFetchingNextPage}
+                    loadedCount={utterances.length}
+                    totalItems={totalItems}
+                    onLoadMore={loadMore}
+                  />
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -346,10 +410,17 @@ export default function LabelSpeakersPage() {
               <ScrollArea className="h-full">
                 <div className="p-6 pt-0">
                   <div className="p-6 bg-muted/30 rounded-lg border whitespace-pre-wrap leading-relaxed">
-                    {fullTranscript || (
-                      <span className="text-muted-foreground italic">
-                        No speaker transcript available.
+                    {isLoadingText ? (
+                      <span className="text-muted-foreground italic inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading full transcript…
                       </span>
+                    ) : (
+                      fullTranscript || (
+                        <span className="text-muted-foreground italic">
+                          No speaker transcript available.
+                        </span>
+                      )
                     )}
                   </div>
                 </div>

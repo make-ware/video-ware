@@ -7,7 +7,10 @@ import type {
   LabelShot,
   LabelText,
 } from '@project/shared';
-import type { ActualizableLabel } from '@project/shared/mutator';
+import {
+  LABEL_TYPE_META,
+  type ActualizableLabel,
+} from '@project/shared/mutator';
 import { truncateWords } from './derive-clip-label';
 
 /**
@@ -23,30 +26,24 @@ export interface InspectorFilterDefaults {
 }
 
 /**
- * Per-label-type configuration driving the generic inspector page — the
- * webapp analog of the CLI's LABEL_TYPE_CONFIG (cli/src/lib/label.ts).
+ * Per-label-type PRESENTATION for the generic inspector page — the webapp
+ * analog of the CLI's LABEL_TYPE_CONFIG (cli/src/lib/label.ts).
+ *
+ * Presentation only. Structural facts (which collection backs the type, which
+ * column holds its confidence) live once in the shared LABEL_TYPE_META, and
+ * how the type is read (sort, expands, searchable fields, page size) lives once
+ * in LABEL_LIST_SOURCES (hooks/use-label-list.ts) — both keyed by `labelType`,
+ * which is all this config needs to carry to reach them.
  */
 export interface InspectorTypeConfig {
   /** Route segment under /labels/, also used as the tab key. */
   key: string;
   labelType: LabelType;
-  collection:
-    | 'LabelObjects'
-    | 'LabelShots'
-    | 'LabelPerson'
-    | 'LabelFaces'
-    | 'LabelSegments'
-    | 'LabelText';
   title: string;
   /** Subtitle under the list card title. */
   subtitle: string;
-  /** LabelFaces stores avgConfidence; every other collection: confidence. */
-  confidenceField: 'confidence' | 'avgConfidence';
-  /** Fields matched with `~` by the filter bar's text search; empty hides it. */
-  queryFields: string[];
   preview: InspectorPreview;
   defaultFilters: InspectorFilterDefaults;
-  defaultSort: string;
   listTitle: (record: ActualizableLabel) => string;
   /** Extra stat tiles below the timing row. */
   detailExtras?: (
@@ -64,7 +61,7 @@ export function confidenceOf(
   record: ActualizableLabel
 ): number {
   const value = (record as unknown as Record<string, unknown>)[
-    config.confidenceField
+    LABEL_TYPE_META[config.labelType].confidenceField
   ];
   return typeof value === 'number' ? value : 0;
 }
@@ -72,28 +69,20 @@ export function confidenceOf(
 export const OBJECTS_CONFIG: InspectorTypeConfig = {
   key: 'objects',
   labelType: LabelType.OBJECT,
-  collection: 'LabelObjects',
   title: 'Objects',
   subtitle: 'Found objects in this media',
-  confidenceField: 'confidence',
-  queryFields: ['entity'],
   preview: 'track',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: 'start',
   listTitle: (r) => (r as LabelObject).entity,
 };
 
 export const FACES_CONFIG: InspectorTypeConfig = {
   key: 'faces',
   labelType: LabelType.FACE,
-  collection: 'LabelFaces',
   title: 'Faces',
   subtitle: 'Detected faces',
-  confidenceField: 'avgConfidence',
-  queryFields: ['faceId'],
   preview: 'track',
   defaultFilters: { minConfidence: 0, minDuration: 2 },
-  defaultSort: 'start',
   listTitle: (r) => `Face ${(r as LabelFace).faceId || shortId(r)}`,
   detailExtras: (r) => {
     const face = r as LabelFace;
@@ -115,14 +104,10 @@ export const FACES_CONFIG: InspectorTypeConfig = {
 export const PEOPLE_CONFIG: InspectorTypeConfig = {
   key: 'people',
   labelType: LabelType.PERSON,
-  collection: 'LabelPerson',
   title: 'People',
   subtitle: 'Detected people',
-  confidenceField: 'confidence',
-  queryFields: ['personId', 'upperBodyColor', 'lowerBodyColor'],
   preview: 'track',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: 'start',
   listTitle: (r) => `Person ${(r as LabelPerson).personId || shortId(r)}`,
   detailExtras: (r) => {
     const person = r as LabelPerson;
@@ -136,28 +121,20 @@ export const PEOPLE_CONFIG: InspectorTypeConfig = {
 export const SHOTS_CONFIG: InspectorTypeConfig = {
   key: 'shots',
   labelType: LabelType.SHOT,
-  collection: 'LabelShots',
   title: 'Shots',
   subtitle: 'Detected shots',
-  confidenceField: 'confidence',
-  queryFields: ['entity'],
   preview: 'filmstrip',
   defaultFilters: { minConfidence: 0.85, minDuration: 5 },
-  defaultSort: 'start',
   listTitle: (r) => (r as LabelShot).entity,
 };
 
 export const SEGMENTS_CONFIG: InspectorTypeConfig = {
   key: 'segments',
   labelType: LabelType.SEGMENT,
-  collection: 'LabelSegments',
   title: 'Segments',
   subtitle: 'Segment-level labels',
-  confidenceField: 'confidence',
-  queryFields: ['entity'],
   preview: 'filmstrip',
   defaultFilters: { minConfidence: 0, minDuration: 0 },
-  defaultSort: 'start',
   listTitle: (r) => (r as LabelSegment).entity,
   detailExtras: (r) => {
     const labelType = (r as LabelSegment).labelType;
@@ -175,14 +152,10 @@ export const SEGMENTS_CONFIG: InspectorTypeConfig = {
 export const TEXT_CONFIG: InspectorTypeConfig = {
   key: 'text',
   labelType: LabelType.TEXT,
-  collection: 'LabelText',
   title: 'Text',
   subtitle: 'Text detected on screen',
-  confidenceField: 'confidence',
-  queryFields: ['text'],
   preview: 'filmstrip',
   defaultFilters: { minConfidence: 0, minDuration: 0 },
-  defaultSort: 'start',
   listTitle: (r) =>
     truncateWords((r as LabelText).text) || `Text ${shortId(r)}`,
   detailExtras: (r) => [{ label: 'Full Text', value: (r as LabelText).text }],

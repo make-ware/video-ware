@@ -76,9 +76,15 @@ export const qk = {
   },
   transcripts: {
     byMedia: (id: string) => ['transcripts', id] as const,
+    /** Whole-media speech text — the Raw Text tab and Copy, fetched lazily. */
+    text: (id: string) => ['transcripts', 'text', id] as const,
   },
   speakers: {
     byMedia: (id: string) => ['speakers', id] as const,
+    /** Per-speaker aggregate (counts, speaking time, entity link). */
+    summaries: (id: string) => ['speakers', 'summaries', id] as const,
+    /** Whole-media diarized text — the Raw Text tab and Copy, fetched lazily. */
+    text: (id: string) => ['speakers', 'text', id] as const,
   },
   entities: {
     all: ['entities'] as const,
@@ -124,11 +130,20 @@ export const qk = {
     byEntity: (id: string) => ['media-tags', 'entity', id] as const,
   },
   labels: {
-    list: (
-      mediaId: string,
-      labelType: string,
-      filters: { minConfidence: number; minDuration: number; query: string }
-    ) => ['labels', 'list', mediaId, labelType, filters] as const,
+    all: ['labels'] as const,
+    /** Prefix for every label list query — entity re-links invalidate it. */
+    lists: ['labels', 'list'] as const,
+    list: (args: {
+      mediaId: string;
+      /** One LabelType — its collection is the one being paged. */
+      labelType: string;
+      minConfidence: number;
+      minDuration: number;
+      /** Debounced text query. */
+      search: string;
+      /** Extra `field = value` clauses (e.g. speakerId on the speakers page). */
+      equals: Record<string, string>;
+    }) => ['labels', 'list', args] as const,
   },
   search: {
     results: (

@@ -11,7 +11,7 @@ import {
   type EntityDisplay,
 } from '@/components/labels/entity/entity-badge';
 import { confidenceOf, type InspectorTypeConfig } from './config';
-import { effectiveEntityId, type InspectorLabelRecord } from './use-label-list';
+import { effectiveEntityId, type LabelRecord } from '@/hooks/use-label-list';
 
 /** Multi-select wiring for track-based types; omitted = single-select list. */
 export interface LabelListSelection {
@@ -23,7 +23,7 @@ export interface LabelListSelection {
 
 interface LabelListProps {
   config: InspectorTypeConfig;
-  records: InspectorLabelRecord[];
+  records: LabelRecord[];
   selectedId?: string;
   onSelect: (id: string) => void;
   hasActiveFilters: boolean;

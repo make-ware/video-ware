@@ -2,9 +2,19 @@
 
 import { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { LabelType, type LabelSpeech } from '@project/shared';
-import { useMediaTranscripts } from '@/hooks/use-media-transcripts';
+import {
+  labelSource,
+  useLabelList,
+  type LabelListFilters,
+} from '@/hooks/use-label-list';
+import {
+  transcriptTextQueryOptions,
+  useMediaTranscriptText,
+} from '@/hooks/use-media-transcripts';
 import { useCreateClipFromLabel } from '@/components/labels/inspector/use-create-clip-from-label';
+import { LibraryLoadMore } from '@/components/library/library-load-more';
 import {
   Card,
   CardContent,
@@ -24,26 +34,48 @@ import { formatClipTime } from '@/utils/format-clip-time';
 /** Gap between consecutive selected segments that we consider noteworthy. */
 const GAP_THRESHOLD_SECONDS = 1;
 
+/**
+ * Speech segments for one media: a paged, server-searched list (see
+ * hooks/use-label-list.ts) plus the two whole-media reads that genuinely need
+ * every segment — the Raw Text tab and Copy — fetched only when used.
+ *
+ * Selection and clip creation operate on the loaded window, which is what the
+ * user can see and tick; the footer says how much of the total that is.
+ */
 export default function LabelTranscriptsPage() {
   const params = useParams();
   const mediaId = params.id as string;
-  const { transcripts, isLoading } = useMediaTranscripts(mediaId);
+  const queryClient = useQueryClient();
   const createClip = useCreateClipFromLabel();
 
+  const [tab, setTab] = useState('list');
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
     new Set()
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return transcripts;
-    return transcripts.filter((t) => t.transcript.toLowerCase().includes(q));
-  }, [transcripts, query]);
+  const filters: LabelListFilters = {
+    minConfidence: 0,
+    minDuration: 0,
+    query,
+  };
+  const {
+    items: transcripts,
+    totalItems,
+    isLoading,
+    error,
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+  } = useLabelList<LabelSpeech>({
+    mediaId,
+    source: labelSource(LabelType.SPEECH),
+    filters,
+  });
 
-  const fullText = useMemo(
-    () => transcripts.map((t) => t.transcript).join(' '),
-    [transcripts]
+  const { text: fullText, isLoading: isLoadingText } = useMediaTranscriptText(
+    mediaId,
+    tab === 'raw'
   );
 
   const selectedSegments = useMemo(
@@ -97,9 +129,23 @@ export default function LabelTranscriptsPage() {
     );
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(fullText);
-    toast.success('Transcript copied to clipboard');
+  // Copy is a whole-media action, so it fetches the full text rather than
+  // copying whatever happens to be paged in.
+  const copyToClipboard = async () => {
+    try {
+      const text = await queryClient.fetchQuery(
+        transcriptTextQueryOptions(mediaId)
+      );
+      if (!text) {
+        toast.error('No transcript content available');
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      toast.success('Transcript copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy transcript:', err);
+      toast.error('Failed to copy transcript');
+    }
   };
 
   if (isLoading) {
@@ -117,16 +163,25 @@ export default function LabelTranscriptsPage() {
           <div>
             <CardTitle>Transcripts</CardTitle>
             <CardDescription>
-              {transcripts.length} speech segments found
+              {totalItems} speech {totalItems === 1 ? 'segment' : 'segments'}
+              {query.trim() ? ' match your search' : ' found'}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={copyToClipboard}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void copyToClipboard()}
+          >
             <Copy className="h-4 w-4 mr-2" />
             Copy Full Text
           </Button>
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
-          <Tabs defaultValue="list" className="flex-1 flex flex-col min-h-0">
+          <Tabs
+            value={tab}
+            onValueChange={setTab}
+            className="flex-1 flex flex-col min-h-0"
+          >
             <div className="px-6 flex items-center gap-3 flex-wrap">
               <TabsList>
                 <TabsTrigger value="list">Segments</TabsTrigger>
@@ -146,14 +201,15 @@ export default function LabelTranscriptsPage() {
             <TabsContent value="list" className="flex-1 overflow-hidden mt-2">
               <ScrollArea className="h-full">
                 <div className="p-6 pt-0 space-y-3">
-                  {filtered.length === 0 ? (
+                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {transcripts.length === 0 ? (
                     <p className="text-muted-foreground text-center py-8">
                       {query
                         ? 'No segments match your search.'
                         : 'No transcripts found.'}
                     </p>
                   ) : (
-                    filtered.map((t) => (
+                    transcripts.map((t) => (
                       <div
                         key={t.id}
                         className="group flex items-start gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -184,6 +240,13 @@ export default function LabelTranscriptsPage() {
                       </div>
                     ))
                   )}
+                  <LibraryLoadMore
+                    hasNextPage={hasNextPage}
+                    isFetchingNextPage={isFetchingNextPage}
+                    loadedCount={transcripts.length}
+                    totalItems={totalItems}
+                    onLoadMore={loadMore}
+                  />
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -192,10 +255,17 @@ export default function LabelTranscriptsPage() {
               <ScrollArea className="h-full">
                 <div className="p-6 pt-0">
                   <div className="p-6 bg-muted/30 rounded-lg border whitespace-pre-wrap leading-relaxed">
-                    {fullText || (
-                      <span className="text-muted-foreground italic">
-                        No transcript content available.
+                    {isLoadingText ? (
+                      <span className="text-muted-foreground italic inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading full transcript…
                       </span>
+                    ) : (
+                      fullText || (
+                        <span className="text-muted-foreground italic">
+                          No transcript content available.
+                        </span>
+                      )
                     )}
                   </div>
                 </div>

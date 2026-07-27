@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search } from 'lucide-react';
-import type { LabelListFilters } from './use-label-list';
+import type { LabelListFilters } from '@/hooks/use-label-list';
 
 const CONFIDENCE_OPTIONS = [
   { value: '0', label: 'Any confidence' },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import { LABEL_TYPE_META } from '@project/shared/mutator';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -16,12 +17,12 @@ import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useAssignLabelEntity } from '@/hooks/use-entities';
 import pb from '@/lib/pocketbase-client';
 import { formatClipTime } from '@/utils/format-clip-time';
+import type { LabelRecord } from '@/hooks/use-label-list';
 import { confidenceOf, type InspectorTypeConfig } from './config';
-import type { InspectorLabelRecord } from './use-label-list';
 
 interface LabelDetailPanelProps {
   config: InspectorTypeConfig;
-  record: InspectorLabelRecord | null;
+  record: LabelRecord | null;
   onCreateClip: () => void;
   isCreating: boolean;
 }
@@ -97,7 +98,7 @@ function EntityLinkSection({
   record,
 }: {
   config: InspectorTypeConfig;
-  record: InspectorLabelRecord;
+  record: LabelRecord;
 }) {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
@@ -126,7 +127,9 @@ function EntityLinkSection({
         // same cast the list hook uses; every one of these collections has a
         // LabelEntityRef.
         await pb
-          .collection(config.collection as 'LabelObjects')
+          .collection(
+            LABEL_TYPE_META[config.labelType].collection as 'LabelObjects'
+          )
           .update(record.id, { LabelEntityRef: labelEntityId });
       } catch (err) {
         // Non-fatal: the link below still lands on the right LabelEntity.
@@ -187,7 +190,7 @@ function StatTiles({
   record,
 }: {
   config: InspectorTypeConfig;
-  record: InspectorLabelRecord;
+  record: LabelRecord;
 }) {
   const track = record.expand?.LabelTrackRef;
   const tiles: Array<{ label: string; value: string }> = [

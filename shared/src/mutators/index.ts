@@ -23,6 +23,7 @@ export {
   LabelSpeakerMutator,
   SPEAKER_PANEL_FIELDS,
   SPEAKER_PANEL_OMITTED_FIELDS,
+  SPEAKER_SUMMARY_FIELDS,
   type LabelSpeakerRelations,
 } from './label-speaker';
 export { LabelSpeechMutator } from './label-speech';

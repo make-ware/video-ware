@@ -3,6 +3,7 @@ import { LabelSpeakerSchema } from '../../schema/label-speaker';
 import {
   SPEAKER_PANEL_FIELDS,
   SPEAKER_PANEL_OMITTED_FIELDS,
+  SPEAKER_SUMMARY_FIELDS,
 } from '../label-speaker';
 
 /**
@@ -54,5 +55,35 @@ describe('SPEAKER_PANEL_FIELDS', () => {
     for (const field of ['id', 'confidence', 'transcript', 'speakerId']) {
       expect(projected.has(field)).toBe(true);
     }
+  });
+});
+
+describe('SPEAKER_SUMMARY_FIELDS', () => {
+  const summary = new Set<string>(SPEAKER_SUMMARY_FIELDS);
+  const projected = new Set<string>(SPEAKER_PANEL_FIELDS);
+
+  it('is a subset of the panel projection', () => {
+    const extra = [...summary].filter((field) => !projected.has(field));
+    expect(extra).toEqual([]);
+  });
+
+  it('carries what deriveSpeakerSummaries reads', () => {
+    // Grouping key, speaking time, first-appearance order, and the expand the
+    // chips' name + EntityPicker are built from.
+    for (const field of [
+      'id',
+      'speakerId',
+      'duration',
+      'start',
+      'LabelEntityRef',
+      'expand.LabelEntityRef.*',
+      'expand.LabelEntityRef.expand.EntityRef.*',
+    ]) {
+      expect(summary.has(field)).toBe(true);
+    }
+  });
+
+  it('drops the transcript — the whole point of the narrower read', () => {
+    expect(summary.has('transcript')).toBe(false);
   });
 });

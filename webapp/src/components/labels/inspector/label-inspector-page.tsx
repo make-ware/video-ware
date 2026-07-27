@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useDeferredValue } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -20,6 +20,14 @@ import {
   useAssignLabelEntities,
   useWorkspaceEntities,
 } from '@/hooks/use-entities';
+import {
+  effectiveEntityId,
+  hasActiveLabelFilters,
+  labelSource,
+  useLabelList,
+  type LabelListFilters,
+} from '@/hooks/use-label-list';
+import { LibraryLoadMore } from '@/components/library/library-load-more';
 import type { EntityDisplay } from '@/components/labels/entity/entity-badge';
 import type { InspectorTypeConfig } from './config';
 import { LabelFilterBar } from './label-filter-bar';
@@ -30,16 +38,19 @@ import {
   type EntitySummaryGroup,
 } from './label-entity-summary';
 import { LabelSelectionBar } from './label-selection-bar';
-import {
-  effectiveEntityId,
-  useLabelList,
-  type LabelListFilters,
-} from './use-label-list';
 import { useCreateClipFromLabel } from './use-create-clip-from-label';
 
 /**
  * Generic list + detail inspector for one label type, driven entirely by an
  * InspectorTypeConfig. Each /labels/<type> route renders this with its config.
+ *
+ * The list is a paged `useLabelList` (see hooks/use-label-list.ts): filtering
+ * happens server-side and rows arrive a page at a time behind Load More, so a
+ * media with thousands of detections neither over-fetches nor renders thousands
+ * of DOM rows. Everything derived from rows — the entity summary chips, the
+ * selection bar, Select All — therefore describes the LOADED window, which is
+ * exactly what the user is looking at; the footer states how much of the
+ * server-side total that is.
  *
  * Track-based types (objects, faces, people) additionally get bbox-cropped
  * row thumbnails, multi-select, per-entity summary chips, and bulk entity
@@ -59,16 +70,21 @@ export function LabelInspectorPage({
   // the types where the same entity recurs and bulk linking pays off.
   const supportsBulkEntity = config.preview === 'track';
 
+  const source = labelSource(config.labelType);
   const [filters, setFilters] = useState<LabelListFilters>({
     minConfidence: config.defaultFilters.minConfidence,
     minDuration: config.defaultFilters.minDuration,
     query: '',
   });
-  const deferredQuery = useDeferredValue(filters.query);
-  const { data: records = [], isLoading } = useLabelList(config, mediaId, {
-    ...filters,
-    query: deferredQuery,
-  });
+  const {
+    items: records,
+    totalItems,
+    isLoading,
+    error,
+    hasNextPage,
+    isFetchingNextPage,
+    loadMore,
+  } = useLabelList({ mediaId, source, filters });
 
   const [selectedId, setSelectedId] = useState<string>();
   const selected =
@@ -120,6 +136,8 @@ export function LabelInspectorPage({
   ]);
   useRegisterPageMenu('edit', editMenuItems);
 
+  // Grouped over the LOADED rows, so the counts always match what the list
+  // below them shows; loading another page regroups.
   const entityGroups = useMemo<EntitySummaryGroup[]>(() => {
     if (!supportsBulkEntity) return [];
     const byEntity = new Map<string, string[]>();
@@ -194,10 +212,7 @@ export function LabelInspectorPage({
     );
   };
 
-  const hasActiveFilters =
-    filters.minConfidence > 0 ||
-    filters.minDuration > 0 ||
-    filters.query.trim() !== '';
+  const hasActiveFilters = hasActiveLabelFilters(filters);
 
   if (isLoading) {
     return (
@@ -216,12 +231,15 @@ export function LabelInspectorPage({
         <CardHeader className="space-y-3 shrink-0">
           <div>
             <CardTitle>{config.title}</CardTitle>
-            <CardDescription>{config.subtitle}</CardDescription>
+            <CardDescription>
+              {config.subtitle}
+              {totalItems > 0 && ` · ${totalItems} matching`}
+            </CardDescription>
           </div>
           <LabelFilterBar
             filters={filters}
             onChange={setFilters}
-            showQuery={config.queryFields.length > 0}
+            showQuery={source.queryFields.length > 0}
             searchPlaceholder={`Search ${config.title.toLowerCase()}…`}
           />
           {entityGroups.length > 0 && (
@@ -237,7 +255,10 @@ export function LabelInspectorPage({
         <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
           {supportsBulkEntity && records.length > 0 && (
             <LabelSelectionBar
-              count={selectionCount}
+              // Selected rows still in the loaded window — a filter change can
+              // leave selected ids behind, and only these are what a bulk
+              // assign would touch.
+              count={selectedRecords.length}
               total={records.length}
               sharedEntityId={sharedEntityId}
               workspaceId={workspaceId}
@@ -246,6 +267,9 @@ export function LabelInspectorPage({
               onSelectAll={selectAll}
               onClear={clearSelection}
             />
+          )}
+          {error && (
+            <p className="px-4 pb-2 text-sm text-destructive">{error}</p>
           )}
           <ScrollArea className="flex-1 min-h-0">
             <LabelList
@@ -276,6 +300,13 @@ export function LabelInspectorPage({
                     }
                   : undefined
               }
+            />
+            <LibraryLoadMore
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              loadedCount={records.length}
+              totalItems={totalItems}
+              onLoadMore={loadMore}
             />
           </ScrollArea>
         </CardContent>

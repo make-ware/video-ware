@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { ProcessingProvider } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { TextDetectionExecutor } from '../executors/text-detection.executor';
@@ -137,17 +137,18 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
         }
       );
 
-      // Step 4: Batch insert LabelEntity records
-      const entityIds = await this.batchInsertLabelEntities(
+      // Step 4: Resolve one LabelEntity per detected instance
+      const entityByInstance = await this.labelEntityService.resolveEntities(
         normalizedData.labelEntities
       );
       this.logger.debug(
-        `Inserted ${entityIds.length} label entities for media ${input.mediaId}`
+        `Resolved ${entityByInstance.size} label entities for media ${input.mediaId}`
       );
 
       // Step 5: Batch insert LabelTrack records (with keyframes)
       const trackIdMap = await this.batchInsertLabelTracks(
-        normalizedData.labelTracks
+        normalizedData.labelTracks,
+        entityByInstance
       );
       this.logger.debug(
         `Inserted ${Object.keys(trackIdMap).length} label tracks for media ${input.mediaId}`
@@ -156,14 +157,12 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
       // Step 6: Batch insert LabelText records
       const textIds = await this.batchInsertLabelTexts(
         normalizedData.labelTexts || [],
-        trackIdMap
+        trackIdMap,
+        entityByInstance
       );
       this.logger.debug(
         `Inserted ${textIds.length} label texts for media ${input.mediaId}`
       );
-
-      // Clear entity cache after processing
-      this.labelEntityService.clearCache();
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -175,7 +174,7 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
         counts: {
           textCount: textIds.length,
           textTrackCount: Object.keys(trackIdMap).length,
-          labelEntityCount: entityIds.length,
+          labelEntityCount: entityByInstance.size,
           labelTrackCount: Object.keys(trackIdMap).length,
           labelClipCount: 0,
           labelObjectCount: 0,
@@ -202,44 +201,14 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Batch insert LabelEntity records
-   * Uses LabelEntityService for deduplication
-   */
-  private async batchInsertLabelEntities(
-    entities: Array<{
-      WorkspaceRef: string;
-      labelType: LabelType;
-      canonicalName: string;
-      provider: ProcessingProvider;
-      processor: string;
-      metadata?: Record<string, unknown>;
-    }>
-  ): Promise<string[]> {
-    const entityIds: string[] = [];
-
-    for (const entity of entities) {
-      const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-        entity.WorkspaceRef,
-        entity.labelType,
-        entity.canonicalName,
-        entity.provider as
-          | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-          | ProcessingProvider.GOOGLE_SPEECH,
-        entity.processor,
-        entity.metadata
-      );
-      entityIds.push(entityId);
-    }
-
-    return entityIds;
-  }
-
-  /**
    * Batch insert LabelTrack records
    * Returns a map of trackId -> PocketBase ID
+   *
+   * @param entityByInstance instanceId -> LabelEntity id, from the normalizer
    */
   private async batchInsertLabelTracks(
-    tracks: Array<LabelTrackData>
+    tracks: Array<LabelTrackData>,
+    entityByInstance: Map<string, string>
   ): Promise<Record<string, string>> {
     const trackIdMap: Record<string, string> = {};
     const batchSize = 50;
@@ -249,15 +218,13 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
 
       for (const track of batch) {
         try {
-          // Get or create LabelEntity for this track's text string
-          const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-            track.WorkspaceRef,
-            LabelType.TEXT,
-            (track.trackData.entity as string) || 'unknown',
-            ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-            track.processor,
-            {}
-          );
+          const entityId = entityByInstance.get(track.trackId);
+          if (!entityId) {
+            this.logger.warn(
+              `No LabelEntity for track ${track.trackId}, skipping`
+            );
+            continue;
+          }
 
           // Check if track already exists
           const existing =
@@ -303,7 +270,8 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
    */
   private async batchInsertLabelTexts(
     texts: Array<LabelTextData>,
-    trackIdMap: Record<string, string>
+    trackIdMap: Record<string, string>,
+    entityByInstance: Map<string, string>
   ): Promise<string[]> {
     const textIds: string[] = [];
     const batchSize = 50;
@@ -313,15 +281,14 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
 
       for (const entry of batch) {
         try {
-          // Get or create LabelEntity for this text string
-          const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-            entry.WorkspaceRef,
-            LabelType.TEXT,
-            entry.text,
-            ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-            this.processorVersion,
-            {}
-          );
+          // The leaf inherits its track's entity.
+          const entityId = entityByInstance.get(entry.originalTrackId);
+          if (!entityId) {
+            this.logger.warn(
+              `No LabelEntity for text ${entry.textHash} (track ${entry.originalTrackId}), skipping`
+            );
+            continue;
+          }
 
           const trackRef = trackIdMap[entry.originalTrackId];
 

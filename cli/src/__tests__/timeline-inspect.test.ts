@@ -319,7 +319,7 @@ describe('clipLabelDetail', () => {
       confidence: 0.9,
       start: 5,
       end: 8,
-      expand: { LabelTrackRef: { expand: { EntityRef: erik } } },
+      expand: { LabelEntityRef: { expand: { EntityRef: erik } } },
     };
     const stubs = {
       ...allLabelCollections({
@@ -367,25 +367,20 @@ describe('clipLabelDetail', () => {
         id: 'e1',
         name: 'Erik',
         kind: 'person',
-        via: 'track',
       },
     });
     const [, , linkOptions] = stubs.MediaClipLabels.getList.mock.calls[0];
     expect(linkOptions.filter).toContain('MediaClipRef = mc1');
-    // The link expands ride through to each label's entity link points,
-    // skipping LabelTrackRef on the collections that don't have it.
+    // The link expands ride through to each label's LabelEntity — the one
+    // link point, so the same path for all eight types and no track hop.
     expect(linkOptions.expand).toContain('LabelSpeechRef');
-    expect(linkOptions.expand).toContain(
-      'LabelSpeechRef.LabelTrackRef.EntityRef'
-    );
     expect(linkOptions.expand).toContain(
       'LabelSpeechRef.LabelEntityRef.EntityRef'
     );
     expect(linkOptions.expand).toContain(
       'LabelShotRef.LabelEntityRef.EntityRef'
     );
-    expect(linkOptions.expand).not.toContain('LabelShotRef.LabelTrackRef');
-    expect(linkOptions.expand).not.toContain('LabelSegmentRef.LabelTrackRef');
+    expect(linkOptions.expand).not.toContain('LabelTrackRef');
 
     // overlap query is windowed to the clip's source range
     const speechFilter = stubs.LabelSpeech.getList.mock.calls[0][2].filter;

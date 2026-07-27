@@ -497,7 +497,6 @@ function MediaDetailsPageContent() {
                 <SpeakerTranscriptPanel
                   utterances={utterances}
                   isLoading={isLoadingSpeakers}
-                  mediaId={media.id}
                   workspaceId={currentWorkspace?.id || ''}
                   onSeek={handleJumpToTime}
                 />

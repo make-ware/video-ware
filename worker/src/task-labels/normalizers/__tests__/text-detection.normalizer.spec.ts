@@ -23,8 +23,8 @@ const RESPONSE: TextDetectionResponse = {
         },
       ],
     },
-    // Second appearance of the SAME string, far from the first: distinct
-    // track/row, one entity
+    // Second appearance of the SAME string, far from the first: its own
+    // track, row AND entity — same text, different instance
     {
       text: 'BREAKING NEWS',
       confidence: 0.93,
@@ -105,18 +105,26 @@ describe('TextDetectionNormalizer', () => {
     expect(normalizer).toBeDefined();
   });
 
-  it('creates one entity per unique string, one track and row per appearance', async () => {
+  it('creates one entity, track and row per appearance', async () => {
     const input = createMockInput(RESPONSE, 'text-detection');
 
     const output = await normalizer.normalize(input);
 
-    // Two unique strings → two entities, deduped across appearances
-    expect(output.labelEntities).toHaveLength(2);
-    const breaking = output.labelEntities.find(
+    // One entity per appearance, NOT deduped by string: two occurrences of the
+    // same on-screen text are separate instances and must stay separately
+    // attributable.
+    expect(output.labelEntities).toHaveLength(3);
+    const breaking = output.labelEntities.filter(
       (e) => e.canonicalName === 'BREAKING NEWS'
     );
-    expect(breaking).toBeDefined();
-    expect(breaking?.labelType).toBe(LabelType.TEXT);
+    expect(breaking.length).toBeGreaterThan(1);
+    expect(breaking[0].labelType).toBe(LabelType.TEXT);
+
+    // Distinct instance keys, all scoped to this media
+    expect(new Set(output.labelEntities.map((e) => e.entityHash)).size).toBe(3);
+    expect(
+      output.labelEntities.every((e) => e.MediaRef === 'test-media-id')
+    ).toBe(true);
 
     // Three appearances → three tracks and three LabelText rows
     expect(output.labelTracks).toHaveLength(3);

@@ -5,7 +5,7 @@ import type { LabelTrack, LabelTrackInput } from '../schema';
 import type { LabelType } from '../enums';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
-import { trackEntityAttributionFilter } from './entity';
+import { entityAttributionFilter } from './entity';
 
 export class LabelTrackMutator extends BaseMutator<
   LabelTrack,
@@ -78,29 +78,16 @@ export class LabelTrackMutator extends BaseMutator<
     );
   }
 
-  /**
-   * Link (or, with null, unlink) a track to a real-world Entity. The track
-   * is the per-media cluster — one face track, one diarized speaker — so
-   * this is the "this track is Erik" operation. Track record ids are stable
-   * across label re-runs (processors dedup by trackHash), so links survive
-   * regeneration.
-   * @param trackId The label track ID
-   * @param entityId The entity ID, or null to unlink
-   */
-  async setEntity(
-    trackId: string,
-    entityId: string | null
-  ): Promise<LabelTrack> {
-    return this.update(trackId, {
-      EntityRef: entityId ?? '',
-    } as Partial<LabelTrack>);
-  }
+  // No setEntity here on purpose. LabelTrack.EntityRef still exists in
+  // PocketBase as the pre-migration recovery net, but nothing reads it, so
+  // writing it is a silent no-op that reports success. "This track is Erik"
+  // is LabelEntityMutator.setEntity on the track's LabelEntityRef — the
+  // per-media, per-instance row that every reader resolves through.
 
   /**
    * All tracks attributed to an entity, across media — each row is one
-   * appearance range (start/end) of the entity in one media. Includes
-   * tracks whose provider cluster (LabelEntity) is linked, unless the track
-   * itself is linked elsewhere.
+   * appearance range (start/end) of the entity in one media. Matched through
+   * the track's own LabelEntity, the single link point.
    * @param entityId The entity ID
    * @param page Page number (default: 1)
    * @param perPage Items per page (default: 100)
@@ -113,7 +100,7 @@ export class LabelTrackMutator extends BaseMutator<
     return this.getList(
       page,
       perPage,
-      trackEntityAttributionFilter(entityId),
+      entityAttributionFilter(entityId),
       'MediaRef,start',
       ['MediaRef', 'LabelEntityRef']
     );

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import { deriveInstanceId, uniqueInstanceId } from '../utils/instance-id';
 import type {
   PersonDetectionResponse,
   NormalizerInput,
@@ -71,21 +72,38 @@ export class PersonDetectionNormalizer {
     const labelEntities: LabelEntityData[] = [];
     const labelTracks: LabelTrackData[] = [];
     const labelPeople: LabelPersonData[] = [];
-    const seenLabels = new Set<string>();
+    // Guards against a provider response listing the same detection twice.
+    const seenInstanceIds = new Map<string, number>();
+    // Process each tracked person
+    for (const person of response.persons) {
+      // GCVI often omits a track id here, and a positional stand-in would put
+      // the response's ordering into the LabelEntity key — a re-detect would
+      // then mint new entities and strand every "this person is Erik" tag. So
+      // fall back to the detection's own content instead.
+      const trackId =
+        person.trackId.trim() ||
+        uniqueInstanceId(
+          deriveInstanceId({ kind: 'person', frames: person.frames }),
+          seenInstanceIds
+        );
 
-    // Create single "Person" entity
-    const entityHash = this.generateEntityHash(
-      workspaceRef,
-      LabelType.PERSON,
-      'Person',
-      ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-    );
+      // One LabelEntity per person track. Like faces, the provider supplies no
+      // identity — every person is named "Person" — so keying by name would
+      // collapse everyone in the media into a single link point.
+      const entityHash = labelEntityKey({
+        workspaceRef,
+        mediaId,
+        labelType: LabelType.PERSON,
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+      });
 
-    if (!seenLabels.has(entityHash)) {
       labelEntities.push({
         WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
         labelType: LabelType.PERSON,
         canonicalName: 'Person',
+        instanceId: trackId,
         provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         processor: processorVersion,
         entityHash,
@@ -93,11 +111,7 @@ export class PersonDetectionNormalizer {
           type: 'person_detection',
         },
       });
-      seenLabels.add(entityHash);
-    }
 
-    // Process each tracked person
-    for (const person of response.persons) {
       // Extract keyframes from frames with attributes and landmarks
       const keyframes: KeyframeData[] = person.frames.map((frame) => ({
         t: frame.timeOffset,
@@ -144,7 +158,7 @@ export class PersonDetectionNormalizer {
       // Generate track hash
       const trackHash = this.generateTrackHash(
         mediaId,
-        person.trackId,
+        trackId,
         version,
         processorVersion
       );
@@ -154,7 +168,7 @@ export class PersonDetectionNormalizer {
         WorkspaceRef: workspaceRef,
         MediaRef: mediaId,
         TaskRef: taskRef,
-        trackId: person.trackId,
+        trackId,
         start,
         end,
         duration,
@@ -183,7 +197,7 @@ export class PersonDetectionNormalizer {
       ) {
         const personHash = this.generatePersonHash(
           mediaId,
-          person.trackId,
+          trackId,
           version,
           processorVersion
         );
@@ -192,7 +206,7 @@ export class PersonDetectionNormalizer {
           WorkspaceRef: workspaceRef,
           MediaRef: mediaId,
           labelType: LabelType.PERSON,
-          personId: person.trackId,
+          personId: trackId,
           personHash,
           start,
           end,
@@ -341,20 +355,6 @@ export class PersonDetectionNormalizer {
     }
 
     return mostCommon;
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-    return createHash('sha256').update(hashInput).digest('hex');
   }
 
   /**

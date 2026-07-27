@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useAssignTrackEntity } from '@/hooks/use-entities';
+import { useAssignLabelEntity } from '@/hooks/use-entities';
 import {
   useEntityLabels,
   type EntityLabelMediaGroup,
@@ -34,8 +34,8 @@ const PER_PAGE = 25;
 /**
  * Detail pane for one media: an animated preview of the selected label above
  * a scrollable, paginated list of every label of the active type attributed
- * to the entity in that media (with per-row unlink for direct track links).
- * Mounted per selected media, so page/selection reset when it changes.
+ * to the entity in that media (per-row unlink clears the row's LabelEntity
+ * link). Mounted per selected media, so page/selection reset when it changes.
  */
 export function EntityMediaLabelsPane({
   workspaceId,
@@ -165,10 +165,13 @@ function MediaLabelRow({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const unlink = useAssignTrackEntity();
+  const unlink = useAssignLabelEntity();
   const media = row.expand?.MediaRef;
   const track = row.expand?.LabelTrackRef;
-  const direct = !!track && track.EntityRef === entityId;
+  const labelEntity = row.expand?.LabelEntityRef;
+  // One link point now, so every attributed row is directly linked — there is
+  // no inherited-from-cluster case left to distinguish.
+  const direct = labelEntity?.EntityRef === entityId;
   const hasThumb =
     media &&
     track &&
@@ -211,7 +214,6 @@ function MediaLabelRow({
           <span className="font-mono">
             {formatClipTime(row.start)} – {formatClipTime(row.end)}
           </span>
-          {!direct && <span>via cluster</span>}
         </div>
       </div>
       {direct && (
@@ -222,9 +224,11 @@ function MediaLabelRow({
           disabled={unlink.isPending}
           onClick={(event) => {
             event.stopPropagation();
-            unlink.mutate({ trackId: track.id, entityId: null });
+            if (labelEntity) {
+              unlink.mutate({ labelEntityId: labelEntity.id, entityId: null });
+            }
           }}
-          title="Remove the entity link from this track (unlinks all of the track's labels)"
+          title="Remove the entity link from this label (unlinks every detection of this instance)"
         >
           <Unlink className="h-3.5 w-3.5" />
         </Button>

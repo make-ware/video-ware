@@ -27,12 +27,7 @@ export {
 } from './label-speaker';
 export { LabelSpeechMutator } from './label-speech';
 export { LabelEntityMutator } from './label-entity';
-export {
-  EntityMutator,
-  clusterEntityAttributionFilter,
-  entityAttributionFilter,
-  trackEntityAttributionFilter,
-} from './entity';
+export { EntityMutator, entityAttributionFilter } from './entity';
 export { EntityStatsMutator } from './entity-stats';
 export {
   LABEL_TYPE_META,

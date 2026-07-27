@@ -8,7 +8,6 @@ import {
   LabelType,
   MediaTagMutator,
   entityAttributionFilter,
-  trackEntityAttributionFilter,
   type Entity,
   type LabelEntity,
   type LabelSpeaker,
@@ -101,21 +100,22 @@ export function mediaNameOf(
 }
 
 /**
- * Link targets accepted by `vw entity link` / `unlink`. Every form resolves
- * to one of the two link points of the data model:
- *   - LabelTrack.EntityRef (per-media instance: faces, speakers, objects…)
- *   - LabelEntity.EntityRef (workspace-wide provider cluster)
+ * Link targets accepted by `vw entity link` / `unlink`. The forms differ only
+ * in how the caller addresses a label — every one of them resolves to the
+ * model's single link point, LabelEntity.EntityRef: one row per detected
+ * instance per media, so linking it means "this speaker / face / object, in
+ * this media, is Erik" and nothing wider.
  */
 export interface LinkTargetOptions {
-  /** LabelTrack record ids. */
+  /** LabelTrack record ids — linked through each track's LabelEntity. */
   track?: string[];
-  /** LabelEntity (provider cluster) record ids. */
+  /** LabelEntity record ids, addressed directly. */
   cluster?: string[];
-  /** `type:labelId` pairs — links the label row's own track. */
+  /** `type:labelId` pairs — links the label row's own LabelEntity. */
   label?: string[];
-  /** `mediaId:speakerId` — links that speaker's track in that media. */
+  /** `mediaId:speakerId` — links that diarized speaker in that media. */
   speaker?: string;
-  /** `mediaId:trackId` — links that face/object track in that media. */
+  /** `mediaId:trackId` — links that face track in that media. */
   face?: string;
 }
 
@@ -123,7 +123,8 @@ export interface LinkTargetOptions {
 export const linkTargetOptions = {
   track: {
     flags: '--track <ids>',
-    description: 'comma-separated LabelTrack record ids',
+    description:
+      "comma-separated LabelTrack record ids — links each track's LabelEntity",
     parse: (v: string) =>
       v
         .split(',')
@@ -133,7 +134,7 @@ export const linkTargetOptions = {
   cluster: {
     flags: '--cluster <ids>',
     description:
-      'comma-separated LabelEntity (provider cluster) record ids — links every label in the cluster, across all media',
+      'comma-separated LabelEntity record ids — links every label of that detected instance within its media',
     parse: (v: string) =>
       v
         .split(',')
@@ -143,7 +144,7 @@ export const linkTargetOptions = {
   label: {
     flags: '--label <pairs>',
     description:
-      "comma-separated type:labelId pairs (e.g. face:abc123) — links each label row's track",
+      "comma-separated type:labelId pairs (e.g. face:abc123) — links each label row's LabelEntity",
     parse: (v: string) =>
       v
         .split(',')
@@ -169,31 +170,104 @@ function splitPair(value: string, flag: string): [string, string] {
   return [value.slice(0, idx), value.slice(idx + 1)];
 }
 
-/** Find the LabelTrack for a provider track id within one media. */
-async function trackByMediaAndTrackId(
+/**
+ * Resolve one provider instance within a media — `--speaker m1:speaker_0`,
+ * `--face m1:3` — to its LabelEntity id.
+ *
+ * Goes straight at LabelEntity rather than through LabelTrack: the label type
+ * is part of the lookup, so `--face m1:0` can no longer land on the object
+ * track that happens to share provider id "0".
+ */
+async function labelEntityByInstance(
   pb: TypedPocketBase,
   mediaId: string,
-  trackId: string
-): Promise<LabelTrack> {
-  const track = await new LabelTrackMutator(pb).getFirstByFilter(
-    pb.filter('MediaRef = {:media} && trackId = {:trackId}', {
-      media: mediaId,
-      trackId,
-    }),
-    undefined,
-    '-created'
+  instanceId: string,
+  labelType: LabelType
+): Promise<string> {
+  const row = await new LabelEntityMutator(pb).getFirstByFilter(
+    pb.filter(
+      'MediaRef = {:media} && instanceId = {:instance} && labelType = {:type}',
+      { media: mediaId, instance: instanceId, type: labelType }
+    )
   );
-  if (!track) {
+  if (!row) {
     throw new Error(
-      `No label track "${trackId}" in media ${mediaId} — ` +
-        `vw label list -m ${mediaId} shows its labels`
+      `No ${labelType} "${instanceId}" in media ${mediaId} — ` +
+        `vw label list -m ${mediaId} -t ${labelType} shows its labels`
     );
   }
-  return track;
+  return row.id;
 }
 
-/** Resolve a `type:labelId` pair to that label row's LabelTrack id. */
-async function trackOfLabelPair(
+/** Resolve a LabelTrack record id to the LabelEntity carrying its identity. */
+async function labelEntityOfTrack(
+  pb: TypedPocketBase,
+  trackId: string
+): Promise<string> {
+  const track = await new LabelTrackMutator(pb).getById(trackId);
+  if (!track) {
+    throw new Error(`No label track with id ${trackId}`);
+  }
+  if (!track.LabelEntityRef) {
+    throw new Error(
+      `Label track ${trackId} has no LabelEntity — there is nothing to ` +
+        `attach an entity link to (re-run labels for its media to mint one)`
+    );
+  }
+  return track.LabelEntityRef;
+}
+
+/**
+ * The LabelEntity a label row's link lands on.
+ *
+ * Almost always the row's own LabelEntityRef. The fallback covers rows a
+ * partial label run left half-written — the track carries the entity but the
+ * leaf row's ref never got set. Those were previously reachable through
+ * LabelTrack.EntityRef, and retiring that field is what would otherwise have
+ * made them permanently untaggable.
+ *
+ * Resolving through the track REPAIRS the row on the way past, rather than
+ * just borrowing the id: every attribution reader filters on the row's own
+ * LabelEntityRef, so a tag written without the repair would take effect on
+ * the entity and still leave this row missing from `entity labels` and the
+ * label lists — a tag that looks applied and reads as absent.
+ */
+async function labelEntityForRow(
+  pb: TypedPocketBase,
+  type: LabelType,
+  labelId: string,
+  record: LabelRecordFields
+): Promise<string> {
+  const own = record.LabelEntityRef;
+  if (typeof own === 'string' && own) return own;
+
+  const trackRef = record.LabelTrackRef;
+  if (typeof trackRef === 'string' && trackRef) {
+    const track = await new LabelTrackMutator(pb).getById(trackRef);
+    if (track?.LabelEntityRef) {
+      await labelMutator(pb, type).update(labelId, {
+        LabelEntityRef: track.LabelEntityRef,
+      });
+      return track.LabelEntityRef;
+    }
+  }
+
+  throw new Error(
+    `${type} label ${labelId} has no LabelEntity, and neither does its ` +
+      `track — there is nothing to attach an entity to. Re-run labels for ` +
+      `its media to mint one, or tag the whole media with ` +
+      `\`vw media tag <media> <entity>\``
+  );
+}
+
+/** The refs `labelEntityForRow` reads off a label row of any type. */
+type LabelRecordFields = {
+  LabelEntityRef?: unknown;
+  LabelTrackRef?: unknown;
+};
+
+/** Resolve a `type:labelId` pair to that label row's LabelEntity id. */
+async function labelEntityOfLabelPair(
   pb: TypedPocketBase,
   pair: string
 ): Promise<string> {
@@ -203,36 +277,38 @@ async function trackOfLabelPair(
   if (!record) {
     throw new Error(`No ${type} label with id ${labelId}`);
   }
-  const trackRef = (record as Record<string, unknown>).LabelTrackRef;
-  if (typeof trackRef !== 'string' || !trackRef) {
-    throw new Error(
-      `${type} label ${labelId} has no track — link its provider cluster ` +
-        `instead (vw entity link <entity> --cluster <labelEntityId>), or ` +
-        `let vw label tag ${type} ${labelId} <entity> resolve that for you`
-    );
-  }
-  return trackRef;
+  return labelEntityForRow(pb, type, labelId, record as LabelRecordFields);
 }
 
 /** What `tagLabel` wrote: which link point the tag landed on, and its name. */
 export interface TagLabelResult {
   type: LabelType;
   labelId: string;
-  /** 'track': this instance across one media; 'cluster': workspace-wide. */
-  via: 'track' | 'cluster';
-  /** Record id of the LabelTrack / LabelEntity that was written. */
+  /** Record id of the LabelEntity that was written. */
   targetId: string;
-  /** Provider trackId (via=track) or cluster canonicalName (via=cluster). */
+  /** The LabelEntity's canonical name, e.g. "Speaker 1". */
   targetName: string;
 }
 
 /**
- * Tag (or, with null, untag) the Entity a label row is attributed to. Tags
- * live on the row's link points, never on the row itself: its track when it
- * has one (identifies that speaker/face/object across the whole media),
- * else its provider cluster (applies to every label in the cluster,
- * workspace-wide). Link points are stable across label re-runs, so tags
- * survive regeneration and always resolve live.
+ * Tag (or, with null, untag) the Entity a label row is attributed to.
+ *
+ * The tag lives on the row's LabelEntity, never on the row itself. That
+ * record is per-media and per-instance, so tagging identifies this speaker /
+ * face / object throughout the media and nowhere else. It is stable across
+ * label re-runs (processors dedup by the same key), so tags survive
+ * regeneration and always resolve live.
+ *
+ * There is no longer a track-first/cluster-fallback choice to make: every
+ * label type carries a LabelEntityRef, including shots and segments, which
+ * have no track at all and used to be untaggable through this path. A row
+ * whose ref is blank is repaired from its track first — see
+ * `labelEntityForRow`.
+ *
+ * Scope note: for the six tracked types the tag names one detected instance
+ * (this speaker, this face track). Shots and segments have no instance to
+ * name, so their entity is the label class within the media — tagging one
+ * "mountain" shot tags every mountain shot in that video, and no other.
  */
 export async function tagLabel(
   pb: TypedPocketBase,
@@ -247,96 +323,83 @@ export async function tagLabel(
         `(a wrong type/id pairing also reads as not found — check the type)`
     );
   }
-  const row = record as Record<string, unknown>;
 
-  const trackRef = row.LabelTrackRef;
-  if (typeof trackRef === 'string' && trackRef) {
-    const track = await new LabelTrackMutator(pb).setEntity(trackRef, entityId);
-    return {
-      type,
-      labelId,
-      via: 'track',
-      targetId: track.id,
-      targetName: track.trackId,
-    };
-  }
-
-  const clusterRef = row.LabelEntityRef;
-  if (typeof clusterRef === 'string' && clusterRef) {
-    const cluster = await new LabelEntityMutator(pb).setEntity(
-      clusterRef,
-      entityId
-    );
-    return {
-      type,
-      labelId,
-      via: 'cluster',
-      targetId: cluster.id,
-      targetName: cluster.canonicalName,
-    };
-  }
-
-  throw new Error(
-    `${type} label ${labelId} has neither a track nor a provider cluster — ` +
-      `nothing to attach an entity tag to`
+  const entityRef = await labelEntityForRow(
+    pb,
+    type,
+    labelId,
+    record as LabelRecordFields
   );
+  const labelEntity = await new LabelEntityMutator(pb).setEntity(
+    entityRef,
+    entityId
+  );
+  return {
+    type,
+    labelId,
+    targetId: labelEntity.id,
+    targetName: labelEntity.canonicalName,
+  };
 }
 
-/** The two concrete link points a set of target options resolves to. */
+/** The concrete link points a set of target options resolves to. */
 export interface ResolvedLinkTargets {
-  trackIds: string[];
-  clusterIds: string[];
+  /** LabelEntity record ids — the one field an entity link is written to. */
+  labelEntityIds: string[];
 }
 
-/** Resolve every accepted target form to track and cluster record ids. */
+/**
+ * Resolve every accepted target form to LabelEntity record ids, deduped.
+ *
+ * Deliberately one output list rather than the track/cluster pair this used
+ * to return: writing LabelTrack.EntityRef is a silent no-op now that nothing
+ * reads it, so `--track` resolves through the track to its LabelEntity like
+ * every other form.
+ */
 export async function resolveLinkTargets(
   pb: TypedPocketBase,
   opts: LinkTargetOptions
 ): Promise<ResolvedLinkTargets> {
-  const trackIds: string[] = [...(opts.track ?? [])];
-  const clusterIds: string[] = [...(opts.cluster ?? [])];
+  const labelEntityIds: string[] = [...(opts.cluster ?? [])];
 
-  for (const pair of opts.label ?? []) {
-    trackIds.push(await trackOfLabelPair(pb, pair));
+  for (const trackId of opts.track ?? []) {
+    labelEntityIds.push(await labelEntityOfTrack(pb, trackId));
   }
-  for (const [flag, value] of [
-    ['--speaker', opts.speaker],
-    ['--face', opts.face],
+  for (const pair of opts.label ?? []) {
+    labelEntityIds.push(await labelEntityOfLabelPair(pb, pair));
+  }
+  for (const [flag, value, type] of [
+    ['--speaker', opts.speaker, LabelType.SPEAKER],
+    ['--face', opts.face, LabelType.FACE],
   ] as const) {
     if (!value) continue;
-    const [mediaId, providerId] = splitPair(value, flag);
-    trackIds.push((await trackByMediaAndTrackId(pb, mediaId, providerId)).id);
+    const [mediaId, instanceId] = splitPair(value, flag);
+    labelEntityIds.push(
+      await labelEntityByInstance(pb, mediaId, instanceId, type)
+    );
   }
 
-  if (trackIds.length === 0 && clusterIds.length === 0) {
+  if (labelEntityIds.length === 0) {
     throw new Error(
       'Provide at least one target: --track, --cluster, --label, --speaker, or --face'
     );
   }
-  return {
-    trackIds: [...new Set(trackIds)],
-    clusterIds: [...new Set(clusterIds)],
-  };
+  return { labelEntityIds: [...new Set(labelEntityIds)] };
 }
 
 /**
  * Point every resolved target at the entity (or clear the link when
- * entityId is null). Returns what was written, for reporting.
+ * entityId is null). Returns the written LabelEntity rows, for reporting.
  */
 export async function applyEntityLinks(
   pb: TypedPocketBase,
   entityId: string | null,
   targets: ResolvedLinkTargets
-): Promise<{ tracks: LabelTrack[]; clusters: LabelEntity[] }> {
-  const trackMutator = new LabelTrackMutator(pb);
-  const clusterMutator = new LabelEntityMutator(pb);
-  const tracks = await Promise.all(
-    targets.trackIds.map((id) => trackMutator.setEntity(id, entityId))
+): Promise<LabelEntity[]> {
+  const mutator = new LabelEntityMutator(pb);
+  return Promise.all(
+    targets.labelEntityIds.map((id) => mutator.setEntity(id, entityId))
   );
-  const clusters = await Promise.all(
-    targets.clusterIds.map((id) => clusterMutator.setEntity(id, entityId))
-  );
-  return { tracks, clusters };
 }
 
 /** One appearance of an entity: a linked track's range in one media. */
@@ -345,10 +408,8 @@ export interface EntityAppearance {
     expand?: { MediaRef?: MediaWithUpload; LabelEntityRef?: LabelEntity };
   };
   mediaName: string;
-  /** Label type of the track's provider cluster ("face", "speaker", …). */
+  /** Label type of the track's LabelEntity ("face", "speaker", …). */
   labelType: string;
-  /** "track" when the track itself is linked, "cluster" when inherited. */
-  via: 'track' | 'cluster';
 }
 
 /**
@@ -426,7 +487,6 @@ export const entityAppearancesSpec: ListSpec<LabelTrack, EntityAppearance> = {
     { header: 'START', value: (a) => `${a.track.start.toFixed(2)}s` },
     { header: 'END', value: (a) => `${a.track.end.toFixed(2)}s` },
     { header: 'DUR', value: (a) => formatDuration(a.track.duration) },
-    { header: 'VIA', value: (a) => a.via },
   ],
   hint: '`vw label clip <type> <labelId>` turns a label into a clip',
 };
@@ -440,7 +500,7 @@ export function fetchEntityAppearancePage(
   return new LabelTrackMutator(pb).getList(
     query.page,
     query.perPage,
-    andFilters(trackEntityAttributionFilter(entityId), query.filter),
+    andFilters(entityAttributionFilter(entityId), query.filter),
     query.sort,
     ['MediaRef.UploadRef', 'LabelEntityRef']
   ) as Promise<ListResult<LabelTrack>>;
@@ -487,10 +547,9 @@ function andFilters(scope: string, filter: string): string {
 /**
  * Map a LabelTrack to its display shape for `entity appearances`.
  *
- * `via` needs no entity id: `trackEntityAttributionFilter` encodes the
- * track-over-cluster precedence as
- * `EntityRef = id || (EntityRef = "" && cluster = id)`, so every row it
- * returns has `EntityRef` either set to the entity asked about or empty.
+ * No link point to report: `entityAttributionFilter` is a single hop through
+ * the row's LabelEntity, so every row it returns is attributed to the entity
+ * asked about, one way only.
  */
 function toEntityAppearance(track: LabelTrack): EntityAppearance {
   const t = track as EntityAppearance['track'];
@@ -501,7 +560,6 @@ function toEntityAppearance(track: LabelTrack): EntityAppearance {
     labelType: Array.isArray(labelType)
       ? labelType.join(',')
       : (labelType ?? ''),
-    via: t.EntityRef ? 'track' : 'cluster',
   };
 }
 
@@ -514,7 +572,7 @@ export async function getEntityAppearances(
   entityId: string,
   opts: { media?: string; limit?: number } = {}
 ): Promise<{ appearances: EntityAppearance[]; totalItems: number }> {
-  const clauses = [trackEntityAttributionFilter(entityId)];
+  const clauses = [entityAttributionFilter(entityId)];
   if (opts.media) {
     clauses.push(pb.filter('MediaRef = {:media}', { media: opts.media }));
   }
@@ -535,9 +593,6 @@ export async function getEntityAppearances(
       labelType: Array.isArray(labelType)
         ? labelType.join(',')
         : (labelType ?? ''),
-      via: (t.EntityRef === entityId ? 'track' : 'cluster') as
-        | 'track'
-        | 'cluster',
     };
   });
   return { appearances, totalItems: result.totalItems };
@@ -554,7 +609,8 @@ export interface EntityTaggedMedia {
 
 /**
  * Media manually tagged with the entity ("this media features X") — the
- * whole-media MediaTags edges, distinct from track/cluster attribution.
+ * whole-media MediaTags edges, distinct from per-instance label attribution
+ * (LabelEntity links).
  * Newest tags first.
  */
 export async function getEntityTaggedMedia(
@@ -622,10 +678,9 @@ export interface EntityLabelsOptions {
 }
 
 /**
- * Every label attributed to an entity, across label types: rows whose track
- * (preferred) or provider cluster is linked to it. One query per type with
- * that type's attribution filter — shot/segment rows have no track, so
- * theirs matches on the cluster link alone — merged in media/start order.
+ * Every label attributed to an entity, across label types: rows whose
+ * LabelEntity is linked to it. One query per type, all eight carrying the
+ * same one-hop attribution filter, merged in media/start order.
  */
 export async function getEntityLabels(
   pb: TypedPocketBase,
@@ -673,8 +728,8 @@ export type EntityUtterance = LabelSpeaker & {
 };
 
 /**
- * Everything an entity said, across media: LabelSpeaker rows whose track
- * (preferred) or provider cluster is linked to it, in media/start order.
+ * Everything an entity said, across media: LabelSpeaker rows whose
+ * LabelEntity is linked to it, in media/start order.
  */
 export async function getEntityWords(
   pb: TypedPocketBase,

@@ -6,7 +6,9 @@ import { z } from 'zod';
  *
  * `tagged` is 1 when at least one MediaTags row backs the link (a curator's
  * whole-media tag) and 0 when it comes only from label attribution;
- * `links` counts the rows behind it (tags + tracks + cluster rows).
+ * `links` counts the rows behind it (MediaTags + attributed LabelEntity
+ * rows) — so one per track for tracked types, and one per label class for
+ * shots and segments however many intervals carry that label.
  */
 export const MediaEntityLinkSchema = z.object({
   id: z.string(),
@@ -21,10 +23,10 @@ export type MediaEntityLink = z.infer<typeof MediaEntityLinkSchema>;
 /**
  * MediaEntities is a read-only PocketBase VIEW collection (defined in a
  * hand-written migration, not via defineCollection): one row per Media, keyed
- * by the media id, whose `entities` array merges every way an Entity can be
- * attached to that media — MediaTags, LabelTrack links (direct, else the
- * provider cluster's link), and cluster links for the two label types without
- * a track. Answers "which entities are in this media" in one request per page
+ * by the media id, whose `entities` array merges the two ways an Entity can
+ * be attached to that media — whole-media MediaTags, and attributed
+ * LabelEntity rows (the per-media, per-instance link point every label type
+ * shares). Answers "which entities are in this media" in one request per page
  * of media instead of ~10 queries per media.
  *
  * Rows arrive curated-first, then by link count, then name. Read them through

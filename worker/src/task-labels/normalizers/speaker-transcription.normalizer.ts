@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
 import type {
   SpeakerTranscriptionResponse,
   SpeakerTranscribedWord,
@@ -92,17 +92,22 @@ export class SpeakerTranscriptionNormalizer {
     for (const [speakerId, speakerUtteranceList] of speakerUtterances) {
       const speakerName = this.speakerDisplayName(speakerId);
 
-      const entityHash = this.generateEntityHash(
+      // Keyed by the provider speaker id within this media, so every media
+      // gets its own "Speaker 1" rather than sharing one workspace-wide row.
+      const entityHash = labelEntityKey({
         workspaceRef,
-        LabelType.SPEAKER,
-        speakerName,
-        ProcessingProvider.ELEVENLABS
-      );
+        mediaId,
+        labelType: LabelType.SPEAKER,
+        instanceId: speakerId,
+        provider: ProcessingProvider.ELEVENLABS,
+      });
 
       labelEntities.push({
         WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
         labelType: LabelType.SPEAKER,
         canonicalName: speakerName,
+        instanceId: speakerId,
         provider: ProcessingProvider.ELEVENLABS,
         processor: processorVersion,
         entityHash,
@@ -300,20 +305,6 @@ export class SpeakerTranscriptionNormalizer {
     processor: string
   ): string {
     const hashInput = `${mediaId}:${start.toFixed(2)}:${end.toFixed(2)}:${speakerId}:${processor}:speaker`;
-    return createHash('sha256').update(hashInput).digest('hex');
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
     return createHash('sha256').update(hashInput).digest('hex');
   }
 }

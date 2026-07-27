@@ -10,18 +10,16 @@ import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { EntityKind } from '../enums';
 
-// A real-world identity — a person, product, place, or thing — that label
-// clusters are linked to across media. Provider labels only carry generated
-// ids ("speaker_0", face track ids) scoped to one media; an Entity is the
-// stable workspace-level handle those clusters resolve to:
+// A real-world identity — a person, product, place, or thing — that detected
+// labels are linked to across media. Provider labels only carry generated ids
+// ("speaker_0", face track ids) scoped to one media; an Entity is the stable
+// workspace-level handle they resolve to, through exactly one field:
 //
-//   LabelTrack.EntityRef   — per-media instance link ("this face track /
-//                            this diarized speaker is Erik")
-//   LabelEntity.EntityRef  — workspace-wide semantic link ("every 'iPhone'
-//                            object label is this product")
+//   LabelEntity.EntityRef — "this detected instance, in this media, is Erik"
 //
-// Resolution precedence for a leaf label row: its track's EntityRef wins,
-// its LabelEntity's EntityRef is the fallback.
+// One link point, one hop: a leaf label row resolves its entity through its
+// LabelEntityRef, and so does a LabelTrack. (LabelTrack.EntityRef predates
+// per-media LabelEntity rows and is retired — see the schema note there.)
 export const EntitySchema = z
   .object({
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),

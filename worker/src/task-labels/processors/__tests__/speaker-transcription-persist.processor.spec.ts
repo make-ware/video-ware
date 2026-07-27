@@ -43,11 +43,15 @@ describe('SpeakerTranscriptionStepProcessor - persisting tracks and utterances',
   const normalized = (speakerIds: string[]) => ({
     labelEntities: speakerIds.map((speakerId, i) => ({
       WorkspaceRef: 'ws-1',
+      // Media-scoped and keyed by the provider speaker id: this media's
+      // "Speaker 1" is its own record, not one shared workspace-wide.
+      MediaRef: 'media-1',
       labelType: LabelType.SPEAKER,
       canonicalName: `Speaker ${i + 1}`,
+      instanceId: speakerId,
       provider: ProcessingProvider.ELEVENLABS,
       processor: 'speaker-transcription:1.0.0',
-      entityHash: `entity-hash-${speakerId}`,
+      entityHash: `ws-1:media-1:speaker:${speakerId}:elevenlabs`,
       metadata: { speakerId },
     })),
     labelTracks: speakerIds.map((speakerId) => ({
@@ -114,19 +118,22 @@ describe('SpeakerTranscriptionStepProcessor - persisting tracks and utterances',
     };
 
     labelEntityService = {
+      // Mirrors the real service: one entity per instance, keyed by the
+      // provider speaker id, scoped to the media it was detected in.
+      resolveEntities: vi
+        .fn()
+        .mockImplementation(
+          async (entities: Array<{ instanceId: string }>) =>
+            new Map(
+              entities.map((e) => [e.instanceId, `entity-rec-${e.instanceId}`])
+            )
+        ),
       getOrCreateLabelEntity: vi
         .fn()
         .mockImplementation(
-          async (
-            _ws: string,
-            _type: string,
-            _name: string,
-            _provider: string,
-            _processor: string,
-            metadata: { speakerId?: string }
-          ) => `entity-rec-${metadata?.speakerId}`
+          async ({ instanceId }: { instanceId: string }) =>
+            `entity-rec-${instanceId}`
         ),
-      clearCache: vi.fn(),
     };
     normalizer = {
       normalize: vi
@@ -287,7 +294,9 @@ describe('SpeakerTranscriptionStepProcessor - persisting tracks and utterances',
     );
   });
 
-  it('refreshes an existing track cluster link without touching the manual EntityRef', async () => {
+  // The retired LabelTrack.EntityRef must stay untouched: rows still carry
+  // pre-migration values, and a write there is invisible to every reader.
+  it('refreshes an existing track LabelEntity link without touching the retired EntityRef', async () => {
     trackMutator.getList.mockImplementation(
       async (_page: number, _perPage: number, filter: string) => {
         const speakerId = /track-hash-(\S+?)"/.exec(filter)?.[1];

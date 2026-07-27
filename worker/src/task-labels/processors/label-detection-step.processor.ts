@@ -1,12 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { ProcessingProvider } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { LabelDetectionExecutor } from '../executors/label-detection.executor';
 import { LabelDetectionNormalizer } from '../normalizers/label-detection.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { relinkEntityRef } from '../utils/entity-ref';
+import { classificationInstanceId } from '../utils/instance-id';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { LabelDetectionStepInput } from '../types/step-inputs';
 import type { LabelDetectionStepOutput } from '../types/step-outputs';
@@ -138,45 +140,23 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
         processorVersion: this.processorVersion,
       });
 
-      // Step 4: Batch insert LabelEntity records
-      const entityIdMap = await this.batchInsertLabelEntities(
+      // Step 4: Resolve one LabelEntity per segment/shot row. Shots and
+      // segments have no provider track, so the row IS the instance and its
+      // own hash is the instance key — which also means the leaf can find its
+      // entity by that hash directly, with no metadata round-trip.
+      const entityByInstance = await this.labelEntityService.resolveEntities(
         normalizedData.labelEntities
       );
-      const entityIds = Object.values(entityIdMap);
 
       // Step 5: Batch insert specialized records (Segments and Shots)
-      const segmentsWithRefs = (normalizedData.labelSegments || []).map(
-        (segment) => ({
-          ...segment,
-          LabelEntityRef:
-            segment.LabelEntityRef ||
-            this.getEntityRefForLabel(
-              segment.WorkspaceRef,
-              segment.labelType,
-              segment.entity,
-              segment.metadata,
-              entityIdMap
-            ),
-        })
+      const segmentIds = await this.batchInsertLabelSegments(
+        normalizedData.labelSegments || [],
+        entityByInstance
       );
-      const shotsWithRefs = (normalizedData.labelShots || []).map((shot) => ({
-        ...shot,
-        LabelEntityRef:
-          shot.LabelEntityRef ||
-          this.getEntityRefForLabel(
-            shot.WorkspaceRef,
-            shot.labelType,
-            shot.entity,
-            shot.metadata,
-            entityIdMap
-          ),
-      }));
-
-      const segmentIds = await this.batchInsertLabelSegments(segmentsWithRefs);
-      const shotIds = await this.batchInsertLabelShots(shotsWithRefs);
-
-      // Clear entity cache
-      this.labelEntityService.clearCache();
+      const shotIds = await this.batchInsertLabelShots(
+        normalizedData.labelShots || [],
+        entityByInstance
+      );
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -190,7 +170,7 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
             normalizedData.labelMediaUpdate.segmentLabelCount || 0,
           shotLabelCount: normalizedData.labelMediaUpdate.shotLabelCount || 0,
           shotCount: normalizedData.labelMediaUpdate.shotCount || 0,
-          labelEntityCount: entityIds.length,
+          labelEntityCount: entityByInstance.size,
           labelTrackCount: 0,
           labelClipCount: 0,
           labelObjectCount: 0,
@@ -215,111 +195,113 @@ export class LabelDetectionStepProcessor extends BaseStepProcessor<
     }
   }
 
-  private async batchInsertLabelEntities(
-    entities: Array<{
-      WorkspaceRef: string;
-      labelType: LabelType;
-      canonicalName: string;
-      provider: ProcessingProvider;
-      processor: string;
-      metadata?: Record<string, unknown>;
-      entityHash?: string;
-    }>
-  ): Promise<Record<string, string>> {
-    const entityIdMap: Record<string, string> = {};
-    for (const entity of entities) {
-      const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-        entity.WorkspaceRef,
-        entity.labelType,
-        entity.canonicalName,
-        entity.provider as
-          | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-          | ProcessingProvider.GOOGLE_SPEECH,
-        entity.processor,
-        entity.metadata
-      );
-      const entityHash =
-        entity.entityHash ||
-        this.labelEntityService.generateEntityHash(
-          entity.WorkspaceRef,
-          entity.labelType,
-          entity.canonicalName,
-          entity.provider
-        );
-      entityIdMap[entityHash] = entityId;
-    }
-    return entityIdMap;
-  }
-
+  /**
+   * Upsert LabelSegment rows, keyed by segmentHash.
+   *
+   * The ROW is keyed by its hash; its ENTITY is keyed by the label class
+   * within the media, so every "mountain" stretch resolves to the same
+   * LabelEntity and one tag covers them all (see `classificationInstanceId`).
+   * A miss means the entity upsert failed upstream:
+   * the row is skipped rather than written with an empty LabelEntityRef, which
+   * would be an unlinkable segment indistinguishable from a deliberately
+   * unlinked one, and would never be repaired because the hash still matches
+   * on the next run.
+   *
+   * A hash-matched row is repointed, not blindly reused — see
+   * `relinkEntityRef`.
+   */
   private async batchInsertLabelSegments(
-    segments: LabelSegmentData[]
+    segments: LabelSegmentData[],
+    entityByInstance: Map<string, string>
   ): Promise<string[]> {
     const ids: string[] = [];
     for (const data of segments) {
+      const entityId =
+        entityByInstance.get(classificationInstanceId(data.entity)) ||
+        data.LabelEntityRef;
+      if (!entityId) {
+        this.logger.warn(
+          `No LabelEntity for segment ${data.segmentHash} ("${data.entity}"), skipping`
+        );
+        continue;
+      }
+
       try {
         const existing =
           await this.pocketBaseService.labelSegmentMutator.getFirstByFilter(
             `segmentHash = "${data.segmentHash}"`
           );
         if (existing) {
+          await relinkEntityRef(
+            this.pocketBaseService.labelSegmentMutator,
+            existing,
+            entityId
+          );
           ids.push(existing.id);
         } else {
           const created =
-            await this.pocketBaseService.labelSegmentMutator.create(data);
+            await this.pocketBaseService.labelSegmentMutator.create({
+              ...data,
+              LabelEntityRef: entityId,
+            });
           ids.push(created.id);
         }
       } catch (e) {
-        this.logger.error(`Failed to insert segment: ${e}`);
+        this.logger.error(
+          `Failed to insert segment (segmentHash=${data.segmentHash}): ${e}`
+        );
       }
     }
     return ids;
   }
 
+  /**
+   * Upsert LabelShot rows, keyed by shotHash. Same contract as
+   * `batchInsertLabelSegments`: the row is keyed by its hash and its entity by
+   * the label class within the media, a missing entity is a warn-and-skip, and
+   * an existing row is repointed.
+   */
   private async batchInsertLabelShots(
-    shots: LabelShotData[]
+    shots: LabelShotData[],
+    entityByInstance: Map<string, string>
   ): Promise<string[]> {
     const ids: string[] = [];
     for (const data of shots) {
+      const entityId =
+        entityByInstance.get(classificationInstanceId(data.entity)) ||
+        data.LabelEntityRef;
+      if (!entityId) {
+        this.logger.warn(
+          `No LabelEntity for shot ${data.shotHash} ("${data.entity}"), skipping`
+        );
+        continue;
+      }
+
       try {
         const existing =
           await this.pocketBaseService.labelShotMutator.getFirstByFilter(
             `shotHash = "${data.shotHash}"`
           );
         if (existing) {
+          await relinkEntityRef(
+            this.pocketBaseService.labelShotMutator,
+            existing,
+            entityId
+          );
           ids.push(existing.id);
         } else {
-          const created =
-            await this.pocketBaseService.labelShotMutator.create(data);
+          const created = await this.pocketBaseService.labelShotMutator.create({
+            ...data,
+            LabelEntityRef: entityId,
+          });
           ids.push(created.id);
         }
       } catch (e) {
-        this.logger.error(`Failed to insert shot: ${e}`);
+        this.logger.error(
+          `Failed to insert shot (shotHash=${data.shotHash}): ${e}`
+        );
       }
     }
     return ids;
-  }
-
-  private getEntityRefForLabel(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    metadata: Record<string, unknown> | undefined,
-    entityIdMap: Record<string, string>
-  ): string | undefined {
-    const entityHash = metadata?.entityHash as string | undefined;
-    if (entityHash && entityIdMap[entityHash]) {
-      return entityIdMap[entityHash];
-    }
-
-    const provider =
-      (metadata?.provider as ProcessingProvider | undefined) ??
-      ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE;
-    const generatedHash = this.labelEntityService.generateEntityHash(
-      workspaceRef,
-      labelType,
-      canonicalName,
-      provider as ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-    );
-    return entityIdMap[generatedHash];
   }
 }

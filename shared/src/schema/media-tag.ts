@@ -15,8 +15,8 @@ import type { Workspace } from './workspace';
  * It is deliberately NOT a label type — label collections hold provider
  * detections (time-anchored segments, confidence, tracks/clusters), while a
  * tag is a curator's statement about the media as a whole. It complements the
- * two label-cluster link points (LabelTrack.EntityRef / LabelEntity.EntityRef)
- * as a third, media-level way to associate an Entity.
+ * label link point (LabelEntity.EntityRef) as a second, media-level way to
+ * associate an Entity.
  *
  * One row per (media, entity) edge — the unique index makes tagging
  * idempotent and races resolve to the desired end state.

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider, LabelType } from '@project/shared';
+import { ProcessingProvider } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { FaceDetectionExecutor } from '../executors/face-detection.executor';
@@ -111,20 +111,21 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
         processorVersion: this.processorVersion, // Processor version string
       });
 
-      // Step 4: Batch insert LabelEntity records
-      const entityIds = await this.batchInsertLabelEntities(
+      // Step 4: Resolve one LabelEntity per detected face track
+      const entityByInstance = await this.labelEntityService.resolveEntities(
         normalizedData.labelEntities
       );
       this.logger.debug(
-        `Inserted ${entityIds.length} label entities for media ${input.mediaId}`
+        `Resolved ${entityByInstance.size} label entities for media ${input.mediaId}`
       );
 
       // Step 5: Batch insert LabelTrack records (with keyframes and attributes)
-      // Face detection creates a single "Face" entity, so all tracks reference it
-      const entityId = entityIds.length > 0 ? entityIds[0] : undefined;
+      // One entity per face track, not one shared "Face" entity: the provider
+      // gives no identity, so three faces in a media are three people and each
+      // needs its own link point to be named separately.
       const { trackIds, trackIdToDbIdMap } = await this.batchInsertLabelTracks(
         normalizedData.labelTracks,
-        entityId
+        entityByInstance
       );
       this.logger.debug(
         `Inserted ${trackIds.length} label tracks for media ${input.mediaId}`
@@ -133,15 +134,12 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
       // Step 6: Batch insert LabelFace records
       const faceIds = await this.batchInsertLabelFaces(
         normalizedData.labelFaces || [],
-        entityId,
+        entityByInstance,
         trackIdToDbIdMap
       );
       this.logger.debug(
         `Inserted ${faceIds.length} label faces for media ${input.mediaId}`
       );
-
-      // Clear entity cache after processing
-      this.labelEntityService.clearCache();
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -153,7 +151,7 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
         counts: {
           faceCount: normalizedData.labelMediaUpdate.faceCount || 0,
           faceTrackCount: normalizedData.labelMediaUpdate.faceTrackCount || 0,
-          labelEntityCount: entityIds.length,
+          labelEntityCount: entityByInstance.size,
           labelTrackCount: trackIds.length,
           labelClipCount: 0,
           labelObjectCount: 0,
@@ -179,48 +177,13 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Batch insert LabelEntity records
-   * Uses LabelEntityService for deduplication
-   */
-  private async batchInsertLabelEntities(
-    entities: Array<{
-      WorkspaceRef: string;
-      labelType: LabelType;
-      canonicalName: string;
-      provider: ProcessingProvider;
-      processor: string;
-      metadata?: Record<string, unknown>;
-    }>
-  ): Promise<string[]> {
-    const entityIds: string[] = [];
-
-    for (const entity of entities) {
-      // Face detection always uses GOOGLE_VIDEO_INTELLIGENCE
-      const provider = entity.provider as
-        | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-        | ProcessingProvider.GOOGLE_SPEECH;
-      const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-        entity.WorkspaceRef,
-        entity.labelType,
-        entity.canonicalName,
-        provider,
-        entity.processor,
-        entity.metadata
-      );
-      entityIds.push(entityId);
-    }
-
-    return entityIds;
-  }
-
-  /**
    * Batch insert LabelFace records
    *
    * @returns Object with faceIds array and trackIdToFaceIdMap
    */
   private async batchInsertLabelFaces(
     faces: LabelFaceData[],
-    entityId?: string,
+    entityByInstance: Map<string, string>,
     trackIdToDbIdMap?: Map<string, string>
   ): Promise<string[]> {
     const faceIds: string[] = [];
@@ -251,7 +214,10 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
             const created =
               await this.pocketBaseService.labelFaceMutator.create({
                 ...face,
-                LabelEntityRef: entityId || face.LabelEntityRef || '',
+                LabelEntityRef:
+                  entityByInstance.get(face.trackId) ||
+                  face.LabelEntityRef ||
+                  '',
                 LabelTrackRef: labelTrackRef,
                 metadata: face.metadata || {},
               });
@@ -287,7 +253,7 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
    */
   private async batchInsertLabelTracks(
     tracks: LabelTrackData[],
-    entityId?: string
+    entityByInstance: Map<string, string>
   ): Promise<{ trackIds: string[]; trackIdToDbIdMap: Map<string, string> }> {
     const trackIds: string[] = [];
     const trackIdToDbIdMap = new Map<string, string>(); // Map trackId -> database ID
@@ -319,10 +285,11 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
               `Skipped duplicate label track with hash ${track.trackHash}`
             );
           } else {
-            // Track doesn't exist, create it
-            // Set LabelEntityRef if entityId is provided (required field)
+            // Track doesn't exist, create it. LabelEntityRef is this track's
+            // own per-instance entity, looked up by trackId.
             // keyframes are already included in the track data from normalizer
-            const labelEntityRef = entityId || track.LabelEntityRef;
+            const labelEntityRef =
+              entityByInstance.get(track.trackId) || track.LabelEntityRef;
             if (!labelEntityRef) {
               this.logger.error(
                 `Cannot create label track without LabelEntityRef for trackId ${track.trackId}`

@@ -25,8 +25,8 @@ export interface LabelSpeakerRelations {
  * Two PocketBase rules shape this list. There is no exclusion syntax, so
  * every wanted field has to be named; and naming any field drops all expands
  * unless the expand paths are named too, hence the `expand.*` entries. The
- * nested `expand.LabelTrackRef.expand.EntityRef.*` mirrors the
- * `LabelTrackRef.EntityRef` expand that resolves "this speaker is Erik".
+ * nested `expand.LabelEntityRef.expand.EntityRef.*` mirrors the
+ * `LabelEntityRef.EntityRef` expand that resolves "this speaker is Erik".
  *
  * Guarded by a drift test: a new LabelSpeaker column must be added here or
  * listed as intentionally omitted.
@@ -49,8 +49,7 @@ export const SPEAKER_PANEL_FIELDS = [
   'speakerId',
   'confidence',
   'expand.LabelEntityRef.*',
-  'expand.LabelTrackRef.*',
-  'expand.LabelTrackRef.expand.EntityRef.*',
+  'expand.LabelEntityRef.expand.EntityRef.*',
 ] as const;
 
 /**

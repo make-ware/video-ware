@@ -12,20 +12,23 @@ import {
   type SpeakerUtterance,
 } from '../speaker-utils';
 
-/** Attach a linked-Entity expand (LabelTrackRef.EntityRef) to an utterance. */
+/** Attach a linked-Entity expand (LabelEntityRef.EntityRef) to an utterance. */
 function withEntity(u: SpeakerUtterance, name: string): SpeakerUtterance {
   u.expand = {
     ...u.expand,
-    LabelTrackRef: { expand: { EntityRef: { name } } } as never,
+    LabelEntityRef: {
+      ...u.expand?.LabelEntityRef,
+      expand: { EntityRef: { name } },
+    } as never,
   };
   return u;
 }
 
-/** Attach the expanded LabelTrack the worker writes via LabelTrackRef. */
-function withTrack(u: SpeakerUtterance, trackId: string): SpeakerUtterance {
+/** Attach the expanded per-media LabelEntity the worker writes for a speaker. */
+function withLabelEntity(u: SpeakerUtterance, id: string): SpeakerUtterance {
   u.expand = {
     ...u.expand,
-    LabelTrackRef: { id: trackId, trackId: u.speakerId } as never,
+    LabelEntityRef: { id, instanceId: u.speakerId } as never,
   };
   return u;
 }
@@ -75,7 +78,7 @@ describe('speakerNameOf', () => {
 });
 
 describe('speakerEntityName / speakerTranscriptLabelFor', () => {
-  it('resolves the linked entity name from the track expand', () => {
+  it('resolves the linked entity name from the LabelEntity expand', () => {
     const u = withEntity(
       utterance({ speakerId: 'speaker_0', transcript: 'hi' }),
       'Erik'
@@ -136,46 +139,56 @@ describe('deriveSpeakerSummaries', () => {
     expect(deriveSpeakerSummaries([])).toEqual([]);
   });
 
-  // The speaker's LabelTrack carries the EntityRef link, so resolving it from
-  // the expand is what makes a speaker taggable. Getting this wrong is what
-  // rendered "No track record" on media with many tracks.
-  it('resolves each speaker track from the LabelTrackRef expand', () => {
+  // The speaker's LabelEntity carries the EntityRef link, so resolving it
+  // from the expand is what makes a speaker taggable at all.
+  it('resolves each speaker LabelEntity from the expand', () => {
     const summaries = deriveSpeakerSummaries([
-      withTrack(utterance({ speakerId: 'speaker_0', transcript: 'a' }), 'trk0'),
-      withTrack(utterance({ speakerId: 'speaker_1', transcript: 'b' }), 'trk1'),
+      withLabelEntity(
+        utterance({ speakerId: 'speaker_0', transcript: 'a' }),
+        'le0'
+      ),
+      withLabelEntity(
+        utterance({ speakerId: 'speaker_1', transcript: 'b' }),
+        'le1'
+      ),
     ]);
 
-    expect(summaries.map((s) => s.track?.id)).toEqual(['trk0', 'trk1']);
+    expect(summaries.map((s) => s.labelEntity?.id)).toEqual(['le0', 'le1']);
   });
 
-  it('does not leak one speaker track onto another', () => {
+  it('does not leak one speaker LabelEntity onto another', () => {
     const summaries = deriveSpeakerSummaries([
-      withTrack(utterance({ speakerId: 'speaker_0', transcript: 'a' }), 'trk0'),
+      withLabelEntity(
+        utterance({ speakerId: 'speaker_0', transcript: 'a' }),
+        'le0'
+      ),
       utterance({ speakerId: 'speaker_1', transcript: 'b' }),
     ]);
 
-    expect(summaries[0].track?.id).toBe('trk0');
-    expect(summaries[1].track).toBeUndefined();
+    expect(summaries[0].labelEntity?.id).toBe('le0');
+    expect(summaries[1].labelEntity).toBeUndefined();
   });
 
-  // Legacy rows predate the LabelTrackRef FK, so a speaker's first utterance
-  // may lack the expand while a later one carries it.
-  it('takes the track from the first utterance that has one', () => {
+  // A speaker's first utterance may lack the expand while a later one has it.
+  it('takes the LabelEntity from the first utterance that has one', () => {
     const summaries = deriveSpeakerSummaries([
       utterance({ speakerId: 'speaker_0', transcript: 'a' }),
-      withTrack(utterance({ speakerId: 'speaker_0', transcript: 'b' }), 'trk0'),
+      withLabelEntity(
+        utterance({ speakerId: 'speaker_0', transcript: 'b' }),
+        'le0'
+      ),
     ]);
 
     expect(summaries).toHaveLength(1);
-    expect(summaries[0].track?.id).toBe('trk0');
+    expect(summaries[0].labelEntity?.id).toBe('le0');
   });
 
-  it('leaves track undefined when no utterance carries the expand', () => {
+  it('leaves labelEntity undefined when no utterance carries the expand', () => {
     const summaries = deriveSpeakerSummaries([
       utterance({ speakerId: 'speaker_0', transcript: 'a' }),
     ]);
 
-    expect(summaries[0].track).toBeUndefined();
+    expect(summaries[0].labelEntity).toBeUndefined();
   });
 });
 

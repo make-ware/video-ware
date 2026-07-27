@@ -42,11 +42,12 @@ describe('SPEAKER_PANEL_FIELDS', () => {
   });
 
   it('keeps the expands alive — naming any field strips them otherwise', () => {
-    // The panel resolves speaker names from LabelEntityRef and the
-    // "this speaker is Erik" link from LabelTrackRef.EntityRef.
+    // One expand carries both: LabelEntityRef supplies the speaker's display
+    // name, and its own EntityRef the "this speaker is Erik" link.
     expect(projected.has('expand.LabelEntityRef.*')).toBe(true);
-    expect(projected.has('expand.LabelTrackRef.*')).toBe(true);
-    expect(projected.has('expand.LabelTrackRef.expand.EntityRef.*')).toBe(true);
+    expect(projected.has('expand.LabelEntityRef.expand.EntityRef.*')).toBe(
+      true
+    );
   });
 
   it('keeps the fields the clip-from-label writer reads', () => {

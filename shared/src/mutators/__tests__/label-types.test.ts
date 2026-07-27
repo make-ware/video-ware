@@ -5,10 +5,7 @@ import {
   attributionExpands,
   labelAttributionFilter,
 } from '../label-types';
-import {
-  clusterEntityAttributionFilter,
-  entityAttributionFilter,
-} from '../entity';
+import { entityAttributionFilter } from '../entity';
 
 const TRACK_TYPES = [
   LabelType.OBJECT,
@@ -44,37 +41,30 @@ describe('LABEL_TYPE_META', () => {
 });
 
 describe('labelAttributionFilter', () => {
-  it('applies track-over-cluster precedence for track-bearing types', () => {
-    for (const type of TRACK_TYPES) {
+  it('resolves every label type through the same single hop', () => {
+    // LabelEntity is the one link point now — per-media and per-instance, so
+    // there is nothing for a track link to take precedence over. Every type
+    // gets the identical filter, including the two with no track at all.
+    for (const type of [...TRACK_TYPES, ...CLUSTER_ONLY_TYPES]) {
       expect(labelAttributionFilter(type, 'e1')).toBe(
         entityAttributionFilter('e1')
       );
     }
   });
 
-  it('uses the cluster-only filter for shots and segments', () => {
-    for (const type of CLUSTER_ONLY_TYPES) {
-      const filter = labelAttributionFilter(type, 'e1');
-      expect(filter).toBe(clusterEntityAttributionFilter('e1'));
-      // LabelShots/LabelSegments have no LabelTrackRef field; referencing it
-      // would be a PocketBase unknown-field error.
-      expect(filter).not.toContain('LabelTrackRef');
+  it('never references LabelTrackRef', () => {
+    // LabelShots/LabelSegments have no LabelTrackRef field, so a filter
+    // mentioning it would be a PocketBase unknown-field error there. Now that
+    // the filter is uniform, that has to hold for every type.
+    for (const type of [...TRACK_TYPES, ...CLUSTER_ONLY_TYPES]) {
+      expect(labelAttributionFilter(type, 'e1')).not.toContain('LabelTrackRef');
     }
   });
 });
 
 describe('attributionExpands', () => {
-  it('expands both link points for track-bearing types', () => {
-    for (const type of TRACK_TYPES) {
-      expect(attributionExpands(type)).toEqual([
-        'LabelTrackRef.EntityRef',
-        'LabelEntityRef.EntityRef',
-      ]);
-    }
-  });
-
-  it('skips LabelTrackRef for cluster-only types', () => {
-    for (const type of CLUSTER_ONLY_TYPES) {
+  it('expands the one link point for every type', () => {
+    for (const type of [...TRACK_TYPES, ...CLUSTER_ONLY_TYPES]) {
       expect(attributionExpands(type)).toEqual(['LabelEntityRef.EntityRef']);
     }
   });

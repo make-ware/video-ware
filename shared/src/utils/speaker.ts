@@ -25,8 +25,8 @@ export function prettySpeakerId(speakerId: string): string {
  * identified — "Speaker 1 (Erik)" — else just the id, "Speaker 1".
  *
  * `entityName` is resolved live by the caller from the speaker's
- * LabelTrack.EntityRef; a blank name, or one equal to the pretty id, collapses
- * to the id alone so we never render "Speaker 1 (Speaker 1)".
+ * LabelEntity.EntityRef; a blank name, or one equal to the pretty id,
+ * collapses to the id alone so we never render "Speaker 1 (Speaker 1)".
  */
 export function speakerTranscriptLabel(
   speakerId: string,

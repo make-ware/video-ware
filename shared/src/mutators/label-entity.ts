@@ -165,10 +165,14 @@ export class LabelEntityMutator extends BaseMutator<
   }
 
   /**
-   * Link (or, with null, unlink) a provider label cluster to a real-world
-   * Entity — the workspace-wide "every label in this cluster is this
-   * product/person" operation. A per-media LabelTrack.EntityRef takes
-   * precedence over this fallback.
+   * Link (or, with null, unlink) one detected instance to a real-world
+   * Entity — "this speaker / this face track / this tracked object, in this
+   * media, is Erik". THE write for entity attribution: a LabelEntity is
+   * per-media and per-instance, and every reader resolves a label's entity
+   * through it, so nothing overrides what this sets.
+   *
+   * Stable across label re-runs: processors dedup by entityHash, so the row
+   * (and the link on it) survives regeneration.
    * @param labelEntityId The label entity ID
    * @param entityId The entity ID, or null to unlink
    */

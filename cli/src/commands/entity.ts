@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { EntityKind, EntityMutator } from '@project/shared';
+import { EntityKind, EntityMutator, type LabelEntity } from '@project/shared';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
@@ -52,8 +52,16 @@ const appearanceColumns: Column<EntityAppearance>[] = [
   { header: 'START', value: (a) => `${a.track.start.toFixed(2)}s` },
   { header: 'END', value: (a) => `${a.track.end.toFixed(2)}s` },
   { header: 'DUR', value: (a) => formatDuration(a.track.duration) },
-  { header: 'VIA', value: (a) => a.via },
 ];
+
+/**
+ * ` (Speaker 1, Face 3)` — the written rows named, so a link/unlink report
+ * says which instances it landed on rather than only how many.
+ */
+function namesOf(rows: LabelEntity[]): string {
+  const names = rows.map((row) => row.canonicalName).filter(Boolean);
+  return names.length > 0 ? ` (${names.join(', ')})` : '';
+}
 
 const taggedMediaColumns: Column<EntityTaggedMedia>[] = [
   { header: 'MEDIA ID', value: (t) => t.mediaId },
@@ -66,7 +74,7 @@ export function registerEntityCommands(program: Command): void {
   const entity = program
     .command('entity')
     .description(
-      'Real-world entities (people, products, places, things) — create them, link label tracks/clusters, and query appearances and spoken words across media'
+      'Real-world entities (people, products, places, things) — create them, link detected label instances, and query appearances and spoken words across media'
     );
 
   const create = entity
@@ -99,7 +107,7 @@ export function registerEntityCommands(program: Command): void {
         [
           `✓ Created ${created.kind} entity ${created.id} "${created.name}"`,
           `vw entity link "${created.name}" --speaker <mediaId>:<speakerId> (or --face/--track/--cluster/--label) attributes labels to it`,
-          `vw label tag <type> <labelId> "${created.name}" tags a single label's track/cluster; vw label search --entity "${created.name}" finds everything attributed to it`,
+          `vw label tag <type> <labelId> "${created.name}" tags a single label's instance; vw label search --entity "${created.name}" finds everything attributed to it`,
         ],
         opts.json
       );
@@ -197,7 +205,7 @@ export function registerEntityCommands(program: Command): void {
   const link = entity
     .command('link <nameOrId>')
     .description(
-      'Attribute label tracks or provider clusters to an entity (repeatable across media, or within one media when the provider id changes)'
+      'Attribute detected label instances to an entity (repeatable across media, or within one media when the provider id changes)'
     );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId: string, opts) => {
@@ -209,13 +217,10 @@ export function registerEntityCommands(program: Command): void {
         pb,
         pickOptions(opts, linkTargetOptions)
       );
-      const { tracks, clusters } = await applyEntityLinks(
-        pb,
-        found.id,
-        targets
-      );
+      const linked = await applyEntityLinks(pb, found.id, targets);
       success(
-        `Linked ${tracks.length} track(s) and ${clusters.length} cluster(s) to ${found.kind} "${found.name}"`
+        `Linked ${linked.length} label instance(s) to ${found.kind} "${found.name}"` +
+          namesOf(linked)
       );
     } catch (err) {
       handleError(err);
@@ -224,7 +229,7 @@ export function registerEntityCommands(program: Command): void {
 
   const unlink = entity
     .command('unlink')
-    .description('Clear the entity link on label tracks or provider clusters');
+    .description('Clear the entity link on detected label instances');
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -233,9 +238,9 @@ export function registerEntityCommands(program: Command): void {
         pb,
         pickOptions(opts, linkTargetOptions)
       );
-      const { tracks, clusters } = await applyEntityLinks(pb, null, targets);
+      const unlinked = await applyEntityLinks(pb, null, targets);
       success(
-        `Unlinked ${tracks.length} track(s) and ${clusters.length} cluster(s)`
+        `Unlinked ${unlinked.length} label instance(s)` + namesOf(unlinked)
       );
     } catch (err) {
       handleError(err);

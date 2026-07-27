@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import { deriveInstanceId, uniqueInstanceId } from '../utils/instance-id';
 import type {
   FaceDetectionResponse,
   FaceAttributes,
@@ -61,31 +62,8 @@ export class FaceDetectionNormalizer {
     const labelEntities: LabelEntityData[] = [];
     const labelFaces: LabelFaceData[] = [];
     const labelTracks: LabelTrackData[] = [];
-    const seenLabels = new Set<string>();
-
-    // Create single "Face" entity (we don't have identity information)
-    const entityHash = this.generateEntityHash(
-      workspaceRef,
-      LabelType.FACE,
-      'Face',
-      ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-    );
-
-    if (!seenLabels.has(entityHash)) {
-      labelEntities.push({
-        WorkspaceRef: workspaceRef,
-        labelType: LabelType.FACE,
-        canonicalName: 'Face',
-        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-        processor: processorVersion,
-        entityHash,
-        metadata: {
-          type: 'face_detection',
-        },
-      });
-      seenLabels.add(entityHash);
-    }
-
+    // Guards against a provider response listing the same detection twice.
+    const seenInstanceIds = new Map<string, number>();
     // Process each tracked face
     for (const face of response.faces) {
       if (!face.frames || face.frames.length === 0) {
@@ -95,18 +73,45 @@ export class FaceDetectionNormalizer {
 
       let trackId = face.trackId;
 
-      // Handle empty trackId by generating a deterministic one based on first frame
+      // GCVI frequently omits the track id. Derive one from the detection's
+      // own content rather than its slot in the response: this id is the
+      // LabelEntity key, so anything positional would re-key every face — and
+      // strand every "this face is Erik" tag — on the next re-detect.
       if (!trackId || trackId.trim().length === 0) {
-        const firstFrame = face.frames[0];
-        trackId = this.generateDeterministicTrackId(
-          mediaId,
-          firstFrame.timeOffset,
-          firstFrame.boundingBox
+        trackId = uniqueInstanceId(
+          deriveInstanceId({ kind: 'face', frames: face.frames }),
+          seenInstanceIds
         );
         this.logger.debug(
           `Generated deterministic trackId ${trackId} for face`
         );
       }
+
+      // One LabelEntity per face track. The provider gives no identity, so
+      // every face is named "Face" — which is exactly why this must be keyed
+      // by track and not by name: three faces in one media are three people,
+      // and each needs its own link point to be told apart.
+      const entityHash = labelEntityKey({
+        workspaceRef,
+        mediaId,
+        labelType: LabelType.FACE,
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+      });
+
+      labelEntities.push({
+        WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
+        labelType: LabelType.FACE,
+        canonicalName: 'Face',
+        instanceId: trackId,
+        provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        processor: processorVersion,
+        entityHash,
+        metadata: {
+          type: 'face_detection',
+        },
+      });
 
       // Initialize aggregation variables
       const keyframes: KeyframeData[] = [];
@@ -349,20 +354,6 @@ export class FaceDetectionNormalizer {
   }
 
   /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-    return createHash('sha256').update(hashInput).digest('hex');
-  }
-
-  /**
    * Generate track hash for deduplication
    */
   private generateTrackHash(
@@ -408,21 +399,6 @@ export class FaceDetectionNormalizer {
   ): string {
     const hashInput = `${mediaId}:${start.toFixed(1)}:${end.toFixed(1)}:${labelType}`;
     return createHash('sha256').update(hashInput).digest('hex');
-  }
-
-  /**
-   * Generate deterministic track ID
-   */
-  private generateDeterministicTrackId(
-    mediaId: string,
-    startTime: number,
-    bbox: { left?: number; top?: number; right?: number; bottom?: number }
-  ): string {
-    const hashInput = `${mediaId}:${startTime}:${bbox.left}:${bbox.top}:${bbox.right}:${bbox.bottom}`;
-    return createHash('sha256')
-      .update(hashInput)
-      .digest('hex')
-      .substring(0, 16);
   }
 
   /**

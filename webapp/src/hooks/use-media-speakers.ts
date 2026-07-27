@@ -11,10 +11,10 @@ import type { SpeakerUtterance } from '@/components/labels/speakers/speaker-util
 /**
  * Diarized speaker utterances for a media, sorted by start time.
  *
- * Expands the per-speaker LabelEntity (display names survive entity renames)
- * and the track plus its linked Entity (LabelTrackRef.EntityRef). That expand
- * is the panel's whole track story: every utterance carries its speaker's
- * LabelTrack, so identifying a speaker needs no separate track query.
+ * Expands the per-speaker LabelEntity and, through it, the linked Entity.
+ * That one expand is the panel's whole identity story: LabelEntity carries
+ * both the display name (which survives entity renames) and the "this speaker
+ * is Erik" link, so identifying a speaker needs no second query.
  *
  * Fetched as a batched full list, not a single oversized page — a long
  * recording runs to thousands of utterances, and a capped page would drop the
@@ -37,8 +37,7 @@ export function useMediaSpeakers(mediaId: string) {
       });
       // getAllByMedia takes the dotted expand path directly.
       const items = await mutator.getAllByMedia(mediaId, [
-        'LabelEntityRef',
-        'LabelTrackRef.EntityRef',
+        'LabelEntityRef.EntityRef',
       ]);
       return items.sort((a, b) => a.start - b.start);
     },

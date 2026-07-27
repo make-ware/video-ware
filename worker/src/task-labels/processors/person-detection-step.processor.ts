@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { ProcessingProvider, LabelType } from '@project/shared';
+import { ProcessingProvider } from '@project/shared';
 import { LabelCacheService } from '../services/label-cache.service';
 import { LabelEntityService } from '../services/label-entity.service';
 import { PersonDetectionExecutor } from '../executors/person-detection.executor';
@@ -126,19 +126,20 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
         processorVersion: this.processorVersion, // Processor version string
       });
 
-      // Step 4: Batch insert LabelEntity records
-      const entityIds = await this.batchInsertLabelEntities(
+      // Step 4: Resolve one LabelEntity per detected person track. Not one
+      // shared "Person" entity — the provider supplies no identity, so keying
+      // by name would collapse everyone in the media onto a single link point.
+      const entityByInstance = await this.labelEntityService.resolveEntities(
         normalizedData.labelEntities
       );
-      const personEntityId = entityIds[0]; // Person detection usually has one "Person" entity
       this.logger.debug(
-        `Inserted ${entityIds.length} label entities for media ${input.mediaId}`
+        `Resolved ${entityByInstance.size} label entities for media ${input.mediaId}`
       );
 
       // Step 5: Batch insert LabelTrack records (with keyframes, landmarks, and attributes)
       const trackIdsMap = await this.batchInsertLabelTracks(
         normalizedData.labelTracks,
-        personEntityId
+        entityByInstance
       );
       this.logger.debug(
         `Inserted ${Object.keys(trackIdsMap).length} label tracks for media ${input.mediaId}`
@@ -147,15 +148,12 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
       // Step 6: Batch insert LabelPerson records (linking to tracks and entity)
       const personIds = await this.batchInsertLabelPeople(
         normalizedData.labelPeople || [],
-        personEntityId,
+        entityByInstance,
         trackIdsMap
       );
       this.logger.debug(
         `Inserted ${personIds.length} label people for media ${input.mediaId}`
       );
-
-      // Clear entity cache after processing
-      this.labelEntityService.clearCache();
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -168,7 +166,7 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
           personCount: normalizedData.labelMediaUpdate.personCount || 0,
           personTrackCount:
             normalizedData.labelMediaUpdate.personTrackCount || 0,
-          labelEntityCount: entityIds.length,
+          labelEntityCount: entityByInstance.size,
           labelTrackCount: Object.keys(trackIdsMap).length,
           labelClipCount: 0,
           labelObjectCount: 0,
@@ -194,45 +192,12 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
   }
 
   /**
-   * Batch insert LabelEntity records
-   * Uses LabelEntityService for deduplication
-   */
-  private async batchInsertLabelEntities(
-    entities: Array<{
-      WorkspaceRef: string;
-      labelType: LabelType;
-      canonicalName: string;
-      provider: ProcessingProvider;
-      processor: string;
-      metadata?: Record<string, unknown>;
-    }>
-  ): Promise<string[]> {
-    const entityIds: string[] = [];
-
-    for (const entity of entities) {
-      const entityId = await this.labelEntityService.getOrCreateLabelEntity(
-        entity.WorkspaceRef,
-        entity.labelType,
-        entity.canonicalName,
-        entity.provider as
-          | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-          | ProcessingProvider.GOOGLE_SPEECH,
-        entity.processor,
-        entity.metadata
-      );
-      entityIds.push(entityId);
-    }
-
-    return entityIds;
-  }
-
-  /**
    * Batch insert LabelTrack records
    * Returns a map of trackId -> database id
    */
   private async batchInsertLabelTracks(
     tracks: LabelTrackData[],
-    entityId: string
+    entityByInstance: Map<string, string>
   ): Promise<Record<string, string>> {
     const trackIdsMap: Record<string, string> = {};
     const batchSize = 50;
@@ -250,6 +215,14 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
 
           if (existing) {
             trackIdsMap[track.trackId] = existing.id;
+            continue;
+          }
+
+          const entityId = entityByInstance.get(track.trackId);
+          if (!entityId) {
+            this.logger.warn(
+              `No LabelEntity for track ${track.trackId}, skipping`
+            );
             continue;
           }
 
@@ -274,7 +247,7 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
    */
   private async batchInsertLabelPeople(
     people: LabelPersonData[],
-    entityId: string,
+    entityByInstance: Map<string, string>,
     trackIdsMap: Record<string, string>
   ): Promise<string[]> {
     const personIds: string[] = [];
@@ -287,6 +260,14 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
         try {
           // Link to the correct track
           const trackRef = trackIdsMap[person.personId];
+          // personId is the provider trackId, i.e. the entity instanceId.
+          const entityId = entityByInstance.get(person.personId);
+          if (!entityId) {
+            this.logger.warn(
+              `No LabelEntity for person ${person.personHash} (track ${person.personId}), skipping`
+            );
+            continue;
+          }
 
           // Check if person record exists by personHash
           const existing =

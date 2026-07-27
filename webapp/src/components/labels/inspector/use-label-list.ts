@@ -17,16 +17,14 @@ export type InspectorLabelRecord = ActualizableLabel & {
 };
 
 /**
- * Entity attributed to a label row, mirroring the precedence encoded in
- * entityAttributionFilter: the track's manual link wins, the provider
- * cluster's link is the fallback. '' when unattributed.
+ * Entity attributed to a label row, mirroring entityAttributionFilter: one
+ * hop through the row's LabelEntity. '' when unattributed.
+ *
+ * There is no fallback chain any more — LabelEntity is per-media and
+ * per-instance, so it is the only link point and nothing overrides it.
  */
 export function effectiveEntityId(record: InspectorLabelRecord): string {
-  return (
-    record.expand?.LabelTrackRef?.EntityRef ||
-    record.expand?.LabelEntityRef?.EntityRef ||
-    ''
-  );
+  return record.expand?.LabelEntityRef?.EntityRef || '';
 }
 
 export interface LabelListFilters {
@@ -73,9 +71,9 @@ export function useLabelList(
         params.q = query;
       }
 
-      // LabelTrackRef is always expanded: the entity-link control reads the
-      // track's EntityRef even for types whose preview doesn't animate it.
-      // LabelEntityRef supplies the cluster-level entity fallback.
+      // LabelTrackRef supplies the track payload (preview animation, crop
+      // thumbnail, stat tiles); LabelEntityRef carries the entity link the
+      // detail panel reads and writes.
       const expand =
         'LabelTrackRef,LabelEntityRef,MediaRef,MediaRef.filmstripFileRefs';
 

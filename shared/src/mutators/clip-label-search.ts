@@ -1,6 +1,6 @@
 import { RecordService } from 'pocketbase';
 import type { ListResult } from 'pocketbase';
-import type { ClipLabelSearch } from '../schema/clip-label-search';
+import type { ClipLabelSearch } from '../schema/clip-label-search-view';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator } from './base';
 

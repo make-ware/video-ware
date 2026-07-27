@@ -1,9 +1,4 @@
-import type {
-  Entity,
-  LabelEntity,
-  LabelSpeaker,
-  LabelTrack,
-} from '@project/shared';
+import type { Entity, LabelEntity, LabelSpeaker } from '@project/shared';
 import { prettySpeakerId, speakerTranscriptLabel } from '@project/shared';
 import {
   truncateChars,
@@ -18,13 +13,13 @@ export { prettySpeakerId, speakerTranscriptLabel };
 /**
  * LabelSpeaker row with the optional expands requested by useMediaSpeakers.
  * PocketBase omits `expand` when a relation is unset, so every level is
- * optional. `LabelTrackRef.EntityRef` carries the manual "this speaker is
- * Erik" link, resolved live for transcript labels (never baked into text).
+ * optional. `LabelEntityRef` carries both the display name and, through its
+ * own `EntityRef`, the manual "this speaker is Erik" link — resolved live for
+ * transcript labels, never baked into text.
  */
 export type SpeakerUtterance = LabelSpeaker & {
   expand?: {
-    LabelEntityRef?: LabelEntity;
-    LabelTrackRef?: LabelTrack & { expand?: { EntityRef?: Entity } };
+    LabelEntityRef?: LabelEntity & { expand?: { EntityRef?: Entity } };
   };
 };
 
@@ -41,12 +36,12 @@ export function speakerNameOf(utterance: SpeakerUtterance): string {
 }
 
 /**
- * Name of the workspace Entity this speaker's track is linked to, read live
- * from the expanded LabelTrack.EntityRef — the "matched" identity. Null when
- * the speaker has not been identified.
+ * Name of the workspace Entity this speaker is linked to, read live from the
+ * expanded LabelEntity.EntityRef — the "matched" identity. Null when the
+ * speaker has not been identified.
  */
 export function speakerEntityName(utterance: SpeakerUtterance): string | null {
-  return utterance.expand?.LabelTrackRef?.expand?.EntityRef?.name || null;
+  return utterance.expand?.LabelEntityRef?.expand?.EntityRef?.name || null;
 }
 
 /**
@@ -63,18 +58,18 @@ export function speakerTranscriptLabelFor(utterance: SpeakerUtterance): string {
 }
 
 /**
- * Placeholder shown where a speaker's EntityPicker would go when no LabelTrack
- * row backs the speaker. "No track record" is only true once the track query
- * has actually answered — reporting it while the query is pending or failed
- * blames the data for a load problem.
+ * Placeholder shown where a speaker's EntityPicker would go when no
+ * LabelEntity row backs the speaker. "No label record" is only true once the
+ * utterances have actually loaded — reporting it while the query is pending
+ * or failed blames the data for a load problem.
  */
-export function missingTrackLabel(state: {
+export function missingEntityLabel(state: {
   isPending: boolean;
   error: unknown;
 }): string {
   if (state.isPending) return 'Loading…';
-  if (state.error) return 'Tracks unavailable';
-  return 'No track record';
+  if (state.error) return 'Labels unavailable';
+  return 'No label record';
 }
 
 export interface SpeakerSummary {
@@ -86,14 +81,14 @@ export interface SpeakerSummary {
   /** Stable palette index, assigned by order of first appearance. */
   colorIndex: number;
   /**
-   * The speaker's LabelTrack — the row that carries the EntityRef link, so
+   * The speaker's LabelEntity — the row that carries the EntityRef link, so
    * this is what "identify this speaker" writes to. Read straight off the
-   * utterance's expanded LabelTrackRef: the worker writes that FK for every
-   * utterance it persists, so the track is already in hand and needs no
-   * second query. Undefined only for rows written before the FK existed,
-   * which the surfaces heal with a narrow by-type lookup.
+   * utterance's expanded LabelEntityRef, which every utterance already
+   * carries for its display name, so identifying a speaker costs no extra
+   * query. It is per-media, so naming this speaker never touches another
+   * video's "Speaker 1".
    */
-  track?: LabelTrack;
+  labelEntity?: LabelEntity;
 }
 
 /**
@@ -109,10 +104,10 @@ export function deriveSpeakerSummaries(
     if (existing) {
       existing.utteranceCount += 1;
       existing.totalDuration += u.duration;
-      // A speaker's utterances all point at the same track, but only the
-      // ones written with the FK carry the expand — take the first that has
-      // it rather than assuming the first utterance does.
-      existing.track ??= u.expand?.LabelTrackRef;
+      // A speaker's utterances all point at the same LabelEntity, but only
+      // the ones written with the ref carry the expand — take the first that
+      // has it rather than assuming the first utterance does.
+      existing.labelEntity ??= u.expand?.LabelEntityRef;
     } else {
       byId.set(u.speakerId, {
         speakerId: u.speakerId,
@@ -120,7 +115,7 @@ export function deriveSpeakerSummaries(
         utteranceCount: 1,
         totalDuration: u.duration,
         colorIndex: byId.size,
-        track: u.expand?.LabelTrackRef,
+        labelEntity: u.expand?.LabelEntityRef,
       });
     }
   }

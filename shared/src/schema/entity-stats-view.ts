@@ -4,9 +4,9 @@ import { z } from 'zod';
 /**
  * EntityStats is a read-only PocketBase VIEW collection (defined in a
  * hand-written migration, not via defineCollection). One row per Entity with
- * the cross-media rollups the entities home page's cards display, following
- * the attribution precedence rule (track link wins, provider cluster link
- * applies only where the track is unlinked).
+ * the cross-media rollups the entities home page's cards display. Attribution
+ * resolves through LabelEntity.EntityRef alone — the model's single link
+ * point, per media and per detected instance.
  */
 export const EntityStatsSchema = z
   .object({
@@ -14,7 +14,10 @@ export const EntityStatsSchema = z
     WorkspaceRef: z.string(),
     /** Attributed LabelTrack rows — the entity's tracked appearances. */
     trackCount: z.number(),
-    /** Distinct media those tracks appear in. */
+    /**
+     * Distinct media with any attributed LabelEntity — includes media whose
+     * only link is a trackless shot or segment.
+     */
     mediaCount: z.number(),
     /** Attributed LabelSpeaker rows — what the entity spoke. */
     utteranceCount: z.number(),

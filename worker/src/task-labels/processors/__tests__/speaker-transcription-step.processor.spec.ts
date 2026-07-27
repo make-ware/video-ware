@@ -62,8 +62,8 @@ describe('SpeakerTranscriptionStepProcessor - audio proxy resolution', () => {
       storeLabelCache: vi.fn().mockResolvedValue(undefined),
     };
     labelEntityService = {
+      resolveEntities: vi.fn().mockResolvedValue(new Map()),
       getOrCreateLabelEntity: vi.fn(),
-      clearCache: vi.fn(),
     };
     executor = {
       execute: vi.fn().mockResolvedValue({

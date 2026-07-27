@@ -94,12 +94,14 @@ const entity1 = {
   name: 'Erik',
   kind: 'person',
 };
+// A track reaches its entity through its LabelEntity — the track itself
+// carries no live link.
 const taggedTrack1 = {
   id: 'lt1',
   WorkspaceRef: 'ws1',
   MediaRef: 'm1',
   trackId: 'speaker_0',
-  EntityRef: 'e1',
+  LabelEntityRef: 'le1',
   start: 0,
   end: 2,
   duration: 2,
@@ -249,8 +251,9 @@ describe('exportWorkspace', () => {
       clipCount: 1,
     });
 
-    // entities index joins each entity to its tagged tracks and clusters,
-    // so agents can resolve label attribution offline.
+    // entities index joins each entity to the label instances tagged as it
+    // (and the tracks reaching it through them), so agents can resolve label
+    // attribution offline.
     const entitiesIndex = readJson(dir, 'entities', 'index.json');
     expect(entitiesIndex.totalItems).toBe(1);
     expect(entitiesIndex.items[0]).toEqual({
@@ -334,7 +337,7 @@ describe('exportWorkspace', () => {
       listResult([
         {
           ...speaker1,
-          expand: { LabelTrackRef: { expand: { EntityRef: entity1 } } },
+          expand: { LabelEntityRef: { expand: { EntityRef: entity1 } } },
         },
       ])
     );
@@ -342,10 +345,9 @@ describe('exportWorkspace', () => {
 
     await exportWorkspace(pb, { workspaceId: 'ws1', dir });
 
-    // Label fetches ride the attribution expands (track + cluster where the
-    // collection has a track link, cluster only where it doesn't).
+    // Label fetches ride the one attribution expand, identical per type.
     expect(collections.LabelSpeaker.getList.mock.calls[0][2].expand).toBe(
-      'LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+      'LabelEntityRef.EntityRef'
     );
     expect(collections.LabelShots.getList.mock.calls[0][2].expand).toBe(
       'LabelEntityRef.EntityRef'
@@ -357,7 +359,6 @@ describe('exportWorkspace', () => {
       id: 'e1',
       name: 'Erik',
       kind: 'person',
-      via: 'track',
     });
     expect(file.expand).toBeUndefined();
     // Unattributed labels stay untouched — no null placeholder key.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MediaEntitiesMutator } from '../media-entities';
-import { mediaEntityLinksOf } from '../../schema/media-entities';
+import { mediaEntityLinksOf } from '../../schema/media-entities-view';
 import type { TypedPocketBase } from '../../types';
 
 type Stub = Record<string, any>;

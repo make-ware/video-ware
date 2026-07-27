@@ -1,29 +1,51 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash } from 'crypto';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import {
+  labelEntityKey,
   type LabelEntityInput,
   type LabelEntityMutator,
   LabelType,
   ProcessingProvider,
 } from '@project/shared';
+import type { LabelEntityData } from '../types';
+
+/** One provider-detected instance to resolve to a LabelEntity record. */
+export interface LabelEntityRequest {
+  workspaceRef: string;
+  /** The media this instance was detected in — part of the identity. */
+  mediaId: string;
+  labelType: LabelType;
+  /** Display name, e.g. "Speaker 1", "Car". NOT part of the identity. */
+  canonicalName: string;
+  /**
+   * The key for this instance within the media — the provider's trackId for
+   * tracked types, which is what separates two same-named things in one
+   * media; the normalized label name for shots and segments, which have no
+   * track and whose instance is the class itself.
+   */
+  instanceId: string;
+  provider:
+    | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
+    | ProcessingProvider.GOOGLE_SPEECH
+    | ProcessingProvider.ELEVENLABS;
+  processor: string;
+  metadata?: Record<string, unknown>;
+}
 
 /**
- * Service for managing LabelEntity deduplication and caching
+ * Resolves provider detections to LabelEntity records — the per-media,
+ * per-instance rows that carry the link to a real-world Entity.
  *
- * This service provides methods to:
- * - Generate deterministic entity hashes for deduplication
- * - Get or create LabelEntity records with race condition handling
- * - Cache entity lookups in memory during processing
+ * Identity is `(workspace, media, labelType, instanceId, provider)`. The media
+ * and the instance are both load-bearing: keying on the canonical name alone,
+ * as this did previously, collapsed every media's "Speaker 1" into one row, so
+ * identifying a speaker in one video silently claimed the first speaker of
+ * every other video.
  */
 @Injectable()
 export class LabelEntityService {
   private readonly logger = new Logger(LabelEntityService.name);
   private labelEntityMutator!: LabelEntityMutator;
-
-  // In-memory cache for entity lookups during processing
-  // Key: entityHash, Value: entity ID
-  private entityCache: Map<string, string> = new Map();
 
   constructor(private readonly pocketBaseService: PocketBaseService) {}
 
@@ -45,118 +67,66 @@ export class LabelEntityService {
   }
 
   /**
-   * Generate a deterministic entity hash for deduplication
+   * Resolve one detected instance to a LabelEntity id, creating the record if
+   * this is the first time it has been seen.
    *
-   * The hash is generated from: workspaceRef:labelType:canonicalName:provider
-   * This ensures that the same label across different processing runs
-   * will have the same hash and can be deduplicated.
+   * Idempotent across re-runs: the key is derived entirely from stable inputs,
+   * so re-labelling a media reuses its existing rows and the manual EntityRef
+   * links on them survive.
    *
-   * @param workspaceRef The workspace reference
-   * @param labelType The label type (OBJECT, SHOT, PERSON, SPEECH)
-   * @param canonicalName The canonical name of the label (e.g., "Car", "Person")
-   * @param provider The processing provider (GOOGLE_VIDEO_INTELLIGENCE, GOOGLE_SPEECH)
-   * @returns SHA-256 hash string
+   * There is deliberately no in-memory cache. Keys are per-instance now, so
+   * repeats within a run are rare enough that a cache earns nothing — and the
+   * previous one lived on a singleton shared by every concurrently-running
+   * media job, which cleared it out from under its neighbours.
+   *
+   * @returns The LabelEntity record id
    */
-  generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    // Normalize the canonical name to lowercase for consistent hashing
-    const normalizedName = canonicalName.trim().toLowerCase();
-
-    // Create hash input string
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-
-    // Generate SHA-256 hash
-    const hash = createHash('sha256').update(hashInput).digest('hex');
-
-    return hash;
-  }
-
-  /**
-   * Get or create a LabelEntity with deduplication logic
-   *
-   * This method:
-   * 1. Checks the in-memory cache first
-   * 2. Generates an entity hash
-   * 3. Queries the database for an existing entity
-   * 4. Creates a new entity if it doesn't exist
-   * 5. Handles unique constraint violations (race conditions)
-   * 6. Caches the result in memory
-   *
-   * @param workspaceRef The workspace reference
-   * @param labelType The label type
-   * @param canonicalName The canonical name of the label
-   * @param provider The processing provider (GOOGLE_VIDEO_INTELLIGENCE, GOOGLE_SPEECH, or ELEVENLABS)
-   * @param processor The processor version string (e.g., "object-tracking:1.0.0")
-   * @param metadata Optional provider-specific metadata
-   * @returns The entity ID
-   */
-  async getOrCreateLabelEntity(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider:
-      | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      | ProcessingProvider.GOOGLE_SPEECH
-      | ProcessingProvider.ELEVENLABS,
-    processor: string,
-    metadata?: Record<string, unknown>
-  ): Promise<string> {
+  async getOrCreateLabelEntity(request: LabelEntityRequest): Promise<string> {
     // Initialization guard: Ensure mutator is ready
     if (!this.labelEntityMutator) {
-      this.logger.debug(
-        `LabelEntityService not yet fully initialized, waiting for mutator...`
-      );
-      // If we're here, it means getOrCreateLabelEntity was called before onModuleInit finished.
-      // We can try to wait a bit or just throw a better error.
-      // Since we added WorkerControlService, this shouldn't happen, but let's be safe.
       throw new Error(
         'LabelEntityService is not initialized. labelEntityMutator is undefined.'
       );
     }
 
-    // Generate entity hash
-    const entityHash = this.generateEntityHash(
+    const {
       workspaceRef,
+      mediaId,
       labelType,
       canonicalName,
-      provider
-    );
+      instanceId,
+      provider,
+      processor,
+      metadata,
+    } = request;
 
-    // Check in-memory cache first
-    const cachedId = this.entityCache.get(entityHash);
-    if (cachedId) {
-      this.logger.debug(
-        `Cache hit for entity: ${canonicalName} (${labelType})`
-      );
-      return cachedId;
-    }
+    const entityHash = labelEntityKey({
+      workspaceRef,
+      mediaId,
+      labelType,
+      instanceId,
+      provider,
+    });
 
     try {
-      // Try to find existing entity in database
       const existing =
         await this.labelEntityMutator.getByEntityHash(entityHash);
 
       if (existing) {
         this.logger.debug(
-          `Found existing entity: ${canonicalName} (${labelType}) - ${existing.id}`
+          `Found existing entity: ${canonicalName} (${labelType}/${instanceId}) - ${existing.id}`
         );
-
-        // Cache the result
-        this.entityCache.set(entityHash, existing.id);
         return existing.id;
       }
 
-      // Create new entity
       const entityInput: LabelEntityInput = {
         WorkspaceRef: workspaceRef,
+        MediaRef: mediaId,
         labelType,
         canonicalName: canonicalName.trim(), // Keep original casing for display
         provider,
         processor,
+        instanceId,
         entityHash,
         metadata,
       };
@@ -164,11 +134,9 @@ export class LabelEntityService {
       const created = await this.labelEntityMutator.create(entityInput);
 
       this.logger.debug(
-        `Created new entity: ${canonicalName} (${labelType}) - ${created.id}`
+        `Created new entity: ${canonicalName} (${labelType}/${instanceId}) - ${created.id}`
       );
 
-      // Cache the result
-      this.entityCache.set(entityHash, created.id);
       return created.id;
     } catch (error) {
       // Handle race condition: another process may have created the entity
@@ -178,16 +146,12 @@ export class LabelEntityService {
           `Unique constraint violation for ${canonicalName}, retrying lookup`
         );
 
-        // Retry the lookup
         const retry = await this.labelEntityMutator.getByEntityHash(entityHash);
 
         if (retry) {
           this.logger.debug(
-            `Found entity on retry: ${canonicalName} (${labelType}) - ${retry.id}`
+            `Found entity on retry: ${canonicalName} (${labelType}/${instanceId}) - ${retry.id}`
           );
-
-          // Cache the result
-          this.entityCache.set(entityHash, retry.id);
           return retry.id;
         }
 
@@ -196,7 +160,7 @@ export class LabelEntityService {
           `Failed to find entity after unique constraint violation: ${canonicalName}`
         );
         throw new Error(
-          `Failed to create or find entity: ${canonicalName} (${labelType})`
+          `Failed to create or find entity: ${canonicalName} (${labelType}/${instanceId})`
         );
       }
 
@@ -206,6 +170,39 @@ export class LabelEntityService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Resolve a normalizer's whole batch of detected instances, returning a
+   * lookup from instanceId to LabelEntity id.
+   *
+   * Every processor needs exactly this — entities first, then tracks and leaf
+   * rows pointing at them — so the map is the handoff. Key by instanceId
+   * rather than array position: a single failed upsert would otherwise shift
+   * every later instance onto the wrong entity.
+   */
+  async resolveEntities(
+    entities: LabelEntityData[]
+  ): Promise<Map<string, string>> {
+    const byInstance = new Map<string, string>();
+
+    for (const entity of entities) {
+      byInstance.set(
+        entity.instanceId,
+        await this.getOrCreateLabelEntity({
+          workspaceRef: entity.WorkspaceRef,
+          mediaId: entity.MediaRef,
+          labelType: entity.labelType,
+          canonicalName: entity.canonicalName,
+          instanceId: entity.instanceId,
+          provider: entity.provider as LabelEntityRequest['provider'],
+          processor: entity.processor,
+          metadata: entity.metadata,
+        })
+      );
+    }
+
+    return byInstance;
   }
 
   /**
@@ -234,68 +231,5 @@ export class LabelEntityService {
       message.includes('validation_not_unique') ||
       message.includes('entityHash')
     );
-  }
-
-  /**
-   * Clear the in-memory entity cache
-   *
-   * This should be called after processing completes to free memory.
-   * The cache is only useful during a single processing run.
-   */
-  clearCache(): void {
-    const cacheSize = this.entityCache.size;
-    this.entityCache.clear();
-    this.logger.debug(`Cleared entity cache (${cacheSize} entries)`);
-  }
-
-  /**
-   * Get cache statistics
-   *
-   * @returns Object with cache size
-   */
-  getCacheStats(): { size: number } {
-    return {
-      size: this.entityCache.size,
-    };
-  }
-
-  /**
-   * Batch get or create multiple label entities
-   *
-   * This is more efficient than calling getOrCreateLabelEntity multiple times
-   * because it can deduplicate requests before hitting the database.
-   *
-   * @param entities Array of entity specifications
-   * @returns Array of entity IDs in the same order as input
-   */
-  async batchGetOrCreateLabelEntities(
-    entities: Array<{
-      workspaceRef: string;
-      labelType: LabelType;
-      canonicalName: string;
-      provider:
-        | ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-        | ProcessingProvider.GOOGLE_SPEECH
-        | ProcessingProvider.ELEVENLABS;
-      processor: string;
-      metadata?: Record<string, unknown>;
-    }>
-  ): Promise<string[]> {
-    const results: string[] = [];
-
-    // Process each entity
-    for (const entity of entities) {
-      const entityId = await this.getOrCreateLabelEntity(
-        entity.workspaceRef,
-        entity.labelType,
-        entity.canonicalName,
-        entity.provider,
-        entity.processor,
-        entity.metadata
-      );
-      results.push(entityId);
-    }
-
-    return results;
   }
 }

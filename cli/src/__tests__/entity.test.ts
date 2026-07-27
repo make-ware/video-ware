@@ -113,49 +113,91 @@ describe('resolveLinkTargets', () => {
     );
   });
 
-  it('passes track and cluster ids through, deduped', async () => {
+  it('passes LabelEntity ids through, deduped', async () => {
     const pb = fakePb({});
     await expect(
-      resolveLinkTargets(pb, {
-        track: ['t1', 't1', 't2'],
-        cluster: ['le1'],
-      })
-    ).resolves.toEqual({ trackIds: ['t1', 't2'], clusterIds: ['le1'] });
+      resolveLinkTargets(pb, { cluster: ['le1', 'le1', 'le2'] })
+    ).resolves.toEqual({ labelEntityIds: ['le1', 'le2'] });
   });
 
-  it('resolves a type:labelId pair to the label row track', async () => {
+  // --track is addressed by track, but the link lands on the track's
+  // LabelEntity: LabelTrack.EntityRef is retired and writing it is a no-op.
+  it('resolves --track through the track LabelEntity', async () => {
+    const tracks = {
+      getOne: vi.fn(async (id: string) => ({ id, LabelEntityRef: 'le9' })),
+    };
+    const pb = fakePb({ LabelTrack: tracks });
+
+    await expect(resolveLinkTargets(pb, { track: ['t1'] })).resolves.toEqual({
+      labelEntityIds: ['le9'],
+    });
+    expect(tracks.getOne).toHaveBeenCalledWith('t1', expect.anything());
+  });
+
+  it('rejects a track with no LabelEntity rather than writing nothing', async () => {
+    const pb = fakePb({
+      LabelTrack: { getOne: vi.fn(async (id: string) => ({ id })) },
+    });
+    await expect(resolveLinkTargets(pb, { track: ['t1'] })).rejects.toThrow(
+      /has no LabelEntity/i
+    );
+  });
+
+  it('resolves a type:labelId pair to the label row LabelEntity', async () => {
     const pb = fakePb({
       LabelFaces: {
-        getOne: vi.fn(async () => ({ id: 'lf1', LabelTrackRef: 't7' })),
+        getOne: vi.fn(async () => ({ id: 'lf1', LabelEntityRef: 'le7' })),
       },
     });
     await expect(
       resolveLinkTargets(pb, { label: ['face:lf1'] })
-    ).resolves.toEqual({ trackIds: ['t7'], clusterIds: [] });
+    ).resolves.toEqual({ labelEntityIds: ['le7'] });
   });
 
-  it('rejects label rows without a track, pointing at --cluster', async () => {
+  // Shots have no LabelTrackRef; under the old track-first resolution they
+  // were rejected outright, and now take the same path as everything else.
+  it('resolves trackless label types through the same path', async () => {
     const pb = fakePb({
-      LabelShots: { getOne: vi.fn(async () => ({ id: 'ls1' })) },
+      LabelShots: {
+        getOne: vi.fn(async () => ({ id: 'ls1', LabelEntityRef: 'le3' })),
+      },
     });
     await expect(
       resolveLinkTargets(pb, { label: ['shot:ls1'] })
-    ).rejects.toThrow(/--cluster/);
+    ).resolves.toEqual({ labelEntityIds: ['le3'] });
   });
 
-  it('resolves --speaker mediaId:speakerId via the track lookup', async () => {
-    const tracks = {
+  it('resolves --speaker mediaId:speakerId to that media instance', async () => {
+    const labelEntities = {
       getFirstListItem: vi.fn(async (_filter: string, _opts?: unknown) => ({
-        id: 't9',
+        id: 'le4',
       })),
     };
-    const pb = fakePb({ LabelTrack: tracks });
+    const pb = fakePb({ LabelEntity: labelEntities });
+
     await expect(
       resolveLinkTargets(pb, { speaker: 'm1:speaker_0' })
-    ).resolves.toEqual({ trackIds: ['t9'], clusterIds: [] });
-    const [filter] = tracks.getFirstListItem.mock.calls[0];
+    ).resolves.toEqual({ labelEntityIds: ['le4'] });
+
+    const [filter] = labelEntities.getFirstListItem.mock.calls[0];
     expect(filter).toContain('MediaRef = m1');
-    expect(filter).toContain('trackId = speaker_0');
+    expect(filter).toContain('instanceId = speaker_0');
+    // The type is part of the lookup, so --face m1:0 can't land on the
+    // object track that shares provider id "0".
+    expect(filter).toContain('labelType = speaker');
+  });
+
+  it('reports an unknown instance with a listing hint', async () => {
+    const pb = fakePb({
+      LabelEntity: {
+        getFirstListItem: vi.fn(async () => {
+          throw notFound();
+        }),
+      },
+    });
+    await expect(resolveLinkTargets(pb, { face: 'm1:7' })).rejects.toThrow(
+      /No face "7" in media m1/
+    );
   });
 
   it('rejects malformed pair arguments', async () => {
@@ -167,75 +209,102 @@ describe('resolveLinkTargets', () => {
 });
 
 describe('applyEntityLinks', () => {
-  it('points tracks and clusters at the entity', async () => {
-    const tracks = { update: vi.fn(async (id: string) => ({ id })) };
-    const clusters = { update: vi.fn(async (id: string) => ({ id })) };
-    const pb = fakePb({ LabelTrack: tracks, LabelEntity: clusters });
+  it('writes the link on every resolved LabelEntity', async () => {
+    const labelEntities = {
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    };
+    const pb = fakePb({ LabelEntity: labelEntities });
 
     const written = await applyEntityLinks(pb, 'e1', {
-      trackIds: ['t1', 't2'],
-      clusterIds: ['le1'],
+      labelEntityIds: ['le1', 'le2'],
     });
 
-    expect(written.tracks).toHaveLength(2);
-    expect(tracks.update).toHaveBeenCalledWith(
-      't1',
+    expect(written).toHaveLength(2);
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le1',
       { EntityRef: 'e1' },
       expect.anything()
     );
-    expect(clusters.update).toHaveBeenCalledWith(
-      'le1',
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le2',
       { EntityRef: 'e1' },
       expect.anything()
     );
   });
 
   it('clears links when the entity is null', async () => {
-    const tracks = { update: vi.fn(async (id: string) => ({ id })) };
-    const pb = fakePb({ LabelTrack: tracks });
+    const labelEntities = {
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    };
+    const pb = fakePb({ LabelEntity: labelEntities });
 
-    await applyEntityLinks(pb, null, { trackIds: ['t1'], clusterIds: [] });
+    await applyEntityLinks(pb, null, { labelEntityIds: ['le1'] });
 
-    expect(tracks.update).toHaveBeenCalledWith(
-      't1',
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le1',
       { EntityRef: '' },
+      expect.anything()
+    );
+  });
+
+  // The regression the retired field caused: a link reported success while
+  // LabelTrack.EntityRef, which nothing reads, was the only thing written.
+  it('never writes LabelTrack', async () => {
+    const tracks = {
+      getOne: vi.fn(async (id: string) => ({ id, LabelEntityRef: 'le5' })),
+      update: vi.fn(),
+    };
+    const labelEntities = {
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    };
+    const pb = fakePb({ LabelTrack: tracks, LabelEntity: labelEntities });
+
+    const targets = await resolveLinkTargets(pb, { track: ['t1'] });
+    await applyEntityLinks(pb, 'e1', targets);
+
+    expect(tracks.update).not.toHaveBeenCalled();
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le5',
+      { EntityRef: 'e1' },
       expect.anything()
     );
   });
 });
 
 describe('tagLabel', () => {
-  it('writes the track link when the label row has a track', async () => {
-    const tracks = {
+  it('writes the link on the row LabelEntity', async () => {
+    const labelEntities = {
       update: vi.fn(async (id: string, data: object) => ({
         id,
-        trackId: 'speaker_0',
+        canonicalName: 'Speaker 1',
         ...data,
       })),
     };
     const pb = fakePb({
       LabelSpeaker: {
-        getOne: vi.fn(async () => ({ id: 'sk1', LabelTrackRef: 't7' })),
+        getOne: vi.fn(async () => ({ id: 'sk1', LabelEntityRef: 'le7' })),
       },
-      LabelTrack: tracks,
+      LabelEntity: labelEntities,
     });
 
     const result = await tagLabel(pb, LabelType.SPEAKER, 'sk1', 'e1');
 
-    expect(tracks.update).toHaveBeenCalledWith(
-      't7',
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le7',
       { EntityRef: 'e1' },
       expect.anything()
     );
     expect(result).toMatchObject({
-      via: 'track',
-      targetId: 't7',
-      targetName: 'speaker_0',
+      targetId: 'le7',
+      targetName: 'Speaker 1',
     });
   });
 
-  it('falls back to the provider cluster for trackless rows', async () => {
-    const clusters = {
+  // Shots and segments have no LabelTrackRef at all. Under the old
+  // track-first routing they could only be tagged through a separate cluster
+  // fallback; now they take the identical path as everything else.
+  it('tags trackless types through the same path', async () => {
+    const labelEntities = {
       update: vi.fn(async (id: string, data: object) => ({
         id,
         canonicalName: 'Interview',
@@ -246,53 +315,106 @@ describe('tagLabel', () => {
       LabelShots: {
         getOne: vi.fn(async () => ({ id: 'sh1', LabelEntityRef: 'le3' })),
       },
-      LabelEntity: clusters,
+      LabelEntity: labelEntities,
     });
 
     const result = await tagLabel(pb, LabelType.SHOT, 'sh1', 'e1');
 
-    expect(clusters.update).toHaveBeenCalledWith(
+    expect(labelEntities.update).toHaveBeenCalledWith(
       'le3',
       { EntityRef: 'e1' },
       expect.anything()
     );
     expect(result).toMatchObject({
-      via: 'cluster',
       targetId: 'le3',
       targetName: 'Interview',
     });
   });
 
   it('clears the link when untagging (entity null)', async () => {
-    const tracks = {
+    const labelEntities = {
       update: vi.fn(async (id: string, data: object) => ({
         id,
-        trackId: '0',
+        canonicalName: 'Face',
         ...data,
       })),
     };
     const pb = fakePb({
       LabelFaces: {
-        getOne: vi.fn(async () => ({ id: 'lf1', LabelTrackRef: 't2' })),
+        getOne: vi.fn(async () => ({ id: 'lf1', LabelEntityRef: 'le2' })),
       },
-      LabelTrack: tracks,
+      LabelEntity: labelEntities,
     });
 
     await tagLabel(pb, LabelType.FACE, 'lf1', null);
 
-    expect(tracks.update).toHaveBeenCalledWith(
-      't2',
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le2',
       { EntityRef: '' },
       expect.anything()
     );
   });
 
-  it('rejects labels with neither link point', async () => {
+  // A partial label run can leave a leaf row with no LabelEntityRef while its
+  // track carries the identity. Those rows were reachable through the retired
+  // LabelTrack.EntityRef; without this fallback, retiring that field made them
+  // permanently untaggable.
+  it('falls back to the track, repairing the row on the way', async () => {
+    const labelEntities = {
+      update: vi.fn(async (id: string, data: object) => ({
+        id,
+        canonicalName: 'Speaker 1',
+        ...data,
+      })),
+    };
+    const speech = {
+      getOne: vi.fn(async () => ({ id: 'sp1', LabelTrackRef: 'tr1' })),
+      update: vi.fn(async (id: string, data: object) => ({ id, ...data })),
+    };
+    const pb = fakePb({
+      LabelSpeech: speech,
+      LabelTrack: {
+        getOne: vi.fn(async () => ({ id: 'tr1', LabelEntityRef: 'le9' })),
+      },
+      LabelEntity: labelEntities,
+    });
+
+    const result = await tagLabel(pb, LabelType.SPEECH, 'sp1', 'e1');
+
+    // The row is repaired, or the tag would land on the entity while every
+    // attribution query — which filters on the row's own ref — still misses it.
+    expect(speech.update).toHaveBeenCalledWith(
+      'sp1',
+      { LabelEntityRef: 'le9' },
+      expect.anything()
+    );
+    expect(labelEntities.update).toHaveBeenCalledWith(
+      'le9',
+      { EntityRef: 'e1' },
+      expect.anything()
+    );
+    expect(result).toMatchObject({ targetId: 'le9' });
+  });
+
+  it('rejects labels with no LabelEntity and no track to borrow one from', async () => {
     const pb = fakePb({
       LabelText: { getOne: vi.fn(async () => ({ id: 'tx1' })) },
     });
     await expect(tagLabel(pb, LabelType.TEXT, 'tx1', 'e1')).rejects.toThrow(
-      /neither a track nor a provider cluster/i
+      /has no LabelEntity.*Re-run labels/is
+    );
+  });
+
+  it('rejects when the row and its track are both unlinked', async () => {
+    const pb = fakePb({
+      LabelSpeech: {
+        getOne: vi.fn(async () => ({ id: 'sp2', LabelTrackRef: 'tr2' })),
+        update: vi.fn(),
+      },
+      LabelTrack: { getOne: vi.fn(async () => ({ id: 'tr2' })) },
+    });
+    await expect(tagLabel(pb, LabelType.SPEECH, 'sp2', 'e1')).rejects.toThrow(
+      /neither does its track/i
     );
   });
 
@@ -307,7 +429,7 @@ describe('tagLabel', () => {
 });
 
 describe('getEntityLabels', () => {
-  it('fans out per type with track-aware and cluster-only filters', async () => {
+  it('fans out per type with one uniform attribution filter', async () => {
     const speakers = listStub([
       { id: 'sk1', MediaRef: 'm2', start: 5 },
       { id: 'sk2', MediaRef: 'm1', start: 3 },
@@ -319,15 +441,17 @@ describe('getEntityLabels', () => {
       types: [LabelType.SPEAKER, LabelType.SHOT],
     });
 
+    // Track-bearing and trackless types now get the identical filter and
+    // expand — the per-type dispatch is gone.
     const speakerOptions = speakers.getList.mock.calls[0][2];
-    expect(speakerOptions.filter).toContain('LabelTrackRef.EntityRef = "e1"');
+    expect(speakerOptions.filter).toContain('LabelEntityRef.EntityRef = "e1"');
     expect(speakerOptions.sort).toBe('MediaRef,start');
     expect(speakerOptions.expand).toBe(
-      'MediaRef.UploadRef,LabelTrackRef.EntityRef,LabelEntityRef.EntityRef'
+      'MediaRef.UploadRef,LabelEntityRef.EntityRef'
     );
 
     const shotOptions = shots.getList.mock.calls[0][2];
-    expect(shotOptions.filter).toContain('LabelEntityRef.EntityRef = "e1"');
+    expect(shotOptions.filter).toBe(speakerOptions.filter);
     expect(shotOptions.filter).not.toContain('LabelTrackRef');
 
     // Merged hits are ordered by media, then start.
@@ -349,7 +473,7 @@ describe('getEntityLabels', () => {
 });
 
 describe('getEntityWords', () => {
-  it('queries speaker rows with the track-precedence attribution filter', async () => {
+  it('queries speaker rows with the single-hop attribution filter', async () => {
     const speakers = listStub([{ id: 's1', MediaRef: 'm1', transcript: 'hi' }]);
     const pb = fakePb({ LabelSpeaker: speakers });
 
@@ -357,10 +481,8 @@ describe('getEntityWords', () => {
 
     expect(utterances).toHaveLength(1);
     const [, , options] = speakers.getList.mock.calls[0];
-    expect(options.filter).toContain('LabelTrackRef.EntityRef = "e1"');
-    expect(options.filter).toContain(
-      'LabelTrackRef.EntityRef = "" && LabelEntityRef.EntityRef = "e1"'
-    );
+    expect(options.filter).toContain('LabelEntityRef.EntityRef = "e1"');
+    expect(options.filter).not.toContain('LabelTrackRef');
     expect(options.filter).toContain('MediaRef = m1');
     expect(options.sort).toBe('MediaRef,start');
     expect(options.expand).toBe('MediaRef.UploadRef');
@@ -368,40 +490,36 @@ describe('getEntityWords', () => {
 });
 
 describe('getEntityAppearances', () => {
-  it('marks direct track links vs inherited cluster links', async () => {
+  it('returns one appearance per attributed track', async () => {
     const tracks = listStub([
       {
         id: 't1',
         MediaRef: 'm1',
         trackId: '0',
-        EntityRef: 'e1',
         start: 0,
         end: 2,
         duration: 2,
-        expand: { LabelEntityRef: { labelType: 'face' } },
+        expand: { LabelEntityRef: { labelType: 'face', EntityRef: 'e1' } },
       },
       {
         id: 't2',
         MediaRef: 'm2',
         trackId: 'speaker_0',
-        EntityRef: '',
         start: 1,
         end: 4,
         duration: 3,
-        expand: { LabelEntityRef: { labelType: 'speaker' } },
+        expand: { LabelEntityRef: { labelType: 'speaker', EntityRef: 'e1' } },
       },
     ]);
     const pb = fakePb({ LabelTrack: tracks });
 
     const { appearances } = await getEntityAppearances(pb, 'e1');
 
-    expect(appearances.map((a) => a.via)).toEqual(['track', 'cluster']);
+    expect(appearances.map((a) => a.track.id)).toEqual(['t1', 't2']);
     expect(appearances.map((a) => a.labelType)).toEqual(['face', 'speaker']);
+    // LabelTrack resolves through its own LabelEntity like every other row.
     const [, , options] = tracks.getList.mock.calls[0];
-    expect(options.filter).toContain('EntityRef = "e1"');
-    expect(options.filter).toContain(
-      'EntityRef = "" && LabelEntityRef.EntityRef = "e1"'
-    );
+    expect(options.filter).toContain('LabelEntityRef.EntityRef = "e1"');
   });
 });
 

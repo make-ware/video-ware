@@ -1,5 +1,4 @@
 import {
-  LABEL_TYPE_META,
   LABEL_TYPE_TO_REF_FIELD,
   LabelType,
   MediaClipLabelMutator,
@@ -482,20 +481,14 @@ type ExpandedLink = MediaClipLabel & {
 };
 
 /**
- * getByClip expand paths: each Label*Ref plus, through it, the entity link
- * points that resolve the label's attributed Entity (skipping LabelTrackRef
- * on the collections that don't have it).
+ * getByClip expand paths: each Label*Ref plus, through it, the LabelEntity
+ * that resolves the label's attributed Entity. Uniform across all eight
+ * types — LabelEntityRef is the one ref they all carry.
  */
 function provenanceExpands(): string[] {
   return Object.values(LabelType).flatMap((type) => {
     const ref = LABEL_TYPE_TO_REF_FIELD[type];
-    return [
-      ref,
-      `${ref}.LabelEntityRef.EntityRef`,
-      ...(LABEL_TYPE_META[type].hasTrack
-        ? [`${ref}.LabelTrackRef.EntityRef`]
-        : []),
-    ];
+    return [ref, `${ref}.LabelEntityRef.EntityRef`];
   });
 }
 

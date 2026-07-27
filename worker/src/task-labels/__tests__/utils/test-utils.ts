@@ -58,36 +58,35 @@ export function createMockInput<T extends ExecutorResponse>(
 
 /**
  * Map raw Face Detection fixture to FaceDetectionResponse
+ *
+ * Mirrors the executor, including its empty-when-absent track id: the
+ * normalizers derive a content-based id from there, and a mapper that
+ * substituted the array index would hide that path from these tests.
  */
 export function mapFaceDetectionFixture(fixture: any): FaceDetectionResponse {
   const annotation = fixture.annotationResults[0];
-  const faces = (annotation.faceDetectionAnnotations || []).map(
-    (face: any, index: number) => {
-      const track =
-        face.tracks && face.tracks.length > 0 ? face.tracks[0] : null;
-      const trackId =
-        track?.trackId !== undefined &&
-        track?.trackId !== null &&
-        String(track.trackId) !== ''
-          ? String(track.trackId)
-          : String(index);
+  const faces = (annotation.faceDetectionAnnotations || []).map((face: any) => {
+    const track = face.tracks && face.tracks.length > 0 ? face.tracks[0] : null;
+    const trackId =
+      track?.trackId !== undefined && track?.trackId !== null
+        ? String(track.trackId)
+        : '';
 
-      return {
-        trackId,
-        faceId: face.faceId,
-        thumbnail: face.thumbnail,
-        frames: (track?.timestampedObjects || []).map((obj: any) => ({
-          timeOffset: parseTimeOffset(obj.timeOffset),
-          boundingBox: parseBoundingBox(obj.normalizedBoundingBox),
-          confidence: obj.confidence || 0,
-          attributes: (obj.attributes || []).reduce((acc: any, attr: any) => {
-            acc[`${attr.name}Likelihood`] = attr.value;
-            return acc;
-          }, {}),
-        })),
-      };
-    }
-  );
+    return {
+      trackId,
+      faceId: face.faceId,
+      thumbnail: face.thumbnail,
+      frames: (track?.timestampedObjects || []).map((obj: any) => ({
+        timeOffset: parseTimeOffset(obj.timeOffset),
+        boundingBox: parseBoundingBox(obj.normalizedBoundingBox),
+        confidence: obj.confidence || 0,
+        attributes: (obj.attributes || []).reduce((acc: any, attr: any) => {
+          acc[`${attr.name}Likelihood`] = attr.value;
+          return acc;
+        }, {}),
+      })),
+    };
+  });
 
   return { faces };
 }
@@ -178,26 +177,22 @@ export function mapObjectTrackingFixture(fixture: any): ObjectTrackingResponse {
   const annotation = fixture.annotationResults[0];
 
   return {
-    objects: (annotation.objectAnnotations || []).map(
-      (obj: any, index: number) => {
-        const trackId =
-          obj.trackId !== undefined &&
-          obj.trackId !== null &&
-          String(obj.trackId) !== ''
-            ? String(obj.trackId)
-            : String(index);
-        return {
-          entity: obj.entity.description,
-          trackId,
+    objects: (annotation.objectAnnotations || []).map((obj: any) => {
+      const trackId =
+        obj.trackId !== undefined && obj.trackId !== null
+          ? String(obj.trackId)
+          : '';
+      return {
+        entity: obj.entity.description,
+        trackId,
+        confidence: obj.confidence || 0,
+        frames: (obj.frames || []).map((f: any) => ({
+          timeOffset: parseTimeOffset(f.timeOffset),
+          boundingBox: parseBoundingBox(f.normalizedBoundingBox),
           confidence: obj.confidence || 0,
-          frames: (obj.frames || []).map((f: any) => ({
-            timeOffset: parseTimeOffset(f.timeOffset),
-            boundingBox: parseBoundingBox(f.normalizedBoundingBox),
-            confidence: obj.confidence || 0,
-          })),
-        };
-      }
-    ),
+        })),
+      };
+    }),
   };
 }
 
@@ -210,15 +205,12 @@ export function mapPersonDetectionFixture(
   const annotation = fixture.annotationResults[0];
   const persons: any[] = [];
 
-  let personIdx = 0;
   for (const person of annotation.personDetectionAnnotations || []) {
     for (const track of person.tracks || []) {
       const trackId =
-        track.trackId !== undefined &&
-        track.trackId !== null &&
-        String(track.trackId) !== ''
+        track.trackId !== undefined && track.trackId !== null
           ? String(track.trackId)
-          : String(personIdx++);
+          : '';
       persons.push({
         trackId: trackId,
         frames: (track.timestampedObjects || []).map((obj: any) => {

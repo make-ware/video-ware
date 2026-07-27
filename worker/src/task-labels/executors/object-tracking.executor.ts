@@ -89,14 +89,16 @@ export class ObjectTrackingExecutor {
       const annotation = result.annotationResults[0];
 
       // Process object annotations
-      const objects = (annotation.objectAnnotations || []).map((obj, index) => {
+      const objects = (annotation.objectAnnotations || []).map((obj) => {
         const rawTrackId = (obj as unknown as { trackId?: string }).trackId;
+        // Passed through as provenance only — the normalizer keys identity off
+        // the detection's content, since GCVI reuses "0" across tracks and
+        // omits the field outright often enough that a positional stand-in
+        // would tie an object's identity to its slot in this array.
         const trackId =
-          rawTrackId !== undefined &&
-          rawTrackId !== null &&
-          String(rawTrackId) !== ''
+          rawTrackId !== undefined && rawTrackId !== null
             ? String(rawTrackId)
-            : String(index);
+            : '';
         const entity = obj.entity?.description || '';
         const confidence = obj.confidence || 0;
 

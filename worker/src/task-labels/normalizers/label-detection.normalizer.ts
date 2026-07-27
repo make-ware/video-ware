@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { LabelType, ProcessingProvider } from '@project/shared';
+import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import { classificationInstanceId } from '../utils/instance-id';
 import type {
   LabelDetectionResponse,
   NormalizerInput,
@@ -51,38 +52,17 @@ export class LabelDetectionNormalizer {
       `Normalizing label detection response for media ${mediaId}`
     );
 
-    // Collect unique labels for LabelEntity creation
-    const labelEntities: LabelEntityData[] = [];
+    // Collect unique labels for LabelEntity creation. Keyed by entityHash
+    // because one entity now covers every interval carrying the same label in
+    // this media — pushing per row would hand `resolveEntities` the same key
+    // dozens of times and pay a lookup for each.
+    const entitiesByHash = new Map<string, LabelEntityData>();
     const labelClips: LabelClipData[] = [];
     const labelSegments: LabelSegmentData[] = [];
     const labelShots: LabelShotData[] = [];
-    const seenLabels = new Set<string>();
 
     // Process segment labels
     for (const segmentLabel of response.segmentLabels) {
-      // Create LabelEntity for this label if not seen before
-      const entityHash = this.generateEntityHash(
-        workspaceRef,
-        LabelType.SEGMENT,
-        segmentLabel.entity,
-        ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      );
-
-      if (!seenLabels.has(entityHash)) {
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          labelType: LabelType.SEGMENT,
-          canonicalName: segmentLabel.entity,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            confidence: this.clamp01(segmentLabel.confidence),
-          },
-        });
-        seenLabels.add(entityHash);
-      }
-
       // Create LabelSegment for each segment
       for (const segment of segmentLabel.segments) {
         const segmentHash = this.generateSegmentHash(
@@ -91,6 +71,34 @@ export class LabelDetectionNormalizer {
           segment.endTime,
           segmentLabel.entity
         );
+
+        // Segments have no provider track: the instance is the label CLASS
+        // within this media, so every "mountain" stretch shares one entity and
+        // one tag. See `classificationInstanceId`.
+        const instanceId = classificationInstanceId(segmentLabel.entity);
+        const entityHash = labelEntityKey({
+          workspaceRef,
+          mediaId,
+          labelType: LabelType.SEGMENT,
+          instanceId,
+          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        });
+
+        if (!entitiesByHash.has(entityHash)) {
+          entitiesByHash.set(entityHash, {
+            WorkspaceRef: workspaceRef,
+            MediaRef: mediaId,
+            labelType: LabelType.SEGMENT,
+            canonicalName: segmentLabel.entity,
+            instanceId,
+            provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+            processor: processorVersion,
+            entityHash,
+            metadata: {
+              confidence: this.clamp01(segmentLabel.confidence),
+            },
+          });
+        }
 
         labelSegments.push({
           WorkspaceRef: workspaceRef,
@@ -147,29 +155,6 @@ export class LabelDetectionNormalizer {
 
     // Process shot labels
     for (const shotLabel of response.shotLabels) {
-      // Create LabelEntity for this label if not seen before
-      const entityHash = this.generateEntityHash(
-        workspaceRef,
-        LabelType.SHOT,
-        shotLabel.entity,
-        ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      );
-
-      if (!seenLabels.has(entityHash)) {
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          labelType: LabelType.SHOT,
-          canonicalName: shotLabel.entity,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            confidence: this.clamp01(shotLabel.confidence),
-          },
-        });
-        seenLabels.add(entityHash);
-      }
-
       // Create LabelShot for each shot segment
       for (const segment of shotLabel.segments) {
         const shotHash = this.generateShotHash(
@@ -178,6 +163,33 @@ export class LabelDetectionNormalizer {
           segment.endTime,
           shotLabel.entity
         );
+
+        // Same as segments: no provider track, so the label class within this
+        // media is the instance.
+        const instanceId = classificationInstanceId(shotLabel.entity);
+        const entityHash = labelEntityKey({
+          workspaceRef,
+          mediaId,
+          labelType: LabelType.SHOT,
+          instanceId,
+          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+        });
+
+        if (!entitiesByHash.has(entityHash)) {
+          entitiesByHash.set(entityHash, {
+            WorkspaceRef: workspaceRef,
+            MediaRef: mediaId,
+            labelType: LabelType.SHOT,
+            canonicalName: shotLabel.entity,
+            instanceId,
+            provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+            processor: processorVersion,
+            entityHash,
+            metadata: {
+              confidence: this.clamp01(shotLabel.confidence),
+            },
+          });
+        }
 
         labelShots.push({
           WorkspaceRef: workspaceRef,
@@ -229,28 +241,14 @@ export class LabelDetectionNormalizer {
     }
 
     // Process shots (scene changes)
+    //
+    // No LabelEntity is emitted here. Scene changes produce only labelClips,
+    // which nothing persists — there is no LabelClips collection and no
+    // processor reads the field (it is kept solely for interface
+    // compatibility). The generic "Shot" entity this used to emit was
+    // therefore never referenced by any row; it is the unreferenced orphan the
+    // per-instance migration cleans up.
     for (const shot of response.shots) {
-      // Create LabelEntity for "Shot" if not seen before
-      const entityHash = this.generateEntityHash(
-        workspaceRef,
-        LabelType.SHOT,
-        'Shot',
-        ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE
-      );
-
-      if (!seenLabels.has(entityHash)) {
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          labelType: LabelType.SHOT,
-          canonicalName: 'Shot',
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {},
-        });
-        seenLabels.add(entityHash);
-      }
-
       // Create LabelClip for each shot boundary
       const clipHash = this.generateClipHash(
         mediaId,
@@ -297,6 +295,8 @@ export class LabelDetectionNormalizer {
       processors: ['label_detection'],
     };
 
+    const labelEntities = [...entitiesByHash.values()];
+
     this.logger.debug(
       `Normalized ${labelEntities.length} entities, ${labelSegments.length} segments, ${labelShots.length} shots`
     );
@@ -320,20 +320,6 @@ export class LabelDetectionNormalizer {
   private clamp01(value: number): number {
     if (!Number.isFinite(value)) return 0;
     return Math.min(1, Math.max(0, value));
-  }
-
-  /**
-   * Generate entity hash for deduplication
-   */
-  private generateEntityHash(
-    workspaceRef: string,
-    labelType: LabelType,
-    canonicalName: string,
-    provider: ProcessingProvider
-  ): string {
-    const normalizedName = canonicalName.trim().toLowerCase();
-    const hashInput = `${workspaceRef}:${labelType}:${normalizedName}:${provider}`;
-    return createHash('sha256').update(hashInput).digest('hex');
   }
 
   /**

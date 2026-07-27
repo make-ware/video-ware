@@ -61,6 +61,9 @@ vw upload replace <id> <file>  # overwrite the stored original of a media OR upl
 vw media list                  # list media (--search/--type/-d narrow it; "/" = unfiled)
 vw media search <query>        # search media by filename, label, or description (-d filters)
 vw media update <id>           # set label/description, move into a directory (--directory)
+vw media show <id>             # one media item with its entity tags
+vw media tag <id> <entity>     # tag a whole media with an entity ("this features X")
+vw media untag <id> <entity>   # remove that tag (no-op if absent)
 vw media clip create           # create a media clip (sub-range of a media)
 vw media clip list             # list media clips (-d filters via the parent media's directory)
 vw media clip update <id>      # edit a media clip's label/description/trim
@@ -83,6 +86,17 @@ vw label search [query]        # search workspace labels (speech, objects, faces
 vw label list -m <mediaId>     # list labels for one media (--from/--to window; --clip/--timeline-clip = only what the clip plays)
 vw label show <type> <id>      # show one label record (--clips lists linked clips)
 vw label clip <type> <id>      # create a media clip from a label
+vw label tag <type> <id> <entity>  # attribute one detected instance to an entity
+vw label untag <type> <id>     # clear that attribution
+
+vw entity create <name>        # name a real-world person/product/place/thing (-k kind)
+vw entity list [query]         # list or fuzzy-search entities (-k filters by kind)
+vw entity show <name|id>       # one entity: its appearances + the media tagged with it
+vw entity link <name|id>       # link detected instances (--speaker/--face/--track/--cluster/--label)
+vw entity unlink               # clear those links (same target flags)
+vw entity words <name|id>      # everything they said across media (--text = transcript)
+vw entity appearances <name|id>  # when they are on screen or speaking, per media
+vw entity labels <name|id>     # every label attributed to them, all types and media
 
 vw caption create              # create a caption (subtitle) or title card
 vw caption list                # list captions in the active workspace
@@ -267,6 +281,45 @@ deleting one never deletes media.
 - **Deletion is safe by default.** `vw dir delete` refuses while media is
   still filed in the directory; `--force` unfiles the media back to the
   workspace root first.
+
+## Entities (people, products, places, things)
+
+Detection only produces anonymous instances — `Speaker 1`, face track `3`, an
+object called `dog`. An **entity** is the real-world thing behind them. Name it
+once per workspace, link the instances to it, and every query below works by
+that name across all media.
+
+```bash
+vw entity create "Jane Doe" -k person
+vw entity link "Jane Doe" --speaker MEDIA_ID:speaker_0 --face MEDIA_ID:3
+
+vw entity words "Jane Doe" --text         # everything they said, as a transcript
+vw entity appearances "Jane Doe"          # when they are on screen or speaking
+vw label search --entity "Jane Doe" -t speaker   # their labels …
+vw label clip speaker LABEL_ID            # … and a MediaClip cut from one
+```
+
+- **Kinds** are `person`, `product`, `place`, `thing` (`-k`, default
+  `person`). `--aliases` holds alternate names, and `vw entity list [query]`
+  fuzzy-matches name, aliases, and description.
+- **Refs are flexible.** Every `<nameOrId>` takes a name or a record id, like
+  directory and workspace refs.
+- **A link is written on the label's `LabelEntity`** — the one link point per
+  detected instance per media. So a single link covers every detection of that
+  instance _within its media_; repeat per media to cover the workspace.
+  `vw label tag <type> <labelId> <entity>` does the same from the label side,
+  and `vw entity unlink` / `vw label untag` clear it.
+- **Link targets.** `--speaker <mediaId>:<speakerId>` and
+  `--face <mediaId>:<trackId>` address one provider instance in one media;
+  `--track`, `--cluster`, and `--label` take comma-separated record ids
+  (`--label` as `<type>:<labelId>` pairs). Several may be passed at once.
+- **Whole-media tags are separate.** `vw media tag <mediaId> <entity>` says
+  "this media features X" with no detection involved; it needs no labels and
+  surfaces in `vw entity show` and `vw media show`.
+- **Querying:** `vw entity labels` is `vw label search --entity` scoped to one
+  entity; `vw entity appearances` returns the linked time ranges, and
+  `vw entity words` the diarized speech. All take `-m/--media` to narrow to one
+  media, and all page like every other list.
 
 ## Timeline placement semantics
 

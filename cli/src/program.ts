@@ -13,6 +13,7 @@ import { registerCaptionCommands } from './commands/caption.js';
 import { registerTimelineCommands } from './commands/timeline.js';
 import { registerJobCommands } from './commands/job.js';
 import { installWorkspaceOption } from './lib/workspace-option.js';
+import { LIST_HINT_HELP } from './lib/help.js';
 
 /**
  * The CLI version is the repo version from the root package.json — the single
@@ -55,7 +56,8 @@ export function buildProgram(): Command {
     .description(
       'video-ware CLI — log in, choose a workspace, list media, build and render timelines'
     )
-    .version(resolveVersion());
+    .version(resolveVersion())
+    .addHelpText('after', LIST_HINT_HELP);
 
   registerAuthCommands(program);
   registerWorkspaceCommands(program);

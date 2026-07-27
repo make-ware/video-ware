@@ -1,5 +1,5 @@
 /**
- * Shared `--help` epilogues for edit commands.
+ * `--help` epilogues: contracts and overviews too long for a `.description()`.
  *
  * The structured-outcome contracts — the warnings taxonomy (lib/warnings.ts),
  * write elision on no-ops, and the concurrent-edit guard (lib/conflict.ts) —
@@ -120,6 +120,58 @@ export function listResultHelp(
 
   return `\n${parts.join('\n\n')}`;
 }
+
+/**
+ * `vw --help` epilogue: awareness only — that list output explains itself, and
+ * that the machine-readable flags exist. Usage lives one level down, in the
+ * per-command `listResultHelp` epilogue; keep this to two lines so `vw --help`
+ * stays a scannable index.
+ */
+export const LIST_HINT_HELP = `
+Lists:
+  Every list/search ends with a footer saying where you are and what to run
+  next. Programmatic: --json, --all. Usage: vw <group> list --help.`;
+
+/**
+ * `vw directory` overview. The group's own `.description()` stays to one line
+ * so `vw --help` reads as a scannable index; the model — flat, optional,
+ * filter-only — lives here. The README's "Directories" section carries the
+ * same rules; keep both in sync.
+ */
+export const DIRECTORY_HELP = `
+How they work:
+  Directories only organize and filter — nothing is stored "inside" one, and
+  deleting one never deletes media. They are flat (no nesting) and names are
+  unique per workspace, so every <dir> takes a name ("hawaii") or an id.
+  Media with no directory sit at the workspace root; media clips follow their
+  parent media. "/" (or "none") means no directory: as a filter it selects
+  unfiled media, as a move target it unfiles.
+
+  vw dir create hawaii
+  vw dir move hawaii <mediaId…>    file media  ("/" unfiles it again)
+  vw media list -d hawaii          then edit from just that footage`;
+
+/**
+ * `vw entity` overview — what an entity is for, and the path from a detected
+ * instance to an edit. Kept out of the group `.description()` for the same
+ * reason as `DIRECTORY_HELP`.
+ */
+export const ENTITY_HELP = `
+How they work:
+  Detection only produces anonymous instances — "Speaker 1", face track 3, an
+  object called "dog". An entity is the real-world person, product, place, or
+  thing behind them. Name it once per workspace, link the instances to it, and
+  every query below works by that name across all media.
+
+  vw entity create "Jane Doe" -k person
+  vw entity link "Jane Doe" --speaker <mediaId>:speaker_0 --face <mediaId>:3
+  vw entity words "Jane Doe" --text     everything they say, as a transcript
+  vw entity appearances "Jane Doe"      when they are on screen or speaking
+  vw label search --entity "Jane Doe"   their labels — vw label clip cuts one
+
+  A link is written on the label's LabelEntity, so it covers every detection
+  of that instance within its media; repeat per media to cover a workspace.
+  For "this media features X" with no detection involved, use vw media tag.`;
 
 /** `timeline doctor` findings taxonomy and exit-code contract. */
 export const DOCTOR_HELP = `

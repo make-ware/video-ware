@@ -17,14 +17,16 @@ import { mediaColumns, moveMedia } from '../lib/media.js';
 import { withJsonOption } from '../lib/options.js';
 import { info, printList, printRecord, success } from '../lib/output.js';
 import { runList, withListOptions } from '../lib/list/index.js';
+import { DIRECTORY_HELP } from '../lib/help.js';
 
 export function registerDirectoryCommands(program: Command): void {
   const directory = program
     .command('directory')
     .alias('dir')
     .description(
-      'Optional, flat media folders (e.g. per shoot or location) — purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media’s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
-    );
+      'Optional flat folders that group media by shoot, location, or client'
+    )
+    .addHelpText('after', DIRECTORY_HELP);
 
   // The counts query is a full media scan of the workspace, needed three
   // times per `directory list` (MEDIA column, unfiled-media summary, --json
@@ -42,9 +44,7 @@ export function registerDirectoryCommands(program: Command): void {
     directory
       .command('list')
       .alias('ls')
-      .description(
-        'List directories in the active workspace with media counts'
-      ),
+      .description('List directories with their media counts'),
     directoryListSpec
   ).action(async (opts) => {
     try {
@@ -80,7 +80,7 @@ export function registerDirectoryCommands(program: Command): void {
   withJsonOption(
     directory
       .command('show <dir>')
-      .description('Show one directory (name or id) and the media filed in it')
+      .description('Show one directory and the media filed in it')
   ).action(async (ref: string, opts) => {
     try {
       const pb = await requireClient();
@@ -115,7 +115,7 @@ export function registerDirectoryCommands(program: Command): void {
     directory
       .command('create <name>')
       .description(
-        'Create a directory — flat, unique per workspace; names allow letters, digits, dashes, and underscores (idempotent)'
+        'Create a directory — idempotent; letters, digits, dashes, underscores'
       )
   ).action(async (name: string, opts) => {
     try {
@@ -146,9 +146,7 @@ export function registerDirectoryCommands(program: Command): void {
   withJsonOption(
     directory
       .command('rename <dir> <newName>')
-      .description(
-        'Rename a directory (name or id; new name must be path-safe and unique)'
-      )
+      .description('Rename a directory — the new name must be free')
   ).action(async (ref: string, newName: string, opts) => {
     try {
       const pb = await requireClient();
@@ -170,9 +168,7 @@ export function registerDirectoryCommands(program: Command): void {
     directory
       .command('move <dir> <mediaIds...>')
       .alias('mv')
-      .description(
-        'Move media into a directory (name or id) — "/" or "none" re-files them at the workspace root'
-      )
+      .description('File media into a directory — "/" unfiles them')
   ).action(async (ref: string, mediaIds: string[], opts) => {
     try {
       const pb = await requireClient();
@@ -196,7 +192,7 @@ export function registerDirectoryCommands(program: Command): void {
       .command('delete <dir>')
       .alias('rm')
       .description(
-        'Delete a directory (name or id). Refuses while media is filed in it; --force unfiles the media first — media are never deleted'
+        'Delete a directory — refuses if media is filed in it (media is never deleted)'
       )
       .option(
         '-f, --force',

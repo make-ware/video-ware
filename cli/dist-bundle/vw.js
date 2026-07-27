@@ -63956,6 +63956,38 @@ function listResultHelp(spec, config2 = {}) {
   return `
 ${parts.join("\n\n")}`;
 }
+var LIST_HINT_HELP = `
+Lists:
+  Every list/search ends with a footer saying where you are and what to run
+  next. Programmatic: --json, --all. Usage: vw <group> list --help.`;
+var DIRECTORY_HELP = `
+How they work:
+  Directories only organize and filter \u2014 nothing is stored "inside" one, and
+  deleting one never deletes media. They are flat (no nesting) and names are
+  unique per workspace, so every <dir> takes a name ("hawaii") or an id.
+  Media with no directory sit at the workspace root; media clips follow their
+  parent media. "/" (or "none") means no directory: as a filter it selects
+  unfiled media, as a move target it unfiles.
+
+  vw dir create hawaii
+  vw dir move hawaii <mediaId\u2026>    file media  ("/" unfiles it again)
+  vw media list -d hawaii          then edit from just that footage`;
+var ENTITY_HELP = `
+How they work:
+  Detection only produces anonymous instances \u2014 "Speaker 1", face track 3, an
+  object called "dog". An entity is the real-world person, product, place, or
+  thing behind them. Name it once per workspace, link the instances to it, and
+  every query below works by that name across all media.
+
+  vw entity create "Jane Doe" -k person
+  vw entity link "Jane Doe" --speaker <mediaId>:speaker_0 --face <mediaId>:3
+  vw entity words "Jane Doe" --text     everything they say, as a transcript
+  vw entity appearances "Jane Doe"      when they are on screen or speaking
+  vw label search --entity "Jane Doe"   their labels \u2014 vw label clip cuts one
+
+  A link is written on the label's LabelEntity, so it covers every detection
+  of that instance within its media; repeat per media to cover a workspace.
+  For "this media features X" with no detection involved, use vw media tag.`;
 var DOCTOR_HELP = `
 Checks (reported most severe first):
   error    track-overlap (same-track overlaps are invalid),
@@ -70064,15 +70096,13 @@ function registerMediaCommands(program2) {
 // src/commands/directory.ts
 function registerDirectoryCommands(program2) {
   const directory = program2.command("directory").alias("dir").description(
-    'Optional, flat media folders (e.g. per shoot or location) \u2014 purely an organizational filter: media without one sits at the workspace root, media clips follow their parent media\u2019s directory, and names are unique per workspace. Commands accept a name ("hawaii") or an id.'
-  );
+    "Optional flat folders that group media by shoot, location, or client"
+  ).addHelpText("after", DIRECTORY_HELP);
   let countsPromise;
   const countsOnce = (pb, workspaceId) => countsPromise ??= mediaCountsByDirectory(pb, workspaceId);
   const directoryListSpec = makeDirectoryListSpec(countsOnce);
   withListOptions(
-    directory.command("list").alias("ls").description(
-      "List directories in the active workspace with media counts"
-    ),
+    directory.command("list").alias("ls").description("List directories with their media counts"),
     directoryListSpec
   ).action(async (opts) => {
     try {
@@ -70101,7 +70131,7 @@ function registerDirectoryCommands(program2) {
     }
   });
   withJsonOption(
-    directory.command("show <dir>").description("Show one directory (name or id) and the media filed in it")
+    directory.command("show <dir>").description("Show one directory and the media filed in it")
   ).action(async (ref, opts) => {
     try {
       const pb = await requireClient();
@@ -70131,7 +70161,7 @@ function registerDirectoryCommands(program2) {
   });
   withJsonOption(
     directory.command("create <name>").description(
-      "Create a directory \u2014 flat, unique per workspace; names allow letters, digits, dashes, and underscores (idempotent)"
+      "Create a directory \u2014 idempotent; letters, digits, dashes, underscores"
     )
   ).action(async (name, opts) => {
     try {
@@ -70159,9 +70189,7 @@ function registerDirectoryCommands(program2) {
     }
   });
   withJsonOption(
-    directory.command("rename <dir> <newName>").description(
-      "Rename a directory (name or id; new name must be path-safe and unique)"
-    )
+    directory.command("rename <dir> <newName>").description("Rename a directory \u2014 the new name must be free")
   ).action(async (ref, newName, opts) => {
     try {
       const pb = await requireClient();
@@ -70179,9 +70207,7 @@ function registerDirectoryCommands(program2) {
     }
   });
   withJsonOption(
-    directory.command("move <dir> <mediaIds...>").alias("mv").description(
-      'Move media into a directory (name or id) \u2014 "/" or "none" re-files them at the workspace root'
-    )
+    directory.command("move <dir> <mediaIds...>").alias("mv").description('File media into a directory \u2014 "/" unfiles them')
   ).action(async (ref, mediaIds, opts) => {
     try {
       const pb = await requireClient();
@@ -70199,7 +70225,7 @@ function registerDirectoryCommands(program2) {
   });
   withJsonOption(
     directory.command("delete <dir>").alias("rm").description(
-      "Delete a directory (name or id). Refuses while media is filed in it; --force unfiles the media first \u2014 media are never deleted"
+      "Delete a directory \u2014 refuses if media is filed in it (media is never deleted)"
     ).option(
       "-f, --force",
       "unfile any contained media back to the workspace root, then delete"
@@ -70477,9 +70503,9 @@ var taggedMediaColumns = [
 ];
 function registerEntityCommands(program2) {
   const entity = program2.command("entity").description(
-    "Real-world entities (people, products, places, things) \u2014 create them, link detected label instances, and query appearances and spoken words across media"
-  );
-  const create = entity.command("create <name>").description("Create an entity in the workspace").option(
+    "Name the people and things in your media, then find them by that name"
+  ).addHelpText("after", ENTITY_HELP);
+  const create = entity.command("create <name>").description("Create an entity (a person unless --kind says otherwise)").option(
     "-k, --kind <kind>",
     `entity kind (${Object.values(EntityKind).join(", ")}; default: person)`,
     parseEntityKind
@@ -70535,7 +70561,7 @@ function registerEntityCommands(program2) {
     }
   });
   const show = entity.command("show <nameOrId>").description(
-    "Show one entity with its linked tracks, appearances, and tagged media"
+    "Show one entity: its appearances and the media tagged with it"
   );
   withJsonOption(show).action(async (nameOrId, opts) => {
     try {
@@ -70588,7 +70614,7 @@ function registerEntityCommands(program2) {
     }
   });
   const link = entity.command("link <nameOrId>").description(
-    "Attribute detected label instances to an entity (repeatable across media, or within one media when the provider id changes)"
+    "Link detected instances \u2014 a speaker, face, track, cluster, or label \u2014 to an entity"
   );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId, opts) => {
@@ -70608,7 +70634,7 @@ function registerEntityCommands(program2) {
       handleError(err);
     }
   });
-  const unlink = entity.command("unlink").description("Clear the entity link on detected label instances");
+  const unlink = entity.command("unlink").description("Unlink detected instances \u2014 same targets as link");
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -70626,9 +70652,7 @@ function registerEntityCommands(program2) {
     }
   });
   withListOptions(
-    entity.command("words <nameOrId>").description(
-      "Everything the entity said across media (diarized speaker labels)"
-    ).option("--text", "print a plain transcript instead of a table"),
+    entity.command("words <nameOrId>").description("Everything the entity said, across every media").option("--text", "print a plain transcript instead of a table"),
     entityWordsSpec
   ).action(async (nameOrId, opts) => {
     try {
@@ -70661,9 +70685,7 @@ function registerEntityCommands(program2) {
     }
   });
   withListOptions(
-    entity.command("labels <nameOrId>").description(
-      "Every label attributed to the entity across media, all label types (tagged tracks and clusters)"
-    ),
+    entity.command("labels <nameOrId>").description("Every label attributed to the entity, all types and media"),
     entityLabelsSpec,
     { merged: true }
   ).action(async (nameOrId, opts) => {
@@ -70695,7 +70717,7 @@ function registerEntityCommands(program2) {
   });
   withListOptions(
     entity.command("appearances <nameOrId>").description(
-      "When the entity is on screen / speaking, per media (linked track ranges)"
+      "When the entity is on screen or speaking \u2014 time ranges, per media"
     ),
     entityAppearancesSpec
   ).action(async (nameOrId, opts) => {
@@ -73120,7 +73142,7 @@ function buildProgram() {
   const program2 = new Command();
   program2.name("vw").description(
     "video-ware CLI \u2014 log in, choose a workspace, list media, build and render timelines"
-  ).version(resolveVersion());
+  ).version(resolveVersion()).addHelpText("after", LIST_HINT_HELP);
   registerAuthCommands(program2);
   registerWorkspaceCommands(program2);
   registerUploadCommands(program2);

@@ -35,6 +35,7 @@ import {
   labelPerTypeClauses,
   resolveLabelTypes,
 } from '../lib/label.js';
+import { ENTITY_HELP } from '../lib/help.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import {
   formatDuration,
@@ -74,12 +75,13 @@ export function registerEntityCommands(program: Command): void {
   const entity = program
     .command('entity')
     .description(
-      'Real-world entities (people, products, places, things) — create them, link detected label instances, and query appearances and spoken words across media'
-    );
+      'Name the people and things in your media, then find them by that name'
+    )
+    .addHelpText('after', ENTITY_HELP);
 
   const create = entity
     .command('create <name>')
-    .description('Create an entity in the workspace')
+    .description('Create an entity (a person unless --kind says otherwise)')
     .option(
       '-k, --kind <kind>',
       `entity kind (${Object.values(EntityKind).join(', ')}; default: person)`,
@@ -145,7 +147,7 @@ export function registerEntityCommands(program: Command): void {
   const show = entity
     .command('show <nameOrId>')
     .description(
-      'Show one entity with its linked tracks, appearances, and tagged media'
+      'Show one entity: its appearances and the media tagged with it'
     );
   withJsonOption(show).action(async (nameOrId: string, opts) => {
     try {
@@ -205,7 +207,7 @@ export function registerEntityCommands(program: Command): void {
   const link = entity
     .command('link <nameOrId>')
     .description(
-      'Attribute detected label instances to an entity (repeatable across media, or within one media when the provider id changes)'
+      'Link detected instances — a speaker, face, track, cluster, or label — to an entity'
     );
   applyOptions(link, linkTargetOptions);
   link.action(async (nameOrId: string, opts) => {
@@ -229,7 +231,7 @@ export function registerEntityCommands(program: Command): void {
 
   const unlink = entity
     .command('unlink')
-    .description('Clear the entity link on detected label instances');
+    .description('Unlink detected instances — same targets as link');
   applyOptions(unlink, linkTargetOptions);
   unlink.action(async (opts) => {
     try {
@@ -250,9 +252,7 @@ export function registerEntityCommands(program: Command): void {
   withListOptions(
     entity
       .command('words <nameOrId>')
-      .description(
-        'Everything the entity said across media (diarized speaker labels)'
-      )
+      .description('Everything the entity said, across every media')
       .option('--text', 'print a plain transcript instead of a table'),
     entityWordsSpec
   ).action(async (nameOrId: string, opts) => {
@@ -295,9 +295,7 @@ export function registerEntityCommands(program: Command): void {
   withListOptions(
     entity
       .command('labels <nameOrId>')
-      .description(
-        'Every label attributed to the entity across media, all label types (tagged tracks and clusters)'
-      ),
+      .description('Every label attributed to the entity, all types and media'),
     entityLabelsSpec,
     { merged: true }
   ).action(async (nameOrId: string, opts) => {
@@ -334,7 +332,7 @@ export function registerEntityCommands(program: Command): void {
     entity
       .command('appearances <nameOrId>')
       .description(
-        'When the entity is on screen / speaking, per media (linked track ranges)'
+        'When the entity is on screen or speaking — time ranges, per media'
       ),
     entityAppearancesSpec
   ).action(async (nameOrId: string, opts) => {

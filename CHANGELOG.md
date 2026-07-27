@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.8...video-ware-v1.0.0) (2026-07-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* Anchor Entities on LabelEntities Collection
+
+### Features
+
+* Anchor Entities on LabelEntities Collection ([e204446](https://github.com/make-ware/video-ware/commit/e204446ccdd6096c63c5613459c868ff844d46a1))
+* CLI Pagination (Breaking) ([6bd9b1e](https://github.com/make-ware/video-ware/commit/6bd9b1ee1b03af520724d03cebf193f77b8c6225))
+
+
+### Bug Fixes
+
+* address PR [#112](https://github.com/make-ware/video-ware/issues/112) review comments on CLI pagination ([a88961a](https://github.com/make-ware/video-ware/commit/a88961a7453fab76f33cccc4ea41593ca0ff2625))
+* address PR [#112](https://github.com/make-ware/video-ware/issues/112) review comments on CLI pagination ([10248d7](https://github.com/make-ware/video-ware/commit/10248d7b412d16f1bed76220954e1ecb343cdaff))
+* close the remaining gaps in the LabelEntity migration ([1b0fc0c](https://github.com/make-ware/video-ware/commit/1b0fc0cf94101d9b4a8de24f19b48a92e3e3f71e))
+* correct merged-list paging past PocketBase's perPage cap ([6b1248f](https://github.com/make-ware/video-ware/commit/6b1248fe05bad7e389718556b1d563fb37793d05))
+* **pb:** make the LabelEntity per-instance backfill complete ([d5700c4](https://github.com/make-ware/video-ware/commit/d5700c4d43c5d03961db6eb837a736ae33b8f13c))
+* **pb:** make the LabelEntity per-instance backfill complete and fail loudly ([1c7e9bb](https://github.com/make-ware/video-ware/commit/1c7e9bb78a57fbc3a36115d087d42fd51b76e5ff))
+
 ## [0.10.8](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.7...video-ware-v0.10.8) (2026-07-26)
 
 

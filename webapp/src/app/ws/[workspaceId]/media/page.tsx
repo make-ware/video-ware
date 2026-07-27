@@ -343,21 +343,24 @@ function MediaPageContent() {
   }
 
   return (
-    <div className="container mx-auto px-4 pt-6 pb-8 max-w-7xl">
+    <div className="container mx-auto px-3 pt-4 pb-8 sm:px-4 sm:pt-6 max-w-7xl">
       {/* Page Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-foreground mb-2 flex items-center gap-3">
-              <Film className="h-8 w-8" />
+      <div className="mb-4 sm:mb-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-1 sm:mb-2 flex items-center gap-2 sm:gap-3">
+              <Film className="h-6 w-6 sm:h-8 sm:w-8" />
               Media
             </h1>
-            <p className="text-lg text-muted-foreground">
+            <p className="text-sm sm:text-lg text-muted-foreground">
               Browse and manage your processed media in {currentWorkspace.name}
             </p>
           </div>
-          <Link href={`/ws/${currentWorkspace.id}/uploads`}>
-            <Button>Upload New Files</Button>
+          <Link
+            href={`/ws/${currentWorkspace.id}/uploads`}
+            className="sm:shrink-0"
+          >
+            <Button className="w-full sm:w-auto">Upload New Files</Button>
           </Link>
         </div>
       </div>
@@ -369,7 +372,9 @@ function MediaPageContent() {
           directoryFilter={directoryFilter}
           onDirectoryFilterChange={handleDirectoryFilterChange}
         />
-        <div className="flex items-center gap-2">
+        {/* Search takes its own row on phones; the three selects share a
+            two-column grid rather than overflowing a single flex row. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -379,29 +384,31 @@ function MediaPageContent() {
               className="pl-8 h-9"
             />
           </div>
-          <Select value={sort} onValueChange={handleSortChange}>
-            <SelectTrigger className="w-[150px] h-9">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              {MEDIA_SORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <MediaTypeFilter
-            value={mediaTypeFilter}
-            onChange={handleMediaTypeFilterChange}
-            className="w-[150px] h-9 text-sm"
-          />
-          <MediaEntityFilter
-            workspaceId={currentWorkspace.id}
-            value={entityFilter}
-            onChange={handleEntityFilterChange}
-            className="w-[170px] h-9 text-sm"
-          />
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <Select value={sort} onValueChange={handleSortChange}>
+              <SelectTrigger className="w-full sm:w-[150px] h-9">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                {MEDIA_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <MediaTypeFilter
+              value={mediaTypeFilter}
+              onChange={handleMediaTypeFilterChange}
+              className="w-full sm:w-[150px] h-9 text-sm"
+            />
+            <MediaEntityFilter
+              workspaceId={currentWorkspace.id}
+              value={entityFilter}
+              onChange={handleEntityFilterChange}
+              className="col-span-2 w-full sm:col-span-1 sm:w-[170px] h-9 text-sm"
+            />
+          </div>
         </div>
       </div>
 

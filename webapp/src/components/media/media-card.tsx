@@ -256,22 +256,25 @@ export function MediaCard({
 
       {/* Media info */}
       <CardContent
-        className={cn(compact ? 'p-1.5 space-y-1' : 'p-3 space-y-2')}
+        className={cn(
+          compact ? 'p-1.5 space-y-1' : 'p-2 space-y-1.5 sm:p-3 sm:space-y-2'
+        )}
       >
         {/* Title - truncates to fit card width */}
         <h3
           className={cn(
             'font-semibold text-foreground truncate leading-tight',
-            compact ? 'text-xs' : 'text-sm'
+            compact ? 'text-xs' : 'text-[13px] sm:text-sm'
           )}
           title={uploadName}
         >
           {uploadName}
         </h3>
 
-        {/* Media type and dimensions badges */}
+        {/* Media type and dimensions badges — the thumbnail already carries a
+            type badge, so on a narrow (2-up) card these are redundant. */}
         {!compact && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="hidden items-center gap-2 flex-wrap sm:flex">
             <Badge variant="outline" className="text-xs capitalize gap-1">
               <MediaTypeIcon mediaType={media.mediaType} className="h-3 w-3" />
               {media.mediaType}
@@ -296,7 +299,7 @@ export function MediaCard({
 
         {/* Codec info */}
         {!compact && (
-          <div className="text-xs text-muted-foreground">
+          <div className="hidden text-xs text-muted-foreground sm:block">
             <span className="font-medium text-foreground">Codec:</span>{' '}
             {getCodec()}
           </div>

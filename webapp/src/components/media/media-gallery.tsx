@@ -48,6 +48,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { MediaCard } from './media-card';
 import { MediaTypeIcon, getMediaTypeLabel } from './media-type-icon';
 import { useMediaEntityLinks } from '@/hooks/use-media-entities';
@@ -160,15 +161,15 @@ export function MediaGallery({
 
   if (isLoading) {
     return (
-      <Card className={className}>
-        <CardHeader>
+      <Card className={cn('py-4 sm:py-6', className)}>
+        <CardHeader className="px-3 sm:px-6">
           <Skeleton className="h-6 w-32" />
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <CardContent className="px-3 sm:px-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="space-y-2">
-                <Skeleton className="h-48 w-full" />
+                <Skeleton className="aspect-video w-full" />
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-3 w-1/2" />
               </div>
@@ -204,17 +205,17 @@ export function MediaGallery({
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card className={className}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      <Card className={cn('py-4 sm:py-6', className)}>
+        <CardHeader className="px-3 sm:px-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2">
               <span>Media Library</span>
               <Badge variant="secondary">{totalItems ?? media.length}</Badge>
             </CardTitle>
 
-            {/* Bulk action toolbar */}
+            {/* Bulk action toolbar — wraps rather than overflowing on phones */}
             {hasSelection && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">
                   {selectionCount} selected
                 </span>
@@ -312,7 +313,7 @@ export function MediaGallery({
           </div>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="px-3 sm:px-6">
           {media.length === 0 ? (
             <Empty>
               <EmptyHeader>
@@ -358,7 +359,9 @@ export function MediaGallery({
             </Empty>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* Two-up on phones: a full-width card wastes a whole screen
+                  per item, and the browse task is scanning thumbnails. */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                 {media.map((item) => (
                   <MediaCard
                     key={item.id}

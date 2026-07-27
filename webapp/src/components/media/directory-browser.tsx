@@ -55,13 +55,14 @@ export function DirectoryBrowser({
   return (
     <>
       <div className="space-y-2">
-        {/* Folder list */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Folder list — a single scrollable row on phones (wrapping a long
+            folder list there would push the media grid off-screen). */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
           {/* Show All chip */}
           <Button
             variant={directoryFilter === null ? 'default' : 'outline'}
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 text-xs"
             onClick={handleShowAll}
           >
             <Folder className="mr-1 h-3 w-3" />
@@ -84,7 +85,7 @@ export function DirectoryBrowser({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 text-xs"
             onClick={crud.openCreateForm}
           >
             <FolderPlus className="mr-1 h-3 w-3" />
@@ -121,22 +122,23 @@ function FolderChip({
   onDelete: (id: string, name: string) => void;
 }) {
   return (
-    <div className="flex items-center group">
+    <div className="flex items-center group shrink-0">
       <Button
         variant={isSelected ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          'h-7 text-xs rounded-r-none border-r-0',
+          'h-7 max-w-[45vw] overflow-hidden text-xs rounded-r-none border-r-0 sm:max-w-none',
           isSelected && 'pr-2'
         )}
         onClick={() => onSelect(directory.id)}
+        title={directory.name}
       >
         {isSelected ? (
           <FolderOpen className="mr-1 h-3 w-3" />
         ) : (
           <Folder className="mr-1 h-3 w-3" />
         )}
-        {directory.name}
+        <span className="truncate">{directory.name}</span>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

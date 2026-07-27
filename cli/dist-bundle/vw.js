@@ -57926,9 +57926,10 @@ var LabelEntitySchema = external_exports.object({
   processor: TextField(),
   // e.g., "object-tracking:1.0.0"
   // The provider's key for this instance within the media: the trackId for
-  // the six tracked types, the row's own shotHash/segmentHash for the two
-  // cluster-only ones. Paired with MediaRef it is what makes one row mean
-  // one thing rather than one word.
+  // the six tracked types, the normalized label name for the two trackless
+  // classification ones (shots and segments, where the instance is the class
+  // — every "mountain" interval in a media is one thing to tag). Paired with
+  // MediaRef it is what makes one row mean one thing rather than one word.
   instanceId: TextField().optional(),
   metadata: JSONField().optional(),
   // Provider-specific data
@@ -58811,6 +58812,10 @@ var MediaSchema = external_exports.object({
     "image"
     /* IMAGE */
   ]),
+  // Source file name, denormalized from UploadRef.name at ingest so lists can
+  // sort/filter/display without expanding Uploads. `label` (below) is the
+  // editor's override; display order is label -> name.
+  name: TextField().optional(),
   label: TextField().optional(),
   // editor-facing name, searchable
   description: TextField().optional(),
@@ -58848,6 +58853,7 @@ var MediaInputSchema = external_exports.object({
     "image"
     /* IMAGE */
   ]),
+  name: external_exports.string().max(255).optional(),
   label: external_exports.string().optional(),
   description: external_exports.string().optional(),
   mediaDate: DateField().optional(),
@@ -58870,7 +58876,12 @@ var MediaInputSchema = external_exports.object({
 var MediaCollection = defineCollection({
   collectionName: "Media",
   schema: MediaSchema,
-  permissions: workspaceScopedPermissions()
+  permissions: workspaceScopedPermissions(),
+  indexes: [
+    // Workspace-scoped name sorts/searches — every media list is filtered by
+    // workspace first, so the pair is what the planner can actually use.
+    "CREATE INDEX idx_media_workspace_name ON Media (WorkspaceRef, name)"
+  ]
 });
 var TaskSchema = external_exports.object({
   sourceType: TextField(),
@@ -67942,6 +67953,23 @@ async function labelEntityOfTrack(pb, trackId) {
   }
   return track.LabelEntityRef;
 }
+async function labelEntityForRow(pb, type, labelId, record2) {
+  const own = record2.LabelEntityRef;
+  if (typeof own === "string" && own) return own;
+  const trackRef = record2.LabelTrackRef;
+  if (typeof trackRef === "string" && trackRef) {
+    const track = await new LabelTrackMutator(pb).getById(trackRef);
+    if (track?.LabelEntityRef) {
+      await labelMutator(pb, type).update(labelId, {
+        LabelEntityRef: track.LabelEntityRef
+      });
+      return track.LabelEntityRef;
+    }
+  }
+  throw new Error(
+    `${type} label ${labelId} has no LabelEntity, and neither does its track \u2014 there is nothing to attach an entity to. Re-run labels for its media to mint one, or tag the whole media with \`vw media tag <media> <entity>\``
+  );
+}
 async function labelEntityOfLabelPair(pb, pair) {
   const [typeArg, labelId] = splitPair(pair, "--label");
   const type = parseLabelType(typeArg);
@@ -67949,13 +67977,7 @@ async function labelEntityOfLabelPair(pb, pair) {
   if (!record2) {
     throw new Error(`No ${type} label with id ${labelId}`);
   }
-  const entityRef = record2.LabelEntityRef;
-  if (typeof entityRef !== "string" || !entityRef) {
-    throw new Error(
-      `${type} label ${labelId} has no LabelEntity \u2014 nothing to attach an entity link to`
-    );
-  }
-  return entityRef;
+  return labelEntityForRow(pb, type, labelId, record2);
 }
 async function tagLabel(pb, type, labelId, entityId) {
   const record2 = await labelMutator(pb, type).getById(labelId);
@@ -67964,23 +67986,22 @@ async function tagLabel(pb, type, labelId, entityId) {
       `No ${type} label with id ${labelId} (a wrong type/id pairing also reads as not found \u2014 check the type)`
     );
   }
-  const row = record2;
-  const entityRef = row.LabelEntityRef;
-  if (typeof entityRef === "string" && entityRef) {
-    const labelEntity = await new LabelEntityMutator(pb).setEntity(
-      entityRef,
-      entityId
-    );
-    return {
-      type,
-      labelId,
-      targetId: labelEntity.id,
-      targetName: labelEntity.canonicalName
-    };
-  }
-  throw new Error(
-    `${type} label ${labelId} has no LabelEntity \u2014 nothing to attach an entity tag to`
+  const entityRef = await labelEntityForRow(
+    pb,
+    type,
+    labelId,
+    record2
   );
+  const labelEntity = await new LabelEntityMutator(pb).setEntity(
+    entityRef,
+    entityId
+  );
+  return {
+    type,
+    labelId,
+    targetId: labelEntity.id,
+    targetName: labelEntity.canonicalName
+  };
 }
 async function resolveLinkTargets(pb, opts) {
   const labelEntityIds = [...opts.cluster ?? []];
@@ -73051,7 +73072,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "0.10.8";
+    return "1.0.0";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

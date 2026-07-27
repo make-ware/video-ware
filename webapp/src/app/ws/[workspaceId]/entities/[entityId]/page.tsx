@@ -9,6 +9,7 @@ import {
   useEntityStats,
 } from '@/hooks/use-entities';
 import { useEntityLabelCounts } from '@/hooks/use-entity-labels';
+import { useEntityTaggedMedia } from '@/hooks/use-media-tags';
 import { EntityHeaderCard } from '@/components/entities/entity-header-card';
 import {
   EntityDeleteDialog,
@@ -31,6 +32,8 @@ export default function EntityDetailPage() {
   const { entity, isLoading } = useEntity(entityId);
   const stats = useEntityStats(entityId);
   const { counts, isLoading: countsLoading } = useEntityLabelCounts(entityId);
+  // Same query the browser's Tags tab reads — shared cache, one fetch.
+  const { tags } = useEntityTaggedMedia(entityId);
   const deleteEntity = useDeleteEntity();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -78,6 +81,7 @@ export default function EntityDetailPage() {
           trackCount: stats.trackCount,
           utteranceCount: stats.utteranceCount,
           labelTotal,
+          tagCount: tags.length,
         }}
         onEdit={() => setEditOpen(true)}
         onDelete={() => setDeleteOpen(true)}

@@ -7,6 +7,7 @@ import {
   useEntityLabelMedia,
   type EntityLabelMediaGroup,
 } from '@/hooks/use-entity-labels';
+import { useEntityTaggedMedia } from '@/hooks/use-media-tags';
 import { PaginationControls } from '@/components/pagination/pagination-controls';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,14 +19,23 @@ import {
   type EntityLabelTypeConfig,
 } from './entity-label-config';
 import { EntityMediaLabelsPane } from './entity-label-detail';
+import { EntityTaggedMediaPanel } from './entity-tags-panel';
 
 const MEDIA_PER_PAGE = 50;
 
 /**
+ * Tab value for the manual media tags. Tags are not a LabelType (no provider,
+ * no time range), so they get a sentinel tab value alongside the label types
+ * rather than being faked into LABEL_TYPE_META.
+ */
+const TAGS_TAB = 'tags';
+
+/**
  * The entity detail page's linked-labels browser: one tab per label type
- * with attributed rows; within a type, the left panel lists the media the
- * labels appear in and the right pane previews every label in the selected
- * media. Fills the height it is given — each panel scrolls internally.
+ * with attributed rows, plus a Tags tab for whole-media manual tags; within a
+ * type, the left panel lists the media the labels appear in and the right pane
+ * previews every label in the selected media. Fills the height it is given —
+ * each panel scrolls internally.
  */
 export function EntityLabelsBrowser({
   workspaceId,
@@ -45,6 +55,7 @@ export function EntityLabelsBrowser({
   // The URL is the single source of truth for the active tab: replaceState
   // below feeds back into useSearchParams (no Next.js soft navigation).
   const requestedType = searchParams.get('type');
+  const { tags, isLoading: tagsLoading } = useEntityTaggedMedia(entityId);
 
   const handleTypeChange = useCallback(
     (value: string) => {
@@ -55,7 +66,7 @@ export function EntityLabelsBrowser({
     [pathname]
   );
 
-  if (countsLoading || !counts) {
+  if (countsLoading || !counts || tagsLoading) {
     return (
       <div className="flex justify-center p-8">
         <Loader2 className="animate-spin h-6 w-6 text-primary" />
@@ -67,13 +78,26 @@ export function EntityLabelsBrowser({
     (config) => (counts[config.labelType] ?? 0) > 0
   );
 
-  if (visible.length === 0) {
+  // Label tabs keep their order, then Tags — so the default tab (and any
+  // existing ?type=) is unchanged for entities that have linked labels.
+  const tabs: Array<{ value: string; title: string; count: number }> = [
+    ...visible.map((config) => ({
+      value: config.labelType as string,
+      title: config.title,
+      count: counts[config.labelType],
+    })),
+    ...(tags.length > 0
+      ? [{ value: TAGS_TAB, title: 'Tags', count: tags.length }]
+      : []),
+  ];
+
+  if (tabs.length === 0) {
     return (
       <Card>
         <CardContent>
           <p className="text-muted-foreground text-center py-8">
             Nothing linked yet. Open a media&apos;s labels and link a face track
-            or speaker to this entity.
+            or speaker to this entity, or tag a whole media with it.
           </p>
         </CardContent>
       </Card>
@@ -82,32 +106,43 @@ export function EntityLabelsBrowser({
 
   // A stale ?type= (or one whose labels were all unlinked) falls back to
   // the first non-empty tab.
-  const activeConfig =
-    visible.find((config) => config.labelType === requestedType) ?? visible[0];
+  const activeTab = tabs.find((tab) => tab.value === requestedType) ?? tabs[0];
+  const activeConfig = visible.find(
+    (config) => config.labelType === activeTab.value
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-3">
       <div className="shrink-0 overflow-x-auto">
-        <Tabs value={activeConfig.labelType} onValueChange={handleTypeChange}>
+        <Tabs value={activeTab.value} onValueChange={handleTypeChange}>
           <TabsList>
-            {visible.map((config) => (
-              <TabsTrigger key={config.labelType} value={config.labelType}>
-                {config.title}
+            {tabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.title}
                 <Badge variant="secondary" className="ml-1.5">
-                  {counts[config.labelType]}
+                  {tab.count}
                 </Badge>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       </div>
-      <EntityLabelTypePanel
-        key={activeConfig.labelType}
-        workspaceId={workspaceId}
-        entityId={entityId}
-        entityName={entityName}
-        config={activeConfig}
-      />
+      {activeConfig ? (
+        <EntityLabelTypePanel
+          key={activeConfig.labelType}
+          workspaceId={workspaceId}
+          entityId={entityId}
+          entityName={entityName}
+          config={activeConfig}
+        />
+      ) : (
+        <EntityTaggedMediaPanel
+          workspaceId={workspaceId}
+          entityId={entityId}
+          entityName={entityName}
+          tags={tags}
+        />
+      )}
     </div>
   );
 }

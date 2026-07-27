@@ -11,18 +11,24 @@ import type { LabelTrack, Media } from '@project/shared';
  * with the track's bounding-box overlay; without one, a looping filmstrip of
  * the range. Falls back to a placeholder when the media (or its filmstrips)
  * is unavailable.
+ *
+ * `speed` scales the range sweep — label ranges are seconds long and read best
+ * at 1×, but a whole-media range (a media tag) needs a compressed sweep to
+ * loop in a watchable time.
  */
 export function LabelPreview({
   media,
   track,
   start,
   end,
+  speed,
   className,
 }: {
   media?: Media | null;
   track?: LabelTrack | null;
   start: number;
   end: number;
+  speed?: number;
   className?: string;
 }) {
   if (!media || !media.filmstripFileRefs?.length) {
@@ -49,7 +55,12 @@ export function LabelPreview({
         className
       )}
     >
-      <LabelRangeFilmstrip media={media} start={start} end={end} />
+      <LabelRangeFilmstrip
+        media={media}
+        start={start}
+        end={end}
+        speed={speed}
+      />
     </div>
   );
 }
@@ -58,16 +69,19 @@ function LabelRangeFilmstrip({
   media,
   start,
   end,
+  speed,
 }: {
   media: Media;
   start: number;
   end: number;
+  speed?: number;
 }) {
   const currentTime = useTimeAnimation({
     start,
     end,
     enabled: true,
     loop: true,
+    speed,
   });
 
   return (

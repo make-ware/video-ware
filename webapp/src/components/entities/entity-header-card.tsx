@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, MessageSquareText, Pencil, Trash2 } from 'lucide-react';
 import { ENTITY_KIND_META } from './entity-kind';
-import { EntityTaggedMediaRow } from './entity-tagged-media-row';
 
 export interface EntityHeaderStats {
   mediaCount: number;
@@ -21,6 +20,8 @@ export interface EntityHeaderStats {
   utteranceCount: number;
   /** Sum of attributed labels across all label types. */
   labelTotal: number;
+  /** Manual whole-media tags — the browser's Tags tab lists them. */
+  tagCount: number;
 }
 
 /**
@@ -53,6 +54,7 @@ export function EntityHeaderCard({
     { label: 'Tracked Appearances', value: stats.trackCount },
     { label: 'Utterances', value: stats.utteranceCount },
     { label: 'Linked Labels', value: stats.labelTotal },
+    { label: 'Tagged Media', value: stats.tagCount },
   ];
 
   return (
@@ -122,7 +124,6 @@ export function EntityHeaderCard({
             </div>
           ))}
         </div>
-        <EntityTaggedMediaRow workspaceId={workspaceId} entityId={entity.id} />
       </CardContent>
     </Card>
   );

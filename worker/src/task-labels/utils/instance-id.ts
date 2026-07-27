@@ -20,6 +20,27 @@ function round4(value: number | undefined): number {
 }
 
 /**
+ * The instance id for a classification label — shots and segments.
+ *
+ * These have no provider track and no notion of a tracked thing: GCVI reports
+ * "this stretch of video is 'mountain'", once per stretch. The instance is
+ * therefore the CLASS within the media, not the individual stretch — "this
+ * video's 'mountain' label is Half Dome" is a statement a person can make;
+ * "this video's third 'mountain' interval is a different Half Dome" is not.
+ *
+ * Keying on the row's own hash instead would mint a LabelEntity per detected
+ * interval — hundreds per media on a dense video — and force a tag to be
+ * repeated interval by interval. This is the pre-migration grouping (one row
+ * per label name) with the part that was actually broken fixed: the media is
+ * in the key, so tagging "mountain" here says nothing about any other video.
+ *
+ * Case- and whitespace-insensitive, matching the shot/segment row hashes.
+ */
+export function classificationInstanceId(entity: string): string {
+  return entity.trim().toLowerCase();
+}
+
+/**
  * A deterministic id for one detected instance, derived from WHAT was
  * detected rather than where it sat in the provider's array.
  *

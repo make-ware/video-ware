@@ -6,7 +6,9 @@ import { z } from 'zod';
  *
  * `tagged` is 1 when at least one MediaTags row backs the link (a curator's
  * whole-media tag) and 0 when it comes only from label attribution;
- * `links` counts the rows behind it (MediaTags + attributed LabelEntity rows).
+ * `links` counts the rows behind it (MediaTags + attributed LabelEntity
+ * rows) — so one per track for tracked types, and one per label class for
+ * shots and segments however many intervals carry that label.
  */
 export const MediaEntityLinkSchema = z.object({
   id: z.string(),

@@ -18,11 +18,13 @@ vi.mock('@nestjs/common', async () => {
 /**
  * The write phase of LABEL_DETECTION.
  *
- * Shots and segments have no provider track, so the row IS the instance and
- * its own hash is the entity's instanceId. That makes the entity link the only
- * thing standing between a detected segment and a real-world Entity — a row
- * written without one is unlinkable, and because the row's hash is stable,
- * re-running the task would find it and leave it that way forever.
+ * Shots and segments have no provider track, so their entity is the label
+ * CLASS within the media: the row is keyed by its own hash, the entity by the
+ * normalized label name, and every "mountain" interval shares one entity and
+ * one tag. That link is the only thing standing between a detected segment and
+ * a real-world Entity — a row written without one is unlinkable, and because
+ * the row's hash is stable, re-running the task would find it and leave it that
+ * way forever.
  */
 describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
   let processor: LabelDetectionStepProcessor;
@@ -50,10 +52,10 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
         MediaRef: 'media-1',
         labelType: LabelType.SEGMENT,
         canonicalName: 'wilderness',
-        instanceId: 'segment-hash-1',
+        instanceId: 'wilderness',
         provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         processor: 'label-detection:1.1.0',
-        entityHash: 'ws-1:media-1:segment:segment-hash-1:gvi',
+        entityHash: 'ws-1:media-1:segment:wilderness:gvi',
         metadata: {},
       },
       {
@@ -61,10 +63,10 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
         MediaRef: 'media-1',
         labelType: LabelType.SHOT,
         canonicalName: 'mountain',
-        instanceId: 'shot-hash-1',
+        instanceId: 'mountain',
         provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         processor: 'label-detection:1.1.0',
-        entityHash: 'ws-1:media-1:shot:shot-hash-1:gvi',
+        entityHash: 'ws-1:media-1:shot:mountain:gvi',
         metadata: {},
       },
     ],
@@ -99,10 +101,24 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
         version: 1,
         metadata: {},
       },
+      {
+        // Same label, later in the video: one entity covers both.
+        WorkspaceRef: 'ws-1',
+        MediaRef: 'media-1',
+        entity: 'Mountain',
+        shotHash: 'shot-hash-2',
+        labelType: LabelType.SHOT,
+        start: 6,
+        end: 8,
+        duration: 2,
+        confidence: 0.7,
+        version: 1,
+        metadata: {},
+      },
     ],
     labelMediaUpdate: {
       segmentLabelCount: 1,
-      shotLabelCount: 1,
+      shotLabelCount: 2,
       shotCount: 1,
     },
   });
@@ -121,7 +137,7 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
 
     labelEntityService = {
       // Mirrors the real service: one entity per instance, keyed by the
-      // row's own hash (shots and segments have no provider track).
+      // normalized label name for these two trackless types.
       resolveEntities: vi
         .fn()
         .mockImplementation(
@@ -164,30 +180,42 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
 
   const runProcess = () => processor.process(input, {} as Job<StepJobData>);
 
-  it('links new segment and shot rows to their own per-instance entity', async () => {
+  it('links new segment and shot rows to their label class entity', async () => {
     const result = await runProcess();
 
     expect(segmentMutator.create).toHaveBeenCalledWith(
       expect.objectContaining({
         segmentHash: 'segment-hash-1',
-        LabelEntityRef: 'entity-rec-segment-hash-1',
+        LabelEntityRef: 'entity-rec-wilderness',
       })
     );
     expect(shotMutator.create).toHaveBeenCalledWith(
       expect.objectContaining({
         shotHash: 'shot-hash-1',
-        LabelEntityRef: 'entity-rec-shot-hash-1',
+        LabelEntityRef: 'entity-rec-mountain',
       })
     );
     expect(result.counts.labelSegmentCount).toBe(1);
-    expect(result.counts.labelShotCount).toBe(1);
+    expect(result.counts.labelShotCount).toBe(2);
+  });
+
+  it('gives both intervals of one label the same entity, whatever the casing', async () => {
+    // The reason the entity is keyed by class rather than by row: tagging
+    // "mountain" in this media is one action, not one per interval — and one
+    // LabelEntity row, not hundreds on a dense video.
+    await runProcess();
+
+    const refs = shotMutator.create.mock.calls.map(
+      (call: [{ LabelEntityRef: string }]) => call[0].LabelEntityRef
+    );
+    expect(refs).toEqual(['entity-rec-mountain', 'entity-rec-mountain']);
   });
 
   it('skips a segment whose entity did not resolve instead of writing an empty link', async () => {
     // The shot's entity resolves, the segment's does not — the failure must
     // not spread, and the segment must not land as an unlinkable row.
     labelEntityService.resolveEntities.mockResolvedValue(
-      new Map([['shot-hash-1', 'entity-rec-shot-hash-1']])
+      new Map([['mountain', 'entity-rec-mountain']])
     );
 
     const result = await runProcess();
@@ -195,9 +223,9 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
     expect(segmentMutator.create).not.toHaveBeenCalled();
     expect(result.counts.labelSegmentCount).toBe(0);
     expect(shotMutator.create).toHaveBeenCalledWith(
-      expect.objectContaining({ LabelEntityRef: 'entity-rec-shot-hash-1' })
+      expect.objectContaining({ LabelEntityRef: 'entity-rec-mountain' })
     );
-    expect(result.counts.labelShotCount).toBe(1);
+    expect(result.counts.labelShotCount).toBe(2);
   });
 
   it('repoints a hash-matched row that still points at a stale entity', async () => {
@@ -217,23 +245,23 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
 
     expect(segmentMutator.create).not.toHaveBeenCalled();
     expect(segmentMutator.update).toHaveBeenCalledWith('segment-rec-1', {
-      LabelEntityRef: 'entity-rec-segment-hash-1',
+      LabelEntityRef: 'entity-rec-wilderness',
     });
     expect(shotMutator.update).toHaveBeenCalledWith('shot-rec-1', {
-      LabelEntityRef: 'entity-rec-shot-hash-1',
+      LabelEntityRef: 'entity-rec-mountain',
     });
     expect(result.counts.labelSegmentCount).toBe(1);
-    expect(result.counts.labelShotCount).toBe(1);
+    expect(result.counts.labelShotCount).toBe(2);
   });
 
   it('writes nothing when an existing row already points at the right entity', async () => {
     segmentMutator.getFirstByFilter.mockResolvedValue({
       id: 'segment-rec-1',
-      LabelEntityRef: 'entity-rec-segment-hash-1',
+      LabelEntityRef: 'entity-rec-wilderness',
     });
     shotMutator.getFirstByFilter.mockResolvedValue({
       id: 'shot-rec-1',
-      LabelEntityRef: 'entity-rec-shot-hash-1',
+      LabelEntityRef: 'entity-rec-mountain',
     });
 
     const result = await runProcess();
@@ -243,6 +271,6 @@ describe('LabelDetectionStepProcessor - persisting segments and shots', () => {
     expect(segmentMutator.create).not.toHaveBeenCalled();
     expect(shotMutator.create).not.toHaveBeenCalled();
     expect(result.counts.labelSegmentCount).toBe(1);
-    expect(result.counts.labelShotCount).toBe(1);
+    expect(result.counts.labelShotCount).toBe(2);
   });
 });

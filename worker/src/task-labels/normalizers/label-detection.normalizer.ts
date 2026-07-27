@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import { classificationInstanceId } from '../utils/instance-id';
 import type {
   LabelDetectionResponse,
   NormalizerInput,
@@ -51,8 +52,11 @@ export class LabelDetectionNormalizer {
       `Normalizing label detection response for media ${mediaId}`
     );
 
-    // Collect unique labels for LabelEntity creation
-    const labelEntities: LabelEntityData[] = [];
+    // Collect unique labels for LabelEntity creation. Keyed by entityHash
+    // because one entity now covers every interval carrying the same label in
+    // this media — pushing per row would hand `resolveEntities` the same key
+    // dozens of times and pay a lookup for each.
+    const entitiesByHash = new Map<string, LabelEntityData>();
     const labelClips: LabelClipData[] = [];
     const labelSegments: LabelSegmentData[] = [];
     const labelShots: LabelShotData[] = [];
@@ -68,30 +72,33 @@ export class LabelDetectionNormalizer {
           segmentLabel.entity
         );
 
-        // Segments have no provider track, so the row itself is the instance
-        // and its own hash is the instance key — one LabelEntity per segment,
-        // each independently linkable to a real-world Entity.
+        // Segments have no provider track: the instance is the label CLASS
+        // within this media, so every "mountain" stretch shares one entity and
+        // one tag. See `classificationInstanceId`.
+        const instanceId = classificationInstanceId(segmentLabel.entity);
         const entityHash = labelEntityKey({
           workspaceRef,
           mediaId,
           labelType: LabelType.SEGMENT,
-          instanceId: segmentHash,
+          instanceId,
           provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         });
 
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          MediaRef: mediaId,
-          labelType: LabelType.SEGMENT,
-          canonicalName: segmentLabel.entity,
-          instanceId: segmentHash,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            confidence: this.clamp01(segmentLabel.confidence),
-          },
-        });
+        if (!entitiesByHash.has(entityHash)) {
+          entitiesByHash.set(entityHash, {
+            WorkspaceRef: workspaceRef,
+            MediaRef: mediaId,
+            labelType: LabelType.SEGMENT,
+            canonicalName: segmentLabel.entity,
+            instanceId,
+            provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+            processor: processorVersion,
+            entityHash,
+            metadata: {
+              confidence: this.clamp01(segmentLabel.confidence),
+            },
+          });
+        }
 
         labelSegments.push({
           WorkspaceRef: workspaceRef,
@@ -157,28 +164,32 @@ export class LabelDetectionNormalizer {
           shotLabel.entity
         );
 
-        // Same as segments: no provider track, so the row is the instance.
+        // Same as segments: no provider track, so the label class within this
+        // media is the instance.
+        const instanceId = classificationInstanceId(shotLabel.entity);
         const entityHash = labelEntityKey({
           workspaceRef,
           mediaId,
           labelType: LabelType.SHOT,
-          instanceId: shotHash,
+          instanceId,
           provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
         });
 
-        labelEntities.push({
-          WorkspaceRef: workspaceRef,
-          MediaRef: mediaId,
-          labelType: LabelType.SHOT,
-          canonicalName: shotLabel.entity,
-          instanceId: shotHash,
-          provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
-          processor: processorVersion,
-          entityHash,
-          metadata: {
-            confidence: this.clamp01(shotLabel.confidence),
-          },
-        });
+        if (!entitiesByHash.has(entityHash)) {
+          entitiesByHash.set(entityHash, {
+            WorkspaceRef: workspaceRef,
+            MediaRef: mediaId,
+            labelType: LabelType.SHOT,
+            canonicalName: shotLabel.entity,
+            instanceId,
+            provider: ProcessingProvider.GOOGLE_VIDEO_INTELLIGENCE,
+            processor: processorVersion,
+            entityHash,
+            metadata: {
+              confidence: this.clamp01(shotLabel.confidence),
+            },
+          });
+        }
 
         labelShots.push({
           WorkspaceRef: workspaceRef,
@@ -283,6 +294,8 @@ export class LabelDetectionNormalizer {
       // Add processor to processors array
       processors: ['label_detection'],
     };
+
+    const labelEntities = [...entitiesByHash.values()];
 
     this.logger.debug(
       `Normalized ${labelEntities.length} entities, ${labelSegments.length} segments, ${labelShots.length} shots`

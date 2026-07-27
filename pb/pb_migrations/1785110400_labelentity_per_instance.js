@@ -10,11 +10,11 @@
 // migration: the speech entity "Track 0" spanned two unrelated videos.
 //
 // After: one LabelEntity per detected instance per media — one per LabelTrack,
-// plus one per LabelShots/LabelSegments row (those two collections have no
-// LabelTrackRef at all), plus one per trackless leaf row (step 6). LabelEntity
-// carries EntityRef and is the only link point; LabelTrack keeps the heavy
-// payload (keyframes, boundingBox, trackData) and stops being an identity
-// holder.
+// one per label class for the two trackless classification collections
+// (LabelShots/LabelSegments, which have no LabelTrackRef at all), plus one for
+// any leaf row the track path could not resolve (step 6). LabelEntity carries
+// EntityRef and is the only link point; LabelTrack keeps the heavy payload
+// (keyframes, boundingBox, trackData) and stops being an identity holder.
 //
 // The crux is step 1: the OLD two-level precedence rule (track link wins, the
 // cluster link is the fallback) is resolved ONCE HERE, into data —
@@ -50,6 +50,14 @@
 // values — those were SHA-256 digests and SQLite has no SHA-256. Rolling back
 // leaves structurally-correct clusters with plain-text keys. For exact
 // fidelity, restore the pb_data/data.db backup taken before running this.
+//
+// If you booted an EARLIER DRAFT of this file (it changed while under review —
+// shots and segments were keyed per row rather than per label class, and the
+// backfill swallowed its own failures), PocketBase has already recorded this
+// migration and will not re-run it. Restore the pre-migration data.db backup
+// and boot again; a database carrying the old keying would otherwise grow a
+// second generation of shot/segment entities on the next label run, with the
+// first generation's tags stranded on rows nothing reads.
 // ---------------------------------------------------------------------------
 
 const MEDIA_TYPE_INDEX =
@@ -90,10 +98,15 @@ const TRACKED_LEAVES = [
   { table: "LabelText", instance: (t) => `COALESCE(${t}.textHash, '')` },
 ];
 
-// The two collections whose rows ARE their own instance (no track, ever).
+// The two collections that never have a track. Their instance is the label
+// CLASS within the media — "this video's 'mountain' label" — not the
+// individual interval: GCVI reports the same name over many stretches, so
+// keying on the row would mint hundreds of entities per media and make a tag
+// something you repeat interval by interval. Matches
+// worker/src/task-labels/utils/instance-id.ts#classificationInstanceId.
 const CLUSTER_ONLY_LEAVES = [
-  { table: "LabelShots", instance: (t) => `COALESCE(${t}.shotHash, '')` },
-  { table: "LabelSegments", instance: (t) => `COALESCE(${t}.segmentHash, '')` },
+  { table: "LabelShots", instance: (t) => `lower(trim(COALESCE(${t}.entity, '')))` },
+  { table: "LabelSegments", instance: (t) => `lower(trim(COALESCE(${t}.entity, '')))` },
 ];
 
 const ALL_LEAVES = TRACKED_LEAVES.concat(CLUSTER_ONLY_LEAVES);
@@ -272,9 +285,10 @@ migrate((app) => {
     `]);
   }
 
-  // --- Step 5: shots and segments get a row per leaf row --------------------
-  // instanceId is the row's own shotHash/segmentHash: these are classifications
-  // with no provider track, so the row itself is the instance.
+  // --- Step 5: shots and segments get a row per label class -----------------
+  // instanceId is the normalized label name: these are classifications with no
+  // provider track, so the class within the media is the instance and every
+  // "mountain" interval in one media shares one entity — and one tag.
   for (const leaf of CLUSTER_ONLY_LEAVES) {
     steps.push([`5 mint ${leaf.table} entities`,
       mintFromLeaf(leaf.table, leaf.instance)]);

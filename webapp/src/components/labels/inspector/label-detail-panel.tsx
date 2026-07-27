@@ -14,6 +14,7 @@ import { LabelPreview } from '@/components/labels/label-preview';
 import { TrackCropThumb } from '@/components/labels/track-crop-thumb';
 import { EntityPicker } from '@/components/labels/entity/entity-picker';
 import { useAssignLabelEntity } from '@/hooks/use-entities';
+import pb from '@/lib/pocketbase-client';
 import { formatClipTime } from '@/utils/format-clip-time';
 import { confidenceOf, type InspectorTypeConfig } from './config';
 import type { InspectorLabelRecord } from './use-label-list';
@@ -73,7 +74,7 @@ export function LabelDetailPanel({
               start={record.start}
               end={record.end}
             />
-            <EntityLinkSection record={record} />
+            <EntityLinkSection config={config} record={record} />
             <StatTiles config={config} record={record} />
           </div>
         ) : (
@@ -91,16 +92,64 @@ export function LabelDetailPanel({
  * LabelEntity — the per-media, per-instance record — so it identifies every
  * detection of that instance, here and via cross-media entity queries.
  */
-function EntityLinkSection({ record }: { record: InspectorLabelRecord }) {
+function EntityLinkSection({
+  config,
+  record,
+}: {
+  config: InspectorTypeConfig;
+  record: InspectorLabelRecord;
+}) {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
   const assign = useAssignLabelEntity();
 
-  const labelEntityId = (record as { LabelEntityRef?: string }).LabelEntityRef;
   const labelEntity = record.expand?.LabelEntityRef;
   const track = record.expand?.LabelTrackRef;
   const media = record.expand?.MediaRef;
-  if (!labelEntityId || !workspaceId) return null;
+  // Fall back to the track's LabelEntity for rows a partial label run left
+  // with a blank ref: the track holds the identity, and without this the row
+  // is silently unlinkable (the picker just doesn't render).
+  const ownRef = (record as { LabelEntityRef?: string }).LabelEntityRef;
+  const labelEntityId = ownRef || track?.LabelEntityRef;
+
+  /**
+   * Link, repairing the row's own ref first when we got here through the
+   * track. Every attribution query filters on the row's LabelEntityRef, so
+   * linking without the repair leaves this label absent from entity views
+   * even though the link itself landed correctly.
+   */
+  const link = async (entityId: string | null) => {
+    if (!labelEntityId) return;
+    if (!ownRef) {
+      try {
+        // TypedPocketBase's collection() overloads reject a union of names —
+        // same cast the list hook uses; every one of these collections has a
+        // LabelEntityRef.
+        await pb
+          .collection(config.collection as 'LabelObjects')
+          .update(record.id, { LabelEntityRef: labelEntityId });
+      } catch (err) {
+        // Non-fatal: the link below still lands on the right LabelEntity.
+        console.error('Failed to repair label → LabelEntity ref', err);
+      }
+    }
+    assign.mutate({ labelEntityId, entityId });
+  };
+
+  if (!workspaceId) return null;
+  if (!labelEntityId) {
+    return (
+      <div className="p-3 border rounded bg-muted/20">
+        <h4 className="text-xs font-medium uppercase text-muted-foreground mb-1">
+          Entity
+        </h4>
+        <p className="text-sm text-muted-foreground">
+          This label has no detection record to link an entity to. Re-run labels
+          for this media, or tag the whole media instead.
+        </p>
+      </div>
+    );
+  }
 
   // No inherited-from-cluster case any more: with one link point there is
   // nothing to inherit from, so an unlinked picker means unattributed.
@@ -126,7 +175,7 @@ function EntityLinkSection({ record }: { record: InspectorLabelRecord }) {
       <EntityPicker
         workspaceId={workspaceId}
         value={labelEntity?.EntityRef ?? ''}
-        onChange={(entityId) => assign.mutate({ labelEntityId, entityId })}
+        onChange={(entityId) => void link(entityId)}
         disabled={assign.isPending}
       />
     </div>

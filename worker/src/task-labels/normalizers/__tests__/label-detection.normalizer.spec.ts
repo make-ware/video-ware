@@ -63,6 +63,61 @@ describe('LabelDetectionNormalizer', () => {
     expect(output.labelMediaUpdate.shotLabelCount).toBeGreaterThan(0);
   });
 
+  it('emits one entity per label class per media, not per interval', async () => {
+    // Shots and segments have no track, so their instance is the label class
+    // within the media: every "mountain" interval shares one LabelEntity, so
+    // tagging it is one action and a dense video does not mint hundreds of
+    // rows. Case and surrounding whitespace are the provider being
+    // inconsistent, not a second class.
+    const response = {
+      segmentLabels: [
+        {
+          entity: 'mountain',
+          confidence: 0.9,
+          segments: [
+            { startTime: 0, endTime: 2, confidence: 0.9 },
+            { startTime: 8, endTime: 9, confidence: 0.8 },
+          ],
+        },
+        {
+          entity: ' Mountain ',
+          confidence: 0.7,
+          segments: [{ startTime: 20, endTime: 21, confidence: 0.7 }],
+        },
+      ],
+      shotLabels: [
+        {
+          entity: 'mountain',
+          confidence: 0.6,
+          segments: [
+            { startTime: 0, endTime: 1, confidence: 0.6 },
+            { startTime: 4, endTime: 5, confidence: 0.5 },
+          ],
+        },
+      ],
+      shots: [],
+    };
+
+    const output = await normalizer.normalize(
+      createMockInput(response, 'label-detection')
+    );
+
+    // Three segment intervals + two shot intervals, but one entity per type.
+    expect(output.labelSegments).toHaveLength(3);
+    expect(output.labelShots).toHaveLength(2);
+    expect(output.labelEntities).toHaveLength(2);
+
+    const byType = new Map(
+      output.labelEntities.map((e) => [e.labelType, e] as const)
+    );
+    expect(byType.get(LabelType.SEGMENT)?.instanceId).toBe('mountain');
+    expect(byType.get(LabelType.SHOT)?.instanceId).toBe('mountain');
+    // The key carries the media, which is what stops one video's "mountain"
+    // from claiming another's.
+    expect(byType.get(LabelType.SEGMENT)?.entityHash).toContain(':mountain:');
+    expect(new Set(output.labelEntities.map((e) => e.entityHash)).size).toBe(2);
+  });
+
   it('clamps out-of-range confidence into [0, 1] for segments, shots, and clips', async () => {
     // GCVI occasionally returns confidence marginally above 1.0; every
     // confidence written to the DB must land in [0, 1] or Zod rejects the insert.

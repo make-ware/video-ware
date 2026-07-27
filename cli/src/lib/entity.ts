@@ -217,6 +217,55 @@ async function labelEntityOfTrack(
   return track.LabelEntityRef;
 }
 
+/**
+ * The LabelEntity a label row's link lands on.
+ *
+ * Almost always the row's own LabelEntityRef. The fallback covers rows a
+ * partial label run left half-written — the track carries the entity but the
+ * leaf row's ref never got set. Those were previously reachable through
+ * LabelTrack.EntityRef, and retiring that field is what would otherwise have
+ * made them permanently untaggable.
+ *
+ * Resolving through the track REPAIRS the row on the way past, rather than
+ * just borrowing the id: every attribution reader filters on the row's own
+ * LabelEntityRef, so a tag written without the repair would take effect on
+ * the entity and still leave this row missing from `entity labels` and the
+ * label lists — a tag that looks applied and reads as absent.
+ */
+async function labelEntityForRow(
+  pb: TypedPocketBase,
+  type: LabelType,
+  labelId: string,
+  record: LabelRecordFields
+): Promise<string> {
+  const own = record.LabelEntityRef;
+  if (typeof own === 'string' && own) return own;
+
+  const trackRef = record.LabelTrackRef;
+  if (typeof trackRef === 'string' && trackRef) {
+    const track = await new LabelTrackMutator(pb).getById(trackRef);
+    if (track?.LabelEntityRef) {
+      await labelMutator(pb, type).update(labelId, {
+        LabelEntityRef: track.LabelEntityRef,
+      });
+      return track.LabelEntityRef;
+    }
+  }
+
+  throw new Error(
+    `${type} label ${labelId} has no LabelEntity, and neither does its ` +
+      `track — there is nothing to attach an entity to. Re-run labels for ` +
+      `its media to mint one, or tag the whole media with ` +
+      `\`vw media tag <media> <entity>\``
+  );
+}
+
+/** The refs `labelEntityForRow` reads off a label row of any type. */
+type LabelRecordFields = {
+  LabelEntityRef?: unknown;
+  LabelTrackRef?: unknown;
+};
+
 /** Resolve a `type:labelId` pair to that label row's LabelEntity id. */
 async function labelEntityOfLabelPair(
   pb: TypedPocketBase,
@@ -228,14 +277,7 @@ async function labelEntityOfLabelPair(
   if (!record) {
     throw new Error(`No ${type} label with id ${labelId}`);
   }
-  const entityRef = (record as Record<string, unknown>).LabelEntityRef;
-  if (typeof entityRef !== 'string' || !entityRef) {
-    throw new Error(
-      `${type} label ${labelId} has no LabelEntity — ` +
-        `nothing to attach an entity link to`
-    );
-  }
-  return entityRef;
+  return labelEntityForRow(pb, type, labelId, record as LabelRecordFields);
 }
 
 /** What `tagLabel` wrote: which link point the tag landed on, and its name. */
@@ -259,7 +301,14 @@ export interface TagLabelResult {
  *
  * There is no longer a track-first/cluster-fallback choice to make: every
  * label type carries a LabelEntityRef, including shots and segments, which
- * have no track at all and used to be untaggable through this path.
+ * have no track at all and used to be untaggable through this path. A row
+ * whose ref is blank is repaired from its track first — see
+ * `labelEntityForRow`.
+ *
+ * Scope note: for the six tracked types the tag names one detected instance
+ * (this speaker, this face track). Shots and segments have no instance to
+ * name, so their entity is the label class within the media — tagging one
+ * "mountain" shot tags every mountain shot in that video, and no other.
  */
 export async function tagLabel(
   pb: TypedPocketBase,
@@ -274,26 +323,23 @@ export async function tagLabel(
         `(a wrong type/id pairing also reads as not found — check the type)`
     );
   }
-  const row = record as Record<string, unknown>;
 
-  const entityRef = row.LabelEntityRef;
-  if (typeof entityRef === 'string' && entityRef) {
-    const labelEntity = await new LabelEntityMutator(pb).setEntity(
-      entityRef,
-      entityId
-    );
-    return {
-      type,
-      labelId,
-      targetId: labelEntity.id,
-      targetName: labelEntity.canonicalName,
-    };
-  }
-
-  throw new Error(
-    `${type} label ${labelId} has no LabelEntity — ` +
-      `nothing to attach an entity tag to`
+  const entityRef = await labelEntityForRow(
+    pb,
+    type,
+    labelId,
+    record as LabelRecordFields
   );
+  const labelEntity = await new LabelEntityMutator(pb).setEntity(
+    entityRef,
+    entityId
+  );
+  return {
+    type,
+    labelId,
+    targetId: labelEntity.id,
+    targetName: labelEntity.canonicalName,
+  };
 }
 
 /** The concrete link points a set of target options resolves to. */

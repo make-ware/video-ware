@@ -309,21 +309,21 @@ function MediaDetailsPageContent() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
         {/* Main Content - Player */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          <Card className="overflow-hidden">
-            <CardContent className="pt-3 sm:pt-4 px-3 sm:px-6 pb-4 sm:pb-6">
+          <Card className="overflow-hidden py-0 sm:py-6">
+            {/* Full-bleed player on phones: the card's own padding cost the
+                video ~24px of width and a header row that showed only an icon. */}
+            <CardContent className="pt-0 sm:pt-4 px-0 sm:px-6 pb-3 sm:pb-6">
               <div className="space-y-3 sm:space-y-4">
                 {/* Header */}
-                <div className="flex items-center justify-between min-h-[2.5rem]">
+                <div className="hidden items-center justify-between min-h-[2.5rem] sm:flex">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Eye className="h-4 w-4 text-primary" />
-                    <span className="hidden sm:inline">
-                      Viewing {getMediaTypeLabel(media.mediaType)}
-                    </span>
+                    <span>Viewing {getMediaTypeLabel(media.mediaType)}</span>
                   </div>
                 </div>
 
                 {/* Video Preview */}
-                <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+                <div className="w-full aspect-video bg-black overflow-hidden sm:rounded-lg">
                   <MediaVideoPlayer
                     media={media}
                     clip={activeClip}
@@ -334,7 +334,7 @@ function MediaDetailsPageContent() {
                 </div>
 
                 {/* Create/Edit Clip Buttons */}
-                <div className="flex justify-center gap-2">
+                <div className="flex justify-center gap-2 px-3 sm:px-0">
                   <Button
                     variant="default"
                     onClick={handleOpenCreateClip}
@@ -450,7 +450,7 @@ function MediaDetailsPageContent() {
 
         {/* Sidebar - Clips and Labels */}
         <div className="lg:col-span-1">
-          <Card className="lg:h-[calc(100vh-12rem)] lg:min-h-[500px] flex flex-col">
+          <Card className="py-4 sm:py-6 lg:h-[calc(100vh-12rem)] lg:min-h-[500px] flex flex-col">
             <MediaClipPanel
               activeTab={activeTab}
               onTabChange={handleTabChange}

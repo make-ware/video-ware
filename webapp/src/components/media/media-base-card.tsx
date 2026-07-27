@@ -116,7 +116,10 @@ export function MediaBaseCard({
         {/* Action button overlays (Top-right, visible on hover) */}
         {overlayActions && overlayActions.length > 0 && (
           <div className="absolute inset-0 flex items-start justify-end p-1.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity bg-black/5 z-20">
-            <div className="flex flex-col gap-1.5">{overlayActions}</div>
+            {/* A row on phones: stacked buttons would cover a short preview. */}
+            <div className="flex flex-row gap-1 sm:flex-col sm:gap-1.5">
+              {overlayActions}
+            </div>
           </div>
         )}
       </div>

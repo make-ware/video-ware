@@ -31,6 +31,19 @@ interface MediaClipsLibraryProps {
   hasSearch?: boolean;
 }
 
+/**
+ * Two-up until `lg`, where the panel becomes the viewer's narrow sidebar and
+ * one card per row is all that fits. On a phone the panel is full-bleed, so a
+ * single column would show barely one clip per screenful.
+ */
+const CLIP_GRID_CLASS = 'grid grid-cols-2 gap-3 lg:grid-cols-1';
+
+/** Cell that must span the whole row (empty state, load-more footer). */
+const CLIP_GRID_FULL_ROW = 'col-span-2 lg:col-span-1';
+
+/** Shorter thumbnails while two cards share a phone's width. */
+const CLIP_THUMBNAIL_HEIGHT = 'h-24 sm:h-42';
+
 export function MediaClipsLibrary({
   media,
   clips,
@@ -50,7 +63,7 @@ export function MediaClipsLibrary({
 }: MediaClipsLibraryProps) {
   if (isLoading && clips.length === 0) {
     return (
-      <div className={cn('space-y-3', className)}>
+      <div className={cn(CLIP_GRID_CLASS, className)}>
         {Array.from({ length: 4 }).map((_, i) => (
           <LibraryItemSkeleton key={i} />
         ))}
@@ -68,9 +81,14 @@ export function MediaClipsLibrary({
   }
 
   return (
-    <div className={cn('space-y-3', className)}>
+    <div className={cn(CLIP_GRID_CLASS, className)}>
       {clips.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
+        <div
+          className={cn(
+            'text-center py-8 text-muted-foreground',
+            CLIP_GRID_FULL_ROW
+          )}
+        >
           <p>No clips found for this media.</p>
           <p className="text-sm mt-2">
             {hasSearch
@@ -103,17 +121,20 @@ export function MediaClipsLibrary({
                 onClipUpdate={onClipUpdate}
                 onClipDelete={onClipDelete}
                 onInlineEditClip={onInlineEdit}
+                thumbnailHeight={CLIP_THUMBNAIL_HEIGHT}
               />
             );
           })}
           {onLoadMore && (
-            <LibraryLoadMore
-              hasNextPage={hasNextPage}
-              isFetchingNextPage={isFetchingNextPage}
-              loadedCount={clips.length}
-              totalItems={totalItems}
-              onLoadMore={onLoadMore}
-            />
+            <div className={CLIP_GRID_FULL_ROW}>
+              <LibraryLoadMore
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+                loadedCount={clips.length}
+                totalItems={totalItems}
+                onLoadMore={onLoadMore}
+              />
+            </div>
           )}
         </>
       )}

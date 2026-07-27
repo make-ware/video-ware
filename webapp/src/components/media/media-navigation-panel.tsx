@@ -45,35 +45,38 @@ export function MediaNavigationPanel({
   if (isLoading) {
     return (
       <div className="border-b bg-background/95 backdrop-blur py-2">
-        <div className="container flex items-center justify-center h-10">
+        <div className="flex h-8 items-center justify-center sm:h-10">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
       </div>
     );
   }
 
+  // Sticky, so it stays thin on a phone: the media below it is the point.
   return (
     <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 w-full shadow-sm">
-      <div className="flex items-center justify-between py-2 px-4">
+      <div className="flex items-center justify-between py-1 px-2 sm:py-2 sm:px-4">
         <Button
           variant="ghost"
+          size="sm"
           onClick={handlePrev}
           disabled={!prevId}
-          className="gap-2"
+          className="gap-1 sm:gap-2"
         >
           <ChevronLeft className="h-4 w-4" />
           Prev
         </Button>
 
-        <span className="text-sm font-medium">
+        <span className="text-xs font-medium sm:text-sm">
           {position} / {totalItems}
         </span>
 
         <Button
           variant="ghost"
+          size="sm"
           onClick={handleNext}
           disabled={!nextId}
-          className="gap-2"
+          className="gap-1 sm:gap-2"
         >
           Next
           <ChevronRight className="h-4 w-4" />

@@ -64,6 +64,8 @@ interface LibraryItemCardProps {
   onAddMediaToTimeline?: (media: ExpandedMedia | MediaWithPreviews) => void;
   onCarveClipFromMedia?: (media: ExpandedMedia | MediaWithPreviews) => void;
   className?: string;
+  /** Preview height class; responsive values are fine (see MediaBaseCard). */
+  thumbnailHeight?: string;
 }
 
 export function LibraryItemCard(props: LibraryItemCardProps) {
@@ -89,6 +91,7 @@ function ClipCard({
   onInlineEditClip,
   onAddClipToTimeline,
   className,
+  thumbnailHeight,
 }: ClipCardProps) {
   const clip = item.clip;
   const media = clip.expand?.MediaRef;
@@ -262,6 +265,7 @@ function ClipCard({
         spriteFile={media?.expand?.spriteFileRef}
         startTime={clip.start}
         endTime={clip.end}
+        thumbnailHeight={thumbnailHeight}
         onSelect={onSelect ? () => onSelect(item) : undefined}
         className={cn(
           isActive && 'border-primary shadow-md bg-primary/5',
@@ -382,6 +386,7 @@ function MediaCard({
   onAddMediaToTimeline,
   onCarveClipFromMedia,
   className,
+  thumbnailHeight,
 }: MediaCardProps) {
   const media = item.media;
   const duration = media.duration;
@@ -438,6 +443,7 @@ function MediaCard({
       spriteFile={(media as ExpandedMedia).expand?.spriteFileRef}
       startTime={0}
       endTime={duration}
+      thumbnailHeight={thumbnailHeight}
       onSelect={onSelect ? () => onSelect(item) : undefined}
       className={cn(
         isActive && 'border-primary shadow-md bg-primary/5',

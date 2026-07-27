@@ -57,9 +57,9 @@ export function MediaInfoEditor({ media, onUpdate }: MediaInfoEditorProps) {
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-lg flex items-center gap-2">
+    <Card className="py-4 sm:py-6">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 sm:px-6">
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
           <Tag className="h-4 w-4 text-primary" />
           Label &amp; Description
         </CardTitle>
@@ -70,7 +70,7 @@ export function MediaInfoEditor({ media, onUpdate }: MediaInfoEditorProps) {
           </Button>
         )}
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
         {isEditing ? (
           <>
             <div className="space-y-2">

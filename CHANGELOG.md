@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.0...video-ware-v1.0.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* Add name field to media collection ([ac8838d](https://github.com/make-ware/video-ware/commit/ac8838df8e2db9c4db429629edf544a26923ebb2))
+* improve CLI help text ([77b17d7](https://github.com/make-ware/video-ware/commit/77b17d7d585a96523f77e1f7c1277d82d40b9c1c))
+* non-realtime infinite list + entity editing ([3452f12](https://github.com/make-ware/video-ware/commit/3452f12b37b6f3ced2c08fb6175180ec22c1cc94))
+* update entity tags display ([b278c55](https://github.com/make-ware/video-ware/commit/b278c5572d295ac2b64c0f9449dafec7f2c36491))
+* update label pages to use infinite hook ([7556cbd](https://github.com/make-ware/video-ware/commit/7556cbd4aed9c408e3fa09dd197df9eb511153c4))
+
 ## [1.0.0](https://github.com/make-ware/video-ware/compare/video-ware-v0.10.8...video-ware-v1.0.0) (2026-07-27)
 
 

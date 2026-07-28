@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.2...video-ware-v1.0.3) (2026-07-28)
+
+
+### Bug Fixes
+
+* align schema and migrations ([33fd31f](https://github.com/make-ware/video-ware/commit/33fd31ffabad5fe2560d37f25db105d307a1f297))
+
 ## [1.0.2](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.1...video-ware-v1.0.2) (2026-07-27)
 
 

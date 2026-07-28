@@ -28,7 +28,7 @@ export const MediaSchema = z
     // Source file name, denormalized from UploadRef.name at ingest so lists can
     // sort/filter/display without expanding Uploads. `label` (below) is the
     // editor's override; display order is label -> name.
-    name: TextField().optional(),
+    name: TextField({ max: 255 }).optional(),
     label: TextField().optional(), // editor-facing name, searchable
     description: TextField().optional(), // editor-facing notes, searchable
     mediaDate: DateField().optional(),

@@ -1,0 +1,256 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection = app.findCollectionByNameOrId("pb_85qd7k3nik12v7r");
+
+  return app.delete(collection);
+}, (app) => {
+  const collection = new Collection({
+    "createRule": "@request.auth.id != \"\" && @request.body.WorkspaceRef.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id",
+    "deleteRule": "WorkspaceRef.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id",
+    "fields": [
+      {
+        "autogeneratePattern": "[a-z0-9]{15}",
+        "help": "",
+        "hidden": false,
+        "id": "text3208210256",
+        "max": 15,
+        "min": 15,
+        "name": "id",
+        "pattern": "^[a-z0-9]+$",
+        "presentable": false,
+        "primaryKey": true,
+        "required": true,
+        "system": true,
+        "type": "text"
+      },
+      {
+        "hidden": false,
+        "id": "autodate2990389176",
+        "name": "created",
+        "onCreate": true,
+        "onUpdate": false,
+        "presentable": false,
+        "system": false,
+        "type": "autodate"
+      },
+      {
+        "hidden": false,
+        "id": "autodate3332085495",
+        "name": "updated",
+        "onCreate": true,
+        "onUpdate": true,
+        "presentable": false,
+        "system": false,
+        "type": "autodate"
+      },
+      {
+        "cascadeDelete": false,
+        "collectionId": "pb_6znl9bq7apv0rcg",
+        "help": "",
+        "hidden": false,
+        "id": "relation3498470548",
+        "maxSelect": 1,
+        "minSelect": 0,
+        "name": "WorkspaceRef",
+        "presentable": false,
+        "required": true,
+        "system": false,
+        "type": "relation"
+      },
+      {
+        "cascadeDelete": true,
+        "collectionId": "pb_1q5cu7dybj36pxm",
+        "help": "",
+        "hidden": false,
+        "id": "relation1502216784",
+        "maxSelect": 1,
+        "minSelect": 0,
+        "name": "MediaRef",
+        "presentable": false,
+        "required": true,
+        "system": false,
+        "type": "relation"
+      },
+      {
+        "cascadeDelete": false,
+        "collectionId": "pb_v0io398cfx6qzc3",
+        "help": "",
+        "hidden": false,
+        "id": "relation3871133167",
+        "maxSelect": 999,
+        "minSelect": 0,
+        "name": "MediaClipsRef",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "relation"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number2675529103",
+        "max": null,
+        "min": 0,
+        "name": "start",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number16528305",
+        "max": null,
+        "min": 0,
+        "name": "end",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number848901969",
+        "max": 1,
+        "min": 0,
+        "name": "score",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number2289690853",
+        "max": null,
+        "min": 0,
+        "name": "rank",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text1001949196",
+        "max": 500,
+        "min": 1,
+        "name": "reason",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": true,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "json891708489",
+        "maxSize": 0,
+        "name": "reasonData",
+        "presentable": false,
+        "required": true,
+        "system": false,
+        "type": "json"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text340149741",
+        "max": 0,
+        "min": 0,
+        "name": "strategy",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": true,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text1432729689",
+        "max": 0,
+        "min": 0,
+        "name": "labelType",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": true,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text3725132640",
+        "max": 0,
+        "min": 1,
+        "name": "queryHash",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": true,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number3206337475",
+        "max": null,
+        "min": null,
+        "name": "version",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text700466768",
+        "max": 0,
+        "min": 0,
+        "name": "processor",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      }
+    ],
+    "id": "pb_85qd7k3nik12v7r",
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_media_rec_hash_segment ON MediaRecommendations (queryHash, start, end)",
+      "CREATE INDEX idx_media_rec_context ON MediaRecommendations (WorkspaceRef, MediaRef, queryHash)",
+      "CREATE INDEX idx_media_rec_rank ON MediaRecommendations (queryHash, rank)",
+      "CREATE INDEX idx_media_rec_label_type ON MediaRecommendations (MediaRef, labelType)"
+    ],
+    "listRule": "WorkspaceRef.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id",
+    "name": "MediaRecommendations",
+    "system": false,
+    "type": "base",
+    "updateRule": "WorkspaceRef.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id",
+    "viewRule": "WorkspaceRef.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id"
+  });
+
+  return app.save(collection);
+})

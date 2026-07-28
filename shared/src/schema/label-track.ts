@@ -31,7 +31,7 @@ export const LabelTrackSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
     // RETIRED — do not read, do not write. The manual "this track is Erik"
     // link moved to LabelEntity.EntityRef when LabelEntity became per-media
@@ -67,7 +67,11 @@ export const LabelTrackSchema = z
 
     // --- The Heavy Data ---
     // Array: [{ "timeOffset": 0.1, "boundingBox": {...}, "confidence": 0.9 }]
-    keyframes: JSONField(),
+    // Not PB-required: speech and speaker tracks have no spatial keyframes and
+    // write `[]`, which PocketBase counts as empty. The 10MB cap replaces
+    // PocketBase's 1MB JSON default, which dense object tracks over long videos
+    // exceed (see 1783296003_updated_LabelTrack_keyframes_maxsize.js).
+    keyframes: JSONField({ maxSize: 10485760 }), // 10MB
 
     // --- Metadata ---
     confidence: NumberField({ min: 0, max: 1 }), // Average or Max confidence of the track

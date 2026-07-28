@@ -24,8 +24,8 @@ import type { Workspace } from './workspace';
 export const MediaTagSchema = z
   .object({
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
-    EntityRef: RelationField({ collection: 'Entities' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
+    EntityRef: RelationField({ collection: 'Entities', cascadeDelete: true }),
     metadata: JSONField().optional(), // tag context, e.g. provenance notes
   })
   .extend(baseSchema);

@@ -5,7 +5,11 @@ import {
   ProcessingProvider,
   asTaskRecordProvider,
 } from '@project/shared';
-import type { DetectLabelsPayload, TaskInput } from '@project/shared';
+import type {
+  DetectLabelsPayload,
+  TaskInput,
+  WorkspaceTask,
+} from '@project/shared';
 import { FlowService } from './flow.service';
 import { ProcessorsConfigService } from '../config/processors.config';
 import { PocketBaseService } from '../shared/services/pocketbase.service';
@@ -30,7 +34,7 @@ export class JobService {
     private readonly pocketbaseService: PocketBaseService
   ) {}
 
-  async submitTranscodeJob(task: Task): Promise<string> {
+  async submitTranscodeJob(task: WorkspaceTask): Promise<string> {
     this.logger.log(`Submitting transcode job for task ${task.id}`);
     const flow = TranscodeFlowBuilder.buildFlow(task);
     const jobId = await this.flowService.addFlow(flow);
@@ -43,7 +47,7 @@ export class JobService {
     return jobId;
   }
 
-  async submitLabelsJob(task: Task): Promise<string> {
+  async submitLabelsJob(task: WorkspaceTask): Promise<string> {
     this.logger.log(`Submitting labels job for task ${task.id}`);
     const flow = LabelsFlowBuilder.buildFlow(
       task,
@@ -136,7 +140,7 @@ export class JobService {
     }
   }
 
-  async submitRenderJob(task: Task): Promise<string> {
+  async submitRenderJob(task: WorkspaceTask): Promise<string> {
     this.logger.log(`Submitting render job for task ${task.id}`);
     const flow = RenderFlowBuilder.buildFlow(task);
     const jobId = await this.flowService.addFlow(flow);

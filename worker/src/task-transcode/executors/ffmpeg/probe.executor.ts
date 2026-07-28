@@ -145,7 +145,9 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
       probeOutput.audio = {
         codec: audioStream.codec_name || 'unknown',
         channels: audioStream.channels || 0,
-        sampleRate: audioStream.sample_rate || 0,
+        // ffprobe's JSON reports sample_rate as a string ("44100"); coerce so
+        // the stored value matches ProbeOutputSchema's number.
+        sampleRate: Number(audioStream.sample_rate) || 0,
         bitrate: audioStream.bit_rate
           ? parseInt(String(audioStream.bit_rate))
           : undefined,
@@ -155,7 +157,7 @@ export class FFmpegProbeExecutor implements IProbeExecutor {
     // Extract date from metadata tags
     const extractedDate = this.extractDateFromTags(originalResult);
     if (extractedDate) {
-      probeOutput.mediaDate = extractedDate;
+      probeOutput.mediaDate = extractedDate.toISOString();
     }
 
     return probeOutput;

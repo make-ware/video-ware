@@ -207,10 +207,7 @@ export interface LabelSegmentData {
   MediaRef: string;
   LabelEntityRef?: string;
   labelType:
-    | LabelType.SEGMENT
-    | LabelType.OBJECT
-    | LabelType.PERSON
-    | LabelType.FACE;
+    LabelType.SEGMENT | LabelType.OBJECT | LabelType.PERSON | LabelType.FACE;
   entity: string;
   segmentHash: string;
   start: number;

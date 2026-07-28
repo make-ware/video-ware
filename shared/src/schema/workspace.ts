@@ -10,8 +10,9 @@ import { z } from 'zod';
 // Define the Zod schema
 export const WorkspaceSchema = z
   .object({
-    name: TextField().min(1, 'Name is required').max(100, 'Name too long'),
-    slug: TextField().max(100, 'Slug too long').optional(),
+    // Bounds live on WorkspaceInputSchema — see the note in timeline.ts.
+    name: TextField(),
+    slug: TextField().optional(),
     settings: JSONField().optional(),
   })
   .extend(baseSchema);

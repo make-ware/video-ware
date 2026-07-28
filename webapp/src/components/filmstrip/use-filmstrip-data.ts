@@ -42,8 +42,7 @@ function normalizeFilmstrips(files: File[]): NormalizedFilmstrip[] {
 
   return ordered.flatMap((file, index) => {
     const raw = file.meta?.filmstripConfig as
-      | Partial<FilmstripConfig>
-      | undefined;
+      Partial<FilmstripConfig> | undefined;
     if (!raw?.cols || !raw?.rows) return [];
 
     const fps = raw.fps ?? DEFAULT_FPS;

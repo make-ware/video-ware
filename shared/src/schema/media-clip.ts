@@ -15,7 +15,10 @@ import { MediaClipMetadataSchema } from '../types';
 export const MediaClipSchema = z
   .object({
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    // Cascades: deleting a Media deletes its clips (a clip is a window onto
+    // one media and cannot outlive it) — set by
+    // 1781000000_delete_recommendation_clips.js.
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     type: TextField(),
     label: TextField().optional(), // editor-facing name, searchable
     description: TextField().optional(), // editor-facing notes, searchable
@@ -58,8 +61,12 @@ export const MediaClipCollection = defineCollection({
   schema: MediaClipSchema,
   permissions: workspaceScopedPermissions(),
   indexes: [
-    'CREATE INDEX idx_mediaclips_workspace ON MediaClips (WorkspaceRef)',
-    'CREATE INDEX idx_mediaclips_media ON MediaClips (MediaRef)',
+    // Narrow clips to the workspace before the ClipLabelSearch view's joins;
+    // (MediaRef) speeds its media-scoped time-overlap join. Keep the backtick
+    // quoting as-is — index SQL is diffed as an exact string against the
+    // replayed migration snapshot.
+    'CREATE INDEX `idx_mediaclips_workspace` ON `MediaClips` (`WorkspaceRef`)',
+    'CREATE INDEX `idx_mediaclips_media` ON `MediaClips` (`MediaRef`)',
   ],
 });
 

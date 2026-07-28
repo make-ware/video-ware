@@ -38,8 +38,7 @@ export class FileResolver {
     // Resolve file path - get storage path from upload or associated file
     let storagePath = upload.externalPath;
     let storageBackend = upload.storageBackend as
-      | StorageBackendType
-      | undefined;
+      StorageBackendType | undefined;
 
     // If no externalPath on upload, try to get from associated file
     if (!storagePath) {

@@ -20,8 +20,14 @@ import { CaptionCueSchema, CaptionStyleSchema } from '../types/captions';
 export const CaptionSchema = z
   .object({
     // --- Relations ---
-    WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }).optional(),
+    WorkspaceRef: RelationField({
+      collection: 'Workspaces',
+      cascadeDelete: true,
+    }),
+    MediaRef: RelationField({
+      collection: 'Media',
+      cascadeDelete: true,
+    }).optional(),
     UserRef: RelationField({ collection: 'Users' }).optional(),
 
     // --- Identification ---

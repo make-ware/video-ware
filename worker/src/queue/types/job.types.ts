@@ -55,16 +55,22 @@ export interface StepResult {
 export type StepInput = object;
 
 /**
- * Task result structure stored in the task record
+ * Task result structure stored in the task record.
+ *
+ * Persisted through `Tasks.result`, whose shared schema is a union of the
+ * known per-task result shapes plus a `Record<string, unknown>` fallback that
+ * this step-tracking shape lands in. It must stay a type alias, not an
+ * interface: only object literal types get an implicit index signature, so an
+ * interface here would not be assignable to that fallback.
  */
-export interface TaskResult {
+export type TaskResult = {
   steps: Record<string, StepResult>;
   completedSteps: string[];
   failedSteps: string[];
   currentStep?: string;
   startedAt?: string;
   completedAt?: string;
-}
+};
 
 /**
  * Task error log entry

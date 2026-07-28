@@ -12,8 +12,8 @@ import type { Workspace } from './workspace';
  * Path-safe directory names: letters, digits, dashes, and underscores only
  * (no spaces or symbols), starting with a letter or digit. Directories are
  * flat — one level, unique names per workspace (case-insensitive), enforced
- * by a DB unique index and the name-field pattern (see the
- * flatten_Directories migration).
+ * by the unique index on DirectoryCollection below and the name-field
+ * pattern.
  */
 export const DIRECTORY_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const DIRECTORY_NAME_MAX = 60;
@@ -51,7 +51,13 @@ export const DirectoryNameSchema = z
 export const DirectorySchema = z
   .object({
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    name: TextField(),
+    // Mirrors the DB-level constraints the flatten_Directories migration set.
+    // `pattern` must be the string source, not the RegExp: field options are
+    // JSON.stringify'd into the schema metadata, and a RegExp serializes to {}.
+    name: TextField({
+      max: DIRECTORY_NAME_MAX,
+      pattern: DIRECTORY_NAME_PATTERN.source,
+    }),
   })
   .extend(baseSchema);
 
@@ -66,6 +72,11 @@ export const DirectoryCollection = defineCollection({
   collectionName: 'Directories',
   schema: DirectorySchema,
   permissions: workspaceScopedPermissions(),
+  indexes: [
+    // One directory name per workspace, case-insensitive — "Raw" and "raw"
+    // collide, so a path built from either name resolves to one directory.
+    'CREATE UNIQUE INDEX idx_directories_workspace_name ON Directories (WorkspaceRef, name COLLATE NOCASE)',
+  ],
 });
 
 export default DirectoryCollection;

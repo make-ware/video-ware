@@ -11,7 +11,7 @@ import { z } from 'zod';
 // Define the Zod schema
 export const LabelJobSchema = z
   .object({
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     jobType: TextField(), // object, shot, person, speech, face
     TaskRef: RelationField({ collection: 'Tasks' }).optional(),
     version: NumberField().default(1),

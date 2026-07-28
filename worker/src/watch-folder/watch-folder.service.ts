@@ -430,7 +430,7 @@ export class WatchFolderService implements OnApplicationBootstrap {
             endpoint: this.configService.get<string>('storage.s3Endpoint'),
           },
           bytesUploaded: candidate.size,
-        } as Partial<Upload>);
+        });
         return;
       } catch (error) {
         lastError = error;

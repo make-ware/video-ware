@@ -15,8 +15,9 @@ import { UploadMetadataSchema } from '../types/metadata';
 // Define the Zod schema
 export const UploadSchema = z
   .object({
-    name: TextField().min(1, 'Name is required').max(255, 'Name too long'),
-    size: NumberField({ required: true }).min(0, 'Size must be greater than 0'),
+    // Bounds live on UploadInputSchema — see the note in timeline.ts.
+    name: TextField(),
+    size: NumberField({ required: true }),
     status: SelectField([
       UploadStatus.QUEUED,
       UploadStatus.UPLOADING,

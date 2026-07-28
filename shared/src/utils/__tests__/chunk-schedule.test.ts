@@ -57,12 +57,10 @@ describe('chunkPlan', () => {
 
 describe('runChunkSchedule', () => {
   it('sends a single chunk once and returns its response', async () => {
-    const sendChunk = vi.fn(
-      async (chunk: ChunkSpec): Promise<Result> => ({
-        complete: true,
-        index: chunk.index,
-      })
-    );
+    const sendChunk = vi.fn(async (chunk: ChunkSpec): Promise<Result> => ({
+      complete: true,
+      index: chunk.index,
+    }));
     const result = await runChunkSchedule({
       chunks: chunkPlan(42, 100),
       concurrency: 3,
@@ -151,12 +149,10 @@ describe('runChunkSchedule', () => {
   });
 
   it('returns early when a response reports the upload already complete', async () => {
-    const sendChunk = vi.fn(
-      async (chunk: ChunkSpec): Promise<Result> => ({
-        complete: true,
-        index: chunk.index,
-      })
-    );
+    const sendChunk = vi.fn(async (chunk: ChunkSpec): Promise<Result> => ({
+      complete: true,
+      index: chunk.index,
+    }));
     const result = await runChunkSchedule({
       chunks: chunkPlan(300, 100),
       concurrency: 2,

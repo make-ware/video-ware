@@ -12,8 +12,13 @@ import { z } from 'zod';
 // Define the Zod schema
 export const TimelineTrackSchema = z
   .object({
-    TimelineRef: RelationField({ collection: 'Timelines' }),
-    name: TextField().min(1).max(200).optional(),
+    TimelineRef: RelationField({
+      collection: 'Timelines',
+      cascadeDelete: true,
+    }),
+    // Length bounds live on TimelineTrackInputSchema — see the note in
+    // timeline.ts.
+    name: TextField().optional(),
     label: TextField().optional(), // editor-facing name, searchable
     description: TextField().optional(), // editor-facing notes, searchable
     layer: NumberField({ min: 0 }).default(0), // visual layer index (0 is bottom)

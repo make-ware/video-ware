@@ -20,11 +20,7 @@
 import type { ClipListItem } from '@/services/media-clip';
 
 export type ClipSortValue =
-  | 'recent'
-  | 'name'
-  | 'duration'
-  | 'media_time'
-  | 'timeline';
+  'recent' | 'name' | 'duration' | 'media_time' | 'timeline';
 
 export interface ClipSortOption {
   value: ClipSortValue;

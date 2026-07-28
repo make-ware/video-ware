@@ -104,7 +104,7 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
         // But we at least saved the file to S3
         fileRecord = await this.pocketbaseService.createFile({
           name: fileName,
-          size: probeResult.format.size,
+          size: Number(probeResult.format.size) || 0,
           fileStatus: FileStatus.AVAILABLE,
           fileType: FileType.RENDER,
           fileSource: FileSource.S3,

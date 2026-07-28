@@ -16,7 +16,7 @@ export const LabelSegmentSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
     labelType: SelectField([
       LabelType.SEGMENT,
@@ -77,7 +77,9 @@ export const LabelSegmentCollection = defineCollection({
     'CREATE INDEX idx_label_segment_media ON LabelSegment (MediaRef)',
     'CREATE INDEX idx_label_segment_entity ON LabelSegment (LabelEntityRef)',
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
-    'CREATE INDEX idx_label_segment_media_range ON LabelSegment (MediaRef, start, "end")',
+    // `end` is a SQLite keyword; keep the backtick quoting as-is — index SQL is
+    // diffed as an exact string against the replayed migration snapshot.
+    'CREATE INDEX `idx_label_segment_media_range` ON `LabelSegments` (`MediaRef`, `start`, `end`)',
   ],
 });
 

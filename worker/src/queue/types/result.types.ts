@@ -50,5 +50,4 @@ export interface FailedStepResult extends BaseStepResult {
  * Union type for step results
  */
 export type StepExecutionResult<TOutput = unknown> =
-  | SuccessStepResult<TOutput>
-  | FailedStepResult;
+  SuccessStepResult<TOutput> | FailedStepResult;

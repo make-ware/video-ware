@@ -4,8 +4,8 @@ import { Queue } from 'bullmq';
 import { QUEUE_NAMES } from './queue.constants';
 import { FlowService } from './flow.service';
 import { JobService } from './job.service';
-import { TaskType } from '@project/shared';
-import type { Task } from '@project/shared';
+import { TaskType, isWorkspaceTask } from '@project/shared';
+import type { Task, WorkspaceTask } from '@project/shared';
 
 /**
  * QueueService provides a thin wrapper around BullMQ queues.
@@ -34,6 +34,15 @@ export class QueueService {
   async enqueueTask(task: Task): Promise<string> {
     this.logger.debug(`Enqueueing task ${task.id} (type: ${task.type})`);
 
+    // System tasks (cleanup, full_ingest) are handled upstream by their
+    // orchestrators and never reach this router, so everything here must
+    // carry workspace + user context — the flow builders depend on it.
+    if (!isWorkspaceTask(task)) {
+      throw new Error(
+        `Task ${task.id} (type: ${task.type}) is missing WorkspaceRef/UserRef and cannot be enqueued`
+      );
+    }
+
     switch (task.type as TaskType) {
       // Flow-based jobs (multi-step with parent-child relationships)
       case TaskType.PROCESS_UPLOAD:
@@ -58,7 +67,7 @@ export class QueueService {
    * Add a transcode job to the queue.
    * Creates a flow with parent-child jobs for step-based processing.
    */
-  async addTranscodeJob(task: Task) {
+  async addTranscodeJob(task: WorkspaceTask) {
     return this.jobService.submitTranscodeJob(task);
   }
 
@@ -66,7 +75,7 @@ export class QueueService {
    * Add an intelligence job to the queue.
    * Creates a flow with parent-child jobs for step-based processing.
    */
-  async addIntelligenceJob(task: Task) {
+  async addIntelligenceJob(task: WorkspaceTask) {
     return this.jobService.submitLabelsJob(task);
   }
 
@@ -74,7 +83,7 @@ export class QueueService {
    * Add a render job to the queue.
    * Creates a flow with parent-child jobs for step-based processing.
    */
-  async addRenderJob(task: Task) {
+  async addRenderJob(task: WorkspaceTask) {
     return this.jobService.submitRenderJob(task);
   }
 

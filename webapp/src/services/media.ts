@@ -27,9 +27,7 @@ import type { ListResult } from 'pocketbase';
  */
 export type MediaWithPreviews<
   E extends keyof MediaRelations =
-    | 'thumbnailFileRef'
-    | 'spriteFileRef'
-    | 'UploadRef',
+    'thumbnailFileRef' | 'spriteFileRef' | 'UploadRef',
 > = Expanded<Media, MediaRelations, E> & {
   thumbnailUrl?: string;
   spriteUrl?: string;
@@ -395,8 +393,7 @@ export class MediaService {
       'thumbnailFileRef' in media.expand
     ) {
       const thumbnailFile = media.expand.thumbnailFileRef as
-        | FileRecord
-        | undefined;
+        FileRecord | undefined;
       if (thumbnailFile) {
         enriched.thumbnailUrl = this.fileMutator.getFileUrl(thumbnailFile);
         enriched.thumbnailFileRecord = thumbnailFile;

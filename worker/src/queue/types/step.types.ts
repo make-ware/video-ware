@@ -12,6 +12,4 @@ export { TranscodeStepType, RenderStepType, DetectLabelsStepType };
 
 // Combined union type of all step types
 export type StepType =
-  | TranscodeStepType
-  | RenderStepType
-  | DetectLabelsStepType;
+  TranscodeStepType | RenderStepType | DetectLabelsStepType;

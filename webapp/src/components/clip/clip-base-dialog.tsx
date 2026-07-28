@@ -82,8 +82,7 @@ export function ClipBaseDialog({
   // expand.MediaClipRef — read label/description from either level.
   const underlyingClip = (
     clip.expand as
-      | { MediaClipRef?: { label?: string; description?: string } }
-      | undefined
+      { MediaClipRef?: { label?: string; description?: string } } | undefined
   )?.MediaClipRef;
   const displayLabel = getClipDisplayLabel(
     {

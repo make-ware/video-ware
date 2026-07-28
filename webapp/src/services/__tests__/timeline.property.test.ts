@@ -120,7 +120,7 @@ function createMockPocketBase(): TypedPocketBase {
           bitrate: 128000,
           channels: 2,
           codec: 'aac',
-          sampleRate: '44100',
+          sampleRate: 44100,
         },
         bitrate: 5000000,
         codec: 'h264',

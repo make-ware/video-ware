@@ -28,7 +28,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Task, DetectLabelsPayload } from '@project/shared';
+import type { WorkspaceTask, DetectLabelsPayload } from '@project/shared';
 import { DetectLabelsStepType } from '../types/step.types';
 import { getStepJobOptions } from '../config/step-options';
 import { QUEUE_NAMES } from '../queue.constants';
@@ -50,7 +50,7 @@ export interface EnabledLabelProcessors {
 
 export class LabelsFlowBuilder {
   static buildFlow(
-    task: Task,
+    task: WorkspaceTask,
     enabled: EnabledLabelProcessors
   ): LabelsFlowDefinition {
     const payload = task.payload as DetectLabelsPayload;

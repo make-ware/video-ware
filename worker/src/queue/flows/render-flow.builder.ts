@@ -18,7 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Task, RenderTimelinePayload } from '@project/shared';
+import type { WorkspaceTask, RenderTimelinePayload } from '@project/shared';
 import { RenderStepType } from '../types/step.types';
 import { getStepJobOptions } from '../config/step-options';
 import { QUEUE_NAMES } from '../queue.constants';
@@ -28,7 +28,7 @@ export class RenderFlowBuilder {
   /**
    * Build a render flow definition for RENDER_TIMELINE tasks
    */
-  static buildFlow(task: Task): RenderFlowDefinition {
+  static buildFlow(task: WorkspaceTask): RenderFlowDefinition {
     const payload = task.payload as RenderTimelinePayload;
     const { timelineId, timelineRenderId, version, tracks, outputSettings } =
       payload;

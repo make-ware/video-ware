@@ -505,8 +505,7 @@ export class S3StorageBackend implements StorageBackend {
       // union (Node Readable | web ReadableStream | Blob); in this runtime it is
       // always one of the async-iterable stream forms.
       const body = response.Body as
-        | ReadableStream
-        | AsyncIterable<Uint8Array | ArrayBuffer>;
+        ReadableStream | AsyncIterable<Uint8Array | ArrayBuffer>;
 
       if (body instanceof ReadableStream) {
         return body;

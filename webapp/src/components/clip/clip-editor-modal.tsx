@@ -253,9 +253,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     if (mode === 'edit-timeline-clip' && open) {
       const clip = (props as ClipEditorEditTimelineClipProps).clip;
       const meta = clip.meta as
-        | { title?: string; color?: string; gain?: number }
-        | null
-        | undefined;
+        { title?: string; color?: string; gain?: number } | null | undefined;
       setTitle(meta?.title || '');
       setColor(meta?.color || 'bg-blue-600');
       setGain(typeof meta?.gain === 'number' ? meta.gain : 1);

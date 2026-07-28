@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { FFmpegProbeExecutor } from '../executors/ffmpeg/probe.executor';
 import { FFmpegService } from '../../shared/services/ffmpeg.service';
 import { StorageService } from '../../shared/services/storage.service';
-import { StorageBackendType } from '@project/shared';
+import { ProbeOutputSchema, StorageBackendType } from '@project/shared';
 import { vi, describe, beforeEach, it, expect, type Mock } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -168,12 +168,72 @@ describe('Probe Step Storage Integration', () => {
       expect(probeOutput.fps).toBe(0);
       expect(probeOutput.duration).toBeCloseTo(110.05);
       expect(probeOutput.codec).toBe('mp3');
+      // sample_rate arrives from ffprobe as the string '44100' (see the mock
+      // above) and must be coerced — Media.mediaData.audio.sampleRate is typed
+      // as a number by ProbeOutputSchema.
       expect(probeOutput.audio).toEqual({
         codec: 'mp3',
         channels: 2,
-        sampleRate: '44100',
+        sampleRate: 44100,
         bitrate: 128000,
       });
+    });
+
+    // ProbeOutputSchema is also MediaMetadataSchema — whatever this executor
+    // returns is written verbatim into Media.mediaData. Parsing the output
+    // here is what keeps the producer and the persisted contract aligned; a
+    // field the executor stops emitting (or emits as ffprobe's raw string)
+    // fails right here instead of silently poisoning the column.
+    it('should emit output that satisfies the persisted ProbeOutput schema', async () => {
+      // Arrange: a realistic ffprobe payload — every container-level scalar
+      // comes back as a JSON string, which is what ffprobe actually does.
+      (ffmpegService.probe as Mock).mockResolvedValueOnce({
+        format: {
+          duration: '12.345',
+          size: '5242880',
+          bit_rate: '3400000',
+          format_name: 'mov,mp4,m4a,3gp,3g2,mj2',
+          tags: { creation_time: '2024-03-01T10:00:00.000000Z' },
+        },
+        streams: [
+          {
+            codec_type: 'video',
+            codec_name: 'h264',
+            width: 1920,
+            height: 1080,
+            r_frame_rate: '30000/1001',
+            profile: 'High',
+            level: 41,
+            pix_fmt: 'yuv420p',
+            color_space: 'bt709',
+            display_aspect_ratio: '16:9',
+            side_data_list: [
+              { side_data_type: 'Display Matrix', rotation: -90 },
+            ],
+          },
+          {
+            codec_type: 'audio',
+            codec_name: 'aac',
+            channels: 2,
+            sample_rate: '48000',
+            bit_rate: '192000',
+          },
+        ],
+      });
+
+      // Act
+      const { probeOutput } = await probeExecutor.execute('/tmp/clip.mp4');
+      const parsed = ProbeOutputSchema.parse(probeOutput);
+
+      // Assert: strings coerced, rotation applied to the display dimensions
+      expect(parsed.duration).toBeCloseTo(12.345);
+      expect(parsed.size).toBe(5242880);
+      expect(parsed.bitrate).toBe(3400000);
+      expect(parsed.rotation).toBe(90);
+      expect(parsed.displayWidth).toBe(1080);
+      expect(parsed.displayHeight).toBe(1920);
+      expect(parsed.audio?.sampleRate).toBe(48000);
+      expect(parsed.mediaDate).toBe('2024-03-01T10:00:00.000Z');
     });
 
     it('should throw when no audio or video stream is present', async () => {

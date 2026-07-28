@@ -6,11 +6,19 @@ import * as fs from 'fs';
 
 const execAsync = promisify(exec);
 
+/**
+ * Raw `ffprobe -print_format json` output, JSON.parse'd and otherwise
+ * untouched. ffprobe emits every numeric-looking scalar it reads from the
+ * container as a JSON *string* ("110.05", "44100"), so those fields are typed
+ * `string | number` — a caller must coerce, and the type says so rather than
+ * letting a string flow onward under a `number` label (it did once, and
+ * `Media.mediaData.audio.sampleRate` has been a string ever since).
+ */
 export interface ProbeResult {
   format: {
-    duration: number;
-    size: number;
-    bit_rate: number;
+    duration: string | number;
+    size: string | number;
+    bit_rate: string | number;
     format_name: string;
     format_long_name: string;
     tags?: Record<string, string>;
@@ -21,9 +29,9 @@ export interface ProbeResult {
     codec_type: 'video' | 'audio' | 'subtitle' | 'data';
     width?: number;
     height?: number;
-    duration?: number;
-    bit_rate?: number;
-    sample_rate?: number;
+    duration?: string | number;
+    bit_rate?: string | number;
+    sample_rate?: string | number;
     channels?: number;
     r_frame_rate?: string;
     avg_frame_rate?: string;
@@ -514,7 +522,7 @@ export class FFmpegService implements OnApplicationShutdown {
       let totalDuration = 0;
       try {
         const probeResult = await this.probe(inputPath);
-        totalDuration = probeResult.format.duration;
+        totalDuration = Number(probeResult.format.duration) || 0;
       } catch (error) {
         this.logger.warn(
           `Could not probe input for progress tracking: ${error instanceof Error ? error.message : String(error)}`
@@ -732,7 +740,7 @@ export class FFmpegService implements OnApplicationShutdown {
           const inputPath = args[inputIndex + 1];
           try {
             const probeResult = await this.probe(inputPath);
-            totalDuration = probeResult.format.duration;
+            totalDuration = Number(probeResult.format.duration) || 0;
           } catch (error) {
             this.logger.warn(
               `Could not probe input for progress tracking: ${error instanceof Error ? error.message : String(error)}`
@@ -763,7 +771,7 @@ export class FFmpegService implements OnApplicationShutdown {
   async getDuration(filePath: string): Promise<number> {
     try {
       const probeResult = await this.probe(filePath);
-      return probeResult.format.duration;
+      return Number(probeResult.format.duration) || 0;
     } catch (error) {
       this.logger.error(
         `Failed to get duration for ${filePath}: ${error instanceof Error ? error.message : String(error)}`

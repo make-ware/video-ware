@@ -61,8 +61,7 @@ function changeFor(
   clipId: string
 ): Record<string, unknown> | undefined {
   return plan.changes.find((c) => c.clipId === clipId) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 }
 
 describe('planTimelineReflow', () => {

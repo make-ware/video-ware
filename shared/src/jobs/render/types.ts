@@ -68,9 +68,7 @@ export interface TaskRenderFinalizeStep {
  * Union type of all render step inputs
  */
 export type TaskRenderInput =
-  | TaskRenderPrepareStep
-  | TaskRenderExecuteStep
-  | TaskRenderFinalizeStep;
+  TaskRenderPrepareStep | TaskRenderExecuteStep | TaskRenderFinalizeStep;
 
 /**
  * Output from the PREPARE step

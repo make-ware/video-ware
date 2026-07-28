@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ProcessingProvider, TimelineOrientation } from '../enums.js';
 
 // ============================================================================
@@ -114,54 +115,80 @@ export interface AudioConfig {
 }
 
 /**
- * Output from media probing (ffprobe or equivalent)
+ * Output from media probing (ffprobe or equivalent).
+ *
+ * This is also the persisted shape of `Media.mediaData`: the PROBE step writes
+ * its output there verbatim, so `MediaMetadataSchema` (types/metadata.ts) is
+ * this schema rather than a hand-kept parallel copy — the two drifted apart
+ * before, and the mismatch only surfaced as a type error at the one place they
+ * met.
+ *
+ * Because it describes stored records as well as fresh probe output, a field is
+ * optional here if *either* ffprobe can omit it *or* older rows predate it.
+ * Reads are not re-validated (see BaseMutator), so this schema is a promise
+ * about what is really in the column — keep it honest.
  */
-export interface ProbeOutput {
+export const ProbeOutputSchema = z.object({
   /** Duration in seconds */
-  duration: number;
-  /** Video width in pixels (raw encoded dimensions) */
-  width: number;
-  /** Video height in pixels (raw encoded dimensions) */
-  height: number;
-  /** Display width after applying rotation */
-  displayWidth: number;
-  /** Display height after applying rotation */
-  displayHeight: number;
+  duration: z.number(),
+  /** Video width in pixels (raw encoded dimensions); 0 for audio-only input */
+  width: z.number(),
+  /** Video height in pixels (raw encoded dimensions); 0 for audio-only input */
+  height: z.number(),
+  /**
+   * Display dimensions after applying rotation. Optional: rows probed before
+   * rotation handling existed have neither.
+   */
+  displayWidth: z.number().optional(),
+  displayHeight: z.number().optional(),
   /** Rotation in degrees (0, 90, 180, 270) */
-  rotation: number;
-  /** Video codec (e.g., 'h264', 'vp9') */
-  codec: string;
-  /** Frames per second */
-  fps: number;
-  /** Bitrate in bits per second (optional) */
-  bitrate?: number;
+  rotation: z.number().optional(),
+  /** Video codec (e.g., 'h264', 'vp9'), or the audio codec for audio-only */
+  codec: z.string(),
+  /** Frames per second; 0 for audio-only input */
+  fps: z.number(),
+  /** Container bitrate in bits per second — ffprobe omits it for some formats */
+  bitrate: z.number().optional(),
   /** Container format name */
-  format?: string;
-  /** File size in bytes */
-  size?: number;
-  /** Media date from metadata or file system (optional) */
-  mediaDate?: Date;
-  /** Video stream details */
-  video?: {
-    codec: string;
-    profile?: string;
-    width: number;
-    height: number;
-    aspectRatio?: string;
-    pixFmt?: string;
-    level?: string;
-    colorSpace?: string;
-    /** Rotation in degrees from metadata */
-    rotation?: number;
-  };
-  /** Audio stream details (if present) */
-  audio?: {
-    codec: string;
-    channels: number;
-    sampleRate: number;
-    bitrate?: number;
-  };
-}
+  format: z.string(),
+  /** File size in bytes — ffprobe omits it for some inputs */
+  size: z.number().optional(),
+  /**
+   * Creation date from container/stream metadata as an ISO-8601 string.
+   * Absent when the file carries no usable date tag. A string, not a Date:
+   * this rides through JSON into `Media.mediaData`, where a Date would arrive
+   * back as a string anyway.
+   */
+  mediaDate: z.string().optional(),
+  /** Video stream details; absent for audio-only media */
+  video: z
+    .object({
+      codec: z.string(),
+      width: z.number(),
+      height: z.number(),
+      profile: z.string().optional(),
+      aspectRatio: z.string().optional(),
+      pixFmt: z.string().optional(),
+      level: z.string().optional(),
+      colorSpace: z.string().optional(),
+      /** Rotation in degrees from metadata */
+      rotation: z.number().optional(),
+    })
+    .optional(),
+  /** Audio stream details; absent for silent media */
+  audio: z
+    .object({
+      codec: z.string(),
+      channels: z.number(),
+      /** Sample rate in Hz. ffprobe reports it as a string; the probe
+       * executor coerces, so rows written before that carry a string here. */
+      sampleRate: z.number(),
+      bitrate: z.number().optional(),
+    })
+    .optional(),
+});
+
+export type ProbeOutput = z.infer<typeof ProbeOutputSchema>;
 
 /**
  * Configuration for label/object detection

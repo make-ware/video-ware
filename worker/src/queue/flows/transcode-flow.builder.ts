@@ -3,7 +3,7 @@
  * Builds BullMQ flow definitions for transcode operations
  */
 
-import type { Task, ProcessUploadPayload } from '@project/shared';
+import type { WorkspaceTask, ProcessUploadPayload } from '@project/shared';
 import { ProcessingProvider } from '@project/shared';
 import { TranscodeStepType } from '@project/shared/jobs';
 import { getStepJobOptions } from '../config/step-options';
@@ -36,7 +36,7 @@ export class TranscodeFlowBuilder {
    * Build a transcode flow definition for PROCESS_UPLOAD tasks
    * Builds a parent-child job hierarchy with steps: PROBE, THUMBNAIL, SPRITE, FILMSTRIP, TRANSCODE, AUDIO
    */
-  static buildFlow(task: Task): TranscodeFlowDefinition {
+  static buildFlow(task: WorkspaceTask): TranscodeFlowDefinition {
     const payload = task.payload as ProcessUploadPayload;
     const { uploadId, mediaId } = payload;
 

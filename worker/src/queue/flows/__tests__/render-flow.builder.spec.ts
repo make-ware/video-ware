@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { RenderFlowBuilder } from '../render-flow.builder';
 import { RENDER_FLOW_STEPS } from '@project/shared/jobs';
 import { ProcessingProvider } from '@project/shared';
-import type { Task, RenderTimelinePayload } from '@project/shared';
+import type { WorkspaceTask, RenderTimelinePayload } from '@project/shared';
 import type { RenderChildJobDefinition } from '../types';
 
-function makeTask(): Task {
+function makeTask(): WorkspaceTask {
   const payload: RenderTimelinePayload = {
     timelineId: 'test-timeline-id',
     version: 1,
@@ -39,7 +39,7 @@ function makeTask(): Task {
     id: 'test-task-id',
     WorkspaceRef: 'test-workspace-id',
     payload,
-  } as Task;
+  } as WorkspaceTask;
 }
 
 /** Flatten the nested chain into [FINALIZE, EXECUTE, PREPARE] order */

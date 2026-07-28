@@ -191,8 +191,7 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
       const tracks = (render.timelineData ??
         []) as RenderTimelinePayload['tracks'];
       const outputSettings = render.outputSettings as
-        | RenderTimelinePayload['outputSettings']
-        | undefined;
+        RenderTimelinePayload['outputSettings'] | undefined;
 
       if (!outputSettings) {
         throw new Error(`TimelineRender ${renderId} has no outputSettings`);

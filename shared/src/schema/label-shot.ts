@@ -14,7 +14,7 @@ export const LabelShotSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
 
     // --- Identification ---

@@ -10,7 +10,11 @@ import {
 import { getStorageBackend } from '@/lib/storage-backend';
 import { generateStoragePath } from '@project/shared/storage';
 import { loadStorageConfig } from '@project/shared/config';
-import { UploadStatus, StorageBackendType } from '@project/shared';
+import {
+  UploadStatus,
+  StorageBackendType,
+  type UploadMetadata,
+} from '@project/shared';
 import { UploadMutator } from '@project/shared/mutator';
 
 export const runtime = 'nodejs';
@@ -217,7 +221,8 @@ export async function PUT(req: Request) {
 
     // If this is the last chunk, finalize the upload
     if (isLastChunk) {
-      const storageMetadata: Record<string, unknown> = {
+      // Descriptive only — never the credentials from `storageConfig`.
+      const storageMetadata: UploadMetadata = {
         type: storageConfig.type,
       };
       if (storageConfig.type === StorageBackendType.S3 && storageConfig.s3) {

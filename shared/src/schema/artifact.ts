@@ -73,6 +73,12 @@ export const ArtifactCollection = defineCollection({
   collectionName: 'Artifacts',
   schema: ArtifactSchema,
   permissions: superuserWriteWorkspaceReadPermissions,
+  indexes: [
+    // The `cleanup` task drains the queue by scanning status='pending'.
+    // Keep the backtick quoting: index SQL is stored verbatim and diffed as an
+    // exact string, so unquoting this reads as a drop + recreate.
+    'CREATE INDEX `idx_Artifacts_status` ON `Artifacts` (`status`)',
+  ],
 });
 
 export default ArtifactCollection;

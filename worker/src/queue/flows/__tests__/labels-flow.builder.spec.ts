@@ -4,7 +4,7 @@ import type { EnabledLabelProcessors } from '../labels-flow.builder';
 import { LABELS_FLOW_STEPS } from '@project/shared/jobs';
 import { ProcessingProvider } from '@project/shared';
 import type {
-  Task,
+  WorkspaceTask,
   DetectLabelsPayload,
   DetectLabelsConfig,
 } from '@project/shared';
@@ -41,7 +41,7 @@ const ALL_REQUESTED: DetectLabelsConfig = {
   detectSpeakers: true,
 };
 
-function makeTask(config: DetectLabelsConfig): Task {
+function makeTask(config: DetectLabelsConfig): WorkspaceTask {
   const payload: DetectLabelsPayload = {
     mediaId: 'test-media-id',
     fileRef: 'test-file-ref',
@@ -53,7 +53,7 @@ function makeTask(config: DetectLabelsConfig): Task {
     id: 'test-task-id',
     WorkspaceRef: 'test-workspace-id',
     payload,
-  } as Task;
+  } as WorkspaceTask;
 }
 
 function detectionChildren(

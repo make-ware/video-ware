@@ -54,7 +54,9 @@ export class ProbeStepProcessor extends BaseStepProcessor<
     }
 
     // Extract media date: prefer date from probe metadata, fallback to file stats
-    let mediaDate: Date | undefined = probeOutput.mediaDate;
+    let mediaDate: Date | undefined = probeOutput.mediaDate
+      ? new Date(probeOutput.mediaDate)
+      : undefined;
     if (!mediaDate) {
       try {
         const stats = await fs.stat(filePath);

@@ -50,11 +50,7 @@
     "concurrently": "^9.2.1",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "prettier": "^3.8.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "recharts": "^3.7.0",
-    "remove": "^0.1.5"
   }
 }

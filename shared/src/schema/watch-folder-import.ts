@@ -67,6 +67,14 @@ export const WatchFolderImportCollection = defineCollection({
   collectionName: 'WatchFolderImports',
   schema: WatchFolderImportSchema,
   permissions: superuserWriteWorkspaceReadPermissions,
+  indexes: [
+    // Load-bearing, not just a perf hint: this unique index IS the atomic
+    // claim between concurrent workers (see the note above) — dropping it
+    // lets two workers import the same (key, etag) pair.
+    'CREATE UNIQUE INDEX `idx_WatchFolderImports_key_etag` ON `WatchFolderImports` (`key`, `etag`)',
+    // The poller's "already burned?" lookups scan by status.
+    'CREATE INDEX `idx_WatchFolderImports_status` ON `WatchFolderImports` (`status`)',
+  ],
 });
 
 export default WatchFolderImportCollection;

@@ -22,7 +22,7 @@ export const LabelSpeechSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
 
@@ -37,7 +37,7 @@ export const LabelSpeechSchema = z
 
     // --- Details ---
     speakerTag: NumberField().optional(), // Raw integer tag from Google
-    words: JSONField(), // Stores array of WordTimingSchema
+    words: JSONField().optional(), // Stores array of WordTimingSchema
 
     // --- Metadata ---
     confidence: NumberField({ min: 0, max: 1 }),
@@ -78,7 +78,9 @@ export const LabelSpeechCollection = defineCollection({
     'CREATE INDEX idx_label_speech_workspace ON LabelSpeech (WorkspaceRef)',
     'CREATE INDEX idx_label_speech_media ON LabelSpeech (MediaRef)',
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
-    'CREATE INDEX idx_label_speech_media_range ON LabelSpeech (MediaRef, start, "end")',
+    // `end` is a SQLite keyword; keep the backtick quoting as-is — index SQL is
+    // diffed as an exact string against the replayed migration snapshot.
+    'CREATE INDEX `idx_label_speech_media_range` ON `LabelSpeech` (`MediaRef`, `start`, `end`)',
     'CREATE INDEX idx_label_speech_track ON LabelSpeech (LabelTrackRef)',
     // Entity-attribution join through the row's LabelEntity.
     'CREATE INDEX idx_label_speech_entity ON LabelSpeech (LabelEntityRef)',

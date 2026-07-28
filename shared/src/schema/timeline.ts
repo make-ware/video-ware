@@ -13,7 +13,10 @@ import { TimelineOrientation } from '../enums';
 // Define the Zod schema
 export const TimelineSchema = z
   .object({
-    name: TextField().min(1).max(200),
+    // Length bounds live on TimelineInputSchema, not here: checks on a
+    // collection field become PocketBase field options, and the live column has
+    // none. Required already rejects the empty string.
+    name: TextField(),
     label: TextField().optional(), // editor-facing name, searchable
     description: TextField().optional(), // editor-facing notes, searchable
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),

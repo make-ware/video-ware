@@ -18,7 +18,10 @@ import {
 // Define the Zod schema
 export const TimelineRenderSchema = z
   .object({
-    TimelineRef: RelationField({ collection: 'Timelines' }),
+    TimelineRef: RelationField({
+      collection: 'Timelines',
+      cascadeDelete: true,
+    }),
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     UserRef: RelationField({ collection: 'Users' }).optional(),
     // Output file — set by the worker once the render finishes (empty while
@@ -27,8 +30,15 @@ export const TimelineRenderSchema = z
     version: NumberField().default(1).optional(), // Version of the timeline when rendered
     // Render input captured at creation time. The worker reads these to run the
     // render in the background — the client never builds a task payload.
-    timelineData: JSONField(TimelineMetadataSchema).optional(),
-    outputSettings: JSONField(RenderTimelineConfigSchema).optional(),
+    // Caps match 1781600001_extend_TimelineRenders.js — raising either one
+    // takes a migration, since PocketBase enforces the stored field option and
+    // an over-cap write fails with validation_json_size_limit.
+    timelineData: JSONField(TimelineMetadataSchema, {
+      maxSize: 5000000, // ~5MB
+    }).optional(),
+    outputSettings: JSONField(RenderTimelineConfigSchema, {
+      maxSize: 200000, // ~200KB
+    }).optional(),
     // Lifecycle — the entity is the source of truth for render progress.
     status: SelectField([
       TaskStatus.QUEUED,

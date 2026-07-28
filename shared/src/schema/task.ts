@@ -31,13 +31,12 @@ export const TaskSchema = z
     payload: JSONField(TaskPayloadSchema),
     result: JSONField(TaskResultSchema).optional(),
     errorLog: TextField().optional(),
-    // Required at the DB level for user-facing tasks. System tasks (the
-    // `cleanup` task) are created without these by the storageCleanup PB cron — the
-    // DB fields were relaxed to optional in the 1781800001 migration for exactly
-    // that — but they're kept required here so the worker flow builders, which
-    // only run for user-facing tasks, can treat WorkspaceRef as a present string.
-    WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    UserRef: RelationField({ collection: 'Users' }),
+    // Optional at the DB level (1781800001 migration): system tasks (the
+    // `cleanup` task) are created without these by the storageCleanup PB cron.
+    // Code paths that only ever see user-facing tasks (the worker flow
+    // builders) take `WorkspaceTask` instead, narrowed via `isWorkspaceTask`.
+    WorkspaceRef: RelationField({ collection: 'Workspaces' }).optional(),
+    UserRef: RelationField({ collection: 'Users' }).optional(),
     provider: SelectField([
       ProcessingProvider.FFMPEG,
       ProcessingProvider.GOOGLE_TRANSCODER,
@@ -105,3 +104,17 @@ export default TaskCollection;
 export type Task = z.infer<typeof TaskSchema>;
 export type TaskInput = z.infer<typeof TaskInputSchema>;
 export type TaskUpdate = Partial<TaskInput>;
+
+// A user-facing task: every task except system tasks (`cleanup`) carries
+// workspace + user context. The worker flow builders take this type so they
+// can treat WorkspaceRef as a present string.
+export type WorkspaceTask = Task & {
+  WorkspaceRef: string;
+  UserRef: string;
+};
+
+// PocketBase returns '' (not undefined) for an unset single relation, so
+// presence must be a truthiness check, never `!== undefined`.
+export function isWorkspaceTask(task: Task): task is WorkspaceTask {
+  return !!task.WorkspaceRef && !!task.UserRef;
+}

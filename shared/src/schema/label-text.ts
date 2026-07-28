@@ -14,7 +14,7 @@ export const LabelTextSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
 

@@ -40,8 +40,18 @@ export type MediaClipLabelRefField =
 // Define the Zod schema
 export const MediaClipLabelSchema = z
   .object({
-    WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaClipRef: RelationField({ collection: 'MediaClips' }),
+    // Every relation cascades: a row here is a pure provenance edge, so it is
+    // meaningless once either endpoint is gone. Without cascadeDelete the row
+    // would survive as a dangling reference — and the unique index below keys
+    // on all ten ref columns, so orphans linger in the uniqueness tuple.
+    WorkspaceRef: RelationField({
+      collection: 'Workspaces',
+      cascadeDelete: true,
+    }),
+    MediaClipRef: RelationField({
+      collection: 'MediaClips',
+      cascadeDelete: true,
+    }),
     labelType: SelectField([
       LabelType.OBJECT,
       LabelType.SHOT,
@@ -52,14 +62,38 @@ export const MediaClipLabelSchema = z
       LabelType.SEGMENT,
       LabelType.TEXT,
     ]),
-    LabelObjectRef: RelationField({ collection: 'LabelObjects' }).optional(),
-    LabelShotRef: RelationField({ collection: 'LabelShots' }).optional(),
-    LabelPersonRef: RelationField({ collection: 'LabelPerson' }).optional(),
-    LabelSpeechRef: RelationField({ collection: 'LabelSpeech' }).optional(),
-    LabelSpeakerRef: RelationField({ collection: 'LabelSpeaker' }).optional(),
-    LabelFaceRef: RelationField({ collection: 'LabelFaces' }).optional(),
-    LabelSegmentRef: RelationField({ collection: 'LabelSegments' }).optional(),
-    LabelTextRef: RelationField({ collection: 'LabelText' }).optional(),
+    LabelObjectRef: RelationField({
+      collection: 'LabelObjects',
+      cascadeDelete: true,
+    }).optional(),
+    LabelShotRef: RelationField({
+      collection: 'LabelShots',
+      cascadeDelete: true,
+    }).optional(),
+    LabelPersonRef: RelationField({
+      collection: 'LabelPerson',
+      cascadeDelete: true,
+    }).optional(),
+    LabelSpeechRef: RelationField({
+      collection: 'LabelSpeech',
+      cascadeDelete: true,
+    }).optional(),
+    LabelSpeakerRef: RelationField({
+      collection: 'LabelSpeaker',
+      cascadeDelete: true,
+    }).optional(),
+    LabelFaceRef: RelationField({
+      collection: 'LabelFaces',
+      cascadeDelete: true,
+    }).optional(),
+    LabelSegmentRef: RelationField({
+      collection: 'LabelSegments',
+      cascadeDelete: true,
+    }).optional(),
+    LabelTextRef: RelationField({
+      collection: 'LabelText',
+      cascadeDelete: true,
+    }).optional(),
     confidence: NumberField({ min: 0, max: 1 }).optional(), // label confidence at link time
     metadata: JSONField().optional(), // link context, e.g. matched transcript text
   })

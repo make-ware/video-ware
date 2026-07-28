@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import {
   FilmstripConfig,
+  ProbeOutputSchema,
   RenderTimelineConfig,
   SpriteConfig,
   TimelineTrack,
   TimelineSegment,
 } from './task-contracts';
 import { StorageBackendType, TimelineOrientation } from '../enums';
-import type { StorageConfig } from '../storage/types';
 
 export const RenderTimelineConfigSchema = z.object({
   resolution: z.string(),
@@ -51,44 +51,17 @@ export const FileMetaSchema = z.object({
 
 export type FileMetadata = z.infer<typeof FileMetaSchema>;
 
-export const MediaMetadataSchema = z.object({
-  // Present only when the media has an audio stream — omitted by the worker's
-  // probe step for images (and video with no audio). Optional so readers must
-  // guard instead of trusting a type-level lie (see media-details-editor.tsx).
-  audio: z
-    .object({
-      bitrate: z.number(),
-      channels: z.number(),
-      codec: z.string(),
-      sampleRate: z.string(),
-    })
-    .optional(),
-  bitrate: z.number(),
-  codec: z.string(),
-  duration: z.number(),
-  format: z.string(),
-  fps: z.number(),
-  height: z.number(),
-  displayWidth: z.number().optional(),
-  displayHeight: z.number().optional(),
-  rotation: z.number().optional(),
-  mediaDate: z.string(),
-  size: z.number(),
-  // Present only for media with a video stream — omitted for audio-only media.
-  video: z
-    .object({
-      codec: z.string(),
-      colorSpace: z.string(),
-      height: z.number(),
-      level: z.string(),
-      pixFmt: z.string(),
-      profile: z.string(),
-      width: z.number(),
-      rotation: z.number().optional(),
-    })
-    .optional(),
-  width: z.number(),
-});
+/**
+ * `Media.mediaData` is the PROBE step's output stored verbatim, so the
+ * persisted shape *is* ProbeOutput. This used to be a hand-maintained second
+ * copy of that shape and had drifted (required fields the probe never sets,
+ * `sampleRate` typed as a string, `video` sub-fields required that ffprobe
+ * routinely omits); the alias makes drift impossible. Field-level notes about
+ * what is optional and why live on ProbeOutputSchema.
+ */
+export const MediaMetadataSchema = ProbeOutputSchema;
+
+export type MediaMetadata = z.infer<typeof MediaMetadataSchema>;
 
 export const MediaClipMetadataSchema = z.object({
   confidence: z.number().optional(),
@@ -98,6 +71,7 @@ export const MediaClipMetadataSchema = z.object({
   sourceId: z.string().optional(),
   sourceType: z.string().optional(),
   strategy: z.string().optional(),
+  gapThreshold: z.number().optional(),
   segments: z
     .array(z.object({ start: z.number(), end: z.number() }))
     .optional(),
@@ -107,24 +81,18 @@ export const MediaClipMetadataSchema = z.object({
 // Upload Metadata
 // ============================================================================
 
-const LocalStorageConfigSchema = z.object({
-  basePath: z.string(),
-});
-
-const S3StorageConfigSchema = z.object({
-  endpoint: z.string(),
-  bucket: z.string(),
-  region: z.string(),
-  accessKeyId: z.string(),
-  secretAccessKey: z.string(),
-  forcePathStyle: z.boolean().optional(),
-});
-
+// What a finalized Upload records about where its bytes landed. Deliberately
+// NOT the runtime `StorageConfig`: credentials must never be persisted, so
+// this is a flat, descriptive subset — the shape both finalize paths (the
+// webapp's chunked upload route and the worker's watch-folder import) write.
 export const UploadMetadataSchema = z.object({
   type: z.enum(StorageBackendType),
-  local: LocalStorageConfigSchema.optional(),
-  s3: S3StorageConfigSchema.optional(),
-}) satisfies z.ZodType<StorageConfig>;
+  bucket: z.string().optional(),
+  region: z.string().optional(),
+  endpoint: z.string().optional(),
+});
+
+export type UploadMetadata = z.infer<typeof UploadMetadataSchema>;
 
 // ============================================================================
 // Task Metadata
@@ -213,7 +181,7 @@ export const TaskResultSchema = z.union([
     filmstripFileId: z.string().optional(),
     proxyFileId: z.string().optional(),
     processorVersion: z.string().optional(),
-    probeOutput: z.any().optional(), // ProbeOutput - can be validated separately if needed
+    probeOutput: ProbeOutputSchema.optional(),
   }),
   // DetectLabelsResult
   z.object({

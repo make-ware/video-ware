@@ -127,6 +127,4 @@ export interface LabelsChildJobDefinition {
 // ============================================================================
 
 export type FlowDefinition =
-  | TranscodeFlowDefinition
-  | RenderFlowDefinition
-  | LabelsFlowDefinition;
+  TranscodeFlowDefinition | RenderFlowDefinition | LabelsFlowDefinition;

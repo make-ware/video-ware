@@ -15,7 +15,10 @@ import { TimelineClipMetadataSchema } from '../types/metadata';
 // timeline (SourceTimelineRef — a nested/precomposed timeline).
 export const TimelineClipSchema = z
   .object({
-    TimelineRef: RelationField({ collection: 'Timelines' }),
+    TimelineRef: RelationField({
+      collection: 'Timelines',
+      cascadeDelete: true,
+    }),
     TimelineTrackRef: RelationField({
       collection: 'TimelineTracks',
     }).optional(),

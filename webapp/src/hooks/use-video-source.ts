@@ -21,9 +21,7 @@ export interface VideoSource {
 
 export function useVideoSource<
   E extends keyof MediaRelations =
-    | 'proxyFileRef'
-    | 'thumbnailFileRef'
-    | 'audioFileRef',
+    'proxyFileRef' | 'thumbnailFileRef' | 'audioFileRef',
 >(
   media: Media | Expanded<Media, MediaRelations, E> | null | undefined,
   // Union because a clip can arrive from a list (expanded) or a by-id fetch.

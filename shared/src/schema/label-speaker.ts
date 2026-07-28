@@ -23,7 +23,7 @@ export const LabelSpeakerSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
 
@@ -38,7 +38,7 @@ export const LabelSpeakerSchema = z
 
     // --- Details ---
     speakerId: TextField({ min: 1 }), // Provider speaker id (e.g. "speaker_0")
-    words: JSONField(), // Stores array of SpeakerWordTimingSchema
+    words: JSONField().optional(), // Stores array of SpeakerWordTimingSchema
 
     // --- Metadata ---
     confidence: NumberField({ min: 0, max: 1 }),

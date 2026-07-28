@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TranscodeFlowBuilder } from '../transcode-flow.builder';
 import { TRANSCODE_FLOW_STEPS } from '@project/shared/jobs';
 import { ProcessingProvider } from '@project/shared';
-import type { Task, ProcessUploadPayload } from '@project/shared';
+import type { WorkspaceTask, ProcessUploadPayload } from '@project/shared';
 
 describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
   /**
@@ -47,11 +47,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       },
     };
 
-    const task: Task = {
+    const task: WorkspaceTask = {
       id: 'test-task-id',
       WorkspaceRef: 'test-workspace-id',
       payload,
-    } as Task;
+    } as WorkspaceTask;
 
     // Build the flow
     const flow = TranscodeFlowBuilder.buildFlow(task);
@@ -85,11 +85,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       mediaId: 'test-media-id',
     };
 
-    const task: Task = {
+    const task: WorkspaceTask = {
       id: 'test-task-id',
       WorkspaceRef: 'test-workspace-id',
       payload,
-    } as Task;
+    } as WorkspaceTask;
 
     const flow = TranscodeFlowBuilder.buildFlow(task);
     const builtStepTypes = flow.children
@@ -110,11 +110,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       },
     };
 
-    const task: Task = {
+    const task: WorkspaceTask = {
       id: 'test-task-id',
       WorkspaceRef: 'test-workspace-id',
       payload,
-    } as Task;
+    } as WorkspaceTask;
 
     const flow = TranscodeFlowBuilder.buildFlow(task);
     const builtStepTypes = flow.children
@@ -136,11 +136,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       },
     };
 
-    const task: Task = {
+    const task: WorkspaceTask = {
       id: 'test-task-id',
       WorkspaceRef: 'test-workspace-id',
       payload,
-    } as Task;
+    } as WorkspaceTask;
 
     const flow = TranscodeFlowBuilder.buildFlow(task);
     const builtStepTypes = flow.children
@@ -163,11 +163,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       },
     };
 
-    const task: Task = {
+    const task: WorkspaceTask = {
       id: 'test-task-id',
       WorkspaceRef: 'test-workspace-id',
       payload,
-    } as Task;
+    } as WorkspaceTask;
 
     const flow = TranscodeFlowBuilder.buildFlow(task);
     const audioStep = flow.children.find(

@@ -6,6 +6,7 @@ import {
   TaskStatus,
   type Task,
   type MediaInput,
+  type ProbeOutput,
   type ProcessUploadPayload,
   type DetectLabelsPayload,
   type TranscodeFlowConfig,
@@ -88,31 +89,17 @@ export class IngestOrchestratorService {
       let media = await this.pocketbaseService.getMediaByUpload(uploadId);
       const reusedMedia = media !== null;
       if (!media) {
-        const dummyMediaData = {
+        // Placeholder probe output: only the fields ProbeOutputSchema requires,
+        // all zeroed. The PROBE step overwrites the whole column with real
+        // values, and empty `video`/`audio` blocks would misreport an
+        // audio-only or silent file until it did.
+        const dummyMediaData: ProbeOutput = {
           width: 0,
           height: 0,
           duration: 0,
-          bitrate: 0,
           codec: '',
           format: '',
           fps: 0,
-          size: 0,
-          mediaDate: new Date().toISOString(),
-          video: {
-            codec: '',
-            profile: '',
-            width: 0,
-            height: 0,
-            pixFmt: '',
-            level: '',
-            colorSpace: '',
-          },
-          audio: {
-            bitrate: 0,
-            channels: 0,
-            codec: '',
-            sampleRate: '0',
-          },
         };
 
         const mediaInput: MediaInput = {

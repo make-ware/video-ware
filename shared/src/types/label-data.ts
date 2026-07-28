@@ -42,7 +42,4 @@ export interface SpeechLabelData extends BaseLabelData {
 }
 
 export type LabelData =
-  | ObjectLabelData
-  | ShotLabelData
-  | PersonLabelData
-  | SpeechLabelData;
+  ObjectLabelData | ShotLabelData | PersonLabelData | SpeechLabelData;

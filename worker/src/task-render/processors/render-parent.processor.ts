@@ -96,8 +96,7 @@ export class RenderParentProcessor extends BaseFlowProcessor {
     const prepareResult = stepResults[RenderStepType.PREPARE];
     const clipMediaMap = (
       prepareResult?.output as
-        | { clipMediaMap?: Record<string, unknown> }
-        | undefined
+        { clipMediaMap?: Record<string, unknown> } | undefined
     )?.clipMediaMap;
 
     if (clipMediaMap) {

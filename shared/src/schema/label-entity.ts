@@ -29,7 +29,10 @@ export const LabelEntitySchema = z
     // layer only so the per-instance backfill could not fail on rows with
     // nothing to derive a media from; LabelEntityInputSchema requires it, so
     // every write since is media-scoped.
-    MediaRef: RelationField({ collection: 'Media' }).optional(),
+    MediaRef: RelationField({
+      collection: 'Media',
+      cascadeDelete: true,
+    }).optional(),
     labelType: SelectField([
       LabelType.OBJECT,
       LabelType.SHOT,

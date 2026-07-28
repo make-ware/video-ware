@@ -14,7 +14,7 @@ export const LabelObjectSchema = z
   .object({
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
-    MediaRef: RelationField({ collection: 'Media' }),
+    MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
     LabelEntityRef: RelationField({ collection: 'LabelEntity' }), // Links to "Person"
     LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
 
@@ -72,7 +72,9 @@ export const LabelObjectCollection = defineCollection({
     'CREATE INDEX idx_label_object_media ON LabelObjects (MediaRef)',
     'CREATE INDEX idx_label_object_track ON LabelObjects (LabelTrackRef)',
     // Speeds the ClipLabelSearch view's media-scoped time-overlap join.
-    'CREATE INDEX idx_label_object_media_range ON LabelObjects (MediaRef, start, "end")',
+    // `end` is a SQLite keyword; keep the backtick quoting as-is — index SQL is
+    // diffed as an exact string against the replayed migration snapshot.
+    'CREATE INDEX `idx_label_object_media_range` ON `LabelObjects` (`MediaRef`, `start`, `end`)',
     // Entity-attribution join through the row's LabelEntity.
     'CREATE INDEX idx_label_object_entity ON LabelObjects (LabelEntityRef)',
   ],

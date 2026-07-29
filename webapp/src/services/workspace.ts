@@ -2,6 +2,7 @@ import type { TypedPocketBase } from '@project/shared/types';
 import {
   WorkspaceMutator,
   WorkspaceMemberMutator,
+  type AddMemberByEmailResult,
 } from '@project/shared/mutator';
 import type {
   Workspace,
@@ -170,6 +171,29 @@ export class WorkspaceService {
       WorkspaceRef: workspaceId,
       UserRef: userId,
     });
+  }
+
+  /**
+   * Add a member to a workspace by their exact email address.
+   *
+   * The only way to add someone who is not already a co-worker: `Users`
+   * list/viewRule exposes co-members only, so a client cannot resolve an arbitrary
+   * email to a user id. The elevated PocketBase route behind this does it
+   * server-side after re-checking the caller's own membership.
+   *
+   * Idempotent — an existing member comes back with `created: false`. Errors
+   * propagate as `ClientResponseError`: 404 for an unknown email (or a workspace
+   * the caller is not in — indistinguishable by design), 400 for a bad email.
+   *
+   * @param workspaceId Workspace ID
+   * @param email Exact email address of an existing account (case-sensitive)
+   * @returns The membership, and whether it was newly created
+   */
+  async addMemberByEmail(
+    workspaceId: string,
+    email: string
+  ): Promise<AddMemberByEmailResult> {
+    return this.workspaceMemberMutator.addByEmail(workspaceId, email);
   }
 
   /**

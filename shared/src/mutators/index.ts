@@ -4,7 +4,10 @@ export { UserMutator } from './user';
 
 // Media uploads and ingestion mutators
 export { WorkspaceMutator } from './workspace';
-export { WorkspaceMemberMutator } from './workspace-member';
+export {
+  WorkspaceMemberMutator,
+  type AddMemberByEmailResult,
+} from './workspace-member';
 export { UploadMutator } from './upload';
 export { FileMutator } from './file';
 export { DirectoryMutator } from './directory';

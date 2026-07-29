@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createWorkspaceService } from '@/services/workspace';
-import { createUserService } from '@/services/user';
 import { usePocketBase } from '@/contexts/pocketbase-context';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -45,10 +44,42 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Search, UserPlus, Trash2, ArrowLeft } from 'lucide-react';
+import { UserPlus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import type { WorkspaceMember, User } from '@project/shared';
 import Link from 'next/link';
+
+/** PocketBase surfaces failures as `ClientResponseError`, which carries `status`. */
+function errorStatus(error: unknown): number | undefined {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = (error as { status: unknown }).status;
+    return typeof status === 'number' ? status : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Turn an add-member failure into something a human can act on.
+ *
+ * 404 covers both "no such account" and "you are not a member of that workspace" —
+ * the endpoint returns the same status for each on purpose, so it cannot be used to
+ * probe for workspace ids.
+ */
+function addMemberErrorMessage(error: unknown): string {
+  switch (errorStatus(error)) {
+    case 404:
+      return 'No account exists for that email address. Ask them to sign up first.';
+    case 400:
+      return error instanceof Error && error.message
+        ? error.message
+        : 'That email address is not valid.';
+    case 401:
+    case 403:
+      return 'You do not have permission to add members to this workspace.';
+    default:
+      return 'Failed to add member';
+  }
+}
 
 export default function WorkspaceManagePage() {
   const params = useParams();
@@ -58,7 +89,6 @@ export default function WorkspaceManagePage() {
   const { pb } = usePocketBase();
 
   const workspaceService = useMemo(() => createWorkspaceService(pb), [pb]);
-  const userService = useMemo(() => createUserService(pb), [pb]);
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,9 +96,7 @@ export default function WorkspaceManagePage() {
 
   // Add member state
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<User[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
   // Fetch workspace details and members
@@ -102,49 +130,40 @@ export default function WorkspaceManagePage() {
     }
   }, [workspaceId, fetchDetails]);
 
-  // Search users
-  const handleSearch = async (e: React.FormEvent) => {
+  // Add member by exact email address. There is no user search: `Users` reads are
+  // scoped to co-members, so a search could only ever return people who are already
+  // in a workspace with you.
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
+    const email = inviteEmail.trim();
+    if (!email) return;
 
-    try {
-      setIsSearching(true);
-      const result = await userService.searchUsers(searchQuery);
-
-      // Filter out existing members
-      const existingMemberIds = new Set(members.map((m) => m.UserRef));
-
-      const availableUsers = result.items.filter(
-        (user) => !existingMemberIds.has(user.id)
-      );
-
-      setSearchResults(availableUsers);
-    } catch (error) {
-      console.error('Failed to search users:', error);
-      toast.error('Failed to search users');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Add member
-  const handleAddMember = async (userId: string) => {
     try {
       setIsAdding(true);
-      await workspaceService.addMember(workspaceId, userId);
-      toast.success('Member added successfully');
-      setSearchResults((prev) => prev.filter((u) => u.id !== userId));
+      const result = await workspaceService.addMemberByEmail(
+        workspaceId,
+        email
+      );
+
+      if (result.created) {
+        toast.success(`Added ${email}`);
+      } else {
+        toast.info(`${email} is already a member`);
+      }
+
+      setInviteEmail('');
       await fetchDetails();
       setIsAddDialogOpen(false);
     } catch (error) {
       console.error('Failed to add member:', error);
-      toast.error('Failed to add member');
+      toast.error(addMemberErrorMessage(error));
     } finally {
       setIsAdding(false);
     }
   };
 
-  // Remove member
+  // Remove member. Takes the membership row's stored UserRef rather than an
+  // expanded user, so an orphaned row (deleted account) stays removable.
   const handleRemoveMember = async (userId: string) => {
     if (members.length <= 1) {
       toast.error('Cannot remove the last member');
@@ -203,12 +222,7 @@ export default function WorkspaceManagePage() {
           </div>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
-              <Button
-                onClick={() => {
-                  setSearchQuery('');
-                  setSearchResults([]);
-                }}
-              >
+              <Button onClick={() => setInviteEmail('')}>
                 <UserPlus className="h-4 w-4 mr-2" />
                 Add Member
               </Button>
@@ -217,68 +231,29 @@ export default function WorkspaceManagePage() {
               <DialogHeader>
                 <DialogTitle>Add Member</DialogTitle>
                 <DialogDescription>
-                  Search for users by email or name to add them to the
-                  workspace.
+                  Enter the email address of an existing account. Everyone in
+                  this workspace can see each other&apos;s name and email, and
+                  new members get access to all of its media, timelines and
+                  renders.
                 </DialogDescription>
               </DialogHeader>
 
-              <form onSubmit={handleSearch} className="flex gap-2 my-4">
+              <form onSubmit={handleAddMember} className="flex gap-2 my-4">
                 <Input
-                  placeholder="Search by email or name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  type="email"
+                  autoComplete="email"
+                  placeholder="name@example.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  disabled={isAdding}
                 />
                 <Button
                   type="submit"
-                  disabled={isSearching || !searchQuery.trim()}
+                  disabled={isAdding || !inviteEmail.trim()}
                 >
-                  <Search className="h-4 w-4" />
+                  {isAdding ? 'Adding…' : 'Add'}
                 </Button>
               </form>
-
-              <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                {searchResults.map((user) => (
-                  <div
-                    key={user.id}
-                    className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage
-                          src={
-                            user.avatar
-                              ? `/api/files/Users/${user.id}/${user.avatar}`
-                              : undefined
-                          }
-                        />
-                        <AvatarFallback>
-                          {user.name?.[0] || user.email[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid gap-0.5">
-                        <div className="text-sm font-medium">
-                          {user.name || 'Unnamed User'}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {user.email}
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleAddMember(user.id)}
-                      disabled={isAdding}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                ))}
-                {searchResults.length === 0 && searchQuery && !isSearching && (
-                  <p className="text-center text-sm text-muted-foreground py-4">
-                    No users found
-                  </p>
-                )}
-              </div>
             </DialogContent>
           </Dialog>
         </CardHeader>
@@ -294,38 +269,72 @@ export default function WorkspaceManagePage() {
             <TableBody>
               {members.map((member) => {
                 const user = member.expand?.UserRef as User | undefined;
-                if (!user) return null;
+                const userId = member.UserRef as string;
 
                 return (
                   <TableRow key={member.id}>
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage
-                            src={
-                              user.avatar
-                                ? `/api/files/Users/${user.id}/${user.avatar}`
-                                : undefined
-                            }
-                          />
-                          <AvatarFallback>
-                            {user.name?.[0] || user.email[0].toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">
-                            {user.name || 'Unnamed User'}
-                            {user.id === currentUser?.id && (
-                              <Badge variant="secondary" className="ml-2">
-                                You
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {user.email}
+                      {/*
+                        Defensive: with Users reads widened to co-members, every
+                        genuine member now resolves. An unresolvable UserRef should
+                        be unreachable — WorkspaceMembers.UserRef is a REQUIRED
+                        relation with cascadeDelete: false, so PocketBase refuses to
+                        delete a user that a membership row still points at
+                        ("record is part of a required relation reference"), and an
+                        orphan cannot be created through the API.
+
+                        Still rendered rather than dropped, because the previous
+                        `return null` was what silently desynced this table from the
+                        member count above it. If the state ever does arise (a raw
+                        SQL delete, or a future change to cascadeDelete), it shows up
+                        and stays removable instead of vanishing.
+                      */}
+                      {user ? (
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarImage
+                              src={
+                                user.avatar
+                                  ? pb.files.getURL(user, user.avatar)
+                                  : undefined
+                              }
+                            />
+                            <AvatarFallback>
+                              {user.name?.[0] || user.email[0].toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium">
+                              {user.name || 'Unnamed User'}
+                              {user.id === currentUser?.id && (
+                                <Badge variant="secondary" className="ml-2">
+                                  You
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {user.email}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarFallback>?</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium text-muted-foreground">
+                              Unknown user
+                              <Badge variant="outline" className="ml-2">
+                                Orphaned
+                              </Badge>
+                            </div>
+                            <div className="text-sm text-muted-foreground font-mono">
+                              {userId}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {new Date(member.created).toLocaleDateString()}
@@ -349,7 +358,7 @@ export default function WorkspaceManagePage() {
                             <AlertDialogDescription>
                               Are you sure you want to remove{' '}
                               <span className="font-semibold">
-                                {user.name || user.email}
+                                {user ? user.name || user.email : userId}
                               </span>{' '}
                               from this workspace?
                             </AlertDialogDescription>
@@ -357,7 +366,7 @@ export default function WorkspaceManagePage() {
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleRemoveMember(user.id)}
+                              onClick={() => handleRemoveMember(userId)}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
                               Remove

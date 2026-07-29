@@ -1,19 +1,6 @@
 // PocketBase JavaScript Hooks
 // Documentation: https://pocketbase.io/docs/js-overview/
-
-// Example: Custom API endpoint
-// routerAdd('GET', '/api/hello', (c) => {
-//   return c.json(200, {
-//     message: 'Hello from PocketBase!',
-//     timestamp: new Date().toISOString(),
-//   });
-// });
-
-// Example: Validate user registration (before creation)
-onRecordCreateRequest((e) => {
-  if (e.record.tableName() === 'Users') {
-    // Add custom validation logic here
-    console.log('User created:', e.record.get('email'));
-  }
-  e.next();
-}, 'Users');
+//
+// Each concern lives in its own hook-*.pb.js / cron-*.pb.js file. This file is
+// intentionally empty of handlers; see hook-workspace-members-add.pb.js for a
+// custom API route (routerAdd) and hook-users-create.pb.js for a record hook.

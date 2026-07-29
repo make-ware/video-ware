@@ -5,6 +5,7 @@ import {
   FileField,
   TextField,
 } from 'pocketbase-zod-schema';
+import { usersCollectionPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 
 // Define the Zod schema
@@ -28,22 +29,22 @@ export const UserSchema = z
 
 // Define the collection with permissions
 // Note: Indexes for auth collections (tokenKey, email) are automatically managed by PocketBase
+//
+// Permissions come from `collection-permissions.ts` (the source of truth every
+// other collection already imports) rather than being spelled out here: reads are
+// widened to co-members so a workspace member list can resolve `expand=UserRef`,
+// while writes stay self-only. See `usersCollectionPermissions` for the full
+// reasoning and `pb/pb_migrations/1785361310_widen_Users_read_to_comembers.js`.
+//
+// `emailVisibility` is deliberately absent from `UserSchema`: it is a PocketBase
+// auth system field that already exists on the collection, and `defineCollection`
+// never sets `type` here, so the generator treats `Users` as a base collection and
+// would try to CREATE the field. It is set server-side instead, by
+// `pb/pb_hooks/hook-users-email-visibility.pb.js`, which covers every create path.
 export const UserCollection = defineCollection({
   collectionName: 'Users',
   schema: UserSchema,
-  permissions: {
-    // Users can list profiles
-    listRule: 'id = @request.auth.id',
-    // Users can view profiles
-    viewRule: 'id = @request.auth.id',
-    // Anyone can create an account (sign up)
-    createRule: '',
-    // Users can only update their own profile
-    updateRule: 'id = @request.auth.id',
-    // Users can only delete their own account
-    deleteRule: 'id = @request.auth.id',
-    // manageRule is null in PocketBase default (not set)
-  },
+  permissions: usersCollectionPermissions,
   indexes: [
     // PocketBase's default indexes for auth collections
     'CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)',

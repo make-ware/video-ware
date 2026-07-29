@@ -57796,6 +57796,20 @@ var workspacesCollectionPermissions = {
   updateRule: memberRule(""),
   deleteRule: memberRule("")
 };
+var usersCollectionPermissions = {
+  listRule: `id = @request.auth.id || ${memberRule("WorkspaceMembers_via_UserRef.WorkspaceRef")}`,
+  viewRule: `id = @request.auth.id || ${memberRule("WorkspaceMembers_via_UserRef.WorkspaceRef")}`,
+  createRule: "",
+  updateRule: "id = @request.auth.id",
+  deleteRule: "id = @request.auth.id"
+};
+var membershipCollectionPermissions = {
+  listRule: memberRule("WorkspaceRef"),
+  viewRule: memberRule("WorkspaceRef"),
+  createRule: memberCreateRule("WorkspaceRef"),
+  updateRule: null,
+  deleteRule: memberRule("WorkspaceRef")
+};
 var superuserWriteWorkspaceReadPermissions = {
   listRule: `${AUTHENTICATED} && (WorkspaceRef = "" || ${memberRule("WorkspaceRef")})`,
   viewRule: `${AUTHENTICATED} && (WorkspaceRef = "" || ${memberRule("WorkspaceRef")})`,
@@ -60099,19 +60113,7 @@ var UserSchema = external_exports.object({
 var UserCollection = defineCollection({
   collectionName: "Users",
   schema: UserSchema,
-  permissions: {
-    // Users can list profiles
-    listRule: "id = @request.auth.id",
-    // Users can view profiles
-    viewRule: "id = @request.auth.id",
-    // Anyone can create an account (sign up)
-    createRule: "",
-    // Users can only update their own profile
-    updateRule: "id = @request.auth.id",
-    // Users can only delete their own account
-    deleteRule: "id = @request.auth.id"
-    // manageRule is null in PocketBase default (not set)
-  },
+  permissions: usersCollectionPermissions,
   indexes: [
     // PocketBase's default indexes for auth collections
     "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
@@ -60207,7 +60209,25 @@ var WorkspaceMemberInputSchema = external_exports.object({
 var WorkspaceMemberCollection = defineCollection({
   collectionName: "WorkspaceMembers",
   schema: WorkspaceMemberSchema,
-  permissions: workspaceScopedPermissions()
+  permissions: membershipCollectionPermissions,
+  indexes: [
+    // Every workspace-scoped API rule in the database joins through this table
+    // (`<chain>.WorkspaceMembers_via_WorkspaceRef.UserRef ?= @request.auth.id`),
+    // and the widened Users read rule adds a second, reverse traversal. Index both
+    // orderings of the pair so either column can lead.
+    //
+    // UNIQUE on (WorkspaceRef, UserRef): a user belongs to a workspace once. TWO
+    // columns on purpose — `dbutils.FindSingleColumnUniqueIndex` only matches
+    // single-column unique indexes, and a match there would turn PocketBase's
+    // multi-match resolution off and silently change what `?=` means across the
+    // whole schema. NEVER add a single-column unique index on either relation.
+    //
+    // These strings are compared for exact equality by the migration generator, so
+    // they must stay byte-identical to
+    // `pb/pb_migrations/1785361300_workspace_members_indexes.js`.
+    "CREATE UNIQUE INDEX idx_workspace_members_ws_user ON WorkspaceMembers (WorkspaceRef, UserRef)",
+    "CREATE INDEX idx_workspace_members_user_ws ON WorkspaceMembers (UserRef, WorkspaceRef)"
+  ]
 });
 var WorkspaceSchema = external_exports.object({
   // Bounds live on WorkspaceInputSchema — see the note in timeline.ts.

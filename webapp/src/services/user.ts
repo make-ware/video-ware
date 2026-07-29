@@ -1,38 +1,31 @@
 import type { TypedPocketBase } from '@project/shared/types';
 import { UserMutator } from '@project/shared/mutator';
 import type { User } from '@project/shared';
-import type { ListResult } from 'pocketbase';
 
+/**
+ * Reads of other users' profiles.
+ *
+ * `Users` list/viewRule is scoped to yourself plus anyone who shares a workspace
+ * with you (see `usersCollectionPermissions`), so everything here is co-member
+ * scoped.
+ *
+ * NB: there is deliberately no `searchUsers`. A name/email search over this
+ * collection can only ever return people who ALREADY share a workspace with you —
+ * the exact complement of who you would want to add — so the add-member flow goes
+ * through `WorkspaceService.addMemberByEmail` and its elevated PocketBase route
+ * instead.
+ */
 export class UserService {
-  private pb: TypedPocketBase;
   private userMutator: UserMutator;
 
   constructor(pb: TypedPocketBase) {
-    this.pb = pb;
     this.userMutator = new UserMutator(pb);
-  }
-
-  /**
-   * Search users by email or name
-   * @param query Search query
-   * @param page Page number
-   * @param perPage Items per page
-   * @returns List of users
-   */
-  async searchUsers(
-    query: string,
-    page = 1,
-    perPage = 20
-  ): Promise<ListResult<User>> {
-    // Bind the free-text query via pb.filter to safely escape it
-    const filter = this.pb.filter('email ~ {:q} || name ~ {:q}', { q: query });
-    return this.userMutator.getList(page, perPage, filter);
   }
 
   /**
    * Get user by ID
    * @param id User ID
-   * @returns User
+   * @returns User, or null if not found or not visible to the caller
    */
   async getUser(id: string): Promise<User | null> {
     return this.userMutator.getById(id);

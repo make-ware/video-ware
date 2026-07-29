@@ -5,6 +5,16 @@ import type { WorkspaceMember, WorkspaceMemberInput } from '../schema';
 import type { TypedPocketBase } from '../types';
 import { BaseMutator, type MutatorOptions } from './base';
 
+/** Response of `POST /api/vw/workspaces/{workspaceId}/members`. */
+export interface AddMemberByEmailResult {
+  /** The WorkspaceMembers record id. */
+  id: string;
+  WorkspaceRef: string;
+  UserRef: string;
+  /** false when the account was already a member (idempotent no-op). */
+  created: boolean;
+}
+
 export class WorkspaceMemberMutator extends BaseMutator<
   WorkspaceMember,
   WorkspaceMemberInput
@@ -79,6 +89,37 @@ export class WorkspaceMemberMutator extends BaseMutator<
       `WorkspaceRef = "${workspaceId}"`,
       undefined,
       'UserRef'
+    );
+  }
+
+  /**
+   * Add an existing account to a workspace by its exact email address.
+   *
+   * Goes through the elevated `pb/pb_hooks/hook-workspace-members-add.pb.js` route
+   * rather than creating the record directly, because resolving an email to a user
+   * id needs superuser reads: `Users` list/viewRule only exposes co-members, i.e.
+   * the people already in a workspace with you. The hook re-checks that the caller
+   * is a member of `workspaceId` before it does anything.
+   *
+   * Idempotent — an account that is already a member comes back with
+   * `created: false` and the existing record id.
+   *
+   * Unlike the reads on this class, failures deliberately PROPAGATE (as
+   * `ClientResponseError`, carrying `status` and `message`) instead of collapsing
+   * into `null`: the caller has to be able to tell "no such account" (404) from
+   * "bad email" (400).
+   *
+   * @param workspaceId The workspace ID
+   * @param email The exact email address of an existing account (case-sensitive)
+   * @returns The membership, and whether it was newly created
+   */
+  async addByEmail(
+    workspaceId: string,
+    email: string
+  ): Promise<AddMemberByEmailResult> {
+    return this.pb.send<AddMemberByEmailResult>(
+      `/api/vw/workspaces/${encodeURIComponent(workspaceId)}/members`,
+      { method: 'POST', body: { email } }
     );
   }
 }

@@ -16,6 +16,11 @@
  *   - nested via media:               'MediaRef.WorkspaceRef'
  *   - the `Workspaces` record itself: '' (empty)
  *
+ * The `Users` collection reads the chain in REVERSE — see
+ * `usersCollectionPermissions` below — hopping out of a user through the
+ * `WorkspaceMembers.UserRef` back-relation before coming back in through
+ * `WorkspaceMembers_via_WorkspaceRef`.
+ *
  * NB: the worker authenticates as a PocketBase superuser and therefore bypasses
  * ALL of these rules. Only the webapp and CLI (regular user auth) are
  * constrained by them, which is exactly what we want — background processing
@@ -86,6 +91,60 @@ export const workspacesCollectionPermissions: CollectionPermissions = {
   createRule: AUTHENTICATED,
   updateRule: memberRule(''),
   deleteRule: memberRule(''),
+};
+
+/**
+ * The `Users` collection. Reads are widened from "only yourself" to "yourself
+ * plus anyone who shares a workspace with you", so a member list can render a
+ * co-member's name and email — and so `expand=UserRef` resolves at all, since
+ * PocketBase filters expanded records through the target collection's viewRule.
+ *
+ * The chain is the mirror image of `memberRule`: hop OUT of the user through the
+ * `UserRef` back-relation to their memberships, to each of those workspaces, then
+ * back IN through that workspace's members looking for the caller. That is 4
+ * props / 3 joins; PocketBase's limit is 6 (core `maxNestedRels`).
+ *
+ * `?=` (any-of) is required at both back-relation hops: `WorkspaceMembers` has no
+ * SINGLE-column unique index on either relation column, so PocketBase enables its
+ * multi-match subquery and an un-prefixed `=` would mean "EVERY membership
+ * reachable from this user is mine". The composite unique index on
+ * (WorkspaceRef, UserRef) does not disturb that — `FindSingleColumnUniqueIndex`
+ * only matches one-column indexes.
+ *
+ * Writes are deliberately NOT widened: create stays open (signup), update and
+ * delete stay self-only. Reading a co-member never implies editing them.
+ *
+ * Email additionally needs `emailVisibility = true` on the record — PocketBase
+ * masks the field during serialization for anyone but the owner, a superuser or a
+ * manager (`core.Record.PublicExport`). See
+ * `pb/pb_hooks/hook-users-email-visibility.pb.js`.
+ */
+export const usersCollectionPermissions: CollectionPermissions = {
+  listRule: `id = @request.auth.id || ${memberRule('WorkspaceMembers_via_UserRef.WorkspaceRef')}`,
+  viewRule: `id = @request.auth.id || ${memberRule('WorkspaceMembers_via_UserRef.WorkspaceRef')}`,
+  createRule: '',
+  updateRule: 'id = @request.auth.id',
+  deleteRule: 'id = @request.auth.id',
+};
+
+/**
+ * The `WorkspaceMembers` join collection. Identical to
+ * `workspaceScopedPermissions()` except `updateRule` is null (superuser only).
+ *
+ * A membership row is two relation fields and nothing else — adding a member is a
+ * create, removing one is a delete, and nothing in webapp/, cli/, worker/ or
+ * shared/ ever PATCHes the collection. Leaving update open was an escalation:
+ * PocketBase evaluates an update rule only against the PRE-update record
+ * (`apis.recordUpdate` refetches with the rule, then loads the body; there is no
+ * post-mutation re-check), so a member of workspace W could PATCH their own row's
+ * `WorkspaceRef` to any workspace id they knew and join it outright.
+ */
+export const membershipCollectionPermissions: CollectionPermissions = {
+  listRule: memberRule('WorkspaceRef'),
+  viewRule: memberRule('WorkspaceRef'),
+  createRule: memberCreateRule('WorkspaceRef'),
+  updateRule: null,
+  deleteRule: memberRule('WorkspaceRef'),
 };
 
 /**

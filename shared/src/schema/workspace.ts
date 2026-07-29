@@ -3,7 +3,7 @@ import {
   TextField,
   JSONField,
   baseSchema,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { workspacesCollectionPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 

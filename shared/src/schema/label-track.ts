@@ -6,7 +6,7 @@ import {
   NumberField,
   JSONField,
   baseSchema,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { LabelType } from '../enums';
 import { z } from 'zod';

@@ -5,7 +5,7 @@ import {
   SelectField,
   RelationField,
   baseSchema,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { superuserWriteWorkspaceReadPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { ArtifactReason, ArtifactStatus, FileSource } from '../enums';

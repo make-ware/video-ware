@@ -3,9 +3,9 @@ import {
   TextField,
   NumberField,
   RelationField,
-  SingleSelectField,
+  SelectField,
   baseSchema,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { TimelineOrientation } from '../enums';
@@ -24,7 +24,7 @@ export const TimelineSchema = z
     UserRef: RelationField({ collection: 'Users' }).optional(),
     version: NumberField().default(1).optional(),
     processor: TextField().optional(),
-    orientation: SingleSelectField([
+    orientation: SelectField([
       TimelineOrientation.LANDSCAPE,
       TimelineOrientation.PORTRAIT,
     ]).optional(),

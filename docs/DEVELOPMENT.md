@@ -161,7 +161,7 @@ const uploadData = UploadSchema.parse(formData);
 1. **Create schema file** in `shared/src/schema/`:
    ```typescript
    // shared/src/schema/media.ts
-   import { baseSchema, baseSchemaWithTimestamps, defineCollection } from "pocketbase-zod-schema/schema";
+   import { baseSchemaWithTimestamps, defineCollection } from "pocketbase-zod-schema";
    import { z } from "zod";
 
    export const MediaSchema = z
@@ -171,7 +171,6 @@ const uploadData = UploadSchema.parse(formData);
        duration: z.number(),
        mediaType: z.enum(['video', 'audio', 'image']),
      })
-     .extend(baseSchema)
      .extend(baseSchemaWithTimestamps);
 
    const mediaCollection = defineCollection({

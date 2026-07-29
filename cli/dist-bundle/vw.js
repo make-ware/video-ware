@@ -57441,7 +57441,7 @@ function date4(params) {
 // ../node_modules/zod/v4/classic/external.js
 config(en_default());
 
-// ../node_modules/pocketbase-zod-schema/dist/schema.js
+// ../node_modules/pocketbase-zod-schema/dist/index.js
 var baseSchema = {
   id: external_exports.string().describe("unique id"),
   collectionId: external_exports.string().describe("collection id"),
@@ -57449,19 +57449,6 @@ var baseSchema = {
   expand: external_exports.record(external_exports.string(), external_exports.any()).describe("expandable fields"),
   created: external_exports.string().describe("creation timestamp"),
   updated: external_exports.string().describe("last update timestamp")
-};
-var baseSchemaWithTimestamps = {
-  ...baseSchema,
-  created: external_exports.string().describe("creation timestamp"),
-  updated: external_exports.string().describe("last update timestamp")
-};
-var baseImageFileSchema = {
-  ...baseSchema,
-  thumbnailURL: external_exports.string().optional(),
-  imageFiles: external_exports.array(external_exports.string())
-};
-var inputImageFileSchema = {
-  imageFiles: external_exports.array(external_exports.instanceof(File))
 };
 var RELATION_METADATA_KEY = "__pocketbase_relation__";
 function RelationField(config2) {
@@ -57498,7 +57485,7 @@ function RelationsField(config2) {
   return schema.describe(JSON.stringify(metadata));
 }
 function defineCollection(config2) {
-  const { collectionName, schema, permissions, indexes, type, viewQuery, ...futureOptions } = config2;
+  const { collectionName, schema, permissions, indexes, type, viewQuery } = config2;
   const metadata = {
     collectionName
   };
@@ -57513,9 +57500,6 @@ function defineCollection(config2) {
   }
   if (indexes) {
     metadata.indexes = indexes;
-  }
-  if (Object.keys(futureOptions).length > 0) {
-    Object.assign(metadata, futureOptions);
   }
   return schema.describe(JSON.stringify(metadata));
 }
@@ -57651,29 +57635,9 @@ function DateField(options) {
   return schema.describe(JSON.stringify(metadata));
 }
 function SelectField(values, options) {
-  if (options?.maxSelect && options.maxSelect > 1) {
-    return MultiSelectField(values, options);
-  }
-  return SingleSelectField(values);
-}
-function SingleSelectField(values) {
-  const enumSchema = external_exports.enum(values);
-  const metadata = {
-    [FIELD_METADATA_KEY]: {
-      type: "select",
-      options: {
-        values,
-        maxSelect: 1
-      }
-    }
-  };
-  return enumSchema.describe(JSON.stringify(metadata));
-}
-function MultiSelectField(values, options) {
-  const enumSchema = external_exports.enum(values);
-  const maxSelect = options?.maxSelect ?? 999;
-  if (maxSelect <= 1) {
-    throw new Error("MultiSelectField: maxSelect must be greater than 1");
+  const maxSelect = options?.maxSelect ?? 1;
+  if (maxSelect < 1) {
+    throw new Error("SelectField: maxSelect must be >= 1");
   }
   const metadata = {
     [FIELD_METADATA_KEY]: {
@@ -57684,7 +57648,10 @@ function MultiSelectField(values, options) {
       }
     }
   };
-  return external_exports.array(enumSchema).describe(JSON.stringify(metadata));
+  if (maxSelect > 1) {
+    return external_exports.array(external_exports.enum(values)).describe(JSON.stringify(metadata));
+  }
+  return external_exports.enum(values).describe(JSON.stringify(metadata));
 }
 function FileField(options) {
   const schema = external_exports.preprocess((val) => {
@@ -59996,7 +59963,7 @@ var TimelineSchema = external_exports.object({
   UserRef: RelationField({ collection: "Users" }).optional(),
   version: NumberField().default(1).optional(),
   processor: TextField().optional(),
-  orientation: SingleSelectField([
+  orientation: SelectField([
     "landscape",
     "portrait"
     /* PORTRAIT */
@@ -74013,7 +73980,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "1.0.2";
+    return "1.0.3";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

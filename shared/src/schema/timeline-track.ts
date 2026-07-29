@@ -5,7 +5,7 @@ import {
   RelationField,
   BoolField,
   baseSchema,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 

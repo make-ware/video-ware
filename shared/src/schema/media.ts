@@ -9,7 +9,7 @@ import {
   baseSchema,
   DateField,
   BoolField,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { MediaType } from '../enums';

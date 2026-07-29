@@ -3247,7 +3247,7 @@ __metadata:
     fast-check: "npm:^4.5.3"
     nodemon: "npm:^3.1.14"
     pocketbase: "npm:^0.27.0"
-    pocketbase-zod-schema: "npm:^1.0.1"
+    pocketbase-zod-schema: "npm:^1.0.2"
     prettier: "npm:^3.9.6"
     tsup: "npm:^8.5.1"
     typescript: "npm:^5.9.3"
@@ -3315,7 +3315,7 @@ __metadata:
     next: "npm:16.2.12"
     next-themes: "npm:^0.4.6"
     pocketbase: "npm:^0.27.0"
-    pocketbase-zod-schema: "npm:^1.0.1"
+    pocketbase-zod-schema: "npm:^1.0.2"
     prettier: "npm:^3.9.6"
     react: "npm:19.2.8"
     react-day-picker: "npm:^9.14.0"
@@ -13098,9 +13098,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pocketbase-zod-schema@npm:^1.0.1":
-  version: 1.0.1
-  resolution: "pocketbase-zod-schema@npm:1.0.1"
+"pocketbase-zod-schema@npm:^1.0.2":
+  version: 1.0.2
+  resolution: "pocketbase-zod-schema@npm:1.0.2"
   dependencies:
     acorn: "npm:^8.17.0"
     chalk: "npm:^5.6.2"
@@ -13111,7 +13111,7 @@ __metadata:
     zod: "npm:^4.3.5"
   bin:
     pocketbase-migrate: dist/cli/migrate.js
-  checksum: 10/53195ea5f261fa7f313c7627326f0eef94f6c3322acd9c4bb148c4567896ce2f156b32bcca2d1d2d322cfa60634e32419165b19212442732ea1585eba1a23fd4
+  checksum: 10/c82be7cc0fc2e6fea5e64101c76cd116371e5612c9333fcc6c10d866f59c7d00451f06a622b207dea64e63ac83fd2b244e05d906c5b9d3e647ccd2121eff014d
   languageName: node
   linkType: hard
 

@@ -3,7 +3,7 @@ import {
   defineView,
   sql,
   RelationField,
-} from 'pocketbase-zod-schema/schema';
+} from 'pocketbase-zod-schema';
 import { memberRule } from '../utils/collection-permissions';
 import { z } from 'zod';
 

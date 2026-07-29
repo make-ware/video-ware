@@ -145,7 +145,22 @@ export class LabelsFlowBuilder {
         enabled:
           enabled.personDetection && payload.config?.detectPersons === true,
         needsGcsUpload: true,
-        input: { type: 'person_detection', ...detectionInputBase },
+        // Landmarks and attributes are requested explicitly, like faces: the
+        // executor gates EXTRACTION on the same flags it sends to the API, so
+        // leaving them unset meant paying for pose landmarks and clothing
+        // attributes and then dropping them. The payload's threshold has to be
+        // forwarded too — a person track scores ~0.5-0.8, so the executor's
+        // own default decides whether anyone survives at all.
+        input: {
+          type: 'person_detection',
+          ...detectionInputBase,
+          config: {
+            includeBoundingBoxes: true,
+            includePoseLandmarks: true,
+            includeAttributes: true,
+            confidenceThreshold: payload.config?.confidenceThreshold,
+          },
+        },
       },
       {
         stepType: DetectLabelsStepType.TEXT_DETECTION,

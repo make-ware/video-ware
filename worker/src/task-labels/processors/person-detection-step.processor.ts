@@ -40,7 +40,13 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
   PersonDetectionStepOutput
 > {
   protected readonly logger = new Logger(PersonDetectionStepProcessor.name);
-  private readonly processorVersion = 'person-detection:1.0.0';
+  // 2.0.0: 1.0.0 filtered every person track at a hardcoded 0.7 and dropped
+  // landmarks/attributes it had paid to compute, so it cached `{persons: []}`
+  // for every media — and that cache made a re-detect a no-op. The bump is
+  // what makes those media re-run; unlike text detection, the row hashes here
+  // carry the processor version, so re-detected people land as new rows (there
+  // are none to keep).
+  private readonly processorVersion = 'person-detection:2.0.0';
 
   constructor(
     private readonly labelCacheService: LabelCacheService,

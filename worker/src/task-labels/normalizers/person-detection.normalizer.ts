@@ -27,10 +27,21 @@ import type {
  * - Pose landmarks (body keypoints)
  * - Person attributes (clothing colors)
  */
-interface AttributeSummary {
-  upperClothingColor?: string;
-  lowerClothingColor?: string;
-}
+/**
+ * The clothing fields the executor extracts, in the order they are aggregated.
+ * GCVI reports colors and garment/pattern descriptors under the same attribute
+ * name, so each slot carries both (and either can be absent).
+ */
+const CLOTHING_FIELDS = [
+  'upperClothingColor',
+  'upperClothingType',
+  'lowerClothingColor',
+  'lowerClothingType',
+] as const;
+
+type ClothingField = (typeof CLOTHING_FIELDS)[number];
+
+type AttributeSummary = Partial<Record<ClothingField, string>>;
 
 interface LandmarkSummary {
   detectedTypes: string[];
@@ -122,12 +133,7 @@ export class PersonDetectionNormalizer {
           bottom: frame.boundingBox.bottom,
         },
         confidence: frame.confidence,
-        attributes: frame.attributes
-          ? {
-              upperClothingColor: frame.attributes.upperClothingColor,
-              lowerClothingColor: frame.attributes.lowerClothingColor,
-            }
-          : undefined,
+        attributes: frame.attributes ? { ...frame.attributes } : undefined,
         landmarks: frame.landmarks
           ? frame.landmarks.map((landmark) => ({
               type: landmark.type,
@@ -212,8 +218,18 @@ export class PersonDetectionNormalizer {
           end,
           duration,
           confidence: avgConfidence,
-          upperBodyColor: attributesSummary.upperClothingColor as string,
-          lowerBodyColor: attributesSummary.lowerClothingColor as string,
+          // Rendered as "Upper Body"/"Lower Body" in the inspector and the CLI
+          // label list, so fall back to the garment descriptor when GCVI
+          // reported no color — otherwise the lower body is always blank
+          // (its vocabulary is LongPants/ShortSkirt/…, never a color) and the
+          // one attribute the model IS confident about goes unshown. The full
+          // breakdown stays in `metadata.attributes`.
+          upperBodyColor:
+            attributesSummary.upperClothingColor ??
+            attributesSummary.upperClothingType,
+          lowerBodyColor:
+            attributesSummary.lowerClothingColor ??
+            attributesSummary.lowerClothingType,
           hasLandmarks: landmarksSummary.detectedTypes.length > 0,
           metadata: {
             frameCount: person.frames.length,
@@ -251,42 +267,32 @@ export class PersonDetectionNormalizer {
   /**
    * Aggregate person attributes across all frames
    *
-   * Returns the most common attribute values
+   * Returns the most common value per clothing field, skipping fields the
+   * provider never reported (its LowerCloth vocabulary carries no colors, so
+   * `lowerClothingColor` is normally absent).
    */
   private aggregateAttributes(
-    frames: Array<{
-      attributes?: { upperClothingColor?: string; lowerClothingColor?: string };
-    }>
+    frames: Array<{ attributes?: Partial<Record<ClothingField, string>> }>
   ): AttributeSummary {
-    const upperColorCounts = new Map<string, number>();
-    const lowerColorCounts = new Map<string, number>();
+    const summary: AttributeSummary = {};
 
-    for (const frame of frames) {
-      if (frame.attributes) {
-        if (frame.attributes.upperClothingColor) {
-          upperColorCounts.set(
-            frame.attributes.upperClothingColor,
-            (upperColorCounts.get(frame.attributes.upperClothingColor) ?? 0) + 1
-          );
-        }
+    for (const field of CLOTHING_FIELDS) {
+      const counts = new Map<string, number>();
 
-        if (frame.attributes.lowerClothingColor) {
-          lowerColorCounts.set(
-            frame.attributes.lowerClothingColor,
-            (lowerColorCounts.get(frame.attributes.lowerClothingColor) ?? 0) + 1
-          );
+      for (const frame of frames) {
+        const value = frame.attributes?.[field];
+        if (value) {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
         }
+      }
+
+      const mostCommon = this.getMostCommon(counts);
+      if (mostCommon) {
+        summary[field] = mostCommon;
       }
     }
 
-    // Find most common values
-    const mostCommonUpperColor = this.getMostCommon(upperColorCounts);
-    const mostCommonLowerColor = this.getMostCommon(lowerColorCounts);
-
-    return {
-      upperClothingColor: mostCommonUpperColor,
-      lowerClothingColor: mostCommonLowerColor,
-    };
+    return summary;
   }
 
   /**

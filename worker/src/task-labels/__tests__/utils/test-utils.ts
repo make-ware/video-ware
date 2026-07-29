@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { mapPersonDetectionResponse } from '../../executors/person-detection.executor';
 import {
   FaceDetectionResponse,
   SpeechTranscriptionResponse,
@@ -197,53 +198,15 @@ export function mapObjectTrackingFixture(fixture: any): ObjectTrackingResponse {
 }
 
 /**
- * Map raw Person Detection fixture to PersonDetectionResponse
+ * Map raw Person Detection fixture to PersonDetectionResponse.
+ *
+ * Delegates to the executor's own mapping on purpose. A second, subtly
+ * different mapper here is what let the executor ship with a 0.7 confidence
+ * cut, an unreachable attribute-name check and config-gated landmark
+ * extraction while this spec stayed green.
  */
 export function mapPersonDetectionFixture(
   fixture: any
 ): PersonDetectionResponse {
-  const annotation = fixture.annotationResults[0];
-  const persons: any[] = [];
-
-  for (const person of annotation.personDetectionAnnotations || []) {
-    for (const track of person.tracks || []) {
-      const trackId =
-        track.trackId !== undefined && track.trackId !== null
-          ? String(track.trackId)
-          : '';
-      persons.push({
-        trackId: trackId,
-        frames: (track.timestampedObjects || []).map((obj: any) => {
-          const attributes: any = {};
-          if (obj.attributes) {
-            for (const attr of obj.attributes) {
-              const name = attr.name?.toLowerCase() || '';
-              if (name === 'uppercloth' || name === 'upper_clothing_color') {
-                attributes.upperClothingColor = attr.value;
-              } else if (
-                name === 'lowercloth' ||
-                name === 'lower_clothing_color'
-              ) {
-                attributes.lowerClothingColor = attr.value;
-              }
-            }
-          }
-          return {
-            timeOffset: parseTimeOffset(obj.timeOffset),
-            boundingBox: parseBoundingBox(obj.normalizedBoundingBox),
-            confidence: track.confidence || 0,
-            attributes:
-              Object.keys(attributes).length > 0 ? attributes : undefined,
-            landmarks: (obj.landmarks || []).map((l: any) => ({
-              type: l.name,
-              position: { x: l.point.x, y: l.point.y, z: 0 },
-              confidence: l.confidence || 0,
-            })),
-          };
-        }),
-      });
-    }
-  }
-
-  return { persons };
+  return mapPersonDetectionResponse(fixture);
 }

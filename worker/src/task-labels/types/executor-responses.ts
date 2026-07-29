@@ -109,11 +109,24 @@ export interface FaceDetectionResponse {
 }
 
 /**
- * Person attributes detected in a frame
+ * Person attributes detected in a frame.
+ *
+ * GCVI reports clothing as two attributes — `UpperCloth` and `LowerCloth` —
+ * each carrying a whole DISTRIBUTION of candidate values with their own
+ * confidences (28 UpperCloth candidates in a real response), and mixing colors
+ * ("Blue") with garment/pattern descriptors ("LongSleeve", "Striped"). The
+ * executor keeps the highest-confidence candidate of each kind, so a color
+ * field never holds a garment name. Either kind can be absent: GCVI's
+ * LowerCloth vocabulary is garment-only, so `lowerClothingColor` is normally
+ * undefined.
  */
 export interface PersonAttributes {
   upperClothingColor?: string;
   lowerClothingColor?: string;
+  /** Top garment/pattern descriptor — "LongSleeve", "Jacket", "Striped". */
+  upperClothingType?: string;
+  /** Top garment descriptor — "LongPants", "ShortSkirt". */
+  lowerClothingType?: string;
 }
 
 /**

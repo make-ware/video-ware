@@ -212,6 +212,12 @@ export interface TaskDetectLabelsPersonDetectionStep extends TaskDetectLabelsBas
     includeBoundingBoxes?: boolean;
     includePoseLandmarks?: boolean;
     includeAttributes?: boolean;
+    /**
+     * Drop person tracks scoring below this (0–1, default 0.5). GCVI scores a
+     * person track well below a face track, so a face-like 0.7 cut discards
+     * most people in a video.
+     */
+    confidenceThreshold?: number;
   };
 }
 

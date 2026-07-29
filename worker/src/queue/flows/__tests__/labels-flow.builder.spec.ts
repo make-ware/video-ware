@@ -227,6 +227,34 @@ describe('LabelsFlowBuilder - Flow Definition Compliance', () => {
     ]);
   });
 
+  /**
+   * The person step used to carry no config at all. The executor gates
+   * EXTRACTION on the same flags it sends to the API and defaults its
+   * confidence cut, so an absent config meant paying GCVI for pose landmarks
+   * and clothing attributes and then discarding them — and filtering at a
+   * threshold the payload never got to set.
+   */
+  it('should request person landmarks/attributes and forward the payload threshold', () => {
+    const flow = LabelsFlowBuilder.buildFlow(
+      makeTask(ALL_REQUESTED),
+      ALL_ENABLED
+    );
+
+    const person = detectionChildren(flow).find(
+      (c) => c.data.stepType === LABELS_FLOW_STEPS.PERSON_DETECTION
+    );
+
+    expect(person?.data.input).toMatchObject({
+      type: 'person_detection',
+      config: {
+        includeBoundingBoxes: true,
+        includePoseLandmarks: true,
+        includeAttributes: true,
+        confidenceThreshold: 0.5,
+      },
+    });
+  });
+
   it('should build an empty flow (no upload) when no processors are enabled', () => {
     const flow = LabelsFlowBuilder.buildFlow(makeTask(ALL_REQUESTED), {
       ...NONE_ENABLED,

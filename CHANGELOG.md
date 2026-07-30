@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.4](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.3...video-ware-v1.0.4) (2026-07-30)
+
+
+### Bug Fixes
+
+* align schema to pocketbase ([3040202](https://github.com/make-ware/video-ware/commit/30402022bc9023e00cb8f047ec9d89733786c1fe))
+* missing person label data ([04058ef](https://github.com/make-ware/video-ware/commit/04058efda828e97be6384e48ae7469eb74bb4427))
+* repair workspace management ([be044fc](https://github.com/make-ware/video-ware/commit/be044fc0d090ca2361fe9cbc38c99770677008c3))
+
 ## [1.0.3](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.2...video-ware-v1.0.3) (2026-07-28)
 
 

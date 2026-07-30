@@ -155,12 +155,14 @@ export function tileFrameTime(config: TileGeometry, time: number): number {
 /**
  * Pixel rect of one tile, derived from the sprite's REAL decoded dimensions.
  *
- * Deliberately ignores `meta.filmstripConfig.tileWidth/tileHeight`: the
- * transcode processor stores the tile size it was *asked* for, while the
- * ffmpeg executor recomputes tile height from the source aspect ratio and
- * overrides it — so for any non-16:9 media the stored height is wrong. The
- * decoded image is the only trustworthy source, and `cols`/`rows` divide it
- * exactly (ffmpeg's `tile` filter emits a flush grid).
+ * Deliberately ignores `meta.filmstripConfig.tileWidth/tileHeight`. The worker
+ * now records the geometry it actually generated, but every strip written
+ * before that stored the tile size it was *asked* for while the executor
+ * silently derived a different height from the source aspect — so those
+ * records are wrong for anything but 16:9, and they are still in the database.
+ * A caller holding the decoded image never has to care which era a record came
+ * from: `cols`/`rows` divide the sheet exactly (ffmpeg's `tile` filter emits a
+ * flush grid), so the pixels answer the question outright.
  */
 export function tileRect(
   config: { cols: number; rows: number },

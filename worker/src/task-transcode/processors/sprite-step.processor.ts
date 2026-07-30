@@ -10,7 +10,12 @@ import type {
   TaskTranscodeSpriteStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource, MediaType } from '@project/shared';
+import {
+  FileType,
+  FileSource,
+  MediaType,
+  mediaDisplayDimensions,
+} from '@project/shared';
 
 /**
  * Processor for the SPRITE step
@@ -79,11 +84,16 @@ export class SpriteStepProcessor extends BaseStepProcessor<
       `Generating sprite sheet: ${cols}x${rows} at ${fps.toFixed(4)} fps for ${duration}s ${mediaData.mediaType}`
     );
 
-    // Create enhanced config with source dimensions and calculated grid
+    // Create enhanced config with source dimensions and calculated grid.
+    // Display dimensions carry the rotation ffmpeg applies on decode, so they
+    // are what the executor must shape tiles to.
+    const display = mediaDisplayDimensions(mediaData);
     const enhancedConfig = {
       ...input.config,
       sourceWidth: mediaData.width,
       sourceHeight: mediaData.height,
+      sourceDisplayWidth: display.width,
+      sourceDisplayHeight: display.height,
       fps,
       cols,
       rows,
@@ -99,8 +109,15 @@ export class SpriteStepProcessor extends BaseStepProcessor<
     );
 
     try {
-      // Generate sprite
-      await this.spriteExecutor.execute(filePath, spritePath, enhancedConfig);
+      // Generate sprite. The result reports the geometry the sheet was really
+      // built with (tile height follows the source display aspect), which is
+      // what goes into meta — the requested config would be a lie for any
+      // media that isn't the aspect the caller guessed.
+      const sprite = await this.spriteExecutor.execute(
+        filePath,
+        spritePath,
+        enhancedConfig
+      );
 
       // Create File record with sprite configuration in meta
       const storageKey = this.storageService.transcodeStorageKey(
@@ -129,12 +146,16 @@ export class SpriteStepProcessor extends BaseStepProcessor<
         meta: {
           mimeType: 'image/jpeg',
           spriteConfig: {
-            cols: enhancedConfig.cols,
-            rows: enhancedConfig.rows,
-            fps: enhancedConfig.fps,
-            tileWidth: enhancedConfig.tileWidth,
-            tileHeight: enhancedConfig.tileHeight,
+            cols: sprite.cols,
+            rows: sprite.rows,
+            fps: sprite.fps,
+            tileWidth: sprite.tileWidth,
+            tileHeight: sprite.tileHeight,
           },
+          // Dimensions of the sheet itself, so a consumer can size/validate it
+          // without decoding the image.
+          width: sprite.sheetWidth,
+          height: sprite.sheetHeight,
         },
       });
 

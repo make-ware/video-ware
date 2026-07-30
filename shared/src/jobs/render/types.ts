@@ -62,6 +62,12 @@ export interface TaskRenderFinalizeStep {
   version: number;
   /** Output format (e.g., 'mp4') - used to determine file path */
   format: string;
+  /**
+   * The settings this render was asked for, recorded onto the output File's
+   * `meta.renderSettings` (the renders page shows resolution/codec/fps from
+   * it). Optional so a flow enqueued before this field existed still runs.
+   */
+  outputSettings?: RenderTimelinePayload['outputSettings'];
 }
 
 /**

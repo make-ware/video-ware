@@ -6,7 +6,13 @@ import type { ProcessingProvider, TimelineOrientation } from '../enums.js';
 // ============================================================================
 
 /**
- * Configuration for sprite sheet generation
+ * Configuration for sprite sheet generation.
+ *
+ * As a *request* this is advisory: the generator always scales tiles to the
+ * source's display aspect ratio, so a requested `tileHeight` that disagrees
+ * with it is overridden rather than obeyed (forcing it would stretch the
+ * frames). As stored File `meta.spriteConfig` it is a *record* of the geometry
+ * the sheet was actually built with — read it there, never the request.
  */
 export interface SpriteConfig {
   /** Frames per second to sample (e.g., 1 for one frame per second) */
@@ -22,7 +28,9 @@ export interface SpriteConfig {
 }
 
 /**
- * Configuration for filmstrip generation
+ * Configuration for filmstrip generation. Same request-vs-record split as
+ * SpriteConfig: `tileHeight` in a request is a hint, and the value stored on a
+ * segment's File `meta.filmstripConfig` is what the strip really contains.
  */
 export interface FilmstripConfig {
   /** Number of columns in the filmstrip (e.g., 100) */
@@ -31,7 +39,9 @@ export interface FilmstripConfig {
   rows: number;
   /** Width of each tile in pixels */
   tileWidth: number;
-  /** Height of each tile in pixels (optional, will be calculated from aspect ratio if not provided) */
+  /** Height of each tile in pixels — derived from the source display aspect
+   * when it can be (see the interface note); only used verbatim when the
+   * source dimensions are unknown. */
   tileHeight?: number;
   /**
    * The following fields are not part of the generation *input* — they are

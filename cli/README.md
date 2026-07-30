@@ -736,10 +736,13 @@ output directory is an error rather than being created. `--base64` prints the
 image instead of writing anything, so it cannot be combined with `-o`/`--force`.
 
 Tile geometry is derived from the decoded sheet, not from the stored
-`filmstripConfig.tileWidth/tileHeight` — those record what the transcode step
-was _asked_ for, while the ffmpeg executor recomputes tile height from the
-source aspect ratio, so for non-16:9 media the stored value disagrees with the
-image. `image.geometrySource` in the JSON is a reminder of that.
+`filmstripConfig.tileWidth/tileHeight`. The worker records the geometry it
+really generated, but strips made before that stored the _requested_ tile size
+while the executor derived a different height from the source aspect — so older
+records disagree with their own pixels for non-16:9 and rotated media, and
+those records are still in the database. Since `vw frame` has to decode the
+sheet to crop it anyway, it measures instead of trusting;
+`image.geometrySource` in the JSON records that.
 
 ## Label search
 

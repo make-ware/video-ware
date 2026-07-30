@@ -26,7 +26,10 @@ export function SpriteAnimator({
   className,
   fallbackIcon = <PlayCircle className="h-8 w-8" strokeWidth={1.5} />,
 }: SpriteAnimatorProps) {
-  const { url, config, isLoading } = useSpriteData(media, spriteFile);
+  const { url, config, tileAspect, isLoading } = useSpriteData(
+    media,
+    spriteFile
+  );
   const { frameIndex } = useSpriteAnimation({
     start,
     end,
@@ -65,7 +68,12 @@ export function SpriteAnimator({
 
   return (
     <div className={cn('relative w-full h-full overflow-hidden', className)}>
-      <SpritePreview url={url} config={config} frameIndex={frameIndex} />
+      <SpritePreview
+        url={url}
+        config={config}
+        frameIndex={frameIndex}
+        tileAspect={tileAspect}
+      />
     </div>
   );
 }

@@ -63,6 +63,9 @@ export const MediaInputSchema = z.object({
   duration: NumberField({ min: 0 }),
   width: NumberField({ min: 0 }).optional(),
   height: NumberField({ min: 0 }).optional(),
+  // Degrees (0/90/180/270). Written by the PROBE step: `width`/`height` are the
+  // coded dimensions, and this is what turns them into display dimensions.
+  rotation: NumberField({ min: 0 }).optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: z.string().optional(),

@@ -1,7 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { LabelTrack, Media } from '@project/shared';
+import {
+  mediaDisplayAspect,
+  type LabelTrack,
+  type Media,
+} from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { cn } from '@/lib/utils';
 import { useFilmstripData } from '@/components/filmstrip/use-filmstrip-data';
@@ -58,10 +62,14 @@ export function TrackCropThumb({
     );
     const bbox = interpolateBbox(sorted, frameTime - track.start);
     if (!bbox) return null;
-    const aspect =
-      media.aspectRatio ||
-      (media.width && media.height ? media.width / media.height : 16 / 9);
-    const region = bboxCropRegion(bbox, aspect, displayAspect);
+    // Filmstrip tiles are display-oriented (ffmpeg autorotates on decode), so
+    // the crop math needs the display aspect — `media.aspectRatio` is the coded
+    // one and is sideways for rotated phone footage.
+    const region = bboxCropRegion(
+      bbox,
+      mediaDisplayAspect(media),
+      displayAspect
+    );
     if (!region) return null;
     return cropBackground(strip.config, midTime, region);
   }, [strip, sorted, midTime, track.start, track.end, media, displayAspect]);

@@ -9,7 +9,15 @@ import {
   TaskRenderFinalizeStep,
   TaskRenderFinalizeStepOutput,
 } from '@project/shared/jobs';
-import { FileType, FileSource, FileStatus, TaskStatus } from '@project/shared';
+import {
+  FileType,
+  FileSource,
+  FileStatus,
+  TaskStatus,
+  type FileMetadata,
+  type ProbeOutput,
+} from '@project/shared';
+import { probeFacts } from '../../shared/utils/asset-meta';
 import { Readable } from 'stream';
 
 /**
@@ -35,8 +43,14 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     input: TaskRenderFinalizeStep,
     job: Job<StepJobData>
   ): Promise<TaskRenderFinalizeStepOutput> {
-    const { timelineId, timelineRenderId, workspaceId, version, format } =
-      input;
+    const {
+      timelineId,
+      timelineRenderId,
+      workspaceId,
+      version,
+      format,
+      outputSettings,
+    } = input;
     const taskId = job.data.taskId;
 
     this.logger.log(`Finalizing render for timeline ${timelineId}`);
@@ -65,8 +79,12 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     const fileName = `${timelineName}_render.${format}`;
     let fileRecord;
 
-    const meta = {
-      ...probeOutput,
+    // Meta = what the render actually is (probed from the output file) plus the
+    // settings it was asked for. Both halves are declared in FileMetaSchema, so
+    // they survive the mutator's validation on the S3 fallback path below too.
+    const meta: FileMetadata = {
+      ...probeFacts(probeOutput),
+      ...(outputSettings ? { renderSettings: outputSettings } : {}),
       mimeType: this.getMimeType(format),
     };
 
@@ -158,6 +176,13 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
     };
   }
 
+  /**
+   * Shape ffprobe's raw output into a ProbeOutput for the rendered file.
+   *
+   * A render is a fresh encode with no display matrix, so coded dimensions are
+   * the display dimensions. The audio block is included so the File's meta
+   * carries the mixed track's channel count and sample rate.
+   */
   private mapProbeResult(probeResult: {
     streams: Array<{
       codec_type: string;
@@ -166,6 +191,9 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
       codec_name?: string;
       r_frame_rate?: string;
       avg_frame_rate?: string;
+      channels?: number;
+      sample_rate?: string | number;
+      bit_rate?: string | number;
     }>;
     format: {
       duration?: string | number;
@@ -173,9 +201,12 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
       format_name?: string;
       size?: string | number;
     };
-  }): Record<string, unknown> {
+  }): ProbeOutput {
     const videoStream = probeResult.streams.find(
       (s) => s.codec_type === 'video'
+    );
+    const audioStream = probeResult.streams.find(
+      (s) => s.codec_type === 'audio'
     );
     const parseFps = (fpsString: string | undefined): number => {
       if (!fpsString) return 0;
@@ -183,16 +214,32 @@ export class FinalizeRenderStepProcessor extends BaseStepProcessor<
       return den && den > 0 ? num / den : 0;
     };
 
+    const width = videoStream?.width || 0;
+    const height = videoStream?.height || 0;
+
     return {
       duration: parseFloat(String(probeResult.format.duration)) || 0,
-      width: videoStream?.width || 0,
-      height: videoStream?.height || 0,
+      width,
+      height,
+      displayWidth: width,
+      displayHeight: height,
+      rotation: 0,
       codec: videoStream?.codec_name || 'unknown',
       fps:
         parseFps(videoStream?.r_frame_rate || videoStream?.avg_frame_rate) || 0,
       bitrate: parseInt(String(probeResult.format.bit_rate)) || undefined,
       format: probeResult.format.format_name || 'unknown',
       size: parseInt(String(probeResult.format.size)) || undefined,
+      audio: audioStream
+        ? {
+            codec: audioStream.codec_name || 'unknown',
+            channels: audioStream.channels || 0,
+            sampleRate: Number(audioStream.sample_rate) || 0,
+            bitrate: audioStream.bit_rate
+              ? parseInt(String(audioStream.bit_rate))
+              : undefined,
+          }
+        : undefined,
     };
   }
 

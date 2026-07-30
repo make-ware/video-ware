@@ -42,12 +42,48 @@ const SpriteConfigSchema = z.object({
   tileHeight: z.number(),
 }) satisfies z.ZodType<SpriteConfig>;
 
-export const FileMetaSchema = z.object({
-  renderSettings: RenderTimelineConfigSchema.optional(),
-  filmstripConfig: FilmstripConfigSchema.optional(),
-  spriteConfig: SpriteConfigSchema.optional(),
-  mimeType: z.string(),
+/**
+ * Measured facts about the *generated* asset — never a copy of the source
+ * media's numbers. Every producer writes these from what it actually emitted
+ * (the geometry handed to ffmpeg, or a probe of the finished output), so a
+ * consumer can lay out a thumbnail/proxy/render without loading it first.
+ *
+ * All optional: which fields apply depends on the asset (a sprite sheet has
+ * width/height but no duration; an extracted audio track has duration,
+ * channels and sampleRate but no frame size), and records written before a
+ * given field existed simply lack it.
+ */
+const FileMediaFactsSchema = z.object({
+  /** Pixel width of the generated image/video (whole sheet for sprites). */
+  width: z.number().optional(),
+  /** Pixel height of the generated image/video (whole sheet for sprites). */
+  height: z.number().optional(),
+  /** Duration in seconds (time-based outputs only). */
+  duration: z.number().optional(),
+  /** Frames per second of the generated video. */
+  fps: z.number().optional(),
+  /** Codec of the generated stream (video codec, or audio for audio-only). */
+  codec: z.string().optional(),
+  /** Container bitrate in bits per second. */
+  bitrate: z.number().optional(),
+  /** Container format name as reported by ffprobe. */
+  format: z.string().optional(),
+  /** Size in bytes as reported by ffprobe. */
+  size: z.number().optional(),
+  /** Audio channel count (audio outputs). */
+  channels: z.number().optional(),
+  /** Audio sample rate in Hz (audio outputs). */
+  sampleRate: z.number().optional(),
 });
+
+export const FileMetaSchema = z
+  .object({
+    renderSettings: RenderTimelineConfigSchema.optional(),
+    filmstripConfig: FilmstripConfigSchema.optional(),
+    spriteConfig: SpriteConfigSchema.optional(),
+    mimeType: z.string(),
+  })
+  .extend(FileMediaFactsSchema.shape);
 
 export type FileMetadata = z.infer<typeof FileMetaSchema>;
 

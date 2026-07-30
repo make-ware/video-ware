@@ -106,13 +106,17 @@ export class ProbeStepProcessor extends BaseStepProcessor<
       probeOutput.duration = 5.0;
     }
 
-    // Update Media record
+    // Update Media record. `width`/`height`/`aspectRatio` are the CODED values;
+    // `rotation` is what turns them into what a viewer sees, so it is written
+    // alongside them (see mediaDisplayDimensions, which every consumer that
+    // needs a frame's real shape goes through).
     const mediaData: Partial<MediaInput> = {
       mediaType,
       mediaDate: mediaDate?.toISOString(),
       duration: probeOutput.duration,
       width: probeOutput.width,
       height: probeOutput.height,
+      rotation: probeOutput.rotation ?? 0,
       aspectRatio,
       mediaData: probeOutput,
       hasAudio,

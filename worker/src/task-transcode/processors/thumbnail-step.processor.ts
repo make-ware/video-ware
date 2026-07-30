@@ -10,7 +10,12 @@ import type {
   TaskTranscodeThumbnailStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource, MediaType } from '@project/shared';
+import {
+  FileType,
+  FileSource,
+  MediaType,
+  mediaDisplayDimensions,
+} from '@project/shared';
 
 /**
  * Processor for the THUMBNAIL step
@@ -66,11 +71,16 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
       return { thumbnailPath: '', thumbnailFileId: '' };
     }
 
-    // Create enhanced config with source dimensions
+    // Create enhanced config with source dimensions. Display dimensions carry
+    // the rotation ffmpeg applies on decode, so fitting the requested box to
+    // them is what keeps portrait media from being stretched.
+    const display = mediaDisplayDimensions(mediaData);
     const enhancedConfig = {
       ...input.config,
       sourceWidth: mediaData.width,
       sourceHeight: mediaData.height,
+      sourceDisplayWidth: display.width,
+      sourceDisplayHeight: display.height,
     };
 
     // Generate output path using FileResolver
@@ -86,7 +96,7 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
       // Generate thumbnail
       const effectiveDuration =
         mediaData.mediaType === MediaType.IMAGE ? 0 : mediaData.duration;
-      await this.thumbnailExecutor.execute(
+      const thumbnail = await this.thumbnailExecutor.execute(
         filePath,
         thumbnailPath,
         enhancedConfig,
@@ -112,6 +122,14 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
         // Link to Media so the record is removed when the Media is deleted.
         mediaRef: mediaData.id,
         mimeType: 'image/jpeg',
+        meta: {
+          mimeType: 'image/jpeg',
+          // The written image, not the requested box: the executor fits the
+          // request to the source display aspect, so one axis is usually
+          // smaller. Consumers can reserve the right space without decoding.
+          width: thumbnail.width,
+          height: thumbnail.height,
+        },
       });
 
       // Update Media record

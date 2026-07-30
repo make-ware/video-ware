@@ -54,11 +54,12 @@ export function decodeFilmstripJpeg(
  * Copy one tile out of a decoded sheet.
  *
  * Tile geometry comes from `tileRect`, i.e. from the sheet's real decoded
- * dimensions — never from `meta.filmstripConfig.tileWidth/tileHeight`. Those
- * are the values the transcode step was *asked* for: the ffmpeg executor
- * recomputes tile height from the source aspect ratio and the processor stores
- * the request anyway, so for non-16:9 (and rotated) media the stored size
- * disagrees with the image.
+ * dimensions — never from `meta.filmstripConfig.tileWidth/tileHeight`. The
+ * worker records its real geometry now, but strips generated before that
+ * stored the *requested* tile size while the executor derived a different
+ * height from the source aspect, so older records disagree with their own
+ * pixels for non-16:9 and rotated media. Measuring the sheet we already had to
+ * decode sidesteps the question entirely.
  */
 export function cropTile(
   image: RgbaImage,

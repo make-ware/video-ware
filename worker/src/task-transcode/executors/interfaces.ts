@@ -23,13 +23,27 @@ export interface ThumbnailConfig {
   height: number;
   sourceWidth: number;
   sourceHeight: number;
+  /** Display width after rotation (ffmpeg autorotates before scaling) */
+  sourceDisplayWidth?: number;
+  /** Display height after rotation (ffmpeg autorotates before scaling) */
+  sourceDisplayHeight?: number;
 }
 
 /**
- * Result from thumbnail generation
+ * Result from thumbnail generation.
+ *
+ * Carries the geometry actually handed to ffmpeg — the executor fits the
+ * requested box to the source's display aspect, so the request's width/height
+ * is an upper bound, not what the file contains. Callers persist these.
  */
 export interface ThumbnailResult {
   outputPath: string;
+  /** Pixel width of the written image */
+  width: number;
+  /** Pixel height of the written image */
+  height: number;
+  /** Source timestamp (seconds) the frame was taken from */
+  timestamp: number;
 }
 
 /**
@@ -40,16 +54,35 @@ export interface SpriteConfig {
   cols: number;
   rows: number;
   tileWidth: number;
+  /** Advisory: overridden by the source display aspect when dimensions are known */
   tileHeight: number;
   sourceWidth?: number;
   sourceHeight?: number;
+  /** Display width after rotation (ffmpeg autorotates before scaling) */
+  sourceDisplayWidth?: number;
+  /** Display height after rotation (ffmpeg autorotates before scaling) */
+  sourceDisplayHeight?: number;
 }
 
 /**
- * Result from sprite generation
+ * Result from sprite generation.
+ *
+ * Reports the geometry the sheet was actually built with. The executor derives
+ * `tileHeight` from the source's display aspect, so it routinely differs from
+ * the requested value — persisting the request instead of this is what makes
+ * stored sprite/filmstrip meta lie about non-16:9 media.
  */
 export interface SpriteResult {
   outputPath: string;
+  cols: number;
+  rows: number;
+  fps: number;
+  tileWidth: number;
+  tileHeight: number;
+  /** Pixel width of the whole sheet (cols × tileWidth) */
+  sheetWidth: number;
+  /** Pixel height of the whole sheet (rows × tileHeight) */
+  sheetHeight: number;
 }
 
 /**

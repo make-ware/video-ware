@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { BaseStepProcessor } from '../../queue/processors/base-step.processor';
-import { FFmpegAudioExecutor } from '../executors';
+import { FFmpegAudioExecutor, FFmpegProbeExecutor } from '../executors';
 import { StorageService } from '../../shared/services/storage.service';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { FileResolver } from '../utils/file-resolver';
+import { probeFacts, type AssetFacts } from '../../shared/utils/asset-meta';
 import type {
   TaskTranscodeAudioStep,
   TaskTranscodeAudioStepOutput,
@@ -25,6 +26,7 @@ export class AudioStepProcessor extends BaseStepProcessor<
 
   constructor(
     private readonly audioExecutor: FFmpegAudioExecutor,
+    private readonly probeExecutor: FFmpegProbeExecutor,
     private readonly storageService: StorageService,
     private readonly pocketbaseService: PocketBaseService
   ) {
@@ -94,6 +96,24 @@ export class AudioStepProcessor extends BaseStepProcessor<
         fileName
       );
 
+      // Probe the extracted track so its File carries the real duration, codec,
+      // channel count and sample rate. The waveform/scrub UIs read these, and
+      // ffmpeg silently adjusts requests it cannot honor (e.g. an mp3 cannot do
+      // every sample rate), so the request is not a safe stand-in. Best-effort:
+      // the track is already written, so a probe failure only costs metadata.
+      const mimeType = this.getMimeType(format);
+      let facts: AssetFacts = {};
+      try {
+        const { probeOutput } = await this.probeExecutor.execute(audioPath);
+        facts = probeFacts(probeOutput);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to probe extracted audio ${audioPath}; storing meta without measured facts: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
       const audioFile = await this.pocketbaseService.uploadFile({
         localFilePath: audioPath,
         fileName,
@@ -104,7 +124,8 @@ export class AudioStepProcessor extends BaseStepProcessor<
         uploadRef: input.uploadId,
         // Link to Media so the record is removed when the Media is deleted.
         mediaRef: media?.id,
-        mimeType: this.getMimeType(format),
+        mimeType,
+        meta: { mimeType, ...facts },
       });
 
       // Update Media record

@@ -5,6 +5,8 @@ interface SpritePreviewProps {
   url: string;
   config: SpriteConfig;
   frameIndex: number;
+  /** Tile aspect ratio from `useSpriteData`; null when it can't be resolved. */
+  tileAspect?: number | null;
   className?: string;
 }
 
@@ -12,18 +14,18 @@ export function SpritePreview({
   url,
   config,
   frameIndex,
+  tileAspect,
   className,
 }: SpritePreviewProps) {
-  const { cols, rows, tileWidth, tileHeight } = config;
+  const { cols, rows } = config;
   const col = frameIndex % cols;
   const row = Math.floor(frameIndex / cols);
 
-  // When the source tile aspect ratio is known, render each frame with
+  // When the tile aspect ratio is known, render each frame with
   // object-fit:cover semantics so portrait/landscape clips aren't stretched
   // to match the card's container shape. Container query units resolve to
   // the wrapper's box, so no ResizeObserver is needed.
-  if (tileWidth && tileHeight && tileHeight > 0) {
-    const tileAspect = tileWidth / tileHeight;
+  if (tileAspect && tileAspect > 0) {
     const tileW = `max(100cqw, 100cqh * ${tileAspect})`;
     const tileH = `max(100cqh, 100cqw / ${tileAspect})`;
     return (
@@ -43,7 +45,8 @@ export function SpritePreview({
     );
   }
 
-  // Legacy fallback for sprites generated without tile dimension metadata.
+  // Fallback for media whose dimensions are unknown: stretch each tile to the
+  // container (the only option without an aspect to preserve).
   const xPercent = (col * 100) / (cols - 1 || 1);
   const yPercent = (row * 100) / (rows - 1 || 1);
   return (

@@ -15,6 +15,7 @@ export * from './timeline-doctor.js';
 export * from './nested-timeline.js';
 export * from './timeline-reflow.js';
 export * from './speaker.js';
+export * from './media-dimensions.js';
 
 import { z } from 'zod';
 

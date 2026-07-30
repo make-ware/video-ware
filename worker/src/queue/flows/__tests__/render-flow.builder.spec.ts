@@ -101,6 +101,22 @@ describe('RenderFlowBuilder - Flow Definition Compliance', () => {
     }
   });
 
+  it('should hand the output settings to FINALIZE for the File meta', () => {
+    const flow = RenderFlowBuilder.buildFlow(makeTask());
+    const [finalize] = chainSteps(flow);
+
+    // FINALIZE writes these onto the render File's meta.renderSettings, which
+    // is what the renders page reads back.
+    expect(finalize?.data.input).toMatchObject({
+      format: 'mp4',
+      outputSettings: {
+        codec: 'h264',
+        format: 'mp4',
+        resolution: '1920x1080',
+      },
+    });
+  });
+
   it('should fail the chain (and parent) when any step fails', () => {
     const flow = RenderFlowBuilder.buildFlow(makeTask());
 

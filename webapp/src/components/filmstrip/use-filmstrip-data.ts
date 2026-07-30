@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  evenTileHeight,
+  mediaDisplayDimensions,
   normalizeFilmstripSegments,
   segmentForTime,
   type Media,
@@ -33,23 +35,31 @@ export interface NormalizedFilmstrip {
  * the derived segmentIndex/startTime for pre-metadata records all come from
  * the shared helper — the same one `vw frame` crops with.
  *
- * `tileWidth`/`tileHeight` are carried through for display only; they are the
- * values the transcode step was *asked* for and can disagree with the actual
- * image (see `tileRect` in shared), so nothing may compute geometry from them.
+ * `tileHeight` is recomputed from the media's display aspect whenever that is
+ * known: the generator scales tiles to it, but records written before the
+ * worker persisted its real geometry carry the *requested* height instead
+ * (e.g. 180 against a 320px tile, wrong for anything but 16:9). The viewer
+ * positions a CSS background over the whole sheet, so it has to derive that
+ * height rather than measure it the way `vw frame` does when it decodes.
  */
-function normalizeFilmstrips(files: File[]): NormalizedFilmstrip[] {
+function normalizeFilmstrips(
+  files: File[],
+  displayAspect: number
+): NormalizedFilmstrip[] {
   const byId = new Map(files.map((file) => [file.id, file]));
   return normalizeFilmstripSegments(files).flatMap(({ fileId, config }) => {
     const file = byId.get(fileId);
     if (!file) return [];
-    const raw = file.meta?.filmstripConfig;
+    const tileWidth = file.meta?.filmstripConfig?.tileWidth ?? 0;
     return [
       {
         file,
         config: {
           ...config,
-          tileWidth: raw?.tileWidth ?? 0,
-          tileHeight: raw?.tileHeight ?? 0,
+          tileWidth,
+          tileHeight:
+            evenTileHeight(tileWidth, displayAspect) ||
+            (file.meta?.filmstripConfig?.tileHeight ?? 0),
         },
       },
     ];
@@ -88,12 +98,15 @@ export function useFilmstripData<
     },
   });
 
+  const displayAspect = mediaDisplayDimensions(media).aspect;
+
   const filmstrips = useMemo(
     () =>
       normalizeFilmstrips(
-        hasExpanded ? (expandedFilmstrips ?? []) : (query.data ?? [])
+        hasExpanded ? (expandedFilmstrips ?? []) : (query.data ?? []),
+        displayAspect
       ),
-    [hasExpanded, expandedFilmstrips, query.data]
+    [hasExpanded, expandedFilmstrips, query.data, displayAspect]
   );
 
   const getFilmstripForTime = (time: number): NormalizedFilmstrip | null => {

@@ -9,6 +9,7 @@ import type {
   TaskTranscodeFilmstripStep,
   TaskTranscodeFilmstripStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import {
   FileType,
@@ -156,6 +157,7 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
           mediaRef: mediaData.id,
           mimeType: 'image/jpeg',
           meta: {
+            ...ingestMeta(TranscodeStepType.FILMSTRIP),
             mimeType: 'image/jpeg',
             // Straight from the executor: what this strip actually contains.
             filmstripConfig: {

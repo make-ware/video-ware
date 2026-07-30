@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { ProcessingProvider, TimelineOrientation } from '../enums.js';
+import type {
+  ProcessingProvider,
+  TaskOrigin,
+  TimelineOrientation,
+} from '../enums.js';
 
 // ============================================================================
 // Task Payload and Result Contracts
@@ -135,6 +139,11 @@ export interface ProcessUploadPayload {
   mediaId: string;
   /** Processing provider to use (FFmpeg, Google Cloud, etc.) */
   provider?: ProcessingProvider;
+  /**
+   * What created this task (ingest fan-out, a person, the weekly backfill).
+   * Observability only — every origin runs the same flow.
+   */
+  origin?: TaskOrigin;
   /** Optional label detection configuration to enqueue after transcode */
   labels?: DetectLabelsConfig;
   /** Configuration for sprite sheet generation */

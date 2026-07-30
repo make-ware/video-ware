@@ -9,6 +9,7 @@ import type {
   TaskTranscodeSpriteStep,
   TaskTranscodeSpriteStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import {
   FileType,
@@ -144,6 +145,7 @@ export class SpriteStepProcessor extends BaseStepProcessor<
         mediaRef: media?.id,
         mimeType: 'image/jpeg',
         meta: {
+          ...ingestMeta(TranscodeStepType.SPRITE),
           mimeType: 'image/jpeg',
           spriteConfig: {
             cols: sprite.cols,

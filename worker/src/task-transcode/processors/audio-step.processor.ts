@@ -10,6 +10,7 @@ import type {
   TaskTranscodeAudioStep,
   TaskTranscodeAudioStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import { FileType, FileSource } from '@project/shared';
 
@@ -125,7 +126,11 @@ export class AudioStepProcessor extends BaseStepProcessor<
         // Link to Media so the record is removed when the Media is deleted.
         mediaRef: media?.id,
         mimeType,
-        meta: { mimeType, ...facts },
+        meta: {
+          ...ingestMeta(TranscodeStepType.AUDIO),
+          mimeType,
+          ...facts,
+        },
       });
 
       // Update Media record

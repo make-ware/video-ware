@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import { MediaType, ProcessingProvider } from '@project/shared';
 import type { TaskTranscodeTranscodeStep } from '@project/shared/jobs';
+import { INGEST_STEP_VERSIONS, TranscodeStepType } from '@project/shared/jobs';
 import { TranscodeStepProcessor } from '../transcode-step.processor';
 import type { StepJobData } from '../../../queue/types/job.types';
 
@@ -112,6 +113,8 @@ describe('TranscodeStepProcessor - superseded proxy cleanup', () => {
     await processor.process(input, job);
 
     expect(pocketbaseService.uploadFile.mock.calls[0][0].meta).toEqual({
+      // Stamped by the ingest spec so the backfill can tell current from stale.
+      ingestVersion: INGEST_STEP_VERSIONS[TranscodeStepType.TRANSCODE],
       mimeType: 'video/mp4',
       duration: 61.4,
       width: 406,
@@ -137,6 +140,7 @@ describe('TranscodeStepProcessor - superseded proxy cleanup', () => {
 
     expect(result.proxyFileId).toBe('proxy-new');
     expect(pocketbaseService.uploadFile.mock.calls[0][0].meta).toEqual({
+      ingestVersion: INGEST_STEP_VERSIONS[TranscodeStepType.TRANSCODE],
       mimeType: 'video/mp4',
     });
   });

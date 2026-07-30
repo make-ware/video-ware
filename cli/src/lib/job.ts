@@ -7,7 +7,12 @@ import {
   MediaType,
   ProcessingProvider,
   TaskMutator,
+  TaskOrigin,
+  TranscodeStepType,
   UploadMutator,
+  ingestStepsFor,
+  pickIngestTranscodeConfig,
+  type IngestAssetStep,
   type DetectLabelsConfig,
   type DetectLabelsPayload,
   type LabelJobType,
@@ -177,19 +182,30 @@ export async function createLabelJobTask(
 }
 
 /**
- * The derived assets a transcode (process_upload) job can regenerate.
- * `proxy` maps onto the payload's `transcode` config — it is the web-playable
- * preview the webapp calls the proxy file.
+ * The derived assets a transcode (process_upload) job can regenerate, in the
+ * order the ingest spec lists them. `proxy` maps onto the payload's `transcode`
+ * config — it is the web-playable preview the webapp calls the proxy file.
  */
 export const TRANSCODE_ASSETS = [
   'thumbnail',
   'sprite',
   'filmstrip',
+  'waveform',
   'proxy',
   'audio',
 ] as const;
 
 export type TranscodeAsset = (typeof TRANSCODE_ASSETS)[number];
+
+/** CLI asset name -> the transcode step that produces it. */
+const ASSET_STEP: Record<TranscodeAsset, IngestAssetStep> = {
+  thumbnail: TranscodeStepType.THUMBNAIL,
+  sprite: TranscodeStepType.SPRITE,
+  filmstrip: TranscodeStepType.FILMSTRIP,
+  waveform: TranscodeStepType.WAVEFORM,
+  proxy: TranscodeStepType.TRANSCODE,
+  audio: TranscodeStepType.AUDIO,
+};
 
 /** Parse a comma-separated list of transcode assets (e.g. `proxy,sprite`). */
 export function parseTranscodeAssets(value: string): TranscodeAsset[] {
@@ -216,55 +232,35 @@ export function parseTranscodeAssets(value: string): TranscodeAsset[] {
 
 /**
  * The assets a fresh ingest would generate for this media type — the default
- * when the caller doesn't restrict `--assets`. Mirrors the media-type gating
- * in the worker's ingest orchestrator.
+ * when the caller doesn't restrict `--assets`. Derived from the shared ingest
+ * spec, so it follows the media-type gating the worker actually applies.
  */
 export function defaultTranscodeAssets(mediaType: MediaType): TranscodeAsset[] {
-  switch (mediaType) {
-    case MediaType.AUDIO:
-      return ['audio'];
-    case MediaType.IMAGE:
-      return ['thumbnail', 'sprite'];
-    default:
-      return [...TRANSCODE_ASSETS];
-  }
+  const steps = new Set<IngestAssetStep>(ingestStepsFor(mediaType));
+  return TRANSCODE_ASSETS.filter((asset) => steps.has(ASSET_STEP[asset]));
 }
 
 /**
- * Build a process_upload payload for the requested assets. Config values
- * mirror the ingest defaults in
- * worker/src/tasks/ingest-orchestrator.service.ts so regenerated assets
- * match what a fresh ingest produces — keep the two in sync.
+ * Build a process_upload payload for the requested assets, using the shared
+ * ingest spec's geometry so a regenerated asset is exactly what a fresh ingest
+ * (or the weekly backfill) would produce. Assets that don't apply to the media
+ * type are dropped.
  */
 export function transcodePayload(
   media: Media,
   uploadId: string,
   assets: TranscodeAsset[]
 ): ProcessUploadPayload {
-  const isImage = mediaTypeOf(media) === MediaType.IMAGE;
-  const payload: ProcessUploadPayload = {
+  return {
     uploadId,
     mediaId: media.id,
     provider: ProcessingProvider.FFMPEG,
+    origin: TaskOrigin.USER,
+    ...pickIngestTranscodeConfig(
+      mediaTypeOf(media),
+      assets.map((asset) => ASSET_STEP[asset])
+    ),
   };
-  if (assets.includes('thumbnail')) {
-    payload.thumbnail = { timestamp: 'midpoint', width: 640, height: 360 };
-  }
-  if (assets.includes('sprite')) {
-    payload.sprite = isImage
-      ? { fps: 1, cols: 1, rows: 1, tileWidth: 320, tileHeight: 180 }
-      : { fps: 1, cols: 10, rows: 10, tileWidth: 320, tileHeight: 180 };
-  }
-  if (assets.includes('filmstrip')) {
-    payload.filmstrip = { cols: 100, rows: 1, tileWidth: 320, tileHeight: 180 };
-  }
-  if (assets.includes('proxy')) {
-    payload.transcode = { enabled: true, codec: 'h264', resolution: '720p' };
-  }
-  if (assets.includes('audio')) {
-    payload.audio = { enabled: true, bitrate: '128k' };
-  }
-  return payload;
 }
 
 export interface CreateTranscodeJobOptions {

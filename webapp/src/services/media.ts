@@ -19,7 +19,14 @@ import type {
   ProcessUploadPayload,
   LabelJob,
 } from '@project/shared';
-import { ProcessingProvider, ALL_LABEL_DETECTIONS } from '@project/shared';
+import {
+  ProcessingProvider,
+  ALL_LABEL_DETECTIONS,
+  TaskOrigin,
+  TranscodeStepType,
+  pickIngestTranscodeConfig,
+  type IngestAssetStep,
+} from '@project/shared';
 import type { ListResult } from 'pocketbase';
 
 /**
@@ -529,67 +536,24 @@ export class MediaService {
       throw new Error('User context required for task creation');
     }
 
-    // Base payload
+    // Geometry comes from the shared ingest spec, so a regenerated asset is
+    // byte-for-byte what a fresh ingest (or the weekly backfill) would produce
+    // — and so the backfill doesn't consider it stale the moment it lands.
+    const steps: IngestAssetStep[] = [];
+    if (config.thumbnail) steps.push(TranscodeStepType.THUMBNAIL);
+    if (config.sprite) steps.push(TranscodeStepType.SPRITE);
+    if (config.filmstrip) steps.push(TranscodeStepType.FILMSTRIP);
+    if (config.waveform) steps.push(TranscodeStepType.WAVEFORM);
+    if (config.transcode) steps.push(TranscodeStepType.TRANSCODE);
+    if (config.audio) steps.push(TranscodeStepType.AUDIO);
+
     const payload: ProcessUploadPayload = {
       uploadId: upload.id,
       mediaId: media.id,
       provider: ProcessingProvider.FFMPEG,
+      origin: TaskOrigin.USER,
+      ...pickIngestTranscodeConfig(media.mediaType, steps),
     };
-
-    // Add configurations based on what is requested
-    if (config.thumbnail) {
-      payload.thumbnail = {
-        timestamp: 'midpoint',
-        width: 320,
-        height: 180,
-      };
-    }
-
-    if (config.sprite) {
-      payload.sprite = {
-        fps: 1,
-        cols: 5,
-        rows: 5,
-        tileWidth: 160,
-        tileHeight: 90,
-      };
-    }
-
-    if (config.filmstrip) {
-      payload.filmstrip = {
-        cols: 100,
-        rows: 1,
-        tileWidth: 160,
-      };
-    }
-
-    // Same geometry the ingest pipeline requests — see the waveform default in
-    // worker/src/tasks/ingest-orchestrator.service.ts.
-    if (config.waveform) {
-      payload.waveform = {
-        width: 1000,
-        height: 200,
-        pixelsPerSecond: 1,
-        color: 'white',
-        mono: true,
-      };
-    }
-
-    if (config.transcode) {
-      payload.transcode = {
-        enabled: true,
-        codec: 'h264',
-        resolution: '720p',
-      };
-    }
-
-    if (config.audio) {
-      payload.audio = {
-        enabled: true,
-        format: 'mp3',
-        bitrate: '128k',
-      };
-    }
 
     return this.taskMutator.createProcessUploadTask(
       media.WorkspaceRef,

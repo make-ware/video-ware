@@ -31,8 +31,8 @@ export const TaskSchema = z
     payload: JSONField(TaskPayloadSchema),
     result: JSONField(TaskResultSchema).optional(),
     errorLog: TextField().optional(),
-    // Optional at the DB level (1781800001 migration): system tasks (the
-    // `cleanup` task) are created without these by the storageCleanup PB cron.
+    // Optional at the DB level (1781800001 migration): system tasks (`cleanup`,
+    // `ingest_backfill`) are created without these by their PB crons.
     // Code paths that only ever see user-facing tasks (the worker flow
     // builders) take `WorkspaceTask` instead, narrowed via `isWorkspaceTask`.
     WorkspaceRef: RelationField({ collection: 'Workspaces' }).optional(),
@@ -62,6 +62,7 @@ export const TaskInputSchema = z.object({
     TaskType.DETECT_LABELS,
     TaskType.RENDER_TIMELINE,
     TaskType.CLEANUP,
+    TaskType.INGEST_BACKFILL,
   ]),
   status: z
     .enum([
@@ -105,7 +106,8 @@ export type Task = z.infer<typeof TaskSchema>;
 export type TaskInput = z.infer<typeof TaskInputSchema>;
 export type TaskUpdate = Partial<TaskInput>;
 
-// A user-facing task: every task except system tasks (`cleanup`) carries
+// A user-facing task: every task except system tasks (`cleanup`,
+// `ingest_backfill`) carries
 // workspace + user context. The worker flow builders take this type so they
 // can treat WorkspaceRef as a present string.
 export type WorkspaceTask = Task & {

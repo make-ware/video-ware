@@ -26,12 +26,15 @@ export class FFmpegThumbnailExecutor implements IThumbnailExecutor {
 
     this.logger.debug(`Generating thumbnail at ${timestamp}s: ${outputPath}`);
 
-    // Calculate dimensions maintaining aspect ratio
+    // Calculate dimensions maintaining aspect ratio. Display dimensions, not
+    // coded ones: ffmpeg autorotates on decode, so a portrait clip stored as
+    // 1920x1080 with a 90° matrix must be fitted as 1080x1920 or the frame is
+    // stretched into the landscape box.
     const { width, height } = this.calculateDimensions(
       config.width,
       config.height,
-      config.sourceWidth,
-      config.sourceHeight
+      config.sourceDisplayWidth ?? config.sourceWidth,
+      config.sourceDisplayHeight ?? config.sourceHeight
     );
 
     await this.ffmpegService.generateThumbnail(
@@ -42,7 +45,9 @@ export class FFmpegThumbnailExecutor implements IThumbnailExecutor {
       height
     );
 
-    return { outputPath };
+    // Report what was written, not what was asked for — the fitted box is
+    // usually smaller than the requested one on one axis.
+    return { outputPath, width, height, timestamp };
   }
 
   private calculateDimensions(

@@ -10,7 +10,12 @@ import type {
   TaskTranscodeFilmstripStepOutput,
 } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
-import { FileType, FileSource, MediaType } from '@project/shared';
+import {
+  FileType,
+  FileSource,
+  MediaType,
+  mediaDisplayDimensions,
+} from '@project/shared';
 
 /**
  * Processor for the FILMSTRIP step
@@ -81,14 +86,13 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
     const fps = 1; // 1 fps = 1s interval
     const tileWidth = input.config.tileWidth || 160;
 
-    // Calculate tile height maintaining aspect ratio if not provided
-    let tileHeight = input.config.tileHeight;
-    if (!tileHeight) {
-      const aspectRatio = mediaData.aspectRatio;
-      tileHeight = Math.round(tileWidth / aspectRatio);
-      // Ensure even number for FFmpeg
-      tileHeight = Math.round(tileHeight / 2) * 2;
-    }
+    // Tile height is NOT decided here: the executor derives it from the
+    // source's display aspect (the only value ffmpeg's `scale` can be given
+    // without stretching frames) and reports what it used. Deciding it twice is
+    // how stored meta ended up disagreeing with the pixels for non-16:9 media.
+    // `input.config.tileHeight` rides along only as a fallback for sources with
+    // unknown dimensions.
+    const display = mediaDisplayDimensions(mediaData);
 
     const filmstripFileIds: string[] = [];
     let firstFilmstripPath = '';
@@ -104,11 +108,13 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
         ...input.config,
         sourceWidth: mediaData.width,
         sourceHeight: mediaData.height,
+        sourceDisplayWidth: display.width,
+        sourceDisplayHeight: display.height,
         fps,
         cols,
         rows,
         tileWidth,
-        tileHeight,
+        tileHeight: input.config.tileHeight ?? 0,
       };
 
       // Generate output path using FileResolver
@@ -122,7 +128,7 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
       if (i === 0) firstFilmstripPath = filmstripPath;
 
       try {
-        await this.spriteExecutor.execute(
+        const strip = await this.spriteExecutor.execute(
           filePath,
           filmstripPath,
           enhancedConfig,
@@ -151,16 +157,19 @@ export class FilmstripStepProcessor extends BaseStepProcessor<
           mimeType: 'image/jpeg',
           meta: {
             mimeType: 'image/jpeg',
+            // Straight from the executor: what this strip actually contains.
             filmstripConfig: {
-              cols: enhancedConfig.cols,
-              rows: enhancedConfig.rows,
-              tileWidth: enhancedConfig.tileWidth,
-              tileHeight: enhancedConfig.tileHeight,
+              cols: strip.cols,
+              rows: strip.rows,
+              tileWidth: strip.tileWidth,
+              tileHeight: strip.tileHeight,
               // Per-segment fields the viewer needs to map time -> tile.
               segmentIndex: i,
               startTime,
-              fps: enhancedConfig.fps,
+              fps: strip.fps,
             },
+            width: strip.sheetWidth,
+            height: strip.sheetHeight,
           },
         });
 

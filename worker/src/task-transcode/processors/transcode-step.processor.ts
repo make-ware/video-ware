@@ -13,6 +13,7 @@ import type {
 import { StorageService } from '../../shared/services/storage.service';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { FileResolver } from '../utils/file-resolver';
+import { probeFacts } from '../../shared/utils/asset-meta';
 import type {
   TaskTranscodeTranscodeStep,
   TaskTranscodeTranscodeStepOutput,
@@ -147,6 +148,12 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
         input.uploadId
       );
 
+      // Probe the proxy we just wrote so its File records the encode that
+      // actually happened (dimensions, fps, duration, bitrate) instead of the
+      // requested resolution — the encoder fits the source aspect, and this is
+      // the geometry the editor's preview player has to lay out.
+      const proxyFacts = await this.probeOutputFacts(proxyPath);
+
       const proxyFile = await this.pocketbaseService.uploadFile({
         localFilePath: proxyPath,
         fileName,
@@ -157,6 +164,7 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
         uploadRef: input.uploadId,
         mediaRef: media?.id,
         mimeType: 'video/mp4',
+        meta: { mimeType: 'video/mp4', ...proxyFacts },
       });
 
       // Update Media record. On a re-transcode the Media already points at a
@@ -188,6 +196,25 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
       // Clean up local output file if using S3 (no-op in local mode), on
       // both success and failure so a stateless pod never accumulates disk.
       await this.storageService.cleanup(proxyPath);
+    }
+  }
+
+  /**
+   * Probe a generated output for its File `meta`. Best-effort: the asset itself
+   * is already written and linked, so a probe failure downgrades the metadata
+   * rather than failing (and retrying) the whole step.
+   */
+  private async probeOutputFacts(outputPath: string) {
+    try {
+      const { probeOutput } = await this.probeExecutor.execute(outputPath);
+      return probeFacts(probeOutput);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to probe generated output ${outputPath}; storing meta without measured facts: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return {};
     }
   }
 

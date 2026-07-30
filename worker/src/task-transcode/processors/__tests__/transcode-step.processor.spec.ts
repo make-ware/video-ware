@@ -80,6 +80,67 @@ describe('TranscodeStepProcessor - superseded proxy cleanup', () => {
     );
   });
 
+  it('records the probed proxy in the File meta', async () => {
+    // First probe = the source; second = the proxy that was just written.
+    probeExecutor.execute
+      .mockResolvedValueOnce({
+        probeOutput: {
+          width: 1920,
+          height: 1080,
+          displayWidth: 1080,
+          displayHeight: 1920,
+          rotation: 90,
+        },
+      })
+      .mockResolvedValueOnce({
+        probeOutput: {
+          duration: 61.4,
+          width: 406,
+          height: 720,
+          displayWidth: 406,
+          displayHeight: 720,
+          rotation: 0,
+          codec: 'h264',
+          fps: 30,
+          bitrate: 2_000_000,
+          format: 'mov,mp4,m4a,3gp,3g2,mj2',
+          size: 15_350_000,
+          audio: { codec: 'aac', channels: 2, sampleRate: 48000 },
+        },
+      });
+
+    await processor.process(input, job);
+
+    expect(pocketbaseService.uploadFile.mock.calls[0][0].meta).toEqual({
+      mimeType: 'video/mp4',
+      duration: 61.4,
+      width: 406,
+      height: 720,
+      fps: 30,
+      codec: 'h264',
+      bitrate: 2_000_000,
+      format: 'mov,mp4,m4a,3gp,3g2,mj2',
+      size: 15_350_000,
+      channels: 2,
+      sampleRate: 48000,
+    });
+  });
+
+  it('still stores the proxy when probing the output fails', async () => {
+    probeExecutor.execute
+      .mockResolvedValueOnce({
+        probeOutput: { width: 1920, height: 1080, rotation: 0 },
+      })
+      .mockRejectedValueOnce(new Error('ffprobe gone'));
+
+    const result = await processor.process(input, job);
+
+    expect(result.proxyFileId).toBe('proxy-new');
+    expect(pocketbaseService.uploadFile.mock.calls[0][0].meta).toEqual({
+      mimeType: 'video/mp4',
+    });
+  });
+
   it('deletes the superseded proxy after repointing the Media', async () => {
     const result = await processor.process(input, job);
 

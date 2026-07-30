@@ -58387,12 +58387,34 @@ var SpriteConfigSchema = external_exports.object({
   tileWidth: external_exports.number(),
   tileHeight: external_exports.number()
 });
+var FileMediaFactsSchema = external_exports.object({
+  /** Pixel width of the generated image/video (whole sheet for sprites). */
+  width: external_exports.number().optional(),
+  /** Pixel height of the generated image/video (whole sheet for sprites). */
+  height: external_exports.number().optional(),
+  /** Duration in seconds (time-based outputs only). */
+  duration: external_exports.number().optional(),
+  /** Frames per second of the generated video. */
+  fps: external_exports.number().optional(),
+  /** Codec of the generated stream (video codec, or audio for audio-only). */
+  codec: external_exports.string().optional(),
+  /** Container bitrate in bits per second. */
+  bitrate: external_exports.number().optional(),
+  /** Container format name as reported by ffprobe. */
+  format: external_exports.string().optional(),
+  /** Size in bytes as reported by ffprobe. */
+  size: external_exports.number().optional(),
+  /** Audio channel count (audio outputs). */
+  channels: external_exports.number().optional(),
+  /** Audio sample rate in Hz (audio outputs). */
+  sampleRate: external_exports.number().optional()
+});
 var FileMetaSchema = external_exports.object({
   renderSettings: RenderTimelineConfigSchema.optional(),
   filmstripConfig: FilmstripConfigSchema.optional(),
   spriteConfig: SpriteConfigSchema.optional(),
   mimeType: external_exports.string()
-});
+}).extend(FileMediaFactsSchema.shape);
 var MediaMetadataSchema = ProbeOutputSchema;
 var MediaClipMetadataSchema = external_exports.object({
   confidence: external_exports.number().optional(),
@@ -59702,6 +59724,9 @@ var MediaInputSchema = external_exports.object({
   duration: NumberField({ min: 0 }),
   width: NumberField({ min: 0 }).optional(),
   height: NumberField({ min: 0 }).optional(),
+  // Degrees (0/90/180/270). Written by the PROBE step: `width`/`height` are the
+  // coded dimensions, and this is what turns them into display dimensions.
+  rotation: NumberField({ min: 0 }).optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: external_exports.string().optional(),
@@ -74005,7 +74030,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "1.0.3";
+    return "1.0.4";
   }
   try {
     const root = join4(dirname2(fileURLToPath(import.meta.url)), "..", "..");

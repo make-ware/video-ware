@@ -1,6 +1,13 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Media, MediaRelations, Expanded, File } from '@project/shared';
+import {
+  evenTileHeight,
+  mediaDisplayDimensions,
+  type Media,
+  type MediaRelations,
+  type Expanded,
+  type File,
+} from '@project/shared';
 import pb from '@/lib/pocketbase-client';
 import { qk } from '@/lib/query-keys';
 
@@ -32,8 +39,16 @@ const DEFAULT_FPS = 1;
  * incoming order (creation order, which matches segment order since the worker
  * emits segments sequentially). Missing `fps`/`startTime`/`segmentIndex` are
  * derived so that records written before those fields existed still resolve.
+ *
+ * `tileHeight` is recomputed from the media's display aspect whenever that is
+ * known: the generator scales tiles to it, but records written before the
+ * worker persisted its real geometry carry the *requested* height instead
+ * (e.g. 180 against a 320px tile, wrong for anything but 16:9).
  */
-function normalizeFilmstrips(files: File[]): NormalizedFilmstrip[] {
+function normalizeFilmstrips(
+  files: File[],
+  displayAspect: number
+): NormalizedFilmstrip[] {
   const ordered = [...files].sort((a, b) => {
     const idxA = a.meta?.filmstripConfig?.segmentIndex ?? 0;
     const idxB = b.meta?.filmstripConfig?.segmentIndex ?? 0;
@@ -49,6 +64,7 @@ function normalizeFilmstrips(files: File[]): NormalizedFilmstrip[] {
     const segmentDuration = (raw.cols * raw.rows) / fps;
     const segmentIndex = raw.segmentIndex ?? index;
     const startTime = raw.startTime ?? segmentIndex * segmentDuration;
+    const tileWidth = raw.tileWidth ?? 0;
 
     return [
       {
@@ -56,8 +72,9 @@ function normalizeFilmstrips(files: File[]): NormalizedFilmstrip[] {
         config: {
           cols: raw.cols,
           rows: raw.rows,
-          tileWidth: raw.tileWidth ?? 0,
-          tileHeight: raw.tileHeight ?? 0,
+          tileWidth,
+          tileHeight:
+            evenTileHeight(tileWidth, displayAspect) || (raw.tileHeight ?? 0),
           fps,
           segmentIndex,
           startTime,
@@ -99,12 +116,15 @@ export function useFilmstripData<
     },
   });
 
+  const displayAspect = mediaDisplayDimensions(media).aspect;
+
   const filmstrips = useMemo(
     () =>
       normalizeFilmstrips(
-        hasExpanded ? (expandedFilmstrips ?? []) : (query.data ?? [])
+        hasExpanded ? (expandedFilmstrips ?? []) : (query.data ?? []),
+        displayAspect
       ),
-    [hasExpanded, expandedFilmstrips, query.data]
+    [hasExpanded, expandedFilmstrips, query.data, displayAspect]
   );
 
   const getFilmstripForTime = (time: number): NormalizedFilmstrip | null => {

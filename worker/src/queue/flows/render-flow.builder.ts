@@ -103,6 +103,9 @@ export class RenderFlowBuilder {
           workspaceId: task.WorkspaceRef,
           version,
           format: outputSettings.format,
+          // Recorded onto the output File's meta.renderSettings so the renders
+          // page can show what was asked for next to what came out.
+          outputSettings,
         },
       },
       opts: {

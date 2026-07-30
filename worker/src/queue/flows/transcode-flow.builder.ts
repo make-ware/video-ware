@@ -28,13 +28,14 @@ const STEP_PRIORITY: Record<string, number> = {
   [TranscodeStepType.THUMBNAIL]: 3,
   [TranscodeStepType.SPRITE]: 3,
   [TranscodeStepType.FILMSTRIP]: 3,
+  [TranscodeStepType.WAVEFORM]: 3,
   [TranscodeStepType.TRANSCODE]: 4,
 };
 
 export class TranscodeFlowBuilder {
   /**
    * Build a transcode flow definition for PROCESS_UPLOAD tasks
-   * Builds a parent-child job hierarchy with steps: PROBE, THUMBNAIL, SPRITE, FILMSTRIP, TRANSCODE, AUDIO
+   * Builds a parent-child job hierarchy with steps: PROBE, THUMBNAIL, SPRITE, FILMSTRIP, WAVEFORM, TRANSCODE, AUDIO
    */
   static buildFlow(task: WorkspaceTask): TranscodeFlowDefinition {
     const payload = task.payload as ProcessUploadPayload;
@@ -152,6 +153,31 @@ export class TranscodeFlowBuilder {
         opts: {
           ...filmstripOptions,
           priority: STEP_PRIORITY[TranscodeStepType.FILMSTRIP],
+        },
+      });
+    }
+
+    // WAVEFORM step (if configured)
+    if (payload.waveform) {
+      const waveformOptions = getStepJobOptions(TranscodeStepType.WAVEFORM);
+      flow.children.push({
+        name: TranscodeStepType.WAVEFORM,
+        queueName: QUEUE_NAMES.TRANSCODE,
+        data: {
+          ...baseJobData,
+          stepType: TranscodeStepType.WAVEFORM,
+          parentJobId: '',
+          input: {
+            type: 'waveform',
+            uploadId,
+            mediaId,
+            filePath: '', // Will be resolved by processor
+            config: payload.waveform,
+          },
+        },
+        opts: {
+          ...waveformOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.WAVEFORM],
         },
       });
     }

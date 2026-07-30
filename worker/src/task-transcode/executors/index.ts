@@ -34,6 +34,10 @@ export { FFmpegThumbnailExecutor } from './ffmpeg/thumbnail.executor';
 export { FFmpegSpriteExecutor } from './ffmpeg/sprite.executor';
 export { FFmpegTranscodeExecutor } from './ffmpeg/transcode.executor';
 export { FFmpegAudioExecutor } from './ffmpeg/audio.executor';
+export {
+  FFmpegWaveformExecutor,
+  type WaveformResult,
+} from './ffmpeg/waveform.executor';
 
 // Google Cloud implementations
 export { GoogleTranscodeExecutor } from './google/transcode.executor';

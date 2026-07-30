@@ -17,6 +17,7 @@ export { SpriteStepProcessor } from './sprite-step.processor';
 export { FilmstripStepProcessor } from './filmstrip-step.processor';
 export { TranscodeStepProcessor } from './transcode-step.processor';
 export { AudioStepProcessor } from './audio-step.processor';
+export { WaveformStepProcessor } from './waveform-step.processor';
 
 // Re-export step types for external use
 export type {
@@ -33,6 +34,8 @@ export type {
   TaskTranscodeTranscodeStepOutput,
   TaskTranscodeAudioStep,
   TaskTranscodeAudioStepOutput,
+  TaskTranscodeWaveformStep,
+  TaskTranscodeWaveformStepOutput,
   TaskTranscodeInput,
   TaskTranscodeResult,
   // Legacy type aliases (deprecated)

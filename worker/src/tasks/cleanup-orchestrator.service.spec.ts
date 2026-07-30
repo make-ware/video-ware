@@ -256,13 +256,21 @@ describe('CleanupOrchestratorService', () => {
     const sweepFilterArgs = filterFn.mock.calls[filterFn.mock.calls.length - 1];
     expect(sweepFilterArgs?.[0]).toContain('created < {:cutoff}');
     expect(sweepFilterArgs?.[0]).not.toContain(FileType.ORIGINAL);
-    expect(sweepFilterArgs?.[1]).toEqual(
-      expect.objectContaining({
-        type0: FileType.PROXY,
-        type5: FileType.RENDER,
-        cutoff: expect.any(String),
-      })
+    // Bound one clause per derived type — assert by value, not by binding
+    // index, so adding a type doesn't renumber the expectation.
+    const bindings = sweepFilterArgs?.[1] as Record<string, string>;
+    expect(bindings.cutoff).toEqual(expect.any(String));
+    const boundTypes = Object.entries(bindings)
+      .filter(([key]) => key.startsWith('type'))
+      .map(([, value]) => value);
+    expect(boundTypes).toEqual(
+      expect.arrayContaining([
+        FileType.PROXY,
+        FileType.WAVEFORM,
+        FileType.RENDER,
+      ])
     );
+    expect(boundTypes).not.toContain(FileType.ORIGINAL);
   });
 
   it('marks the task failed on an unexpected top-level error', async () => {

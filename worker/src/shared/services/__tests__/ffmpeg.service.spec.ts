@@ -301,6 +301,100 @@ describe('FFmpegService', () => {
     });
   });
 
+  describe('generateWaveform', () => {
+    /** A child process that exits 0 without saying anything. */
+    function quietSuccess() {
+      return {
+        stdout: { on: vi.fn() },
+        stderr: { on: vi.fn() },
+        on: vi.fn((event: string, callback: (code: number) => void) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10);
+          }
+        }),
+      };
+    }
+
+    /** The ffmpeg argv of the most recent spawn. */
+    function lastArgs(): string[] {
+      const calls = spawnMock.mock.calls as unknown as unknown[][];
+      return calls[calls.length - 1][1] as string[];
+    }
+
+    it('seeks the input and draws a mono peak waveform', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      spawnMock.mockReturnValueOnce(quietSuccess() as any);
+
+      await service.generateWaveform('/input.mp4', '/out.png', {
+        width: 500,
+        height: 200,
+        startTime: 2000,
+        duration: 500,
+      });
+
+      const args = lastArgs();
+      // -ss/-t before -i: ffmpeg seeks rather than decoding and discarding.
+      expect(args.slice(0, 6)).toEqual([
+        '-y',
+        '-ss',
+        '2000',
+        '-t',
+        '500',
+        '-i',
+      ]);
+      expect(args).toContain(
+        '[0:a]aformat=channel_layouts=mono,showwavespic=s=500x200:colors=white:filter=peak[wave]'
+      );
+      expect(args).toEqual(
+        expect.arrayContaining(['-map', '[wave]', '-frames:v', '1', '/out.png'])
+      );
+      expect(fs.promises.mkdir).toHaveBeenCalled();
+    });
+
+    it('stacks channels instead of downmixing when mono is off', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      spawnMock.mockReturnValueOnce(quietSuccess() as any);
+
+      await service.generateWaveform('/input.mp4', '/out.png', {
+        width: 800,
+        height: 120,
+        color: '#ffcc99',
+        mono: false,
+      });
+
+      expect(lastArgs()).toContain(
+        '[0:a]showwavespic=s=800x120:colors=#ffcc99:split_channels=1:filter=peak[wave]'
+      );
+    });
+
+    it('omits the seek arguments when drawing from the start', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      spawnMock.mockReturnValueOnce(quietSuccess() as any);
+
+      await service.generateWaveform('/input.mp4', '/out.png', {
+        width: 100,
+        height: 200,
+      });
+
+      expect(lastArgs()).not.toContain('-ss');
+      expect(lastArgs()).not.toContain('-t');
+    });
+
+    it('throws when the image was not written', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      spawnMock.mockReturnValueOnce(quietSuccess() as any);
+
+      await expect(
+        service.generateWaveform('/input.mp4', '/out.png', {
+          width: 100,
+          height: 200,
+        })
+      ).rejects.toThrow(
+        'Waveform generation failed: Waveform file was not created'
+      );
+    });
+  });
+
   describe('generateSprite', () => {
     it('should generate sprite sheet successfully', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);

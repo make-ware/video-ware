@@ -510,6 +510,7 @@ export class MediaService {
       filmstrip?: boolean;
       transcode?: boolean;
       audio?: boolean;
+      waveform?: boolean;
     },
     userId?: string
   ): Promise<Task> {
@@ -559,6 +560,18 @@ export class MediaService {
         cols: 100,
         rows: 1,
         tileWidth: 160,
+      };
+    }
+
+    // Same geometry the ingest pipeline requests — see the waveform default in
+    // worker/src/tasks/ingest-orchestrator.service.ts.
+    if (config.waveform) {
+      payload.waveform = {
+        width: 1000,
+        height: 200,
+        pixelsPerSecond: 1,
+        color: 'white',
+        mono: true,
       };
     }
 

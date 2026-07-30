@@ -36,6 +36,7 @@ export const FileSchema = z
       FileType.LABELS_JSON,
       FileType.RENDER,
       FileType.FILMSTRIP,
+      FileType.WAVEFORM,
     ]),
     fileSource: SelectField([
       FileSource.S3,
@@ -68,6 +69,9 @@ export const FileInputSchema = z.object({
       FileStatus.DELETED,
     ])
     .default(FileStatus.PENDING),
+  // Must list every FileType the collection accepts: a value missing here is
+  // rejected at input validation even though the column allows it (FILMSTRIP
+  // was, until WAVEFORM was added alongside it).
   fileType: z.enum([
     FileType.ORIGINAL,
     FileType.PROXY,
@@ -76,6 +80,8 @@ export const FileInputSchema = z.object({
     FileType.SPRITE,
     FileType.LABELS_JSON,
     FileType.RENDER,
+    FileType.FILMSTRIP,
+    FileType.WAVEFORM,
   ]),
   fileSource: z.enum([FileSource.S3, FileSource.POCKETBASE, FileSource.GCS]),
   file: z.instanceof(File).optional(),

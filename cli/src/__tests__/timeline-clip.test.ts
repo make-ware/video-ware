@@ -177,6 +177,64 @@ describe('updateTimelineClip', () => {
       /nothing to update/i
     );
   });
+
+  it('merges crop into existing meta', async () => {
+    const stubs = clipStubs({ clips: [clip] });
+    const pb = fakePb(stubs);
+    const crop = { left: 0.25, top: 0, width: 0.5, height: 1 };
+
+    await updateTimelineClip(pb, 'tc1', { crop });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      meta: { title: 'Keep me', crop },
+    });
+  });
+
+  it('clears the crop by omission, keeping the rest of meta', async () => {
+    const cropped = {
+      ...clip,
+      meta: {
+        title: 'Keep me',
+        gain: 0.5,
+        crop: { left: 0.1, top: 0, width: 0.8, height: 1 },
+      },
+    };
+    const stubs = clipStubs({ clips: [cropped] });
+    const pb = fakePb(stubs);
+
+    await updateTimelineClip(pb, 'tc1', { clearCrop: true });
+
+    expect(stubs.TimelineClips.update.mock.calls[0][1]).toEqual({
+      meta: { title: 'Keep me', gain: 0.5 },
+    });
+  });
+
+  it('rejects --crop with --clear-crop and crop on non-media clips', async () => {
+    const pb = fakePb(clipStubs({ clips: [clip] }));
+    const crop = { left: 0, top: 0, width: 0.5, height: 1 };
+    await expect(
+      updateTimelineClip(pb, 'tc1', { crop, clearCrop: true })
+    ).rejects.toThrow(/mutually exclusive/i);
+
+    const captionClip = { ...clip, MediaRef: undefined, CaptionRef: 'cap1' };
+    const pb2 = fakePb(clipStubs({ clips: [captionClip] }));
+    await expect(updateTimelineClip(pb2, 'tc1', { crop })).rejects.toThrow(
+      /media-backed clips only/i
+    );
+  });
+
+  it('elides a crop write that matches the stored value (noop)', async () => {
+    const crop = { left: 0.25, top: 0, width: 0.5, height: 1 };
+    const stubs = clipStubs({
+      clips: [{ ...clip, meta: { title: 'Keep me', crop } }],
+    });
+    const pb = fakePb(stubs);
+
+    const result = await updateTimelineClip(pb, 'tc1', { crop });
+
+    expect(result.noop).toBe(true);
+    expect(stubs.TimelineClips.update).not.toHaveBeenCalled();
+  });
 });
 
 describe('updateTimelineClip on a nested-timeline clip', () => {

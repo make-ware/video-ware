@@ -235,6 +235,30 @@ describe('clipTracksToWindow', () => {
     });
   });
 
+  it('keeps video.crop on a window-trimmed segment', () => {
+    // Guards the {...seg} spread: a crop must survive Tier-2 windowing.
+    const crop = { left: 0.25, top: 0, width: 0.5, height: 1 };
+    const tracks: TimelineTrack[] = [
+      {
+        id: 'video',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg',
+            assetId: 'asset',
+            type: 'video',
+            time: { start: 5, duration: 10, sourceStart: 100 },
+            video: { opacity: 0.8, crop },
+          },
+        ],
+      },
+    ];
+
+    const [track] = clipTracksToWindow(tracks, window);
+    expect(track.segments[0].video).toEqual({ opacity: 0.8, crop });
+  });
+
   it('applies half-open edges: end at t0 and start at t1 are excluded', () => {
     const tracks: TimelineTrack[] = [
       {

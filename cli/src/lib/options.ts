@@ -1,4 +1,5 @@
 import { InvalidArgumentError, Option, type Command } from 'commander';
+import { CropRectSchema, type CropRect } from '@project/shared';
 
 /**
  * Declarative commander option groups.
@@ -156,6 +157,28 @@ export function parseUnitInterval(value: string): number {
     throw new InvalidArgumentError('expected a number between 0 and 1');
   }
   return n;
+}
+
+/**
+ * Parse "left,top,width,height" — 0–1 fractions of the media's display frame
+ * (post-rotation) — into a CropRect. Bounds come from CropRectSchema so the
+ * CLI rejects exactly what the app layer would.
+ */
+export function parseCropRect(value: string): CropRect {
+  const parts = value.split(',').map((p) => Number(p.trim()));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+    throw new InvalidArgumentError(
+      'expected left,top,width,height as 0-1 fractions (e.g. 0.1,0,0.8,1)'
+    );
+  }
+  const [left, top, width, height] = parts;
+  const parsed = CropRectSchema.safeParse({ left, top, width, height });
+  if (!parsed.success) {
+    throw new InvalidArgumentError(
+      parsed.error.issues[0]?.message ?? 'invalid crop rect'
+    );
+  }
+  return parsed.data;
 }
 
 /** Extract the group's parsed values (only those actually passed) from opts. */

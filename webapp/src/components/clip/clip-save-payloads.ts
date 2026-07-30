@@ -1,6 +1,7 @@
 import {
   calculateEffectiveDuration,
   finalizeSegments,
+  type CropRect,
   type MediaClip,
 } from '@project/shared';
 import type { Segment } from '@/components/timeline/segment-editor';
@@ -79,6 +80,12 @@ export function buildTimelineClipUpdates(options: {
   title: string;
   color: string;
   gain: number;
+  /**
+   * Per-clip source crop (reframe): a rect sets it, `null` deletes it
+   * (reset to the media default), `undefined` leaves whatever the spread
+   * carried — the merge-never-replace invariant.
+   */
+  crop?: CropRect | null;
 }): Record<string, unknown> {
   const {
     clip,
@@ -91,6 +98,7 @@ export function buildTimelineClipUpdates(options: {
     title,
     color,
     gain,
+    crop,
   } = options;
 
   const baseMeta: Record<string, unknown> = {
@@ -99,6 +107,9 @@ export function buildTimelineClipUpdates(options: {
     color,
     gain,
   };
+  // Applied on baseMeta once so every return branch below carries it.
+  if (crop === null) delete baseMeta.crop;
+  else if (crop) baseMeta.crop = crop;
 
   if (segments && segments.length > 0) {
     const finalized = finalizeSegments(

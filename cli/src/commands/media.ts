@@ -102,18 +102,21 @@ export function registerMediaCommands(program: Command): void {
     .command('update <mediaId>')
     .alias('set')
     .description(
-      'Set a media item’s editor-facing label/description, or move it into a directory'
+      'Set a media item’s editor-facing label/description, default crop, or move it into a directory'
+    )
+    .option(
+      '--clear-crop',
+      'remove the default crop (placements fall back to the full frame)'
     );
 
   applyOptions(withJsonOption(mediaUpdate), mediaFieldOptions).action(
     async (mediaId: string, opts) => {
       try {
         const pb = await requireClient();
-        const updated = await updateMedia(
-          pb,
-          mediaId,
-          pickOptions(opts, mediaFieldOptions)
-        );
+        const updated = await updateMedia(pb, mediaId, {
+          ...pickOptions(opts, mediaFieldOptions),
+          ...(opts.clearCrop ? { clearCrop: true } : {}),
+        });
         if (opts.json) {
           printRecord(updated, [], true);
           return;
@@ -150,6 +153,12 @@ export function registerMediaCommands(program: Command): void {
       );
       if (found.label) info(`label: ${found.label}`);
       if (found.description) info(found.description);
+      if (found.crop) {
+        info(
+          `crop: ${found.crop.left},${found.crop.top},${found.crop.width},${found.crop.height}` +
+            ' (default for every placement; --clear-crop removes it)'
+        );
+      }
       if (tags.items.length === 0) {
         info(
           'no entity tags — vw media tag <mediaId> <entity> tags this media with an entity'

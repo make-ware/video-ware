@@ -1550,4 +1550,87 @@ describe('FFmpegComposeExecutor', () => {
       expect(filterComplex).toContain('d=4[base]');
     });
   });
+
+  describe('source crop', () => {
+    const cropSegmentTracks = (
+      video: Record<string, unknown>
+    ): TimelineTrack[] => [
+      {
+        id: 'track1',
+        type: 'video',
+        layer: 0,
+        segments: [
+          {
+            id: 'seg1',
+            assetId: 'asset1',
+            type: 'video',
+            time: { start: 0, duration: 5, sourceStart: 0 },
+            video,
+          } as TimelineTrack['segments'][number],
+        ],
+      },
+    ];
+
+    const runCrop = async (
+      video: Record<string, unknown>,
+      media: Record<string, unknown>
+    ): Promise<string> => {
+      const clipMediaMap = {
+        asset1: { media, filePath: '/tmp/source.mp4' } as any,
+      };
+      const executeSpy = vi.spyOn(ffmpegService, 'executeWithProgress');
+      await executor.execute(
+        cropSegmentTracks(video),
+        clipMediaMap,
+        '/tmp/output.mp4',
+        { codec: 'libx264', format: 'mp4', resolution: '1920x1080' }
+      );
+      const args = executeSpy.mock.calls[0][0] as string[];
+      return args[args.indexOf('-filter_complex') + 1];
+    };
+
+    it('inserts crop between setpts and the letterbox scale', async () => {
+      const filterComplex = await runCrop(
+        { crop: { left: 0.25, top: 0, width: 0.5, height: 1 } },
+        { id: 'asset1', width: 1920, height: 1080 }
+      );
+      // Pixel window = fractions × display dims, before the scaler so the
+      // letterbox fits the CROPPED aspect.
+      expect(filterComplex).toContain(
+        'setpts=PTS-STARTPTS+0/TB,crop=960:1080:480:0,scale=1920:1080:force_original_aspect_ratio=decrease'
+      );
+    });
+
+    it('computes the pixel window from rotated display dimensions', async () => {
+      const filterComplex = await runCrop(
+        { crop: { left: 0.25, top: 0, width: 0.5, height: 1 } },
+        { id: 'asset1', width: 1920, height: 1080, rotation: 90 }
+      );
+      // 90° rotation displays as 1080x1920 (ffmpeg autorotates on decode).
+      expect(filterComplex).toContain(',crop=540:1920:270:0,scale=');
+    });
+
+    it('crops before the PiP scale when the segment has an explicit box', async () => {
+      const filterComplex = await runCrop(
+        {
+          crop: { left: 0.25, top: 0, width: 0.5, height: 1 },
+          width: 200,
+          height: 200,
+        },
+        { id: 'asset1', width: 1920, height: 1080 }
+      );
+      expect(filterComplex).toContain(',crop=960:1080:480:0,scale=200:200');
+    });
+
+    it('renders uncropped when the media has unknown display dimensions', async () => {
+      const filterComplex = await runCrop(
+        { crop: { left: 0.25, top: 0, width: 0.5, height: 1 } },
+        { id: 'asset1' }
+      );
+      expect(filterComplex).not.toContain('crop=');
+      expect(filterComplex).toContain(
+        'scale=1920:1080:force_original_aspect_ratio=decrease'
+      );
+    });
+  });
 });

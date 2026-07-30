@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProcessingProvider, TimelineOrientation } from '../enums.js';
+import type { CropRect } from './crop.js';
 
 // ============================================================================
 // Task Payload and Result Contracts
@@ -354,6 +355,13 @@ export interface TimelineSegment {
     width?: number | string;
     height?: number | string;
     opacity?: number; // 0.0 to 1.0
+    /**
+     * Source crop, 0–1 fractions of the media's DISPLAY frame
+     * (post-rotation). Resolved at flatten time (clip crop ?? media crop —
+     * see resolveCropRect); the renderer crops BEFORE scaling so the
+     * letterbox/PiP scaler fits the cropped region. Absent = full frame.
+     */
+    crop?: CropRect;
   };
   /** Audio specific properties */
   audio?: {

@@ -233,3 +233,58 @@ describe('buildTimelineClipUpdates', () => {
     expect(updates.meta).toEqual({ gain: 1, title: '', color: 'bg-blue-600' });
   });
 });
+
+describe('buildTimelineClipUpdates crop handling', () => {
+  const rect = { left: 0.25, top: 0, width: 0.5, height: 1 };
+  const withCrop = {
+    meta: { gain: 0.5, crop: rect },
+  } as unknown as Pick<ExpandedTimelineClip, 'meta'>;
+
+  const base = {
+    startTime: 0,
+    endTime: 30,
+    mediaDuration: 60,
+    title: '',
+    color: 'bg-blue-600',
+    gain: 1,
+  };
+
+  it('preserves an existing meta.crop when crop is undefined (plain and composite)', () => {
+    const plain = buildTimelineClipUpdates({
+      ...base,
+      clip: withCrop,
+      segments: null,
+    });
+    expect((plain.meta as { crop?: unknown }).crop).toEqual(rect);
+
+    const composite = buildTimelineClipUpdates({
+      ...base,
+      clip: withCrop,
+      segments,
+    });
+    expect((composite.meta as { crop?: unknown }).crop).toEqual(rect);
+  });
+
+  it('sets a new crop alongside segments', () => {
+    const next = { left: 0.1, top: 0.1, width: 0.8, height: 0.8 };
+    const updates = buildTimelineClipUpdates({
+      ...base,
+      clip: withCrop,
+      segments,
+      crop: next,
+    });
+    const meta = updates.meta as { crop?: unknown; segments?: unknown };
+    expect(meta.crop).toEqual(next);
+    expect(meta.segments).toBeDefined();
+  });
+
+  it('deletes the crop key on null (reset to media default)', () => {
+    const updates = buildTimelineClipUpdates({
+      ...base,
+      clip: withCrop,
+      segments: null,
+      crop: null,
+    });
+    expect('crop' in (updates.meta as Record<string, unknown>)).toBe(false);
+  });
+});

@@ -13,7 +13,7 @@ import {
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { MediaType } from '../enums';
-import { MediaMetadataSchema } from '../types';
+import { CropRectSchema, MediaMetadataSchema } from '../types';
 import type { Directory } from './directory';
 import type { File } from './file';
 import type { Upload } from './upload';
@@ -36,6 +36,10 @@ export const MediaSchema = z
     width: NumberField(), // video width in pixels
     height: NumberField(), // video height in pixels
     rotation: NumberField().optional().default(0), // rotation in degrees (0, 90, 180, 270)
+    // Default source crop applied to every placement (e.g. strip burned-in
+    // letterbox bars): 0–1 fractions of the DISPLAY frame (post-rotation).
+    // Bounds are enforced here via CropRectSchema, never in the DB column.
+    crop: JSONField(CropRectSchema).optional(),
     aspectRatio: NumberField(), // calculated aspect ratio (width/height)
     mediaData: JSONField(MediaMetadataSchema), // full probe output
     thumbnailFileRef: RelationField({ collection: 'Files' }).optional(),
@@ -66,6 +70,8 @@ export const MediaInputSchema = z.object({
   // Degrees (0/90/180/270). Written by the PROBE step: `width`/`height` are the
   // coded dimensions, and this is what turns them into display dimensions.
   rotation: NumberField({ min: 0 }).optional(),
+  // Default source crop, display-frame fractions (see MediaSchema.crop).
+  crop: CropRectSchema.optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: z.string().optional(),

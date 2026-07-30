@@ -7,6 +7,7 @@ import {
   TimelineTrack,
   TimelineSegment,
 } from './task-contracts';
+import { CropRectSchema } from './crop';
 import { StorageBackendType, TimelineOrientation } from '../enums';
 
 export const RenderTimelineConfigSchema = z.object({
@@ -281,6 +282,11 @@ const TimelineSegmentSchema = z.object({
       width: z.union([z.number(), z.string()]).optional(),
       height: z.union([z.number(), z.string()]).optional(),
       opacity: z.number().optional(),
+      // Must stay in lockstep with TimelineSegment.video.crop: this schema
+      // validates TimelineRenders.timelineData on create and STRIPS keys it
+      // doesn't declare — `satisfies z.ZodType<TimelineSegment>` cannot
+      // catch a forgotten optional key.
+      crop: CropRectSchema.optional(),
     })
     .optional(),
   audio: z
@@ -340,6 +346,10 @@ export const TimelineClipMetadataSchema = z.object({
   // Set by reflow when a trimmed window fell wholly beyond a shrunk source
   // and was clamped to its tail; cleared on the next successful user trim.
   sourceOutOfRange: z.boolean().optional(),
+  // Per-clip source crop (reframe). Absolute display-space rect — NOT
+  // relative to the media's default crop. Delete the key to reset to the
+  // default (media crop, else full frame). Media-backed clips only.
+  crop: CropRectSchema.optional(),
 });
 
 // ============================================================================

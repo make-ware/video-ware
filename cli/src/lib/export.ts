@@ -631,6 +631,14 @@ N }\`. All times are seconds.
   \`composite\` is true, the source span is larger than what plays; use the
   \`effective\` duration and the segment commands above.
 
+Seeing the picture: \`vw frame\` writes one still JPEG cut from the filmstrip
+previews — never the original upload — so frames are ~320px wide and sampled
+at 1 fps (the image is the frame captured at the whole second at or before the
+time you asked for). \`-m\` takes absolute media seconds; \`-c\` and
+\`--timeline-clip\` take seconds from the clip's first played frame, with cut
+gaps skipped. Use it before judging anything visual instead of inferring it
+from labels.
+
 Timeline placement semantics: every clip sits at an explicit
 \`timelineStart\`. \`vw timeline insert\` appends to the end of the target
 track by default; \`--after <clipId>\` places right after that clip and
@@ -679,6 +687,8 @@ vw timeline insert -t ${timelineId} -m ${mediaId} --track 2 --at 12.5
 vw timeline show ${timelineId} --json
 vw timeline doctor ${timelineId}
 vw timeline inspect -t ${timelineId} --at 14 --labels
+vw frame --timeline-clip CLIP_ID --at 2 -o /tmp/shot.jpg   # see what a clip shows
+vw frame -m ${mediaId} --at 30 --base64                    # …or inline, no file
 vw timeline clips move CLIP_ID --at 16 --overwrite
 vw timeline clips ripple CLIP_ID --by=-2.5   # pull this clip + later ones left
 

@@ -75,6 +75,8 @@ vw media clip trim <id>        # re-edge one edit-list segment (--segment -s -e)
 vw media clip slip <id>        # slip source content ±seconds (--by, --segment)
 vw media clip transcript <id>  # what the clip says — cut gaps trimmed at word level
 
+vw frame                       # write one still JPEG from a media/clip/timeline clip (from the filmstrip previews)
+
 vw dir list                    # list directories + media counts (optional flat folders)
 vw dir show <dir>              # one directory and the media filed in it
 vw dir create <name>           # create a directory (idempotent; path-safe names only)
@@ -682,6 +684,58 @@ sentence) evenly across the duration; without it the whole text shows for the
 clip's length. Editing a caption updates every timeline clip that references it,
 so a title-card typo is one `caption update` away — no re-placement needed.
 
+## Looking at frames (`vw frame`)
+
+`vw frame` writes a single still JPEG so an agent can actually _see_ a moment
+instead of inferring it from labels and transcripts.
+
+**Two things to expect up front.** Frames come out of the filmstrip previews,
+so they are roughly **320px wide, not full resolution**, and they are sampled
+at **1 frame per second** — the returned image is the frame captured at
+`frameTime`, which is `sourceTime` rounded down to a whole second. Both numbers
+are always reported. The upside of that constraint: `vw frame` only ever reads
+the `Files` collection (`fileType: filmstrip`), never the original upload, so
+it is cheap and works even when the source file lives in cold storage.
+
+Pass exactly one source. What `--at` counts in depends on which:
+
+| source                 | `--at` means                                                         |
+| ---------------------- | -------------------------------------------------------------------- |
+| `-m, --media <id>`     | absolute media seconds                                                |
+| `-c, --clip <id>`      | seconds from the clip's **first played frame** (cut gaps skipped)     |
+| `--timeline-clip <id>` | seconds from the clip's **first played frame** (cut gaps skipped)     |
+
+The clip flags take an offset, not a timeline time — the same domain as
+`vw timeline clips map --offset`. This differs from `vw timeline insert --at`
+and `vw timeline inspect --at`, which are absolute timeline seconds, so the
+JSON always names the domain it used (`at: { domain, value }`).
+
+```bash
+# what does this clip look like 3s in?
+vw frame --timeline-clip CLIP_ID --at 3 -o /tmp/shot.jpg
+
+# a timeline time -> the offset vw frame wants
+vw timeline clips map CLIP_ID --timeline-time 42 --json   # -> .point.offset
+
+# base64 to stdout instead of a file (stdout is the payload and nothing else)
+vw frame -m MEDIA_ID --at 30 --base64
+
+# no filmstrip yet? (audio and image media never get one)
+vw job transcode -m MEDIA_ID -a filmstrip
+```
+
+By default the frame is written to `frame-<mediaId>-<t>s.jpg` in the current
+directory. `-o` takes a file path, or a directory to write that default name
+into; an existing file is refused unless you pass `--force`, and a missing
+output directory is an error rather than being created. `--base64` prints the
+image instead of writing anything, so it cannot be combined with `-o`/`--force`.
+
+Tile geometry is derived from the decoded sheet, not from the stored
+`filmstripConfig.tileWidth/tileHeight` — those record what the transcode step
+was _asked_ for, while the ffmpeg executor recomputes tile height from the
+source aspect ratio, so for non-16:9 media the stored value disagrees with the
+image. `image.geometrySource` in the JSON is a reminder of that.
+
 ## Label search
 
 `vw label search` fans out one query per label type and merges the results
@@ -860,6 +914,15 @@ else:
   plays (gap-only labels are dropped and counted)
 - `timeline compact` → `{ timelineId, tracks: [{ trackId, layer, moves,
   closedGapSeconds }], moveCount, applied, dryRun, warnings }`
+- `frame` → `{ source: { kind, id }, mediaId, at: { domain, value },
+  sourceTime, frameTime, clamped, segment: { fileId, segmentIndex, startTime,
+  cols, rows, fps }, tile: { index, col, row }, image: { width, height,
+  format, quality, bytes, geometrySource }, path, base64, warnings }`.
+  `path` is null and `base64` populated under `--base64`. `frameTime` is the
+  tile's capture time — filmstrips sample 1 fps, so it is `sourceTime` rounded
+  down to a whole second. `at.domain` says whether `--at` was read as absolute
+  media seconds (`"media"`) or as a clip offset (`"offset"`). `warnings` also
+  goes to stderr
 - `label show` → the raw record (plus `attributedEntity` when attributed,
   and a `links` array with `--clips`)
 - `label clip` → the raw created clip record (`clipData.sourceId` holds the

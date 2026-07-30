@@ -8,7 +8,6 @@ import {
   chunkPlan,
   describeNetworkError,
   fetchUploadPage,
-  formatBytes,
   mediaByUpload,
   mediaByUploadIds,
   mediaTypeForFile,
@@ -21,6 +20,7 @@ import {
   validateReplacementFile,
   validateUploadFile,
 } from '../lib/upload.js';
+import { formatBytes } from '../lib/output.js';
 import { resolveListQuery } from '../lib/list/index.js';
 import { fakePb, listResult } from './fake-pb.js';
 

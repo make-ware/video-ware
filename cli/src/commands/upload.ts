@@ -7,14 +7,13 @@ import {
 } from '@project/shared';
 import { isRootDirRef, resolveDirectory } from '../lib/directory.js';
 import { withJsonOption } from '../lib/options.js';
-import { error, info, success } from '../lib/output.js';
+import { error, formatBytes, info, success } from '../lib/output.js';
 import { handleError, requireClient } from '../lib/run.js';
 import { resolveWorkspaceId } from '../lib/select.js';
 import {
   DEFAULT_CHUNK_SIZE,
   chunkPlan,
   fetchUploadPage,
-  formatBytes,
   mediaTypeForFile,
   replaceUploadFile,
   resolveAppUrl,

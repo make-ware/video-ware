@@ -117,6 +117,21 @@ export function range(start: number, end: number): string {
   return `${start.toFixed(2)}–${end.toFixed(2)}s`;
 }
 
+/** Format a byte count for progress and size lines (e.g. "1.2 GB"). */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const rounded =
+    unit === 0 || value >= 10 ? String(Math.round(value)) : value.toFixed(1);
+  return `${rounded} ${units[unit]}`;
+}
+
 /** Format a duration in seconds as `m:ss` (or `h:mm:ss`). */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';

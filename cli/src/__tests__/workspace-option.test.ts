@@ -65,6 +65,7 @@ describe('-w is accepted everywhere', () => {
     expect(paths).toContain('vw login');
     expect(paths).toContain('vw media show');
     expect(paths).toContain('vw timeline clips update');
+    expect(paths).toContain('vw frame');
   });
 
   it('takes a value (never parses as a boolean flag)', () => {

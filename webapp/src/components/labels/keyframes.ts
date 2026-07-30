@@ -1,4 +1,9 @@
-import type { LabelTrack } from '@project/shared';
+import {
+  tileFrameTime,
+  tileIndexFor,
+  type LabelTrack,
+  type TileGeometry,
+} from '@project/shared';
 
 /** Normalized bounding box, all coords 0–1 fractions of the frame. */
 export interface Bbox {
@@ -129,25 +134,12 @@ export function bboxCropRegion(
   };
 }
 
-/** The sprite-sheet geometry needed to locate a tile (FilmstripConfig subset). */
-export interface TileGeometry {
-  cols: number;
-  rows: number;
-  fps: number;
-  startTime: number;
-}
-
-/** Index of the sprite tile FilmstripViewer would show for `time`. */
-export function tileIndexFor(config: TileGeometry, time: number): number {
-  const local = Math.max(0, time - config.startTime);
-  const total = config.cols * config.rows;
-  return Math.min(Math.max(Math.floor(local * config.fps), 0), total - 1);
-}
-
-/** Media timestamp of the frame captured in the tile shown for `time`. */
-export function tileFrameTime(config: TileGeometry, time: number): number {
-  return config.startTime + tileIndexFor(config, time) / config.fps;
-}
+/**
+ * The sprite-sheet tile math lives in `@project/shared` — the CLI's
+ * `vw frame` needs the same arithmetic, and one copy beats three. Re-exported
+ * here so the label components' import sites stay put.
+ */
+export { tileIndexFor, tileFrameTime, type TileGeometry };
 
 /**
  * CSS background-size/-position (percentages) rendering only `region` of the

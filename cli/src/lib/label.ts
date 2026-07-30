@@ -11,12 +11,8 @@ import {
   LabelSpeechMutator,
   LabelTextMutator,
   MediaClipMutator,
-  TimelineClipMutator,
-  getCompositeSegments,
   speakerTranscriptLabel,
-  windowCompositeSegments,
   type ActualizableLabel,
-  type CompositeSegment,
   type Entity,
   type MediaClip,
   type TypedPocketBase,
@@ -27,8 +23,13 @@ import {
 import { attributionExpands, labelAttributionFilter } from '@project/shared';
 export { attributionExpands, labelAttributionFilter };
 import { mediaLabel, pickMedia, type MediaWithUpload } from './select.js';
-import { resolveTimelineEditList } from './timeline-clip.js';
-import type { EditListSource } from './clip-times.js';
+
+// `vw frame` resolves a clip's played ranges the same way, so the helper moved
+// to its own module; re-exported so CLI callers keep importing it from here.
+export {
+  clipEditListFilter,
+  type ClipEditListFilter,
+} from './clip-edit-list.js';
 import { parseSeconds, type OptionGroupOf } from './options.js';
 import { truncate, type Column } from './output.js';
 import {
@@ -782,55 +783,6 @@ export async function listLabels(
     0
   );
   return { hits, totalItems };
-}
-
-/** A clip's played edit list resolved for label filtering. */
-export interface ClipEditListFilter {
-  mediaId: string;
-  /** The windowed edit list — the source ranges the clip actually plays. */
-  segments: CompositeSegment[];
-  source: EditListSource;
-}
-
-/**
- * Resolve the played edit list of a MediaClip or TimelineClip for
- * `label list --clip/--timeline-clip`: the clip supplies its media and the
- * windowed segments labels must overlap to count as played.
- */
-export async function clipEditListFilter(
-  pb: TypedPocketBase,
-  ref: { clip?: string; timelineClip?: string }
-): Promise<ClipEditListFilter> {
-  if (ref.clip) {
-    const clip = await new MediaClipMutator(pb).getById(ref.clip);
-    if (!clip) throw new Error(`Media clip not found: ${ref.clip}`);
-    const existing = getCompositeSegments(clip);
-    const list = existing?.length
-      ? existing
-      : [{ start: clip.start, end: clip.end }];
-    return {
-      mediaId: clip.MediaRef,
-      segments: windowCompositeSegments(list, clip.start, clip.end),
-      source: existing?.length ? 'clipData' : 'trim',
-    };
-  }
-  const clipId = ref.timelineClip;
-  if (!clipId) {
-    throw new Error('Pass a MediaClip id (--clip) or TimelineClip id.');
-  }
-  const clip = await new TimelineClipMutator(pb).getById(clipId);
-  if (!clip) throw new Error(`Timeline clip not found: ${clipId}`);
-  if (!clip.MediaRef) {
-    throw new Error(
-      `Clip ${clipId} has no source media — captions and nested timelines have no labels.`
-    );
-  }
-  const editList = await resolveTimelineEditList(pb, clip);
-  return {
-    mediaId: clip.MediaRef,
-    segments: windowCompositeSegments(editList.segments, clip.start, clip.end),
-    source: editList.source,
-  };
 }
 
 /**

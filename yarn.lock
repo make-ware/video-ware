@@ -3209,6 +3209,7 @@ __metadata:
     "@typescript-eslint/parser": "npm:^8.53.1"
     commander: "npm:^14.0.0"
     eslint: "npm:^9.39.2"
+    jpeg-js: "npm:^0.4.4"
     pocketbase: "npm:0.27.0"
     prettier: "npm:^3.9.6"
     tsup: "npm:^8.5.1"
@@ -11423,6 +11424,13 @@ __metadata:
   version: 3.1.1
   resolution: "joycon@npm:3.1.1"
   checksum: 10/4b36e3479144ec196425f46b3618f8a96ce7e1b658f091a309cd4906215f5b7a402d7df331a3e0a09681381a658d0c5f039cb3cf6907e0a1e17ed847f5d37775
+  languageName: node
+  linkType: hard
+
+"jpeg-js@npm:^0.4.4":
+  version: 0.4.4
+  resolution: "jpeg-js@npm:0.4.4"
+  checksum: 10/30bb6e16e79db4bd6edbecf1140039bbab326de876f2d20685f04a38d03f70ef9fada1886f0bf58832a4dba4aa179311fc4be7df3d756cab8f1c74d745542f38
   languageName: node
   linkType: hard
 

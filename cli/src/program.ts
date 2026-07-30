@@ -11,6 +11,7 @@ import { registerLabelCommands } from './commands/label.js';
 import { registerEntityCommands } from './commands/entity.js';
 import { registerCaptionCommands } from './commands/caption.js';
 import { registerTimelineCommands } from './commands/timeline.js';
+import { registerFrameCommands } from './commands/frame.js';
 import { registerJobCommands } from './commands/job.js';
 import { installWorkspaceOption } from './lib/workspace-option.js';
 import { LIST_HINT_HELP } from './lib/help.js';
@@ -68,6 +69,7 @@ export function buildProgram(): Command {
   registerEntityCommands(program);
   registerCaptionCommands(program);
   registerTimelineCommands(program);
+  registerFrameCommands(program);
   registerJobCommands(program);
 
   return installWorkspaceOption(program);

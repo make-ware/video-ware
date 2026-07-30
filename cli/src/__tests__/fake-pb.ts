@@ -11,6 +11,11 @@ export function fakePb(collections: Record<string, Stub>): TypedPocketBase {
   return {
     authStore: { record: { id: 'user1' }, token: 'tok' },
     autoCancellation: () => {},
+    // Deterministic stand-in for the SDK's file URL builder.
+    files: {
+      getURL: (record: { id: string }, filename: string) =>
+        `http://pb.test/api/files/Files/${record.id}/${filename}`,
+    },
     // Echo a deterministic, already-substituted filter string for assertions.
     filter: (tpl: string, params: Record<string, unknown>) =>
       Object.entries(params).reduce(

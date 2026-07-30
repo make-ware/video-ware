@@ -36,13 +36,18 @@ import { singleMediaType } from './timeline.js';
  * wide, so a frame is a preview, not a master.
  */
 
-export type FrameSourceKind = 'media' | 'clip' | 'timeline-clip';
+export type FrameSourceKind = 'media' | 'clip';
 
-/** The three mutually exclusive `--media`/`--clip`/`--timeline-clip` flags. */
+/**
+ * The two mutually exclusive `--media`/`--clip` flags.
+ *
+ * Deliberately no `--timeline-clip`: a timeline clip is either a window onto
+ * a media (reachable through `-m`/`-c` already) or a nested timeline, and a
+ * frame of a nested timeline is a composite that only the renderer can make.
+ */
 export interface FrameSourceOptions {
   media?: string;
   clip?: string;
-  timelineClip?: string;
 }
 
 export interface ResolvedFrameSource {
@@ -52,7 +57,7 @@ export interface ResolvedFrameSource {
   media: MediaWithUpload;
   /**
    * What `--at` counts in: absolute media seconds for `--media`, seconds from
-   * the clip's first played frame (cut gaps skipped) for either clip flag.
+   * the clip's first played frame (cut gaps skipped) for `--clip`.
    */
   atDomain: 'media' | 'offset';
   /** The largest `--at` this source accepts. */
@@ -63,16 +68,12 @@ export interface ResolvedFrameSource {
 
 /** Exactly one source flag, checked before any network call. */
 export function assertSingleFrameSource(opts: FrameSourceOptions): void {
-  const given = [opts.media, opts.clip, opts.timelineClip].filter(Boolean);
+  const given = [opts.media, opts.clip].filter(Boolean);
   if (given.length === 0) {
-    throw new Error(
-      'Pass --media <id>, --clip <mediaClipId>, or --timeline-clip <id>.'
-    );
+    throw new Error('Pass --media <id> or --clip <mediaClipId>.');
   }
   if (given.length > 1) {
-    throw new Error(
-      '--media, --clip, and --timeline-clip are mutually exclusive.'
-    );
+    throw new Error('--media and --clip are mutually exclusive.');
   }
 }
 
@@ -86,10 +87,9 @@ function playedDuration(
 /**
  * Resolve a source flag plus `--at` into a media and an absolute source time.
  *
- * Both clip flags go through `clipEditListFilter`, which returns the windowed
- * edit list either kind actually plays — so `--at` maps through cut gaps the
- * same way the renderer and `vw timeline clips map` do, and captions / nested
- * timelines are rejected there with an explanation.
+ * `--clip` goes through `clipEditListFilter`, which returns the windowed edit
+ * list the clip actually plays — so `--at` maps through cut gaps the same way
+ * the renderer and `vw timeline clips map` do.
  */
 export async function resolveFrameSource(
   pb: TypedPocketBase,
@@ -116,24 +116,19 @@ export async function resolveFrameSource(
     };
   }
 
-  const kind: FrameSourceKind = opts.clip ? 'clip' : 'timeline-clip';
-  const sourceId = (opts.clip ?? opts.timelineClip) as string;
-  const editList = await clipEditListFilter(
-    pb,
-    { clip: opts.clip, timelineClip: opts.timelineClip },
-    'frames'
-  );
+  const sourceId = opts.clip as string;
+  const editList = await clipEditListFilter(pb, { clip: sourceId });
   const maxAt = playedDuration(editList.segments);
   if (at > maxAt) {
     throw new Error(
       `--at ${at.toFixed(2)}s is past the end of clip ${sourceId} ` +
         `(it plays ${maxAt.toFixed(2)}s; --at is seconds from the clip's ` +
-        `first played frame, not a timeline time).`
+        `first played frame, not a source-media time).`
     );
   }
 
   return {
-    kind,
+    kind: 'clip',
     sourceId,
     media: await requireMedia(pb, editList.mediaId),
     atDomain: 'offset',
@@ -452,9 +447,8 @@ export function frameSummaryLines(result: FrameResult): string[] {
 
   if (result.at.domain === 'offset') {
     lines.push(
-      `  ${result.source.kind === 'clip' ? 'clip' : 'timeline clip'} ` +
-        `${result.source.id} offset ${result.at.value.toFixed(2)}s → media ` +
-        `${result.sourceTime.toFixed(2)}s`
+      `  clip ${result.source.id} offset ${result.at.value.toFixed(2)}s → ` +
+        `media ${result.sourceTime.toFixed(2)}s`
     );
   }
   return lines;

@@ -68954,16 +68954,16 @@ async function reorderTimelineClips(pb, timelineId, orderedIds) {
 }
 
 // src/lib/clip-edit-list.ts
-function noSourceMediaReason(clip, subject) {
+function noSourceMediaReason(clip) {
   if (clip.CaptionRef) {
-    return `it is a caption, and rendered text has no ${subject}.`;
+    return "it is a caption, and rendered text has no labels.";
   }
   if (clip.SourceTimelineRef) {
-    return `it plays nested timeline ${clip.SourceTimelineRef} \u2014 read ${subject} from the clips inside it (\`vw timeline clips list -t ${clip.SourceTimelineRef}\`).`;
+    return `it plays nested timeline ${clip.SourceTimelineRef} \u2014 read labels from the clips inside it (\`vw timeline clips list -t ${clip.SourceTimelineRef}\`).`;
   }
-  return `captions and nested timelines have no ${subject}.`;
+  return "captions and nested timelines have no labels.";
 }
-async function clipEditListFilter(pb, ref, subject = "labels") {
+async function clipEditListFilter(pb, ref) {
   if (ref.clip) {
     const clip2 = await new MediaClipMutator(pb).getById(ref.clip);
     if (!clip2) throw new Error(`Media clip not found: ${ref.clip}`);
@@ -68983,7 +68983,7 @@ async function clipEditListFilter(pb, ref, subject = "labels") {
   if (!clip) throw new Error(`Timeline clip not found: ${clipId}`);
   if (!clip.MediaRef) {
     throw new Error(
-      `Clip ${clipId} has no source media \u2014 ${noSourceMediaReason(clip, subject)}`
+      `Clip ${clipId} has no source media \u2014 ${noSourceMediaReason(clip)}`
     );
   }
   const editList = await resolveTimelineEditList(pb, clip);
@@ -70123,9 +70123,10 @@ N }\`. All times are seconds.
 Seeing the picture: \`vw frame\` writes one still JPEG cut from the filmstrip
 previews \u2014 never the original upload \u2014 so frames are ~320px wide and sampled
 at 1 fps (the image is the frame captured at the whole second at or before the
-time you asked for). \`-m\` takes absolute media seconds; \`-c\` and
-\`--timeline-clip\` take seconds from the clip's first played frame, with cut
-gaps skipped. Use it before judging anything visual instead of inferring it
+time you asked for). \`-m\` takes absolute media seconds; \`-c\` takes seconds
+from a MediaClip's first played frame, with cut gaps skipped. There is no
+timeline-clip form \u2014 read a placed clip's \`MediaClipRef\`/\`MediaRef\` and
+frame that. Use it before judging anything visual instead of inferring it
 from labels.
 
 Timeline placement semantics: every clip sits at an explicit
@@ -70176,8 +70177,8 @@ vw timeline insert -t ${timelineId} -m ${mediaId} --track 2 --at 12.5
 vw timeline show ${timelineId} --json
 vw timeline doctor ${timelineId}
 vw timeline inspect -t ${timelineId} --at 14 --labels
-vw frame --timeline-clip CLIP_ID --at 2 -o /tmp/shot.jpg   # see what a clip shows
-vw frame -m ${mediaId} --at 30 --base64                    # \u2026or inline, no file
+vw frame -c MEDIACLIP_ID --at 2 -o /tmp/shot.jpg   # see what a clip shows
+vw frame -m ${mediaId} --at 30 --base64            # \u2026or inline, no file
 vw timeline clips move CLIP_ID --at 16 --overwrite
 vw timeline clips ripple CLIP_ID --by=-2.5   # pull this clip + later ones left
 
@@ -76173,16 +76174,12 @@ function gridDividesExactly(image, grid) {
 
 // src/lib/frame.ts
 function assertSingleFrameSource(opts) {
-  const given = [opts.media, opts.clip, opts.timelineClip].filter(Boolean);
+  const given = [opts.media, opts.clip].filter(Boolean);
   if (given.length === 0) {
-    throw new Error(
-      "Pass --media <id>, --clip <mediaClipId>, or --timeline-clip <id>."
-    );
+    throw new Error("Pass --media <id> or --clip <mediaClipId>.");
   }
   if (given.length > 1) {
-    throw new Error(
-      "--media, --clip, and --timeline-clip are mutually exclusive."
-    );
+    throw new Error("--media and --clip are mutually exclusive.");
   }
 }
 function playedDuration(segments) {
@@ -76206,21 +76203,16 @@ async function resolveFrameSource(pb, opts, at) {
       sourceTime: at
     };
   }
-  const kind = opts.clip ? "clip" : "timeline-clip";
-  const sourceId = opts.clip ?? opts.timelineClip;
-  const editList = await clipEditListFilter(
-    pb,
-    { clip: opts.clip, timelineClip: opts.timelineClip },
-    "frames"
-  );
+  const sourceId = opts.clip;
+  const editList = await clipEditListFilter(pb, { clip: sourceId });
   const maxAt = playedDuration(editList.segments);
   if (at > maxAt) {
     throw new Error(
-      `--at ${at.toFixed(2)}s is past the end of clip ${sourceId} (it plays ${maxAt.toFixed(2)}s; --at is seconds from the clip's first played frame, not a timeline time).`
+      `--at ${at.toFixed(2)}s is past the end of clip ${sourceId} (it plays ${maxAt.toFixed(2)}s; --at is seconds from the clip's first played frame, not a source-media time).`
     );
   }
   return {
-    kind,
+    kind: "clip",
     sourceId,
     media: await requireMedia(pb, editList.mediaId),
     atDomain: "offset",
@@ -76390,7 +76382,7 @@ function frameSummaryLines(result) {
   lines.push(detail);
   if (result.at.domain === "offset") {
     lines.push(
-      `  ${result.source.kind === "clip" ? "clip" : "timeline clip"} ${result.source.id} offset ${result.at.value.toFixed(2)}s \u2192 media ${result.sourceTime.toFixed(2)}s`
+      `  clip ${result.source.id} offset ${result.at.value.toFixed(2)}s \u2192 media ${result.sourceTime.toFixed(2)}s`
     );
   }
   return lines;
@@ -76399,7 +76391,7 @@ function frameSummaryLines(result) {
 // src/commands/frame.ts
 function registerFrameCommands(program2) {
   const frame = program2.command("frame").description(
-    "Write one still JPEG from a media, media clip, or timeline clip (cut from the filmstrip previews \u2014 ~320px wide, sampled at 1 fps)"
+    "Write one still JPEG from a media or media clip (cut from the filmstrip previews \u2014 ~320px wide, sampled at 1 fps)"
   ).option(
     "-m, --media <id>",
     "source media id (--at is absolute media seconds)"
@@ -76407,11 +76399,8 @@ function registerFrameCommands(program2) {
     "-c, --clip <mediaClipId>",
     "media clip id (--at is seconds from the clip's first played frame)"
   ).option(
-    "--timeline-clip <id>",
-    "timeline clip id (--at is seconds from the clip's first played frame)"
-  ).option(
     "--at <seconds>",
-    "time to grab: absolute media seconds with -m; seconds from the clip's first played frame (cut gaps skipped) with -c/--timeline-clip",
+    "time to grab: absolute media seconds with -m; seconds from the clip's first played frame (cut gaps skipped) with -c",
     parseSeconds,
     0
   ).option(
@@ -76424,7 +76413,6 @@ function registerFrameCommands(program2) {
       const result = await extractFrame(pb, {
         media: opts.media,
         clip: opts.clip,
-        timelineClip: opts.timelineClip,
         at: opts.at,
         out: opts.out,
         base64: opts.base64,

@@ -103,13 +103,11 @@ describe('assertSingleFrameSource', () => {
     expect(() => assertSingleFrameSource({ media: 'm1', clip: 'c1' })).toThrow(
       /mutually exclusive/
     );
-    expect(() =>
-      assertSingleFrameSource({ clip: 'c1', timelineClip: 't1' })
-    ).toThrow(/mutually exclusive/);
   });
 
   it('accepts exactly one', () => {
     expect(() => assertSingleFrameSource({ media: 'm1' })).not.toThrow();
+    expect(() => assertSingleFrameSource({ clip: 'c1' })).not.toThrow();
   });
 });
 
@@ -192,69 +190,20 @@ describe('resolveFrameSource', () => {
       },
     });
     await expect(resolveFrameSource(pb, { clip: 'mc1' }, 12)).rejects.toThrow(
-      /past the end of clip mc1 \(it plays 7\.50s.*not a timeline time\)/s
+      /past the end of clip mc1 \(it plays 7\.50s.*not a source-media time\)/s
     );
   });
 
-  it('maps a timeline clip offset through its own edit list', async () => {
+  it('reports a missing clip rather than falling through to the media', async () => {
     const pb = pbWith(videoMedia(), {
-      TimelineClips: {
-        getOne: vi.fn(async () => ({
-          id: 'tc1',
-          TimelineRef: 'tl1',
-          MediaRef: 'm1',
-          start: 5,
-          end: 15,
-          meta: {
-            segments: [
-              { start: 5, end: 7 },
-              { start: 12, end: 15 },
-            ],
-          },
-        })),
+      MediaClips: {
+        getOne: vi.fn(async () => {
+          throw Object.assign(new Error('not found'), { status: 404 });
+        }),
       },
     });
-    const source = await resolveFrameSource(pb, { timelineClip: 'tc1' }, 3);
-    expect(source).toMatchObject({
-      kind: 'timeline-clip',
-      atDomain: 'offset',
-      sourceTime: 13,
-    });
-  });
-
-  it('explains a caption clip', async () => {
-    const pb = pbWith(videoMedia(), {
-      TimelineClips: {
-        getOne: vi.fn(async () => ({
-          id: 'cap1',
-          TimelineRef: 'tl1',
-          CaptionRef: 'c1',
-          start: 0,
-          end: 4,
-        })),
-      },
-    });
-    await expect(
-      resolveFrameSource(pb, { timelineClip: 'cap1' }, 0)
-    ).rejects.toThrow(/it is a caption, and rendered text has no frames/);
-  });
-
-  it('points a nested-timeline clip at the timeline inside it', async () => {
-    const pb = pbWith(videoMedia(), {
-      TimelineClips: {
-        getOne: vi.fn(async () => ({
-          id: 'nest1',
-          TimelineRef: 'tl1',
-          SourceTimelineRef: 'tl2',
-          start: 0,
-          end: 4,
-        })),
-      },
-    });
-    await expect(
-      resolveFrameSource(pb, { timelineClip: 'nest1' }, 0)
-    ).rejects.toThrow(
-      /nested timeline tl2 — read frames from the clips inside it/
+    await expect(resolveFrameSource(pb, { clip: 'gone' }, 0)).rejects.toThrow(
+      /Media clip not found: gone/
     );
   });
 });

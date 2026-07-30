@@ -8,7 +8,7 @@ export function registerFrameCommands(program: Command): void {
   const frame = program
     .command('frame')
     .description(
-      'Write one still JPEG from a media, media clip, or timeline clip ' +
+      'Write one still JPEG from a media or media clip ' +
         '(cut from the filmstrip previews — ~320px wide, sampled at 1 fps)'
     )
     .option(
@@ -20,13 +20,9 @@ export function registerFrameCommands(program: Command): void {
       "media clip id (--at is seconds from the clip's first played frame)"
     )
     .option(
-      '--timeline-clip <id>',
-      "timeline clip id (--at is seconds from the clip's first played frame)"
-    )
-    .option(
       '--at <seconds>',
       'time to grab: absolute media seconds with -m; seconds from the ' +
-        "clip's first played frame (cut gaps skipped) with -c/--timeline-clip",
+        "clip's first played frame (cut gaps skipped) with -c",
       parseSeconds,
       0
     )
@@ -44,7 +40,6 @@ export function registerFrameCommands(program: Command): void {
       const result = await extractFrame(pb, {
         media: opts.media,
         clip: opts.clip,
-        timelineClip: opts.timelineClip,
         at: opts.at,
         out: opts.out,
         base64: opts.base64,

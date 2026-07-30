@@ -28,13 +28,18 @@ const STEP_PRIORITY: Record<string, number> = {
   [TranscodeStepType.THUMBNAIL]: 3,
   [TranscodeStepType.SPRITE]: 3,
   [TranscodeStepType.FILMSTRIP]: 3,
+  // AUTOCROP only writes Media.crop/cropSuggestion — no other step reads
+  // them, and the crop is applied at flatten time rather than baked into any
+  // derivative — so it is ordered with the other analysis-grade steps and
+  // ahead of the heavy encode.
+  [TranscodeStepType.AUTOCROP]: 3,
   [TranscodeStepType.TRANSCODE]: 4,
 };
 
 export class TranscodeFlowBuilder {
   /**
    * Build a transcode flow definition for PROCESS_UPLOAD tasks
-   * Builds a parent-child job hierarchy with steps: PROBE, THUMBNAIL, SPRITE, FILMSTRIP, TRANSCODE, AUDIO
+   * Builds a parent-child job hierarchy with steps: PROBE, THUMBNAIL, SPRITE, FILMSTRIP, TRANSCODE, AUDIO, AUTOCROP
    */
   static buildFlow(task: WorkspaceTask): TranscodeFlowDefinition {
     const payload = task.payload as ProcessUploadPayload;
@@ -206,6 +211,31 @@ export class TranscodeFlowBuilder {
         opts: {
           ...audioOptions,
           priority: STEP_PRIORITY[TranscodeStepType.AUDIO],
+        },
+      });
+    }
+
+    // AUTOCROP step (if enabled)
+    if (payload.autocrop?.enabled) {
+      const autoCropOptions = getStepJobOptions(TranscodeStepType.AUTOCROP);
+      flow.children.push({
+        name: TranscodeStepType.AUTOCROP,
+        queueName: QUEUE_NAMES.TRANSCODE,
+        data: {
+          ...baseJobData,
+          stepType: TranscodeStepType.AUTOCROP,
+          parentJobId: '',
+          input: {
+            type: 'autocrop',
+            uploadId,
+            mediaId,
+            filePath: '', // Will be resolved by processor
+            config: payload.autocrop,
+          },
+        },
+        opts: {
+          ...autoCropOptions,
+          priority: STEP_PRIORITY[TranscodeStepType.AUTOCROP],
         },
       });
     }

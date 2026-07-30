@@ -64,6 +64,7 @@ vw media update <id>           # set label/description, move into a directory (-
 vw media show <id>             # one media item with its entity tags
 vw media tag <id> <entity>     # tag a whole media with an entity ("this features X")
 vw media untag <id> <entity>   # remove that tag (no-op if absent)
+vw media download <id>         # download a derived preview file (--proxy/--audio/--thumbnail/--sprite)
 vw media clip create           # create a media clip (sub-range of a media)
 vw media clip list             # list media clips (-d filters via the parent media's directory)
 vw media clip update <id>      # edit a media clip's label/description/trim
@@ -743,6 +744,66 @@ records disagree with their own pixels for non-16:9 and rotated media, and
 those records are still in the database. Since `vw frame` has to decode the
 sheet to crop it anyway, it measures instead of trusting;
 `image.geometrySource` in the JSON records that.
+
+## Downloading previews (`vw media download`)
+
+Where `vw frame` hands back one still, `vw media download` hands back a whole
+derived file, so anything that reads media — `ffprobe`, `ffmpeg`, a waveform
+tool, a transcription model, an agent's own analysis — can work on the bytes
+rather than on the records describing them.
+
+Pass exactly one kind:
+
+| flag          | what you get                                    | `fileType` |
+| ------------- | ----------------------------------------------- | ---------- |
+| `--proxy`     | the web-playable video proxy (h264, 720p)       | `proxy`    |
+| `--audio`     | the extracted audio-only track (128k mixdown)   | `audio`    |
+| `--thumbnail` | the single still thumbnail (JPEG, 640x360)      | `thumbnail`|
+| `--sprite`    | the scrub-preview sprite sheet (JPEG tile grid) | `sprite`   |
+
+**These are previews, not masters.** Every kind above is something the
+transcode pipeline generated; the original upload is refused outright (the
+allow-list lives in `lib/files.ts` and covers every `vw` command that reads
+bytes). So a duration or channel count measured here is the proxy's, not the
+source's — for the source's own numbers read `Media.mediaData`, which is the
+probe output stored verbatim (`vw media show <id> --json`).
+
+```bash
+# pull the proxy into a working directory, then probe it
+vw media download MEDIA_ID --proxy -o ./work/
+ffprobe -hide_banner ./work/proxy-MEDIA_ID.mp4
+
+# audio for a transcription or loudness pass
+vw media download MEDIA_ID --audio -o speech.mp3
+
+# just the URL (stdout is the URL and nothing else, so it pipes into curl)
+curl -fsSL -o proxy.mp4 "$(vw media download MEDIA_ID --proxy --url)"
+
+# nothing to download yet? the error says which job makes it
+vw job transcode -m MEDIA_ID -a proxy,audio
+```
+
+By default the file is written to `<kind>-<mediaId>.<ext>` in the current
+directory, with the extension taken from what the producer actually wrote
+(`proxy.mp4`, `audio.mp3`, …) rather than guessed. `-o` takes a file path or a
+directory to write that default name into; an existing file is refused unless
+you pass `--force`, and a missing output directory is an error rather than being
+created. Those checks all run **before** a byte is fetched, so a typo never
+costs a download. `--url` reports the URL and downloads nothing, so it cannot be
+combined with `-o`/`--force`.
+
+Bytes stream straight to disk — a proxy of a long source runs to hundreds of
+megabytes and is never buffered in memory — and a transfer that dies part-way
+**deletes** the partial file, because a truncated file that merely looks
+complete is worse than no file when the next step is a decoder. Progress prints
+to stderr (only when stderr is a terminal), so stdout stays parseable.
+
+`--json` returns `{ mediaId, mediaName, kind, file: { id, name, fileType, size,
+meta }, url, path, bytes, warnings }`. `file.meta` is what the producer measured
+about the asset it emitted — duration, geometry, fps, codec, channels, sample
+rate — so an agent can decide whether to probe at all. `bytes` is what was
+actually written; if it disagrees with the recorded `file.size` the run
+completes with a `warnings` entry rather than pretending it was clean.
 
 ## Label search
 

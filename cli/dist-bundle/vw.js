@@ -22280,7 +22280,7 @@ var require_client_h2 = __commonJS({
   "../node_modules/undici/lib/dispatcher/client-h2.js"(exports, module) {
     "use strict";
     var assert2 = __require("assert");
-    var { pipeline } = __require("stream");
+    var { pipeline: pipeline2 } = __require("stream");
     var util = require_util();
     var {
       RequestContentLengthMismatchError,
@@ -22913,7 +22913,7 @@ var require_client_h2 = __commonJS({
     }
     function writeStream(abort, socket, expectsPayload, h2stream, body, client, request, contentLength) {
       assert2(contentLength !== 0 || client[kRunning] === 0, "stream body cannot be pipelined");
-      const pipe2 = pipeline(
+      const pipe2 = pipeline2(
         body,
         h2stream,
         (err) => {
@@ -26740,7 +26740,7 @@ var require_api_pipeline = __commonJS({
         util.destroy(ret, err);
       }
     };
-    function pipeline(opts, handler) {
+    function pipeline2(opts, handler) {
       try {
         const pipelineHandler = new PipelineHandler(opts, handler);
         this.dispatch({ ...opts, body: pipelineHandler.req }, pipelineHandler);
@@ -26749,7 +26749,7 @@ var require_api_pipeline = __commonJS({
         return new PassThrough().destroy(err);
       }
     }
-    module.exports = pipeline;
+    module.exports = pipeline2;
   }
 });
 
@@ -31982,7 +31982,7 @@ var require_decompress = __commonJS({
   "../node_modules/undici/lib/interceptor/decompress.js"(exports, module) {
     "use strict";
     var { createInflate, createGunzip, createBrotliDecompress, createZstdDecompress } = __require("zlib");
-    var { pipeline } = __require("stream");
+    var { pipeline: pipeline2 } = __require("stream");
     var DecoratorHandler = require_decorator_handler();
     var { runtimeFeatures } = require_runtime_features();
     var supportedEncodings = {
@@ -32091,7 +32091,7 @@ var require_decompress = __commonJS({
       #setupMultipleDecompressors(controller) {
         const lastDecompressor = this.#decompressors[this.#decompressors.length - 1];
         this.#setupDecompressorEvents(lastDecompressor, controller);
-        pipeline(this.#decompressors, (err) => {
+        pipeline2(this.#decompressors, (err) => {
           if (err) {
             super.onResponseError(controller, err);
             return;
@@ -34836,7 +34836,7 @@ var require_fetch = __commonJS({
       subresourceSet
     } = require_constants3();
     var EE = __require("events");
-    var { Readable, pipeline, finished, isErrored, isReadable } = __require("stream");
+    var { Readable, pipeline: pipeline2, finished, isErrored, isReadable } = __require("stream");
     var { addAbortListener, bufferToLowerCasedHeaderName } = require_util();
     var { dataURLProcessor, serializeAMimeType, minimizeSupportedMimeType } = require_data_url();
     var { getGlobalDispatcher } = require_global2();
@@ -35827,7 +35827,7 @@ var require_fetch = __commonJS({
                 status,
                 statusText,
                 headersList,
-                body: decoders.length ? pipeline(this.body, ...decoders, (err) => {
+                body: decoders.length ? pipeline2(this.body, ...decoders, (err) => {
                   if (err) {
                     this.onError(err);
                   }
@@ -39528,7 +39528,7 @@ ${value}`;
 var require_eventsource = __commonJS({
   "../node_modules/undici/lib/web/eventsource/eventsource.js"(exports, module) {
     "use strict";
-    var { pipeline } = __require("stream");
+    var { pipeline: pipeline2 } = __require("stream");
     var { fetching } = require_fetch();
     var { makeRequest } = require_request2();
     var { webidl } = require_webidl();
@@ -39686,7 +39686,7 @@ var require_eventsource = __commonJS({
               ));
             }
           });
-          pipeline(
+          pipeline2(
             response.body.stream,
             eventSourceStream,
             (error49) => {
@@ -45790,6 +45790,18 @@ function secs(v) {
 }
 function range(start, end) {
   return `${start.toFixed(2)}\u2013${end.toFixed(2)}s`;
+}
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const rounded = unit === 0 || value >= 10 ? String(Math.round(value)) : value.toFixed(1);
+  return `${rounded} ${units[unit]}`;
 }
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -59985,6 +59997,13 @@ var StorageBackendType = /* @__PURE__ */ ((StorageBackendType2) => {
   StorageBackendType2["S3"] = "s3";
   return StorageBackendType2;
 })(StorageBackendType || {});
+var FileStatus = /* @__PURE__ */ ((FileStatus2) => {
+  FileStatus2["PENDING"] = "pending";
+  FileStatus2["AVAILABLE"] = "available";
+  FileStatus2["FAILED"] = "failed";
+  FileStatus2["DELETED"] = "deleted";
+  return FileStatus2;
+})(FileStatus || {});
 var FileType = /* @__PURE__ */ ((FileType2) => {
   FileType2["ORIGINAL"] = "original";
   FileType2["PROXY"] = "proxy";
@@ -70617,18 +70636,6 @@ function resolveAppUrl(override2) {
   }
   return pbUrl;
 }
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  const rounded = unit === 0 || value >= 10 ? String(Math.round(value)) : value.toFixed(1);
-  return `${rounded} ${units[unit]}`;
-}
 async function validateUploadFile(filePath) {
   let stats;
   try {
@@ -73039,6 +73046,344 @@ function registerTimelineClipTranscriptCommand(clips) {
   });
 }
 
+// src/lib/download.ts
+import { extname as extname2 } from "path";
+
+// src/lib/files.ts
+import { createWriteStream } from "fs";
+import { rm } from "fs/promises";
+import { pipeline } from "stream/promises";
+var DERIVED_FILE_TYPES = [
+  FileType.PROXY,
+  FileType.THUMBNAIL,
+  FileType.SPRITE,
+  FileType.FILMSTRIP,
+  FileType.AUDIO,
+  FileType.RENDER,
+  FileType.LABELS_JSON
+];
+function assertDerivedFile(file2) {
+  const type = String(file2.fileType);
+  if (type === String(FileType.ORIGINAL)) {
+    throw new Error(
+      `File ${file2.id} is fileType "original" \u2014 vw reads derived proxy material only (${DERIVED_FILE_TYPES.join(", ")}), never the source upload.`
+    );
+  }
+  if (!DERIVED_FILE_TYPES.includes(type)) {
+    throw new Error(
+      `File ${file2.id} is fileType "${type}", not one of: ${DERIVED_FILE_TYPES.join(", ")}.`
+    );
+  }
+}
+function pbFileUrl(pb, file2) {
+  if (!file2.file) {
+    throw new Error(
+      `File ${file2.id} is not hosted in PocketBase (fileSource "${String(file2.fileSource)}") \u2014 vw cannot download it directly.`
+    );
+  }
+  return pb.files.getURL(file2, file2.file);
+}
+async function downloadDerivedFile(pb, file2, subject) {
+  assertDerivedFile(file2);
+  const res = await apiFetch(pbFileUrl(pb, file2));
+  if (!res.ok) {
+    throw new Error(
+      `Download failed for ${subject}: ${res.status} ${res.statusText}`
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+async function streamDerivedFile(pb, file2, destPath, subject, onProgress) {
+  assertDerivedFile(file2);
+  const res = await apiFetch(pbFileUrl(pb, file2));
+  if (!res.ok) {
+    throw new Error(
+      `Download failed for ${subject}: ${res.status} ${res.statusText}`
+    );
+  }
+  if (!res.body) {
+    throw new Error(`Download for ${subject} returned no body.`);
+  }
+  let written = 0;
+  const body = res.body;
+  async function* counted() {
+    for await (const chunk of body) {
+      written += chunk.byteLength;
+      onProgress?.(written);
+      yield chunk;
+    }
+  }
+  try {
+    await pipeline(counted(), createWriteStream(destPath));
+  } catch (err) {
+    await rm(destPath, { force: true }).catch(() => void 0);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Download failed for ${subject} after ${written} byte(s): ${message}`
+    );
+  }
+  return written;
+}
+
+// src/lib/out-path.ts
+import { existsSync as existsSync3, statSync } from "fs";
+import { dirname as dirname2, isAbsolute, join as join4, resolve, sep } from "path";
+function isExistingDirectory(path2) {
+  try {
+    return statSync(path2).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function resolveOutPath(out, defaultName, cwd, isDirectory) {
+  if (!out) return join4(cwd, defaultName);
+  const absolute = isAbsolute(out) ? out : resolve(cwd, out);
+  if (out.endsWith(sep) || out.endsWith("/") || isDirectory(absolute)) {
+    return join4(absolute, defaultName);
+  }
+  return absolute;
+}
+function assertWritableOutPath(path2, force) {
+  const dir = dirname2(path2);
+  if (!isExistingDirectory(dir)) {
+    throw new Error(`Output directory does not exist: ${dir}`);
+  }
+  if (existsSync3(path2) && !force) {
+    throw new Error(`Refusing to overwrite ${path2} \u2014 pass --force.`);
+  }
+}
+
+// src/lib/download.ts
+var PREVIEW_KINDS = {
+  proxy: {
+    ref: "proxyFileRef",
+    fileType: FileType.PROXY,
+    description: "the web-playable video proxy (h264, 720p)",
+    asset: "proxy",
+    extension: ".mp4"
+  },
+  audio: {
+    ref: "audioFileRef",
+    fileType: FileType.AUDIO,
+    description: "the extracted audio-only track (128k mixdown)",
+    asset: "audio",
+    extension: ".mp3"
+  },
+  thumbnail: {
+    ref: "thumbnailFileRef",
+    fileType: FileType.THUMBNAIL,
+    description: "the single still thumbnail (JPEG, 640x360)",
+    asset: "thumbnail",
+    extension: ".jpg"
+  },
+  sprite: {
+    ref: "spriteFileRef",
+    fileType: FileType.SPRITE,
+    description: "the scrub-preview sprite sheet (JPEG grid of tiles)",
+    asset: "sprite",
+    extension: ".jpg"
+  }
+};
+var PREVIEW_KIND_NAMES = Object.keys(PREVIEW_KINDS);
+function selectPreviewKind(opts) {
+  const given = PREVIEW_KIND_NAMES.filter((kind) => opts[kind]);
+  if (given.length === 0) {
+    throw new Error(
+      `Pass one of ${PREVIEW_KIND_NAMES.map((k) => `--${k}`).join(", ")}.`
+    );
+  }
+  if (given.length > 1) {
+    throw new Error(
+      `--${given[0]} and --${given[1]} are mutually exclusive \u2014 one preview per run.`
+    );
+  }
+  return given[0];
+}
+function availablePreviewKinds(media) {
+  return PREVIEW_KIND_NAMES.filter(
+    (kind) => Boolean(media[PREVIEW_KINDS[kind].ref])
+  );
+}
+function missingPreviewMessage(media, kind) {
+  const have = availablePreviewKinds(media);
+  const also = have.length > 0 ? ` It does have: ${have.map((k) => `--${k}`).join(", ")}.` : "";
+  return `Media ${media.id} has no ${kind} file.${also} Generate one with \`vw job transcode -m ${media.id} -a ${PREVIEW_KINDS[kind].asset}\`, then re-run (a running worker must pick the task up).`;
+}
+function previewExtension(kind, file2) {
+  for (const candidate of [file2.name, file2.file]) {
+    const ext = candidate ? extname2(candidate) : "";
+    if (/^\.[A-Za-z0-9]{1,8}$/.test(ext)) return ext.toLowerCase();
+  }
+  return PREVIEW_KINDS[kind].extension;
+}
+function defaultPreviewFilename(mediaId, kind, file2) {
+  return `${kind}-${mediaId}${previewExtension(kind, file2)}`;
+}
+async function resolvePreviewFile(pb, media, kind) {
+  const spec = PREVIEW_KINDS[kind];
+  const fileId = media[spec.ref];
+  if (!fileId) {
+    throw new Error(missingPreviewMessage(media, kind));
+  }
+  const expanded = media.expand?.[spec.ref];
+  const file2 = expanded ?? await new FileMutator(pb).getById(fileId);
+  if (!file2) {
+    throw new Error(
+      `Media ${media.id} points at ${kind} File ${fileId}, which no longer exists \u2014 regenerate it with \`vw job transcode -m ${media.id} -a ${spec.asset}\`.`
+    );
+  }
+  if (String(file2.fileType) !== String(spec.fileType)) {
+    throw new Error(
+      `File ${file2.id} is referenced as this media's ${kind} but is fileType "${String(file2.fileType)}".`
+    );
+  }
+  if (String(file2.fileStatus) !== String(FileStatus.AVAILABLE)) {
+    throw new Error(
+      `${kind} File ${file2.id} is fileStatus "${String(file2.fileStatus)}", not "${FileStatus.AVAILABLE}" \u2014 its bytes are not ready. Regenerate it with \`vw job transcode -m ${media.id} -a ${spec.asset}\`.`
+    );
+  }
+  return file2;
+}
+async function downloadMediaPreview(pb, opts) {
+  if (opts.urlOnly && (opts.out || opts.force)) {
+    throw new Error("--url only prints the download URL \u2014 drop -o/--force.");
+  }
+  const media = await requireMedia(pb, opts.mediaId);
+  const file2 = await resolvePreviewFile(pb, media, opts.kind);
+  const url2 = pbFileUrl(pb, file2);
+  const warnings = [];
+  const base = {
+    mediaId: media.id,
+    mediaName: mediaLabel(media),
+    kind: opts.kind,
+    file: {
+      id: file2.id,
+      name: file2.name,
+      fileType: String(file2.fileType),
+      size: file2.size,
+      meta: file2.meta
+    },
+    url: url2
+  };
+  if (opts.urlOnly) {
+    return { ...base, path: null, bytes: null, warnings };
+  }
+  const path2 = resolveOutPath(
+    opts.out,
+    defaultPreviewFilename(media.id, opts.kind, file2),
+    process.cwd(),
+    isExistingDirectory
+  );
+  assertWritableOutPath(path2, opts.force);
+  const subject = `${opts.kind} of media ${media.id} (File ${file2.id})`;
+  const bytes = await streamDerivedFile(
+    pb,
+    file2,
+    path2,
+    subject,
+    (written) => opts.onProgress?.(written, file2.size)
+  );
+  if (file2.size > 0 && bytes !== file2.size) {
+    warnings.push(
+      `Wrote ${bytes} byte(s) but File ${file2.id} records a size of ${file2.size} \u2014 verify the download before relying on it.`
+    );
+  }
+  return { ...base, path: path2, bytes, warnings };
+}
+function previewSummaryLines(result) {
+  const lines = [];
+  lines.push(
+    `${result.kind} of media ${result.mediaId} \u2192 ${result.path ?? result.url}`
+  );
+  const meta3 = result.file.meta;
+  const facts = [
+    `File ${result.file.id}`,
+    formatBytes(result.bytes ?? result.file.size)
+  ];
+  if (meta3?.duration !== void 0) facts.push(`${meta3.duration.toFixed(2)}s`);
+  if (meta3?.width && meta3?.height) facts.push(`${meta3.width}x${meta3.height}`);
+  if (meta3?.fps !== void 0) facts.push(`${meta3.fps} fps`);
+  if (meta3?.codec) facts.push(meta3.codec);
+  if (meta3?.channels !== void 0) facts.push(`${meta3.channels} ch`);
+  if (meta3?.sampleRate !== void 0) facts.push(`${meta3.sampleRate} Hz`);
+  lines.push(`  ${result.mediaName} \xB7 ${facts.join(" \xB7 ")}`);
+  if (result.path) lines.push(`  ${result.url}`);
+  return lines;
+}
+
+// src/commands/download.ts
+function progressReporter() {
+  if (!process.stderr.isTTY) return () => void 0;
+  let lastAt = 0;
+  return (written, expected) => {
+    const now = Date.now();
+    if (written < expected && now - lastAt < 250) return;
+    lastAt = now;
+    const of = expected > 0 ? ` / ${formatBytes(expected)}` : "";
+    const pct = expected > 0 ? ` (${Math.min(100, Math.round(written / expected * 100))}%)` : "";
+    process.stderr.write(`\r  ${formatBytes(written)}${of}${pct}    `);
+  };
+}
+function clearProgress() {
+  if (process.stderr.isTTY) process.stderr.write("\r\x1B[K");
+}
+function registerMediaDownloadCommand(media) {
+  const download = media.command("download <mediaId>").alias("dl").description(
+    "Download one of a media\u2019s derived preview files (proxy video, extracted audio, thumbnail, sprite sheet) for local analysis"
+  );
+  for (const kind of PREVIEW_KIND_NAMES) {
+    download.option(`--${kind}`, PREVIEW_KINDS[kind].description);
+  }
+  download.option(
+    "-o, --out <path>",
+    "output file, or a directory to write the default name into (default: <kind>-<mediaId>.<ext> in the current directory)"
+  ).option("--force", "overwrite the output file if it already exists").option("--url", "print the download URL instead of downloading").addHelpText(
+    "after",
+    `
+Previews only:
+  These are the assets the transcode pipeline generated, never the source
+  upload \u2014 the proxy is 720p h264 and the audio is a 128k mixdown, so
+  measurements taken from them describe the preview, not the master. When a
+  media has no such file yet, the error names the \`vw job transcode\` that
+  generates it.
+
+Examples:
+  vw media download <mediaId> --proxy -o ./work/
+  vw media download <mediaId> --audio -o speech.mp3 && ffprobe speech.mp3
+  vw media download <mediaId> --proxy --url`
+  );
+  withJsonOption(download).action(async (mediaId, opts) => {
+    try {
+      const kind = selectPreviewKind(opts);
+      const pb = await requireClient();
+      const result = await downloadMediaPreview(pb, {
+        mediaId,
+        kind,
+        out: opts.out,
+        force: opts.force,
+        urlOnly: opts.url,
+        onProgress: opts.json ? void 0 : progressReporter()
+      });
+      clearProgress();
+      for (const message of result.warnings) warn(message);
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      if (opts.url) {
+        console.log(result.url);
+        return;
+      }
+      const [headline, ...rest] = previewSummaryLines(result);
+      success(headline);
+      for (const line of rest) info(line);
+    } catch (err) {
+      clearProgress();
+      handleError(err);
+    }
+  });
+}
+
 // src/commands/media.ts
 var tagColumns = [
   { header: "ENTITY", value: (t2) => t2.expand?.EntityRef?.name ?? t2.EntityRef },
@@ -73212,6 +73557,7 @@ function registerMediaCommands(program2) {
       }
     }
   );
+  registerMediaDownloadCommand(media);
   const clip = media.command("clip").description(
     "Create and browse media clips (reusable sub-ranges of media) \u2014 clips have no directory of their own; they follow their parent media"
   );
@@ -76117,51 +76463,7 @@ function registerTimelineCommands(program2) {
 }
 
 // src/lib/frame.ts
-import { existsSync as existsSync3, statSync } from "fs";
 import { writeFile as writeFile2 } from "fs/promises";
-import { dirname as dirname2, isAbsolute, join as join4, resolve, sep } from "path";
-
-// src/lib/files.ts
-var DERIVED_FILE_TYPES = [
-  FileType.PROXY,
-  FileType.THUMBNAIL,
-  FileType.SPRITE,
-  FileType.FILMSTRIP,
-  FileType.AUDIO,
-  FileType.RENDER,
-  FileType.LABELS_JSON
-];
-function assertDerivedFile(file2) {
-  const type = String(file2.fileType);
-  if (type === String(FileType.ORIGINAL)) {
-    throw new Error(
-      `File ${file2.id} is fileType "original" \u2014 vw reads derived proxy material only (${DERIVED_FILE_TYPES.join(", ")}), never the source upload.`
-    );
-  }
-  if (!DERIVED_FILE_TYPES.includes(type)) {
-    throw new Error(
-      `File ${file2.id} is fileType "${type}", not one of: ${DERIVED_FILE_TYPES.join(", ")}.`
-    );
-  }
-}
-function pbFileUrl(pb, file2) {
-  if (!file2.file) {
-    throw new Error(
-      `File ${file2.id} is not hosted in PocketBase (fileSource "${String(file2.fileSource)}") \u2014 vw cannot download it directly.`
-    );
-  }
-  return pb.files.getURL(file2, file2.file);
-}
-async function downloadDerivedFile(pb, file2, subject) {
-  assertDerivedFile(file2);
-  const res = await apiFetch(pbFileUrl(pb, file2));
-  if (!res.ok) {
-    throw new Error(
-      `Download failed for ${subject}: ${res.status} ${res.statusText}`
-    );
-  }
-  return Buffer.from(await res.arrayBuffer());
-}
 
 // src/lib/frame-image.ts
 var import_jpeg_js = __toESM(require_jpeg_js(), 1);
@@ -76281,21 +76583,6 @@ function selectFrameTile(segments, mediaDuration, sourceTime) {
 function defaultFrameFilename(mediaId, sourceTime) {
   return `frame-${mediaId}-${sourceTime.toFixed(2)}s.jpg`;
 }
-function resolveFramePath(out, defaultName, cwd, isDirectory) {
-  if (!out) return join4(cwd, defaultName);
-  const absolute = isAbsolute(out) ? out : resolve(cwd, out);
-  if (out.endsWith(sep) || out.endsWith("/") || isDirectory(absolute)) {
-    return join4(absolute, defaultName);
-  }
-  return absolute;
-}
-function isExistingDirectory(path2) {
-  try {
-    return statSync(path2).isDirectory();
-  } catch {
-    return false;
-  }
-}
 async function extractFrame(pb, opts) {
   if (opts.base64 && (opts.out || opts.force)) {
     throw new Error(
@@ -76355,19 +76642,13 @@ async function extractFrame(pb, opts) {
   }
   let path2 = null;
   if (!opts.base64) {
-    path2 = resolveFramePath(
+    path2 = resolveOutPath(
       opts.out,
       defaultFrameFilename(media.id, source.sourceTime),
       process.cwd(),
       isExistingDirectory
     );
-    const dir = dirname2(path2);
-    if (!isExistingDirectory(dir)) {
-      throw new Error(`Output directory does not exist: ${dir}`);
-    }
-    if (existsSync3(path2) && !opts.force) {
-      throw new Error(`Refusing to overwrite ${path2} \u2014 pass --force.`);
-    }
+    assertWritableOutPath(path2, opts.force);
     await writeFile2(path2, jpeg);
   }
   return {

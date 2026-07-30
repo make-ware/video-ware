@@ -31,7 +31,6 @@ const {
   extractFrame,
   loadFilmstripFiles,
   resolveFrameSource,
-  resolveFramePath,
   selectFrameTile,
 } = await import('../lib/frame.js');
 const { normalizeFilmstripSegments } = await import('@project/shared');
@@ -289,41 +288,6 @@ describe('defaultFrameFilename', () => {
   it('names the media and the time', () => {
     expect(defaultFrameFilename('m1', 12.5)).toBe('frame-m1-12.50s.jpg');
     expect(defaultFrameFilename('m1', 0)).toBe('frame-m1-0.00s.jpg');
-  });
-});
-
-describe('resolveFramePath', () => {
-  const never = () => false;
-  const always = () => true;
-
-  it('defaults to the working directory', () => {
-    expect(resolveFramePath(undefined, 'f.jpg', '/cwd', never)).toBe(
-      '/cwd/f.jpg'
-    );
-  });
-
-  it('treats a relative path as a file under the working directory', () => {
-    expect(resolveFramePath('out.jpg', 'f.jpg', '/cwd', never)).toBe(
-      '/cwd/out.jpg'
-    );
-  });
-
-  it('keeps an absolute file path', () => {
-    expect(resolveFramePath('/abs/out.jpg', 'f.jpg', '/cwd', never)).toBe(
-      '/abs/out.jpg'
-    );
-  });
-
-  it('writes the default name into an existing directory', () => {
-    expect(resolveFramePath('/tmp/frames', 'f.jpg', '/cwd', always)).toBe(
-      '/tmp/frames/f.jpg'
-    );
-  });
-
-  it('treats a trailing separator as a directory even if it does not exist', () => {
-    expect(resolveFramePath('/tmp/frames/', 'f.jpg', '/cwd', never)).toBe(
-      '/tmp/frames/f.jpg'
-    );
   });
 });
 

@@ -1,6 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import {
   FileMutator,
   FileType,
@@ -23,6 +21,11 @@ import {
   gridDividesExactly,
   FRAME_JPEG_QUALITY,
 } from './frame-image.js';
+import {
+  assertWritableOutPath,
+  isExistingDirectory,
+  resolveOutPath,
+} from './out-path.js';
 import { requireMedia, type MediaWithUpload } from './select.js';
 import { singleMediaType } from './timeline.js';
 
@@ -230,34 +233,6 @@ export function defaultFrameFilename(
   return `frame-${mediaId}-${sourceTime.toFixed(2)}s.jpg`;
 }
 
-/**
- * Where the JPEG lands. `--out` is a file path unless it names an existing
- * directory or ends with a separator, in which case the default name is used
- * inside it. `isDirectory` is injected so this stays pure and testable.
- */
-export function resolveFramePath(
-  out: string | undefined,
-  defaultName: string,
-  cwd: string,
-  isDirectory: (path: string) => boolean
-): string {
-  if (!out) return join(cwd, defaultName);
-  const absolute = isAbsolute(out) ? out : resolve(cwd, out);
-  if (out.endsWith(sep) || out.endsWith('/') || isDirectory(absolute)) {
-    return join(absolute, defaultName);
-  }
-  return absolute;
-}
-
-/** Whether a path exists and is a directory (the real `isDirectory`). */
-export function isExistingDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 export interface ExtractFrameOptions extends FrameSourceOptions {
   /** Seconds, in this source's `--at` domain. */
   at: number;
@@ -386,19 +361,13 @@ export async function extractFrame(
 
   let path: string | null = null;
   if (!opts.base64) {
-    path = resolveFramePath(
+    path = resolveOutPath(
       opts.out,
       defaultFrameFilename(media.id, source.sourceTime),
       process.cwd(),
       isExistingDirectory
     );
-    const dir = dirname(path);
-    if (!isExistingDirectory(dir)) {
-      throw new Error(`Output directory does not exist: ${dir}`);
-    }
-    if (existsSync(path) && !opts.force) {
-      throw new Error(`Refusing to overwrite ${path} — pass --force.`);
-    }
+    assertWritableOutPath(path, opts.force);
     await writeFile(path, jpeg);
   }
 

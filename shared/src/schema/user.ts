@@ -42,6 +42,7 @@ export const UserSchema = z
 // would try to CREATE the field. It is set server-side instead, by
 // `pb/pb_hooks/hook-users-email-visibility.pb.js`, which covers every create path.
 export const UserCollection = defineCollection({
+  type: 'auth',
   collectionName: 'Users',
   schema: UserSchema,
   permissions: usersCollectionPermissions,

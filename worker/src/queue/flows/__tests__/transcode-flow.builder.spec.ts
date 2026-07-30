@@ -33,6 +33,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
         rows: 1,
         tileWidth: 320,
       },
+      waveform: {
+        width: 1000,
+        height: 200,
+        pixelsPerSecond: 1,
+      },
       transcode: {
         enabled: true,
         codec: 'h264',
@@ -75,7 +80,7 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
     // Verify we have the correct number of steps
     expect(
       builtStepTypes.length,
-      'Flow should have exactly 6 steps when fully configured'
+      'Flow should have exactly 7 steps when fully configured'
     ).toBe(expectedStepTypes.length);
   });
 
@@ -203,5 +208,6 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
     expect(stepTypes.FILMSTRIP).toBeDefined();
     expect(stepTypes.TRANSCODE).toBeDefined();
     expect(stepTypes.AUDIO).toBeDefined();
+    expect(stepTypes.WAVEFORM).toBeDefined();
   });
 });

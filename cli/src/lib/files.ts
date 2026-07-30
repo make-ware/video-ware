@@ -23,6 +23,7 @@ export const DERIVED_FILE_TYPES: readonly FileType[] = [
   FileType.SPRITE,
   FileType.FILMSTRIP,
   FileType.AUDIO,
+  FileType.WAVEFORM,
   FileType.RENDER,
   FileType.LABELS_JSON,
 ];

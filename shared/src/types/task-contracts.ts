@@ -58,6 +58,47 @@ export interface FilmstripConfig {
 }
 
 /**
+ * Configuration for audio waveform generation.
+ *
+ * Same request-vs-record split as SpriteConfig/FilmstripConfig. As a *request*
+ * it describes one full-width chunk: `width` px drawn at `pixelsPerSecond`, so
+ * `width / pixelsPerSecond` seconds of audio per image. As stored File
+ * `meta.waveformConfig` it records what a single chunk actually contains —
+ * the trailing chunk is narrower (or, when the tail is tiny, the previous one
+ * is wider), so `width`/`startTime`/`duration` there are per-image facts, not
+ * the request. See planWaveformChunks in shared/src/utils/waveform.ts.
+ */
+export interface WaveformConfig {
+  /** Pixel width of a full chunk (the last one may differ) */
+  width: number;
+  /** Pixel height of every chunk image */
+  height: number;
+  /**
+   * Horizontal resolution: pixels drawn per second of audio. ~1 keeps a long
+   * file readable; raising it makes chunks cover proportionally less time.
+   */
+  pixelsPerSecond?: number;
+  /** Waveform color — any ffmpeg color name or `#rrggbb` (default: white) */
+  color?: string;
+  /**
+   * Downmix to a single waveform instead of drawing one curve per channel
+   * (default: true).
+   */
+  mono?: boolean;
+  /**
+   * The following fields are not generation *input* — the worker writes them
+   * onto each chunk's File `meta` so a consumer can lay chunks end to end and
+   * map a playback time into one. Optional because a request never sets them.
+   */
+  /** Index of this chunk within the media (0-based) */
+  chunkIndex?: number;
+  /** Absolute media time (seconds) where this chunk's first pixel begins */
+  startTime?: number;
+  /** Seconds of audio this chunk covers */
+  duration?: number;
+}
+
+/**
  * Configuration for thumbnail generation
  */
 export interface ThumbnailConfig {
@@ -100,6 +141,8 @@ export interface ProcessUploadPayload {
   sprite?: SpriteConfig;
   /** Configuration for filmstrip generation */
   filmstrip?: FilmstripConfig;
+  /** Configuration for audio waveform generation */
+  waveform?: WaveformConfig;
   /** Configuration for thumbnail generation */
   thumbnail?: ThumbnailConfig;
   /** Optional configuration for transcoding/proxy generation */

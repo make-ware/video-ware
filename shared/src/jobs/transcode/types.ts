@@ -10,6 +10,7 @@ import type {
   SpriteConfig,
   FilmstripConfig,
   TranscodeConfig,
+  WaveformConfig,
 } from '../../types/task-contracts.js';
 
 /**
@@ -23,6 +24,7 @@ export enum TranscodeStepType {
   FILMSTRIP = 'transcode:filmstrip',
   TRANSCODE = 'transcode:transcode',
   AUDIO = 'transcode:audio',
+  WAVEFORM = 'transcode:waveform',
   FINALIZE = 'transcode:finalize',
 }
 
@@ -129,6 +131,22 @@ export interface TaskTranscodeAudioStep {
 }
 
 /**
+ * Input for the WAVEFORM step
+ * Renders the audio track as one PNG per chunk of media
+ */
+export interface TaskTranscodeWaveformStep {
+  type: 'waveform';
+  /** Path to the media file */
+  filePath: string;
+  /** ID of the Upload record being processed */
+  uploadId: string;
+  /** ID of the Media record being processed (optional, will be resolved by processor if not provided) */
+  mediaId?: string;
+  /** Waveform generation configuration */
+  config: WaveformConfig;
+}
+
+/**
  * Union type of all transcode step inputs
  */
 export type TaskTranscodeInput =
@@ -137,7 +155,8 @@ export type TaskTranscodeInput =
   | TaskTranscodeSpriteStep
   | TaskTranscodeFilmstripStep
   | TaskTranscodeTranscodeStep
-  | TaskTranscodeAudioStep;
+  | TaskTranscodeAudioStep
+  | TaskTranscodeWaveformStep;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStep instead */
@@ -216,6 +235,18 @@ export interface TaskTranscodeAudioStepOutput {
 }
 
 /**
+ * Output from the WAVEFORM step
+ */
+export interface TaskTranscodeWaveformStepOutput {
+  /** Path to the first generated waveform chunk (empty when none were made) */
+  waveformPath: string;
+  /** ID of the first chunk's File record (empty when none were made) */
+  waveformFileId: string;
+  /** IDs of every generated waveform File record, in chunk order */
+  allWaveformFileIds: string[];
+}
+
+/**
  * Union type of all transcode step outputs
  */
 export type TaskTranscodeResult =
@@ -224,7 +255,8 @@ export type TaskTranscodeResult =
   | TaskTranscodeSpriteStepOutput
   | TaskTranscodeFilmstripStepOutput
   | TaskTranscodeTranscodeStepOutput
-  | TaskTranscodeAudioStepOutput;
+  | TaskTranscodeAudioStepOutput
+  | TaskTranscodeWaveformStepOutput;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStepOutput instead */

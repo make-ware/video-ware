@@ -27,10 +27,20 @@ vi.mock('@/lib/pocketbase-client', () => ({
   },
 }));
 
-function makeMedia(mediaId: string, opts: { proxy?: boolean } = {}) {
+function makeMedia(
+  mediaId: string,
+  opts: {
+    proxy?: boolean;
+    width?: number;
+    height?: number;
+    crop?: { left: number; top: number; width: number; height: number };
+  } = {}
+) {
   const hasProxy = opts.proxy ?? true;
   return {
     id: mediaId,
+    ...(opts.width ? { width: opts.width, height: opts.height } : {}),
+    ...(opts.crop ? { crop: opts.crop } : {}),
     proxyFileRef: hasProxy ? `file-${mediaId}` : undefined,
     expand: hasProxy
       ? { proxyFileRef: { id: `file-${mediaId}`, file: `${mediaId}.mp4` } }
@@ -51,10 +61,18 @@ function makePlaced(
     start?: number;
     end?: number;
     segments?: Array<{ start: number; end: number }>;
+    crop?: { left: number; top: number; width: number; height: number };
     media?: ReturnType<typeof makeMedia>;
   } = {}
 ): PlacedClip {
   const start = opts.start ?? 0;
+  const meta =
+    opts.segments || opts.crop
+      ? {
+          ...(opts.segments ? { segments: opts.segments } : {}),
+          ...(opts.crop ? { crop: opts.crop } : {}),
+        }
+      : undefined;
   const clip = {
     id,
     MediaRef: mediaId,
@@ -62,7 +80,7 @@ function makePlaced(
     end: opts.end ?? start + (globalEnd - globalStart),
     duration: globalEnd - globalStart,
     order: 0,
-    meta: opts.segments ? { segments: opts.segments } : undefined,
+    meta,
     expand: { MediaRef: opts.media ?? makeMedia(mediaId) },
   } as unknown as TimelineClip;
   return { clip, globalStart, globalEnd };
@@ -98,6 +116,7 @@ function renderTrack(
     zIndex: 0,
     isPlaying: true,
     muted: true,
+    stageAspect: 16 / 9,
     stallRegistry,
   };
   const utils = render(<TrackVideo {...props} currentTime={currentTime} />);
@@ -469,5 +488,98 @@ describe('TrackVideo double-buffered prefetch', () => {
     const [first, second] = t.videos();
     expect(first.volume).toBe(0.4);
     expect(second.volume).toBe(0.4);
+  });
+});
+
+describe('TrackVideo crop styles', () => {
+  // rect {left:.25, top:0, width:.5, height:1} on 16:9 media in a 16:9
+  // stage: croppedAspect = 8/9 < 16/9, so the wrapper pillarboxes at 50%
+  // width; the video doubles to 200% and shifts left by half its crop width.
+  const rect = { left: 0.25, top: 0, width: 0.5, height: 1 };
+  const wrapperStyle = { left: '25%', top: '0%', width: '50%', height: '100%' };
+  const videoStyle = { left: '-50%', top: '0%', width: '200%', height: '100%' };
+
+  const expectBox = (
+    el: HTMLElement,
+    expected: Record<string, string>
+  ): void => {
+    for (const [prop, value] of Object.entries(expected)) {
+      expect(el.style.getPropertyValue(prop)).toBe(value);
+    }
+  };
+
+  it("applies the media's default crop to the promoted clip", async () => {
+    const media = makeMedia('m1p', { width: 1920, height: 1080, crop: rect });
+    const track = makeTrack([makePlaced('c1', 'm1p', 0, 10, { media })]);
+    const t = renderTrack(track, 1);
+    const { front } = await establishFront(t);
+
+    expectBox(front.parentElement as HTMLElement, wrapperStyle);
+    expectBox(front, videoStyle);
+  });
+
+  it('styles the standby with the incoming clip crop before the swap', async () => {
+    const cropped = makeMedia('m2q', { width: 1920, height: 1080 });
+    const track = makeTrack([
+      makePlaced('c1', 'm1q', 0, 10, {
+        media: makeMedia('m1q', { width: 1920, height: 1080 }),
+      }),
+      makePlaced('c2', 'm2q', 10, 20, { crop: rect, media: cropped }),
+    ]);
+    // Within the 10s lookahead of the cut: the standby preps clip 2.
+    const t = renderTrack(track, 1);
+    const { front, standby } = await establishFront(t);
+
+    // Standby already carries the incoming clip's crop; the playing front
+    // stays full-frame.
+    expectBox(standby.parentElement as HTMLElement, wrapperStyle);
+    expectBox(standby, videoStyle);
+    expectBox(front.parentElement as HTMLElement, {
+      left: '0%',
+      top: '0%',
+      width: '100%',
+      height: '100%',
+    });
+
+    // Cross the cut with the standby buffered: the promoted element keeps
+    // its pre-applied crop — no restyle at the swap.
+    setReadyState(standby, 4);
+    fireEvent.loadedData(standby);
+    await t.setTime(11);
+    expect(standby.style.visibility).toBe('visible');
+    expectBox(standby.parentElement as HTMLElement, wrapperStyle);
+  });
+
+  it('restyles the front on a mid-playback crop edit without reloading src', async () => {
+    const media = makeMedia('m1r', { width: 1920, height: 1080 });
+    const track = makeTrack([makePlaced('c1', 'm1r', 0, 10, { media })]);
+    const t = renderTrack(track, 1);
+    const { front } = await establishFront(t);
+    const src = front.src;
+    expectBox(front.parentElement as HTMLElement, {
+      left: '0%',
+      width: '100%',
+    });
+
+    // The user reframes the clip while it plays: same clip id/regions, new
+    // meta — the reconcile pass restyles in place.
+    const edited = makeTrack([
+      makePlaced('c1', 'm1r', 0, 10, { crop: rect, media }),
+    ]);
+    t.rerender(
+      <TrackVideo
+        track={edited}
+        zIndex={0}
+        isPlaying
+        muted
+        stageAspect={16 / 9}
+        currentTime={1}
+      />
+    );
+    await act(async () => {});
+
+    expectBox(front.parentElement as HTMLElement, wrapperStyle);
+    expectBox(front, videoStyle);
+    expect(front.src).toBe(src);
   });
 });

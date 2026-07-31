@@ -1,7 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import { Media, MediaType } from '@project/shared';
+import { useMemo, useState } from 'react';
+import {
+  isFullFrameCrop,
+  mediaDisplayDimensions,
+  sanitizeCropRect,
+  Media,
+  MediaType,
+} from '@project/shared';
+import { CropRectOverlay } from '@/components/clip/crop-rect-overlay';
+import { useVideoSource } from '@/hooks/use-video-source';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +40,37 @@ import { toast } from 'sonner';
 import pb from '@/lib/pocketbase-client';
 
 const ROTATION_OPTIONS = [0, 90, 180, 270] as const;
+
+/** Crop fields are edited as percentages of the display frame. */
+interface CropPercentFields {
+  left: string;
+  top: string;
+  width: string;
+  height: string;
+}
+
+const FULL_FRAME_FIELDS: CropPercentFields = {
+  left: '0',
+  top: '0',
+  width: '100',
+  height: '100',
+};
+
+const toPercent = (fraction: number): string =>
+  String(Math.round(fraction * 1000) / 10);
+
+function cropToFields(
+  crop: Media['crop'] | null | undefined
+): CropPercentFields {
+  const rect = sanitizeCropRect(crop);
+  if (!rect) return FULL_FRAME_FIELDS;
+  return {
+    left: toPercent(rect.left),
+    top: toPercent(rect.top),
+    width: toPercent(rect.width),
+    height: toPercent(rect.height),
+  };
+}
 
 function formatBitrate(bps?: number): string {
   if (!bps || bps <= 0) return 'N/A';
@@ -70,6 +109,9 @@ export function MediaDetailsEditor({
   const [label, setLabel] = useState(media.label ?? '');
   const [description, setDescription] = useState(media.description ?? '');
   const [rotation, setRotation] = useState<number>(media.rotation ?? 0);
+  const [cropFields, setCropFields] = useState<CropPercentFields>(() =>
+    cropToFields(media.crop)
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
 
@@ -80,8 +122,28 @@ export function MediaDetailsEditor({
   const isImage = media.mediaType === MediaType.IMAGE;
   const videoMeta = media.mediaData.video;
   const audioMeta = media.mediaData.audio;
+  const { poster } = useVideoSource(media);
+  const displayAspect = mediaDisplayDimensions(media).aspect || 16 / 9;
+
+  // Parsed crop: undefined = invalid input, null = full frame (stored as an
+  // empty column), a rect = the sanitized (clamped) crop to persist.
+  const parsedCrop = useMemo(() => {
+    const values = [
+      cropFields.left,
+      cropFields.top,
+      cropFields.width,
+      cropFields.height,
+    ].map((v) => Number(v));
+    if (values.some((n) => !Number.isFinite(n))) return undefined;
+    const [l, t, w, h] = values.map((n) => n / 100);
+    const rect = sanitizeCropRect({ left: l, top: t, width: w, height: h });
+    if (!rect) return undefined;
+    return isFullFrameCrop(rect) ? null : rect;
+  }, [cropFields]);
+  const cropInvalid = parsedCrop === undefined;
 
   const handleSave = async () => {
+    if (cropInvalid) return;
     try {
       setIsSaving(true);
       await pb.collection('Media').update(media.id, {
@@ -89,6 +151,8 @@ export function MediaDetailsEditor({
         label: label.trim(),
         description: description.trim(),
         rotation,
+        // null clears the JSON column — full frame is stored as "no crop".
+        crop: parsedCrop,
       });
       toast.success('Media details updated');
       onUpdate();
@@ -210,6 +274,82 @@ export function MediaDetailsEditor({
           />
         </div>
 
+        {!isAudio && (
+          <div className="space-y-2">
+            <Label>Crop</Label>
+            <p className="text-xs text-muted-foreground">
+              Default source crop for every placement (e.g. strip letterbox
+              bars), as percentages of the displayed (rotation-applied) frame.
+              100% width/height means no crop.
+            </p>
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="grid grid-cols-2 gap-3 flex-1">
+                {(
+                  [
+                    ['left', 'Left'],
+                    ['top', 'Top'],
+                    ['width', 'Width'],
+                    ['height', 'Height'],
+                  ] as const
+                ).map(([key, title]) => (
+                  <div key={key} className="space-y-1">
+                    <Label
+                      htmlFor={`media-details-crop-${key}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      {title} %
+                    </Label>
+                    <Input
+                      id={`media-details-crop-${key}`}
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={cropFields[key]}
+                      onChange={(e) =>
+                        setCropFields((f) => ({ ...f, [key]: e.target.value }))
+                      }
+                    />
+                  </div>
+                ))}
+                <div className="col-span-2 flex items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCropFields(FULL_FRAME_FIELDS)}
+                  >
+                    Clear crop
+                  </Button>
+                  {cropInvalid && (
+                    <span className="text-xs text-destructive">
+                      Invalid crop — the window must keep at least 1% of the
+                      frame.
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Live preview of the window over the display frame */}
+              <div
+                className="relative overflow-hidden rounded-md border bg-black w-full md:w-64 shrink-0"
+                style={{ aspectRatio: displayAspect }}
+              >
+                {poster && (
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `url(${poster})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  />
+                )}
+                {parsedCrop && <CropRectOverlay rect={parsedCrop} />}
+              </div>
+            </div>
+          </div>
+        )}
+
         <Collapsible open={showTechnical} onOpenChange={setShowTechnical}>
           <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
             <ChevronRight
@@ -292,7 +432,7 @@ export function MediaDetailsEditor({
         </Collapsible>
 
         <div className="flex justify-end pt-4">
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button onClick={handleSave} disabled={isSaving || cropInvalid}>
             <Save className="mr-2 h-4 w-4" />
             {isSaving ? 'Saving...' : 'Save Changes'}
           </Button>

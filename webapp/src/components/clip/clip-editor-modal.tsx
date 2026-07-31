@@ -33,6 +33,7 @@ import {
   AlignLeft,
   Check,
   Clock,
+  Crop,
   Layers,
   Trash2,
   Palette,
@@ -49,6 +50,8 @@ import type { Segment } from '@/components/timeline/segment-editor';
 import { TimeInput } from '@/components/timeline/time-input';
 import { useClipEditor } from './use-clip-editor';
 import { ClipFineTuneModal } from './clip-fine-tune-modal';
+import { ClipCropModal } from './clip-crop-modal';
+import { describeCrop } from './crop-model';
 import {
   buildMediaClipSegmentsPatch,
   buildTimelineClipUpdates,
@@ -60,8 +63,10 @@ import {
   calculateDuration,
   getCompositeSegments,
   isMediaClipComposite,
+  mediaDisplayDimensions,
+  sanitizeCropRect,
 } from '@project/shared';
-import type { Media, MediaClip } from '@project/shared';
+import type { CropRect, Media, MediaClip } from '@project/shared';
 import type {
   ExpandedMedia,
   ExpandedMediaClip,
@@ -231,6 +236,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [fineTuneOpen, setFineTuneOpen] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
 
   // Fresh conversion state each time the modal opens on a (new) clip
   useEffect(() => {
@@ -243,6 +249,9 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
   const [title, setTitle] = useState('');
   const [color, setColor] = useState('bg-blue-600');
   const [gain, setGain] = useState(1);
+  // Pending per-clip crop override: a rect keeps/sets meta.crop, null means
+  // "no override" (an existing key is deleted on save — reset to default).
+  const [crop, setCrop] = useState<CropRect | null>(null);
 
   // Media-clip fields (create + edit-media-clip modes)
   const [clipLabel, setClipLabel] = useState('');
@@ -253,10 +262,18 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     if (mode === 'edit-timeline-clip' && open) {
       const clip = (props as ClipEditorEditTimelineClipProps).clip;
       const meta = clip.meta as
-        { title?: string; color?: string; gain?: number } | null | undefined;
+        | {
+            title?: string;
+            color?: string;
+            gain?: number;
+            crop?: CropRect;
+          }
+        | null
+        | undefined;
       setTitle(meta?.title || '');
       setColor(meta?.color || 'bg-blue-600');
       setGain(typeof meta?.gain === 'number' ? meta.gain : 1);
+      setCrop(sanitizeCropRect(meta?.crop) ?? null);
     }
   }, [mode, open, props]);
 
@@ -378,6 +395,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           title,
           color,
           gain,
+          crop,
         });
 
         await tlProps.onSave(updates);
@@ -402,6 +420,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
     title,
     color,
     gain,
+    crop,
     clipLabel,
     clipDescription,
     onOpenChange,
@@ -454,10 +473,10 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
 
   // Keyboard shortcuts for fast cutting: I/O set in/out points at the
   // playhead, Space toggles playback, arrows step the playhead, and
-  // Cmd/Ctrl+Enter saves. Suspended while the fine-tune dialog is open —
-  // it registers its own overlapping shortcuts.
+  // Cmd/Ctrl+Enter saves. Suspended while the fine-tune or crop dialog is
+  // open — both register their own overlapping shortcuts.
   useEffect(() => {
-    if (!open || fineTuneOpen) return;
+    if (!open || fineTuneOpen || cropOpen) return;
 
     const isInteractive = (el: HTMLElement | null) =>
       !!el?.closest(
@@ -521,7 +540,7 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, fineTuneOpen, editor, handleSave]);
+  }, [open, fineTuneOpen, cropOpen, editor, handleSave]);
 
   const handleDelete = useCallback(
     async (ripple: boolean) => {
@@ -579,6 +598,20 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
           initialSegments={fineTuneInitialSegments}
           initialPlayhead={editor.currentVideoTime}
           onApply={handleFineTuneApply}
+        />
+      )}
+
+      {/* Framing dialog: mounted on demand so its pan/zoom state re-seeds
+          from the pending crop each time it opens */}
+      {cropOpen && media && (
+        <ClipCropModal
+          open={cropOpen}
+          onOpenChange={setCropOpen}
+          media={media}
+          currentCrop={crop}
+          mediaCrop={sanitizeCropRect(media.crop) ?? null}
+          initialPlayhead={editor.currentVideoTime}
+          onApply={setCrop}
         />
       )}
 
@@ -944,6 +977,53 @@ export function ClipEditorModal(props: ClipEditorModalProps) {
                           <span className="w-12 text-right text-sm font-mono text-muted-foreground">
                             {Math.round(gain * 100)}%
                           </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Framing — media clips only (captions have no frame).
+                        The rect persists on Save with the other clip fields;
+                        the crop dialog only stages it. */}
+                    {media && (
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          <Crop className="w-4 h-4" />
+                          Framing
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 text-sm text-muted-foreground">
+                            {crop
+                              ? describeCrop(
+                                  crop,
+                                  mediaDisplayDimensions(media).aspect
+                                )
+                              : sanitizeCropRect(media.crop)
+                                ? 'Default — media crop'
+                                : 'Default — full frame'}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              editor.videoRef.current?.pause();
+                              setCropOpen(true);
+                            }}
+                          >
+                            <Crop className="h-3.5 w-3.5 mr-1" />
+                            Edit framing
+                          </Button>
+                          {crop && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setCrop(null)}
+                              title="Reset to the media default"
+                            >
+                              Reset
+                            </Button>
+                          )}
                         </div>
                       </div>
                     )}

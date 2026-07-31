@@ -50,6 +50,9 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
         channels: 2,
         sampleRate: 48000,
       },
+      autocrop: {
+        enabled: true,
+      },
     };
 
     const task: WorkspaceTask = {
@@ -80,7 +83,7 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
     // Verify we have the correct number of steps
     expect(
       builtStepTypes.length,
-      'Flow should have exactly 7 steps when fully configured'
+      'Flow should have exactly one step per TRANSCODE_FLOW_STEPS entry when fully configured'
     ).toBe(expectedStepTypes.length);
   });
 
@@ -189,6 +192,68 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
       bitrate: '256k',
       channels: 1,
       sampleRate: 44100,
+    });
+  });
+
+  it('should not include AUTOCROP step when autocrop is configured but not enabled', () => {
+    const payload: ProcessUploadPayload = {
+      uploadId: 'test-upload-id',
+      mediaId: 'test-media-id',
+      autocrop: { enabled: false },
+    };
+
+    const task: WorkspaceTask = {
+      id: 'test-task-id',
+      WorkspaceRef: 'test-workspace-id',
+      payload,
+    } as WorkspaceTask;
+
+    const flow = TranscodeFlowBuilder.buildFlow(task);
+    const builtStepTypes = flow.children
+      .filter((child) => 'stepType' in child.data)
+      .map((child) => (child.data as any).stepType);
+
+    expect(builtStepTypes).not.toContain(TRANSCODE_FLOW_STEPS.AUTOCROP);
+  });
+
+  it('should pass the autocrop tuning through to the AUTOCROP step input', () => {
+    const payload: ProcessUploadPayload = {
+      uploadId: 'test-upload-id',
+      mediaId: 'test-media-id',
+      autocrop: {
+        enabled: true,
+        limit: 32,
+        samples: 8,
+        sampleDuration: 3,
+        minTrimFraction: 0.05,
+      },
+    };
+
+    const task: WorkspaceTask = {
+      id: 'test-task-id',
+      WorkspaceRef: 'test-workspace-id',
+      payload,
+    } as WorkspaceTask;
+
+    const flow = TranscodeFlowBuilder.buildFlow(task);
+    const autoCropStep = flow.children.find(
+      (child) =>
+        'stepType' in child.data &&
+        (child.data as any).stepType === TRANSCODE_FLOW_STEPS.AUTOCROP
+    );
+
+    expect(autoCropStep).toBeDefined();
+    expect((autoCropStep?.data as any).input).toMatchObject({
+      type: 'autocrop',
+      uploadId: 'test-upload-id',
+      mediaId: 'test-media-id',
+      config: {
+        enabled: true,
+        limit: 32,
+        samples: 8,
+        sampleDuration: 3,
+        minTrimFraction: 0.05,
+      },
     });
   });
 

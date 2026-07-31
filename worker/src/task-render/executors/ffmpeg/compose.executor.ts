@@ -8,6 +8,7 @@ import type {
   Media,
   TimelineTrack,
 } from '@project/shared';
+import { cropRectToPixels, mediaDisplayDimensions } from '@project/shared';
 import { planRenderWindows, clipTracksToWindow } from './render-windows';
 
 /**
@@ -852,6 +853,31 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
           scaleFilter = `,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`;
         }
 
+        // Source crop (normalized display-frame rect resolved at flatten
+        // time — clip reframe or media default, see resolveCropRect). Pixel
+        // window = fractions × DISPLAY dimensions: ffmpeg autorotates on
+        // decode, so the frames entering this chain are display-oriented —
+        // the same frame the webapp's CSS preview crops. Applied BEFORE the
+        // scale so the letterbox/PiP scaler fits the cropped region, not the
+        // full frame. cropRectToPixels even-rounds (yuv420p chroma) and
+        // clamps in-frame, so a hostile stored rect can't fail the filter.
+        // No setsar needed: the overlay chain inherits [base]'s 1:1 SAR
+        // (color source), so branch SAR never reaches the output.
+        let cropFilter = '';
+        const cropRect = seg.video?.crop;
+        if (cropRect) {
+          const display = mediaDisplayDimensions(clip.media);
+          const px = cropRectToPixels(cropRect, display.width, display.height);
+          if (px) {
+            cropFilter = `,crop=${px.width}:${px.height}:${px.x}:${px.y}`;
+          } else {
+            this.logger.warn(
+              `Segment ${seg.id}: media ${seg.assetId} has unknown display ` +
+                `dimensions — rendering uncropped`
+            );
+          }
+        }
+
         // Branch chain: setpts shifts the (already seeked) window to its
         // timeline position; fps last so duplicated frames are cheap
         // references to already-scaled frames and land exactly on the base
@@ -876,7 +902,7 @@ export class FFmpegComposeExecutor implements IRenderExecutor {
         }
 
         filterComplex.push(
-          `[${idx}:v]${branchPrefix}setpts=PTS-STARTPTS+${fmtSec(start)}/TB${scaleFilter},fps=${fps}[v_seg_${seg.id}]`
+          `[${idx}:v]${branchPrefix}setpts=PTS-STARTPTS+${fmtSec(start)}/TB${cropFilter}${scaleFilter},fps=${fps}[v_seg_${seg.id}]`
         );
 
         // Overlay. The enable window is expressed on HALF-FRAME offsets:

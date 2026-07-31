@@ -38,6 +38,7 @@ import { TimelineTrackRecord } from '../schema/timeline-track';
 import { LabelJob } from '../schema/label-job';
 
 export * from './video-ware.js';
+export * from './crop.js';
 export * from './task-contracts.js';
 export * from './captions.js';
 export * from './processor.js';

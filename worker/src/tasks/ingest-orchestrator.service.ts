@@ -209,6 +209,15 @@ export class IngestOrchestratorService {
           enabled: !isImage,
           bitrate: '128k',
         },
+        // Detect burned-in letterbox/pillarbox bars and record the result on
+        // Media.cropSuggestion, applying it to Media.crop when it is a real
+        // border and no human has framed the media themselves. Video only:
+        // audio has no frame, and a still gives cropdetect a single sample it
+        // cannot distinguish from a dark composition. Defaults for the
+        // sampling and thresholds live with the step (see AutoCropConfig).
+        autocrop: {
+          enabled: !isAudio && !isImage,
+        },
       };
 
       // Request every detector. This is an *intent* layer, not the on/off

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Command } from 'commander';
 import {
   applyOptions,
+  parseCropRect,
   parseIndex,
   parseSecondsList,
   pickOptions,
@@ -80,5 +81,33 @@ describe('parseIndex', () => {
     expect(() => parseIndex('-1')).toThrow(/non-negative integer/i);
     expect(() => parseIndex('1.5')).toThrow(/non-negative integer/i);
     expect(() => parseIndex('x')).toThrow(/non-negative integer/i);
+  });
+});
+
+describe('parseCropRect', () => {
+  it('parses four comma-separated fractions', () => {
+    expect(parseCropRect('0.1,0,0.8,1')).toEqual({
+      left: 0.1,
+      top: 0,
+      width: 0.8,
+      height: 1,
+    });
+    expect(parseCropRect(' 0.25 , 0 , 0.5 , 1 ')).toEqual({
+      left: 0.25,
+      top: 0,
+      width: 0.5,
+      height: 1,
+    });
+  });
+
+  it('rejects wrong arity and non-numeric parts', () => {
+    expect(() => parseCropRect('0.1,0,0.8')).toThrow(/left,top,width,height/i);
+    expect(() => parseCropRect('a,b,c,d')).toThrow(/left,top,width,height/i);
+  });
+
+  it('rejects rects that escape the frame or are degenerate', () => {
+    expect(() => parseCropRect('0.6,0,0.6,1')).toThrow(/right edge/i);
+    expect(() => parseCropRect('0,0.6,1,0.6')).toThrow(/bottom edge/i);
+    expect(() => parseCropRect('0,0,0,1')).toThrow();
   });
 });

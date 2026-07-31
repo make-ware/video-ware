@@ -7,7 +7,9 @@
 import type { TimelineTrack, TimelineSegment } from '../types/task-contracts';
 import type { TimelineClip } from '../schema/timeline-clip';
 import type { MediaClip } from '../schema/media-clip';
+import type { Media } from '../schema/media';
 import type { Caption } from '../schema/caption';
+import { resolveCropRect } from './crop';
 import {
   getCompositeSegments,
   expandCompositeToSegments,
@@ -82,6 +84,7 @@ export interface ValidationError {
  */
 export type TimelineClipWithExpand = TimelineClip & {
   expand?: Record<string, unknown> & {
+    MediaRef?: Media;
     MediaClipRef?: MediaClip;
     CaptionRef?: Caption;
   };
@@ -254,6 +257,12 @@ function generateSegmentsFromClip(
   const opacity = trackSettings?.opacity;
   const volume = effectiveVolume(trackSettings, clipGain);
 
+  // Effective source crop: per-clip reframe overrides the media default
+  // (resolveCropRect). Media-backed clips only — caption clips have no frame,
+  // and nested-timeline clips never reach here. Composite clips share one
+  // meta, so every expanded segment carries the same rect.
+  const crop = resolveCropRect(clipWithExpand.expand?.MediaRef, clip.meta);
+
   // Caption clips render as text segments (clip.start/end trim the caption's
   // own cue timeline, mirroring how media clips trim source media)
   if (clip.CaptionRef) {
@@ -321,7 +330,7 @@ function generateSegmentsFromClip(
         duration: expSeg.duration,
         sourceStart: expSeg.sourceStart,
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume },
     }));
 
@@ -361,7 +370,7 @@ function generateSegmentsFromClip(
         duration: expSeg.duration,
         sourceStart: expSeg.sourceStart,
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume },
     }));
 
@@ -383,7 +392,7 @@ function generateSegmentsFromClip(
         duration: duration,
         sourceStart: clip.start,
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume },
     },
   ];
@@ -506,6 +515,12 @@ function expandNestedClipToTracks(
   // The whole child composition behaves like one clip on the parent track:
   // parent track volume × the clip's own gain scale every child audio
   // segment (whose volume already folds the child's track/clip levels).
+  //
+  // A `meta.crop` on the nested-timeline clip itself is deliberately ignored
+  // (crop applies to media-backed clips only): cropping the composed child
+  // canvas would have to compose display-space rects with every child crop
+  // and PiP box. Child clips' own crops arrive already resolved on their
+  // segments and survive the projection spreads below untouched.
   const clipGain = clip.meta?.gain ?? 1;
   const audioFactor = effectiveVolume(trackSettings, clipGain);
   const parentOpacity = trackSettings?.opacity;

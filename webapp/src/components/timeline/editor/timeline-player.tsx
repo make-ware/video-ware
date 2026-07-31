@@ -211,6 +211,7 @@ export function TimelinePlayer() {
               currentTime={currentTime}
               isPlaying={isPlaying}
               muted={isMuted}
+              stageAspect={isPortrait ? 9 / 16 : 16 / 9}
               stallRegistry={stallRegistry}
             />
           ))}

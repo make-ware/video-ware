@@ -9,6 +9,7 @@ import {
   finalizeSegments,
   getCompositeSegments,
   validateTimeRange,
+  type CropRect,
   type Directory,
   type Media,
   type MediaClip,
@@ -27,7 +28,7 @@ import {
   mediaClipTimes,
   type ClipTimes,
 } from './clip-times.js';
-import type { OptionGroupOf } from './options.js';
+import { parseCropRect, type OptionGroupOf } from './options.js';
 import { formatDuration, type Column } from './output.js';
 import {
   MEDIA_CLIP_SORTS,
@@ -527,6 +528,13 @@ export interface UpdateMediaOptions {
   description?: string;
   /** Directory name or id to move the media into; '/' or 'none' clears it. */
   directory?: string;
+  /**
+   * Default source crop for every placement (e.g. strip letterbox bars):
+   * 0–1 fractions of the display frame (post-rotation).
+   */
+  crop?: CropRect;
+  /** Remove the default crop — placements fall back to the full frame. */
+  clearCrop?: boolean;
 }
 
 /**
@@ -548,6 +556,15 @@ export const mediaFieldOptions = {
     description:
       "move the media into a directory (name or id; '/' or 'none' clears it)",
   },
+  crop: {
+    flags: '--crop <l,t,w,h>',
+    description:
+      'default source crop for every placement, 0-1 display-frame ' +
+      'fractions (e.g. strip letterbox bars: 0,0.12,1,0.76)',
+    parse: parseCropRect,
+  },
+  // clearCrop is a bare boolean flag — registered with .option() on the
+  // command directly (option groups carry value-taking flags only).
 } satisfies OptionGroupOf<UpdateMediaOptions>;
 
 /**
@@ -579,6 +596,20 @@ export async function updateMedia(
     patch.DirectoryRef = isRootDirRef(opts.directory)
       ? ''
       : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
+  }
+
+  if (opts.crop !== undefined && opts.clearCrop) {
+    throw new Error('--crop and --clear-crop are mutually exclusive.');
+  }
+  if (opts.crop !== undefined || opts.clearCrop) {
+    if (media.mediaType === 'audio') {
+      throw new Error('Audio media has no frame to crop.');
+    }
+    // PocketBase clears a JSON column with null; the mutator's update path
+    // doesn't re-validate, and --crop input was already bounded by the parser.
+    patch.crop = opts.clearCrop
+      ? (null as unknown as Media['crop'])
+      : opts.crop;
   }
 
   return mutator.update(mediaId, patch);

@@ -45,6 +45,7 @@ export const STEP_JOB_OPTIONS: Record<string, StepJobOptions> = {
   [TranscodeStepType.FILMSTRIP]: DEFAULT_OPTIONS,
   [TranscodeStepType.WAVEFORM]: DEFAULT_OPTIONS,
   [TranscodeStepType.TRANSCODE]: DEFAULT_OPTIONS,
+  [TranscodeStepType.AUTOCROP]: DEFAULT_OPTIONS,
 
   // Render steps — attempt once, never retry
   [RenderStepType.PREPARE]: NO_RETRY_OPTIONS,

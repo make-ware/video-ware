@@ -25,6 +25,7 @@ import {
   type Caption,
   type ClipTrim,
   type CompositeSegment,
+  type CropRect,
   type MediaClip,
   type Timeline,
   type TimelineClip,
@@ -34,6 +35,7 @@ import {
 import { mediaLabel, type MediaWithUpload } from './select.js';
 import { timelineEditListOf } from './clip-times.js';
 import {
+  parseCropRect,
   parseSeconds,
   parseUnitInterval,
   type OptionGroupOf,
@@ -156,6 +158,13 @@ export interface UpdateTimelineClipOptions {
   end?: number;
   /** Per-clip audio gain multiplier (0..1); merged into meta. */
   gain?: number;
+  /**
+   * Per-clip source crop (reframe), 0–1 display-frame fractions; merged into
+   * meta. Overrides the media's default crop.
+   */
+  crop?: CropRect;
+  /** Remove the per-clip crop — the placement falls back to the media default. */
+  clearCrop?: boolean;
   /** Timeline the clip is expected to live on (validated when passed). */
   timelineId?: string;
 }
@@ -185,6 +194,15 @@ export const clipUpdateOptions = {
     description: 'per-clip audio gain multiplier',
     parse: parseUnitInterval,
   },
+  crop: {
+    flags: '--crop <l,t,w,h>',
+    description:
+      'per-clip source crop (reframe) as 0-1 fractions of the display ' +
+      'frame; overrides the media default',
+    parse: parseCropRect,
+  },
+  // clearCrop is a bare boolean flag — registered with .option() on the
+  // command directly (option groups carry value-taking flags only).
 } satisfies OptionGroupOf<UpdateTimelineClipOptions>;
 
 export interface UpdateClipResult {
@@ -326,6 +344,27 @@ export async function updateTimelineClip(
       ...(patch.meta ?? {}),
       gain: opts.gain,
     };
+  }
+
+  if (opts.crop !== undefined && opts.clearCrop) {
+    throw new Error('--crop and --clear-crop are mutually exclusive.');
+  }
+  if (opts.crop !== undefined || opts.clearCrop) {
+    if (!clip.MediaRef) {
+      throw new Error(
+        'Crop applies to media-backed clips only (not caption or ' +
+          'nested-timeline clips).'
+      );
+    }
+    // Merge, never replace — gain/title/segments survive. meta is one JSON
+    // column replaced whole, so a cleared crop is removed by omission.
+    const meta: NonNullable<TimelineClip['meta']> = {
+      ...(clip.meta ?? {}),
+      ...(patch.meta ?? {}),
+    };
+    if (opts.clearCrop) delete meta.crop;
+    else meta.crop = opts.crop;
+    patch.meta = meta;
   }
 
   if (Object.keys(patch).length === 0) {

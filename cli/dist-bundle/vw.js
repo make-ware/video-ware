@@ -60548,6 +60548,38 @@ var ALL_LABEL_DETECTIONS = {
   detectSpeech: true,
   detectSpeakers: true
 };
+var MIN_CROP_FRACTION = 0.01;
+var CROP_EPSILON = 1e-3;
+var CropRectSchema = external_exports.object({
+  left: external_exports.number().min(0).max(1),
+  top: external_exports.number().min(0).max(1),
+  width: external_exports.number().min(MIN_CROP_FRACTION).max(1),
+  height: external_exports.number().min(MIN_CROP_FRACTION).max(1)
+}).refine((r2) => r2.left + r2.width <= 1 + CROP_EPSILON, {
+  message: "crop extends past the right edge (left + width > 1)",
+  path: ["width"]
+}).refine((r2) => r2.top + r2.height <= 1 + CROP_EPSILON, {
+  message: "crop extends past the bottom edge (top + height > 1)",
+  path: ["height"]
+});
+var CropSuggestionSchema = external_exports.object({
+  rect: CropRectSchema,
+  pixels: external_exports.object({
+    x: external_exports.number(),
+    y: external_exports.number(),
+    width: external_exports.number(),
+    height: external_exports.number()
+  }),
+  displayWidth: external_exports.number(),
+  displayHeight: external_exports.number(),
+  samples: external_exports.number(),
+  attempted: external_exports.number(),
+  agreement: external_exports.number().min(0).max(1),
+  applied: external_exports.boolean(),
+  skipReason: external_exports.enum(["full-frame", "below-threshold", "unreliable", "manual-crop"]).optional(),
+  limit: external_exports.number(),
+  detectedAt: external_exports.string()
+});
 var RenderTimelineConfigSchema = external_exports.object({
   resolution: external_exports.string(),
   codec: external_exports.string(),
@@ -60772,7 +60804,12 @@ var TimelineSegmentSchema = external_exports.object({
     y: external_exports.union([external_exports.number(), external_exports.string()]).optional(),
     width: external_exports.union([external_exports.number(), external_exports.string()]).optional(),
     height: external_exports.union([external_exports.number(), external_exports.string()]).optional(),
-    opacity: external_exports.number().optional()
+    opacity: external_exports.number().optional(),
+    // Must stay in lockstep with TimelineSegment.video.crop: this schema
+    // validates TimelineRenders.timelineData on create and STRIPS keys it
+    // doesn't declare — `satisfies z.ZodType<TimelineSegment>` cannot
+    // catch a forgotten optional key.
+    crop: CropRectSchema.optional()
   }).optional(),
   audio: external_exports.object({
     volume: external_exports.number().optional()
@@ -60818,7 +60855,11 @@ var TimelineClipMetadataSchema = external_exports.object({
   followSource: external_exports.boolean().optional(),
   // Set by reflow when a trimmed window fell wholly beyond a shrunk source
   // and was clamped to its tail; cleared on the next successful user trim.
-  sourceOutOfRange: external_exports.boolean().optional()
+  sourceOutOfRange: external_exports.boolean().optional(),
+  // Per-clip source crop (reframe). Absolute display-space rect — NOT
+  // relative to the media's default crop. Delete the key to reset to the
+  // default (media crop, else full frame). Media-backed clips only.
+  crop: CropRectSchema.optional()
 });
 var TimelineRenderMetadataSchema = external_exports.object({});
 var FileSchema = external_exports.object({
@@ -61926,6 +61967,14 @@ var MediaSchema = external_exports.object({
   // video height in pixels
   rotation: NumberField().optional().default(0),
   // rotation in degrees (0, 90, 180, 270)
+  // Default source crop applied to every placement (e.g. strip burned-in
+  // letterbox bars): 0–1 fractions of the DISPLAY frame (post-rotation).
+  // Bounds are enforced here via CropRectSchema, never in the DB column.
+  crop: JSONField(CropRectSchema).optional(),
+  // Last ffmpeg `cropdetect` recommendation from the ingest AUTOCROP step,
+  // written whether or not it was applied to `crop` — it is the audit trail
+  // that explains the crop (and records why there is none).
+  cropSuggestion: JSONField(CropSuggestionSchema).optional(),
   aspectRatio: NumberField(),
   // calculated aspect ratio (width/height)
   mediaData: JSONField(MediaMetadataSchema),
@@ -61963,6 +62012,10 @@ var MediaInputSchema = external_exports.object({
   // Degrees (0/90/180/270). Written by the PROBE step: `width`/`height` are the
   // coded dimensions, and this is what turns them into display dimensions.
   rotation: NumberField({ min: 0 }).optional(),
+  // Default source crop, display-frame fractions (see MediaSchema.crop).
+  crop: CropRectSchema.optional(),
+  // Autocrop detection record (see MediaSchema.cropSuggestion).
+  cropSuggestion: CropSuggestionSchema.optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: external_exports.string().optional(),
@@ -62638,6 +62691,29 @@ function validateTimeRange(start, end, mediaDuration, mediaType) {
     return start >= 0 && start < end;
   }
   return start >= 0 && start < end && end <= mediaDuration;
+}
+var clamp = (n2, lo, hi) => Math.min(Math.max(n2, lo), hi);
+var isFiniteNumber = (n2) => typeof n2 === "number" && Number.isFinite(n2);
+function sanitizeCropRect(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const { left, top, width, height: height2 } = value;
+  if (!isFiniteNumber(left) || !isFiniteNumber(top) || !isFiniteNumber(width) || !isFiniteNumber(height2)) {
+    return void 0;
+  }
+  const l = clamp(left, 0, 1);
+  const t2 = clamp(top, 0, 1);
+  const w = Math.min(clamp(width, 0, 1), 1 - l);
+  const h = Math.min(clamp(height2, 0, 1), 1 - t2);
+  if (w < MIN_CROP_FRACTION || h < MIN_CROP_FRACTION) return void 0;
+  return { left: l, top: t2, width: w, height: h };
+}
+function isFullFrameCrop(rect) {
+  return rect.left <= CROP_EPSILON && rect.top <= CROP_EPSILON && rect.width >= 1 - CROP_EPSILON && rect.height >= 1 - CROP_EPSILON;
+}
+function resolveCropRect(media, clipMeta) {
+  const chosen = sanitizeCropRect(clipMeta?.crop) ?? sanitizeCropRect(media?.crop);
+  if (!chosen || isFullFrameCrop(chosen)) return void 0;
+  return chosen;
 }
 function hasActiveEditList(segments) {
   return Array.isArray(segments) && segments.length >= 2;
@@ -63891,6 +63967,7 @@ function generateSegmentsFromClip(clip, startTime, trackSettings, captionOptions
   const clipGain = clip.meta?.gain ?? 1;
   const opacity = trackSettings?.opacity;
   const volume = effectiveVolume(trackSettings, clipGain);
+  const crop = resolveCropRect(clipWithExpand.expand?.MediaRef, clip.meta);
   if (clip.CaptionRef) {
     const caption = clipWithExpand.expand?.CaptionRef;
     const duration22 = clip.end - clip.start;
@@ -63947,7 +64024,7 @@ function generateSegmentsFromClip(clip, startTime, trackSettings, captionOptions
         duration: expSeg.duration,
         sourceStart: expSeg.sourceStart
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume }
     }));
     return { segments: segments2, totalDuration: usageDuration };
@@ -63980,7 +64057,7 @@ function generateSegmentsFromClip(clip, startTime, trackSettings, captionOptions
         duration: expSeg.duration,
         sourceStart: expSeg.sourceStart
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume }
     }));
     return { segments: segments2, totalDuration: usageDuration };
@@ -63997,7 +64074,7 @@ function generateSegmentsFromClip(clip, startTime, trackSettings, captionOptions
         duration: duration3,
         sourceStart: clip.start
       },
-      video: { opacity },
+      video: crop ? { opacity, crop } : { opacity },
       audio: { volume }
     }
   ];
@@ -66556,6 +66633,7 @@ var TranscodeStepType = /* @__PURE__ */ ((TranscodeStepType2) => {
   TranscodeStepType2["FILMSTRIP"] = "transcode:filmstrip";
   TranscodeStepType2["TRANSCODE"] = "transcode:transcode";
   TranscodeStepType2["AUDIO"] = "transcode:audio";
+  TranscodeStepType2["AUTOCROP"] = "transcode:autocrop";
   TranscodeStepType2["WAVEFORM"] = "transcode:waveform";
   TranscodeStepType2["FINALIZE"] = "transcode:finalize";
   return TranscodeStepType2;
@@ -66618,6 +66696,15 @@ function buildIngestTranscodeConfig(mediaType) {
     audio: {
       enabled: !isImage,
       bitrate: "128k"
+    },
+    // Detect burned-in letterbox/pillarbox bars and record the result on
+    // Media.cropSuggestion, applying it to Media.crop when it is a real
+    // border and no human has framed the media themselves. Video only:
+    // audio has no frame, and a still gives cropdetect a single sample it
+    // cannot distinguish from a dark composition. Defaults for the
+    // sampling and thresholds live with the step (see AutoCropConfig).
+    autocrop: {
+      enabled: !isAudio && !isImage
     }
   };
 }
@@ -66980,6 +67067,22 @@ function parseUnitInterval(value) {
     throw new InvalidArgumentError("expected a number between 0 and 1");
   }
   return n2;
+}
+function parseCropRect(value) {
+  const parts = value.split(",").map((p) => Number(p.trim()));
+  if (parts.length !== 4 || parts.some((n2) => !Number.isFinite(n2))) {
+    throw new InvalidArgumentError(
+      "expected left,top,width,height as 0-1 fractions (e.g. 0.1,0,0.8,1)"
+    );
+  }
+  const [left, top, width, height2] = parts;
+  const parsed = CropRectSchema.safeParse({ left, top, width, height: height2 });
+  if (!parsed.success) {
+    throw new InvalidArgumentError(
+      parsed.error.issues[0]?.message ?? "invalid crop rect"
+    );
+  }
+  return parsed.data;
 }
 function pickOptions(opts, group) {
   const picked = {};
@@ -68579,7 +68682,14 @@ var clipUpdateOptions = {
     flags: "--gain <0-1>",
     description: "per-clip audio gain multiplier",
     parse: parseUnitInterval
+  },
+  crop: {
+    flags: "--crop <l,t,w,h>",
+    description: "per-clip source crop (reframe) as 0-1 fractions of the display frame; overrides the media default",
+    parse: parseCropRect
   }
+  // clearCrop is a bare boolean flag — registered with .option() on the
+  // command directly (option groups carry value-taking flags only).
 };
 async function updateTimelineClip(pb, clipId, opts) {
   const clipMutator = new TimelineClipMutator(pb);
@@ -68670,6 +68780,23 @@ async function updateTimelineClip(pb, clipId, opts) {
       ...patch.meta ?? {},
       gain: opts.gain
     };
+  }
+  if (opts.crop !== void 0 && opts.clearCrop) {
+    throw new Error("--crop and --clear-crop are mutually exclusive.");
+  }
+  if (opts.crop !== void 0 || opts.clearCrop) {
+    if (!clip.MediaRef) {
+      throw new Error(
+        "Crop applies to media-backed clips only (not caption or nested-timeline clips)."
+      );
+    }
+    const meta3 = {
+      ...clip.meta ?? {},
+      ...patch.meta ?? {}
+    };
+    if (opts.clearCrop) delete meta3.crop;
+    else meta3.crop = opts.crop;
+    patch.meta = meta3;
   }
   if (Object.keys(patch).length === 0) {
     throw new Error("Nothing to update \u2014 pass at least one field flag.");
@@ -72012,7 +72139,14 @@ var mediaFieldOptions = {
   directory: {
     flags: "--directory <dir>",
     description: "move the media into a directory (name or id; '/' or 'none' clears it)"
+  },
+  crop: {
+    flags: "--crop <l,t,w,h>",
+    description: "default source crop for every placement, 0-1 display-frame fractions (e.g. strip letterbox bars: 0,0.12,1,0.76)",
+    parse: parseCropRect
   }
+  // clearCrop is a bare boolean flag — registered with .option() on the
+  // command directly (option groups carry value-taking flags only).
 };
 async function updateMedia(pb, mediaId, opts) {
   const mutator = new MediaMutator(pb);
@@ -72026,6 +72160,15 @@ async function updateMedia(pb, mediaId, opts) {
   };
   if (opts.directory !== void 0) {
     patch.DirectoryRef = isRootDirRef(opts.directory) ? "" : (await resolveDirectory(pb, media.WorkspaceRef, opts.directory)).id;
+  }
+  if (opts.crop !== void 0 && opts.clearCrop) {
+    throw new Error("--crop and --clear-crop are mutually exclusive.");
+  }
+  if (opts.crop !== void 0 || opts.clearCrop) {
+    if (media.mediaType === "audio") {
+      throw new Error("Audio media has no frame to crop.");
+    }
+    patch.crop = opts.clearCrop ? null : opts.crop;
   }
   return mutator.update(mediaId, patch);
 }
@@ -73624,17 +73767,19 @@ function registerMediaCommands(program2) {
     }
   });
   const mediaUpdate = media.command("update <mediaId>").alias("set").description(
-    "Set a media item\u2019s editor-facing label/description, or move it into a directory"
+    "Set a media item\u2019s editor-facing label/description, default crop, or move it into a directory"
+  ).option(
+    "--clear-crop",
+    "remove the default crop (placements fall back to the full frame)"
   );
   applyOptions(withJsonOption(mediaUpdate), mediaFieldOptions).action(
     async (mediaId, opts) => {
       try {
         const pb = await requireClient();
-        const updated = await updateMedia(
-          pb,
-          mediaId,
-          pickOptions(opts, mediaFieldOptions)
-        );
+        const updated = await updateMedia(pb, mediaId, {
+          ...pickOptions(opts, mediaFieldOptions),
+          ...opts.clearCrop ? { clearCrop: true } : {}
+        });
         if (opts.json) {
           printRecord(updated, [], true);
           return;
@@ -73666,6 +73811,11 @@ function registerMediaCommands(program2) {
       );
       if (found.label) info(`label: ${found.label}`);
       if (found.description) info(found.description);
+      if (found.crop) {
+        info(
+          `crop: ${found.crop.left},${found.crop.top},${found.crop.width},${found.crop.height} (default for every placement; --clear-crop removes it)`
+        );
+      }
       if (tags.items.length === 0) {
         info(
           "no entity tags \u2014 vw media tag <mediaId> <entity> tags this media with an entity"
@@ -75701,6 +75851,17 @@ function registerTimelineClipCommands(timeline) {
       info(
         `  order: ${clip.order}${stored}${gain !== void 0 ? `   gain: ${gain}` : ""}`
       );
+      const clipCrop = clip.meta?.crop;
+      const mediaCrop = clip.expand?.MediaRef?.crop;
+      if (clipCrop) {
+        info(
+          `  crop: ${clipCrop.left},${clipCrop.top},${clipCrop.width},${clipCrop.height} (clip reframe \u2014 overrides media default)`
+        );
+      } else if (mediaCrop) {
+        info(
+          `  crop: ${mediaCrop.left},${mediaCrop.top},${mediaCrop.width},${mediaCrop.height} (media default)`
+        );
+      }
       if (clip.description)
         info(`  description: ${truncate(clip.description)}`);
       if (labels) printLabelDetail(labels);
@@ -75710,7 +75871,12 @@ function registerTimelineClipCommands(timeline) {
   });
   const update = withForceOption(
     withStrictOption(
-      clips.command("update <clipId>").description("Update a timeline clip (label, description, trim, gain)").option("-t, --timeline <id>", "timeline id (validated when passed)").addHelpText("after", editResultHelp({ noop: true, conflict: true }))
+      clips.command("update <clipId>").description(
+        "Update a timeline clip (label, description, trim, gain, crop)"
+      ).option("-t, --timeline <id>", "timeline id (validated when passed)").option(
+        "--clear-crop",
+        "remove the per-clip crop (reset to the media default)"
+      ).addHelpText("after", editResultHelp({ noop: true, conflict: true }))
     )
   );
   applyOptions(withJsonOption(update), clipUpdateOptions).action(
@@ -75722,11 +75888,12 @@ function registerTimelineClipCommands(timeline) {
           ...picked.label !== void 0 ? ["label"] : [],
           ...picked.description !== void 0 ? ["description"] : [],
           ...picked.start !== void 0 || picked.end !== void 0 ? ["start", "end", "duration"] : [],
-          ...picked.gain !== void 0 ? ["meta"] : []
+          ...picked.gain !== void 0 || picked.crop !== void 0 || opts.clearCrop ? ["meta"] : []
         ];
         const result = await withConflictRetry(
           () => updateTimelineClip(pb, clipId, {
             ...picked,
+            ...opts.clearCrop ? { clearCrop: true } : {},
             ...opts.timeline ? { timelineId: opts.timeline } : {}
           }),
           { patchKeys, force: opts.force }

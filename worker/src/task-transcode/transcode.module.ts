@@ -10,6 +10,7 @@ import {
   FFmpegSpriteExecutor,
   FFmpegTranscodeExecutor,
   FFmpegAudioExecutor,
+  FFmpegAutoCropExecutor,
   FFmpegWaveformExecutor,
   GoogleTranscodeExecutor,
 } from './executors';
@@ -23,6 +24,7 @@ import {
   SpriteStepProcessor,
   TranscodeStepProcessor,
   AudioStepProcessor,
+  AutoCropStepProcessor,
   WaveformStepProcessor,
 } from './processors';
 
@@ -38,6 +40,7 @@ import {
     FFmpegSpriteExecutor,
     FFmpegTranscodeExecutor,
     FFmpegAudioExecutor,
+    FFmpegAutoCropExecutor,
     FFmpegWaveformExecutor,
     GoogleTranscodeExecutor,
 
@@ -48,6 +51,7 @@ import {
     SpriteStepProcessor,
     TranscodeStepProcessor,
     AudioStepProcessor,
+    AutoCropStepProcessor,
     WaveformStepProcessor,
     FilmstripStepProcessor,
   ],

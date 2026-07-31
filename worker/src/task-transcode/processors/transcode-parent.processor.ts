@@ -11,6 +11,7 @@ import {
   type TaskTranscodeFilmstripStep,
   type TaskTranscodeTranscodeStep,
   type TaskTranscodeAudioStep,
+  type TaskTranscodeAutoCropStep,
   type TaskTranscodeWaveformStep,
 } from '@project/shared/jobs';
 import { type ProcessUploadPayload } from '@project/shared';
@@ -22,6 +23,7 @@ import { SpriteStepProcessor } from './sprite-step.processor';
 import { FilmstripStepProcessor } from './filmstrip-step.processor';
 import { TranscodeStepProcessor } from './transcode-step.processor';
 import { AudioStepProcessor } from './audio-step.processor';
+import { AutoCropStepProcessor } from './autocrop-step.processor';
 import { WaveformStepProcessor } from './waveform-step.processor';
 import type {
   ParentJobData,
@@ -52,6 +54,7 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
     private readonly filmstripStepProcessor: FilmstripStepProcessor,
     private readonly transcodeStepProcessor: TranscodeStepProcessor,
     private readonly audioStepProcessor: AudioStepProcessor,
+    private readonly autoCropStepProcessor: AutoCropStepProcessor,
     private readonly waveformStepProcessor: WaveformStepProcessor
   ) {
     super();
@@ -189,6 +192,13 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
         case TranscodeStepType.AUDIO:
           output = await this.audioStepProcessor.process(
             input as TaskTranscodeAudioStep,
+            job
+          );
+          break;
+
+        case TranscodeStepType.AUTOCROP:
+          output = await this.autoCropStepProcessor.process(
+            input as TaskTranscodeAutoCropStep,
             job
           );
           break;

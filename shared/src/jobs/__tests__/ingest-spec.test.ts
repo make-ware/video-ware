@@ -37,6 +37,7 @@ describe('buildIngestTranscodeConfig', () => {
     expect(config.waveform).toBeDefined();
     expect(config.transcode?.enabled).toBe(true);
     expect(config.audio?.enabled).toBe(true);
+    expect(config.autocrop?.enabled).toBe(true);
   });
 
   it('drops frame-based assets for audio', () => {
@@ -48,6 +49,8 @@ describe('buildIngestTranscodeConfig', () => {
     expect(config.waveform).toBeDefined();
     expect(config.transcode?.enabled).toBe(false);
     expect(config.audio?.enabled).toBe(true);
+    // No frame to inspect.
+    expect(config.autocrop?.enabled).toBe(false);
   });
 
   it('gives images a single-tile sprite and no time-based assets', () => {
@@ -65,6 +68,23 @@ describe('buildIngestTranscodeConfig', () => {
     expect(config.waveform).toBeUndefined();
     expect(config.transcode?.enabled).toBe(false);
     expect(config.audio?.enabled).toBe(false);
+    // A still is one cropdetect sample, indistinguishable from a dark
+    // composition.
+    expect(config.autocrop?.enabled).toBe(false);
+  });
+
+  it('keeps autocrop out of the backfillable asset steps', () => {
+    // AUTOCROP writes Media.cropSuggestion/crop rather than a File, so it has
+    // nowhere to carry an ingestVersion. It must stay out of the step list, and
+    // out of every picked config, or the weekly sweep would re-run cropdetect
+    // over the library and rewrite recommendations an editor may have acted on.
+    expect(INGEST_ASSET_STEPS).not.toContain(TranscodeStepType.AUTOCROP);
+    expect(ingestStepsFor(MediaType.VIDEO)).not.toContain(
+      TranscodeStepType.AUTOCROP
+    );
+    expect(
+      pickIngestTranscodeConfig(MediaType.VIDEO, INGEST_ASSET_STEPS).autocrop
+    ).toBeUndefined();
   });
 });
 

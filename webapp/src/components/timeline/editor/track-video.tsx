@@ -6,8 +6,10 @@ import {
   clipPlaybackRegions,
   findActiveClip,
   findNextPlaybackCut,
+  mediaDisplayDimensions,
   playbackRegionAt,
   regionSourceEnd,
+  resolveCropRect,
   PLAYBACK_CONTINUITY_EPSILON,
   type File,
   type Media,
@@ -17,6 +19,7 @@ import {
   type TimelineClip,
 } from '@project/shared';
 import type { PlaybackStallRegistry } from './playback-stall-registry';
+import { cropPreviewStyle } from './crop-preview-style';
 
 // Start preloading the standby buffer this many seconds before an upcoming
 // cut. Proxies can be multi-gigabyte files whose first fetch has to pull the
@@ -89,6 +92,11 @@ interface TrackVideoProps {
   isPlaying: boolean;
   muted: boolean;
   /**
+   * Stage box aspect (16/9 landscape, 9/16 portrait) — the denominator of
+   * the percentage math that positions a cropped clip inside the stage.
+   */
+  stageAspect: number;
+  /**
    * Shared stall state: this channel reports whether it can render the frame
    * at the playhead, and pauses its element while any channel is stalled
    * (the player freezes the shared clock off the same registry).
@@ -104,6 +112,8 @@ interface BufferState {
   regionKey: string | null;
   /** Seek to apply once the element has metadata. */
   pendingSeek: number | null;
+  /** Identity of the crop styles last written (front and standby differ). */
+  appliedCropKey: string | null;
 }
 
 interface ChannelState {
@@ -168,15 +178,28 @@ export function TrackVideo({
   currentTime,
   isPlaying,
   muted,
+  stageAspect,
   stallRegistry,
 }: TrackVideoProps) {
   const refA = useRef<HTMLVideoElement>(null);
   const refB = useRef<HTMLVideoElement>(null);
+  const wrapA = useRef<HTMLDivElement>(null);
+  const wrapB = useRef<HTMLDivElement>(null);
   const stateRef = useRef<ChannelState>({
     frontIndex: 0,
     buffers: [
-      { srcMediaId: null, regionKey: null, pendingSeek: null },
-      { srcMediaId: null, regionKey: null, pendingSeek: null },
+      {
+        srcMediaId: null,
+        regionKey: null,
+        pendingSeek: null,
+        appliedCropKey: null,
+      },
+      {
+        srcMediaId: null,
+        regionKey: null,
+        pendingSeek: null,
+        appliedCropKey: null,
+      },
     ],
     holdKey: null,
     holding: false,
@@ -191,6 +214,7 @@ export function TrackVideo({
   const activeMediaId = active?.clip.MediaRef ?? null;
 
   const getEl = (index: 0 | 1) => (index === 0 ? refA : refB).current;
+  const getWrap = (index: 0 | 1) => (index === 0 ? wrapA : wrapB).current;
 
   const reconcile = () => {
     const s = stateRef.current;
@@ -394,6 +418,40 @@ export function TrackVideo({
       }
     }
 
+    // --- Crop styles: one idempotent pass over both buffers ---
+    // Front and standby can front DIFFERENT clips (and so different crops),
+    // and buffers pick up region targets in several places above (adopt,
+    // promote, standby prep) — so instead of styling at each site, derive
+    // each buffer's crop from its current regionKey and write only on
+    // change. Percentages need no media metadata, so the standby is styled
+    // at prep time, long before its src resolves — a cut with a crop change
+    // swaps in already-styled, flicker-free.
+    for (const index of [0, 1] as const) {
+      const buf = s.buffers[index];
+      const wrap = getWrap(index);
+      const el = getEl(index);
+      if (!wrap || !el) continue;
+      const placed = buf.regionKey
+        ? track.mediaClips.find(
+            (p) =>
+              p.clip.id === buf.regionKey ||
+              buf.regionKey!.startsWith(`${p.clip.id}#`)
+          )
+        : undefined;
+      const media = (placed?.clip as ClipWithProxyExpand | undefined)?.expand
+        ?.MediaRef;
+      const style = cropPreviewStyle({
+        stageAspect,
+        mediaAspect: media ? mediaDisplayDimensions(media).aspect : 0,
+        rect: placed ? resolveCropRect(media, placed.clip.meta) : null,
+      });
+      if (style.key !== buf.appliedCropKey) {
+        buf.appliedCropKey = style.key;
+        Object.assign(wrap.style, style.frame);
+        Object.assign(el.style, style.video);
+      }
+    }
+
     // --- Visibility ---
     const visible = frontMatches || (!!region && s.holding);
     if (frontEl) frontEl.style.visibility = visible ? 'visible' : 'hidden';
@@ -489,24 +547,36 @@ export function TrackVideo({
   return (
     <>
       {([0, 1] as const).map((i) => (
-        <video
+        // Crop wrapper: reconcile() positions it as the contain-box of the
+        // buffer's cropped region and oversizes the video inside so the crop
+        // window fills it (see cropPreviewStyle). Deliberately styleless in
+        // JSX — every geometry write is imperative, so React can never
+        // clobber one — and z-index-free, so it creates no stacking context:
+        // the videos' zIndex/opacity/visibility keep composing against the
+        // stage exactly as before.
+        <div
           key={i}
-          ref={i === 0 ? refA : refB}
-          onLoadedMetadata={handleLoadedMetadata(i)}
-          onLoadedData={handleMediaEvent}
-          onCanPlay={handleMediaEvent}
-          onCanPlayThrough={handleMediaEvent}
-          onPlaying={handleMediaEvent}
-          onWaiting={handleMediaEvent}
-          onStalled={handleMediaEvent}
-          onSeeked={handleMediaEvent}
-          onError={handleError(i)}
-          className="absolute inset-0 w-full h-full object-contain"
-          style={{ zIndex, opacity: track.opacity }}
-          muted={muted || track.isMuted}
-          playsInline
-          preload="auto"
-        />
+          ref={i === 0 ? wrapA : wrapB}
+          className="absolute inset-0 overflow-hidden"
+        >
+          <video
+            ref={i === 0 ? refA : refB}
+            onLoadedMetadata={handleLoadedMetadata(i)}
+            onLoadedData={handleMediaEvent}
+            onCanPlay={handleMediaEvent}
+            onCanPlayThrough={handleMediaEvent}
+            onPlaying={handleMediaEvent}
+            onWaiting={handleMediaEvent}
+            onStalled={handleMediaEvent}
+            onSeeked={handleMediaEvent}
+            onError={handleError(i)}
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ zIndex, opacity: track.opacity }}
+            muted={muted || track.isMuted}
+            playsInline
+            preload="auto"
+          />
+        </div>
       ))}
     </>
   );

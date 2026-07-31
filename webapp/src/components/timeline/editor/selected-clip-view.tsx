@@ -23,10 +23,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SpriteAnimator } from '@/components/sprite/sprite-animator';
 import { ClipEditorModal } from '@/components/clip/clip-editor-modal';
+import { describeCrop } from '@/components/clip/crop-model';
 import { CaptionEditorModal } from '@/components/captions';
 import { useRouter } from 'next/navigation';
 import type { ExpandedTimelineClip } from '@/types/expanded-types';
-import type { Caption, Timeline, TimelineClip } from '@project/shared';
+import {
+  mediaDisplayDimensions,
+  sanitizeCropRect,
+  type Caption,
+  type Timeline,
+  type TimelineClip,
+} from '@project/shared';
 
 function formatTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
@@ -280,9 +287,9 @@ export function SelectedClipView() {
           </div>
         </div>
 
-        {/* Five detail items cannot exist in a 56px strip; duration and track
+        {/* Six detail items cannot exist in a 56px strip; duration and track
             are already on the clip block and its track header. */}
-        <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
+        <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2">
           <DetailItem label="Duration" value={`${clipDuration.toFixed(1)}s`} />
           <DetailItem
             label="Timeline At"
@@ -304,6 +311,21 @@ export function SelectedClipView() {
               isCaption ? 'Caption' : isTimelineClip ? 'Timeline' : 'Media Clip'
             }
           />
+          {!isCaption && !isTimelineClip && (
+            <DetailItem
+              label="Framing"
+              value={
+                sanitizeCropRect(clip.meta?.crop)
+                  ? describeCrop(
+                      clip.meta?.crop,
+                      media ? mediaDisplayDimensions(media).aspect : 0
+                    )
+                  : sanitizeCropRect(media?.crop)
+                    ? 'Media crop'
+                    : 'Full frame'
+              }
+            />
+          )}
         </div>
       </div>
 

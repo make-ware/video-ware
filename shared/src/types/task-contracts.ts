@@ -4,6 +4,7 @@ import type {
   TaskOrigin,
   TimelineOrientation,
 } from '../enums.js';
+import type { CropRect } from './crop.js';
 
 // ============================================================================
 // Task Payload and Result Contracts
@@ -158,6 +159,35 @@ export interface ProcessUploadPayload {
   transcode?: TranscodeConfig;
   /** Optional configuration for audio extraction */
   audio?: AudioConfig;
+  /** Optional configuration for ffmpeg cropdetect autocrop */
+  autocrop?: AutoCropConfig;
+}
+
+/**
+ * Configuration for the AUTOCROP step — ffmpeg `cropdetect` over a handful of
+ * sample windows, aggregated into a recommendation stored on
+ * `Media.cropSuggestion` and (when it clears the thresholds and the detector
+ * owns the column) applied to `Media.crop`.
+ *
+ * The crop is applied at FLATTEN time by the renderer, so it deliberately does
+ * NOT change the proxy or any generated derivative — cropping the proxy too
+ * would apply the same trim twice.
+ */
+export interface AutoCropConfig {
+  /** Whether crop detection is enabled */
+  enabled: boolean;
+  /** cropdetect black threshold, 0–255 (ffmpeg default 24) */
+  limit?: number;
+  /** Number of sample windows spread across the media (default 5) */
+  samples?: number;
+  /** Seconds of video analysed per sample window (default 2) */
+  sampleDuration?: number;
+  /** Frames analysed per second within a sample window (default 2) */
+  sampleFps?: number;
+  /** Minimum fraction of a side that must be trimmed to apply (default 0.015) */
+  minTrimFraction?: number;
+  /** Reject detections covering less of the frame than this (default 0.25) */
+  minAreaFraction?: number;
 }
 
 /**
@@ -406,6 +436,13 @@ export interface TimelineSegment {
     width?: number | string;
     height?: number | string;
     opacity?: number; // 0.0 to 1.0
+    /**
+     * Source crop, 0–1 fractions of the media's DISPLAY frame
+     * (post-rotation). Resolved at flatten time (clip crop ?? media crop —
+     * see resolveCropRect); the renderer crops BEFORE scaling so the
+     * letterbox/PiP scaler fits the cropped region. Absent = full frame.
+     */
+    crop?: CropRect;
   };
   /** Audio specific properties */
   audio?: {

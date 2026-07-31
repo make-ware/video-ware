@@ -5,6 +5,7 @@
 
 import type { ProcessingProvider } from '../../enums.js';
 import type {
+  AutoCropConfig,
   ProbeOutput,
   ThumbnailConfig,
   SpriteConfig,
@@ -12,6 +13,7 @@ import type {
   TranscodeConfig,
   WaveformConfig,
 } from '../../types/task-contracts.js';
+import type { CropSuggestion } from '../../types/crop.js';
 
 /**
  * Transcode step type enum
@@ -24,6 +26,7 @@ export enum TranscodeStepType {
   FILMSTRIP = 'transcode:filmstrip',
   TRANSCODE = 'transcode:transcode',
   AUDIO = 'transcode:audio',
+  AUTOCROP = 'transcode:autocrop',
   WAVEFORM = 'transcode:waveform',
   FINALIZE = 'transcode:finalize',
 }
@@ -131,6 +134,22 @@ export interface TaskTranscodeAudioStep {
 }
 
 /**
+ * Input for the AUTOCROP step
+ * Detects burned-in borders (letterbox/pillarbox) with ffmpeg `cropdetect`
+ */
+export interface TaskTranscodeAutoCropStep {
+  type: 'autocrop';
+  /** Path to the media file */
+  filePath: string;
+  /** ID of the Upload record being processed */
+  uploadId: string;
+  /** ID of the Media record being processed (optional, will be resolved by processor if not provided) */
+  mediaId?: string;
+  /** Crop detection configuration */
+  config: AutoCropConfig;
+}
+
+/**
  * Input for the WAVEFORM step
  * Renders the audio track as one PNG per chunk of media
  */
@@ -156,6 +175,7 @@ export type TaskTranscodeInput =
   | TaskTranscodeFilmstripStep
   | TaskTranscodeTranscodeStep
   | TaskTranscodeAudioStep
+  | TaskTranscodeAutoCropStep
   | TaskTranscodeWaveformStep;
 
 // Legacy type aliases for backward compatibility during migration
@@ -235,6 +255,20 @@ export interface TaskTranscodeAudioStepOutput {
 }
 
 /**
+ * Output from the AUTOCROP step
+ */
+export interface TaskTranscodeAutoCropStepOutput {
+  /**
+   * The stored recommendation, or undefined when detection was skipped
+   * (non-video media) or produced no usable sample — in both cases
+   * `Media.cropSuggestion` is left untouched.
+   */
+  cropSuggestion?: CropSuggestion;
+  /** True when the recommendation was written to `Media.crop`. */
+  applied: boolean;
+}
+
+/**
  * Output from the WAVEFORM step
  */
 export interface TaskTranscodeWaveformStepOutput {
@@ -256,6 +290,7 @@ export type TaskTranscodeResult =
   | TaskTranscodeFilmstripStepOutput
   | TaskTranscodeTranscodeStepOutput
   | TaskTranscodeAudioStepOutput
+  | TaskTranscodeAutoCropStepOutput
   | TaskTranscodeWaveformStepOutput;
 
 // Legacy type aliases for backward compatibility during migration

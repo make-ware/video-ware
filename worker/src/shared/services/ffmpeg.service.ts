@@ -855,6 +855,31 @@ export class FFmpegService implements OnApplicationShutdown {
   }
 
   /**
+   * Execute FFmpeg and return its retained stderr.
+   *
+   * Analysis filters (`cropdetect`, `silencedetect`, `signalstats`) report
+   * their findings in the log rather than in an output file, so unlike
+   * `executeWithProgress` the caller needs the text back. The retained buffer
+   * keeps the LAST lines, which is where an accumulating filter's final
+   * verdict lands — pair this with `-f null -` and no output file is written.
+   *
+   * Shares every stability guard of the other entry points (stall/hard
+   * watchdog, shutdown kill), so an analysis pass can't outlive its job.
+   */
+  async executeCapturingStderr(args: string[]): Promise<string> {
+    try {
+      this.logger.debug(`Executing FFmpeg (capture): ffmpeg ${args.join(' ')}`);
+      const { stderr } = await this.executeWithCappedStderr('ffmpeg', args);
+      return stderr;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to execute FFmpeg: ${errorMessage}`);
+      throw new Error(`FFmpeg execution failed: ${errorMessage}`);
+    }
+  }
+
+  /**
    * Get video duration in seconds
    */
   async getDuration(filePath: string): Promise<number> {

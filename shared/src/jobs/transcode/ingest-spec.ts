@@ -31,9 +31,16 @@ import type { FileMetadata } from '../../types/metadata.js';
 import { TranscodeStepType } from './types.js';
 
 /**
- * The transcode steps that produce a stored File. PROBE and FINALIZE are
- * excluded on purpose: PROBE writes columns on Media (and is always part of the
- * flow regardless of what else was requested), FINALIZE produces nothing.
+ * The transcode steps that produce a stored File. PROBE, AUTOCROP and FINALIZE
+ * are excluded on purpose: PROBE writes columns on Media (and is always part of
+ * the flow regardless of what else was requested), AUTOCROP likewise only writes
+ * `Media.cropSuggestion`/`Media.crop`, and FINALIZE produces nothing.
+ *
+ * Because AUTOCROP stores no File it has nowhere to carry an `ingestVersion`, so
+ * it is outside the backfill's reach — `pickIngestTranscodeConfig` never selects
+ * it and the weekly sweep never re-runs cropdetect over the library. That is
+ * also the safe default: re-detection would rewrite a recommendation the editor
+ * may have already acted on.
  */
 export const INGEST_ASSET_STEPS = [
   TranscodeStepType.THUMBNAIL,
@@ -165,6 +172,15 @@ export function buildIngestTranscodeConfig(
     audio: {
       enabled: !isImage,
       bitrate: '128k',
+    },
+    // Detect burned-in letterbox/pillarbox bars and record the result on
+    // Media.cropSuggestion, applying it to Media.crop when it is a real
+    // border and no human has framed the media themselves. Video only:
+    // audio has no frame, and a still gives cropdetect a single sample it
+    // cannot distinguish from a dark composition. Defaults for the
+    // sampling and thresholds live with the step (see AutoCropConfig).
+    autocrop: {
+      enabled: !isAudio && !isImage,
     },
   };
 }

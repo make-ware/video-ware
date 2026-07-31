@@ -314,6 +314,19 @@ export function registerTimelineClipCommands(timeline: Command): void {
       info(
         `  order: ${clip.order}${stored}${gain !== undefined ? `   gain: ${gain}` : ''}`
       );
+      const clipCrop = clip.meta?.crop;
+      const mediaCrop = clip.expand?.MediaRef?.crop;
+      if (clipCrop) {
+        info(
+          `  crop: ${clipCrop.left},${clipCrop.top},${clipCrop.width},${clipCrop.height}` +
+            ' (clip reframe — overrides media default)'
+        );
+      } else if (mediaCrop) {
+        info(
+          `  crop: ${mediaCrop.left},${mediaCrop.top},${mediaCrop.width},${mediaCrop.height}` +
+            ' (media default)'
+        );
+      }
       if (clip.description)
         info(`  description: ${truncate(clip.description)}`);
       if (labels) printLabelDetail(labels);
@@ -326,8 +339,14 @@ export function registerTimelineClipCommands(timeline: Command): void {
     withStrictOption(
       clips
         .command('update <clipId>')
-        .description('Update a timeline clip (label, description, trim, gain)')
+        .description(
+          'Update a timeline clip (label, description, trim, gain, crop)'
+        )
         .option('-t, --timeline <id>', 'timeline id (validated when passed)')
+        .option(
+          '--clear-crop',
+          'remove the per-clip crop (reset to the media default)'
+        )
         .addHelpText('after', editResultHelp({ noop: true, conflict: true }))
     )
   );
@@ -342,12 +361,17 @@ export function registerTimelineClipCommands(timeline: Command): void {
           ...(picked.start !== undefined || picked.end !== undefined
             ? ['start', 'end', 'duration']
             : []),
-          ...(picked.gain !== undefined ? ['meta'] : []),
+          ...(picked.gain !== undefined ||
+          picked.crop !== undefined ||
+          opts.clearCrop
+            ? ['meta']
+            : []),
         ];
         const result = await withConflictRetry(
           () =>
             updateTimelineClip(pb, clipId, {
               ...picked,
+              ...(opts.clearCrop ? { clearCrop: true } : {}),
               ...(opts.timeline ? { timelineId: opts.timeline } : {}),
             }),
           { patchKeys, force: opts.force }

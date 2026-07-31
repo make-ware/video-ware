@@ -98,6 +98,14 @@ export const FileMetaSchema = z
     spriteConfig: SpriteConfigSchema.optional(),
     waveformConfig: WaveformConfigSchema.optional(),
     mimeType: z.string(),
+    /**
+     * Version of the ingest spec that produced this asset (see
+     * INGEST_STEP_VERSIONS in jobs/transcode/ingest-spec.ts). Written by the
+     * transcode step processors; the weekly ingest backfill regenerates assets
+     * stamped older than the current version. Absent on files written before
+     * versioning existed — those read as INGEST_BASELINE_VERSION, not 0.
+     */
+    ingestVersion: z.number().optional(),
   })
   .extend(FileMediaFactsSchema.shape);
 
@@ -176,6 +184,9 @@ export const TaskPayloadSchema = z.union([
     uploadId: z.string(),
     mediaId: z.string(),
     provider: z.string().optional(),
+    // What created the task (ingest fan-out / user / weekly backfill). Kept as
+    // a plain string so a payload written by a newer origin value still parses.
+    origin: z.string().optional(),
     labels: LabelsDetectionConfigSchema.optional(),
     sprite: SpriteConfigSchema.optional(),
     filmstrip: FilmstripConfigSchema.optional(),
@@ -263,6 +274,17 @@ export const TaskResultSchema = z.union([
     localDirsPurged: z.number(),
     tempDirsRemoved: z.number(),
   }),
+  // IngestBackfillResult — counts emitted by the `ingest_backfill` task.
+  z.object({
+    mediaScanned: z.number(),
+    mediaNeedingWork: z.number(),
+    tasksCreated: z.number(),
+    stepCounts: z.record(z.string(), z.number()),
+    skippedInFlight: z.number(),
+    skippedFailing: z.number(),
+    skippedUnresolvable: z.number(),
+    deferred: z.number(),
+  }),
   // Generic fallback for unknown task types
   z.record(z.string(), z.unknown()),
 ]);
@@ -276,6 +298,29 @@ export interface CleanupResult {
   artifactsFailed: number;
   localDirsPurged: number;
   tempDirsRemoved: number;
+}
+
+// IngestBackfillResult — typed shape of the `ingest_backfill` task's result.
+// Counts describe one weekly sweep: how much of the library was examined, how
+// much of it owed assets, and how much was actually queued (the per-run cap
+// defers the rest to next week).
+export interface IngestBackfillResult {
+  /** Media records examined this run. */
+  mediaScanned: number;
+  /** Media missing at least one expected/current asset. */
+  mediaNeedingWork: number;
+  /** `process_upload` tasks created. */
+  tasksCreated: number;
+  /** Transcode step -> number of media that had it queued. */
+  stepCounts: Record<string, number>;
+  /** Media skipped because a transcode task was already queued/running. */
+  skippedInFlight: number;
+  /** Media skipped after repeated recent transcode failures. */
+  skippedFailing: number;
+  /** Media skipped because their Upload (or its owner) could not be resolved. */
+  skippedUnresolvable: number;
+  /** Media that owed work but hit the per-run task cap. */
+  deferred: number;
 }
 
 // ============================================================================

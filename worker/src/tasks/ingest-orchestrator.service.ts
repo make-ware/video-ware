@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ALL_LABEL_DETECTIONS,
+  buildIngestTranscodeConfig,
   MediaType,
   ProcessingProvider,
+  TaskOrigin,
   TaskStatus,
   type Task,
   type MediaInput,
@@ -149,75 +151,12 @@ export class IngestOrchestratorService {
         }
       }
 
+      // Geometry (and the media-type gating behind it) comes from the shared
+      // ingest spec, so ingest, the webapp's regenerate, `vw job transcode` and
+      // the weekly backfill all request identical assets. Change it there.
       const defaultTranscode: TranscodeFlowConfig = {
         provider: ProcessingProvider.FFMPEG,
-        sprite: isAudio
-          ? undefined
-          : isImage
-            ? {
-                fps: 1,
-                cols: 1,
-                rows: 1,
-                tileWidth: 320,
-                tileHeight: 180,
-              }
-            : {
-                fps: 1,
-                cols: 10,
-                rows: 10,
-                tileWidth: 320,
-                tileHeight: 180,
-              },
-        thumbnail: isAudio
-          ? undefined
-          : {
-              timestamp: 'midpoint',
-              width: 640,
-              height: 360,
-            },
-        filmstrip:
-          isAudio || isImage
-            ? undefined
-            : {
-                cols: 100,
-                rows: 1,
-                tileWidth: 320,
-                tileHeight: 180,
-              },
-        // Waveforms are audio, so images are the only media without one.
-        // 1000px at 1px/s: one image per ~16.6 minutes, the scale at which a
-        // long file stays readable instead of collapsing into a solid bar.
-        waveform: isImage
-          ? undefined
-          : {
-              width: 1000,
-              height: 200,
-              pixelsPerSecond: 1,
-              color: 'white',
-              mono: true,
-            },
-        transcode: {
-          enabled: !isAudio && !isImage,
-          // Proxy is the web-playable preview; H.264 has universal browser
-          // support, whereas H.265/HEVC fails to decode in most browsers
-          // (NotSupportedError on play()). Keep in sync with the regenerate
-          // path in webapp/src/services/media.ts.
-          codec: 'h264',
-          resolution: '720p',
-        },
-        audio: {
-          enabled: !isImage,
-          bitrate: '128k',
-        },
-        // Detect burned-in letterbox/pillarbox bars and record the result on
-        // Media.cropSuggestion, applying it to Media.crop when it is a real
-        // border and no human has framed the media themselves. Video only:
-        // audio has no frame, and a still gives cropdetect a single sample it
-        // cannot distinguish from a dark composition. Defaults for the
-        // sampling and thresholds live with the step (see AutoCropConfig).
-        autocrop: {
-          enabled: !isAudio && !isImage,
-        },
+        ...buildIngestTranscodeConfig(mediaType),
       };
 
       // Request every detector. This is an *intent* layer, not the on/off
@@ -236,6 +175,7 @@ export class IngestOrchestratorService {
       const processPayload: ProcessUploadPayload = {
         uploadId,
         mediaId: media.id,
+        origin: TaskOrigin.INGEST,
         ...defaultTranscode,
         labels: { ...defaultLabels },
       };

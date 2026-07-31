@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import { MediaType } from '@project/shared';
+import { INGEST_STEP_VERSIONS, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../../queue/types/job.types';
 import { FilmstripStepProcessor } from '../filmstrip-step.processor';
 import { SpriteStepProcessor } from '../sprite-step.processor';
@@ -247,6 +248,8 @@ describe('AudioStepProcessor meta', () => {
     await processor.process(audioInput as never, job);
 
     expect(uploadedMeta(pocketbaseService)).toEqual({
+      // Stamped by the ingest spec so the backfill can tell current from stale.
+      ingestVersion: INGEST_STEP_VERSIONS[TranscodeStepType.AUDIO],
       mimeType: 'audio/mpeg',
       duration: 41.98,
       codec: 'mp3',
@@ -274,6 +277,9 @@ describe('AudioStepProcessor meta', () => {
     const result = await processor.process(audioInput as never, job);
 
     expect(result.audioFileId).toBe('file-1');
-    expect(uploadedMeta(pocketbaseService)).toEqual({ mimeType: 'audio/mpeg' });
+    expect(uploadedMeta(pocketbaseService)).toEqual({
+      ingestVersion: INGEST_STEP_VERSIONS[TranscodeStepType.AUDIO],
+      mimeType: 'audio/mpeg',
+    });
   });
 });

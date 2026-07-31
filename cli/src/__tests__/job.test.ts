@@ -185,13 +185,17 @@ describe('defaultTranscodeAssets', () => {
       'thumbnail',
       'sprite',
       'filmstrip',
+      'waveform',
       'proxy',
       'audio',
     ]);
   });
 
-  it('only extracts audio for audio media', () => {
-    expect(defaultTranscodeAssets(MediaType.AUDIO)).toEqual(['audio']);
+  it('only extracts audio and its waveform for audio media', () => {
+    expect(defaultTranscodeAssets(MediaType.AUDIO)).toEqual([
+      'waveform',
+      'audio',
+    ]);
   });
 
   it('only stills for image media', () => {
@@ -227,6 +231,7 @@ describe('transcodePayload', () => {
       uploadId: 'u1',
       mediaId: 'm1',
       provider: 'ffmpeg',
+      origin: 'user',
       transcode: { enabled: true, codec: 'h264', resolution: '720p' },
       audio: { enabled: true, bitrate: '128k' },
     });
@@ -263,6 +268,9 @@ describe('createTranscodeJobTask', () => {
       payload: {
         uploadId: 'u1',
         mediaId: 'm1',
+        // Survives TaskInputSchema validation (the payload union would strip an
+        // undeclared key), so the task record records where it came from.
+        origin: 'user',
         transcode: { enabled: true, codec: 'h264', resolution: '720p' },
       },
     });
@@ -277,6 +285,6 @@ describe('createTranscodeJobTask', () => {
       Tasks: tasksStub(),
     });
     const { assets } = await createTranscodeJobTask(pb, { mediaId: 'm1' });
-    expect(assets).toEqual(['audio']);
+    expect(assets).toEqual(['waveform', 'audio']);
   });
 });

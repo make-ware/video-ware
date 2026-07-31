@@ -5,6 +5,7 @@ import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { QueueService } from '../queue/queue.service';
 import { IngestOrchestratorService } from './ingest-orchestrator.service';
 import { CleanupOrchestratorService } from './cleanup-orchestrator.service';
+import { IngestBackfillService } from './ingest-backfill.service';
 import {
   TaskStatus,
   TaskType,
@@ -23,7 +24,8 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
     private readonly pocketbaseService: PocketBaseService,
     private readonly queueService: QueueService,
     private readonly ingestOrchestrator: IngestOrchestratorService,
-    private readonly cleanupOrchestrator: CleanupOrchestratorService
+    private readonly cleanupOrchestrator: CleanupOrchestratorService,
+    private readonly ingestBackfill: IngestBackfillService
   ) {}
 
   onApplicationBootstrap() {
@@ -125,6 +127,15 @@ export class TaskEnqueuerService implements OnApplicationBootstrap {
     // blob) reaping, and stale working-dir removal — and owns its own status.
     if ((task.type as TaskType) === TaskType.CLEANUP) {
       await this.cleanupOrchestrator.run(task);
+      return;
+    }
+
+    // ingest_backfill is likewise in-process: it scans Media for assets a fresh
+    // ingest would have produced but this media lacks (or that a version bump
+    // made stale) and queues per-media process_upload tasks for exactly those
+    // steps. It owns its own status too.
+    if ((task.type as TaskType) === TaskType.INGEST_BACKFILL) {
+      await this.ingestBackfill.run(task);
       return;
     }
 

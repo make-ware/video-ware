@@ -18,6 +18,7 @@ import type {
   TaskTranscodeTranscodeStep,
   TaskTranscodeTranscodeStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import {
   ProcessingProvider,
@@ -164,7 +165,11 @@ export class TranscodeStepProcessor extends BaseStepProcessor<
         uploadRef: input.uploadId,
         mediaRef: media?.id,
         mimeType: 'video/mp4',
-        meta: { mimeType: 'video/mp4', ...proxyFacts },
+        meta: {
+          ...ingestMeta(TranscodeStepType.TRANSCODE),
+          mimeType: 'video/mp4',
+          ...proxyFacts,
+        },
       });
 
       // Update Media record. On a re-transcode the Media already points at a

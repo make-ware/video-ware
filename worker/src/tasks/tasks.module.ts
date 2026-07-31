@@ -4,6 +4,7 @@ import { QueueModule } from '../queue/queue.module';
 import { TaskEnqueuerService } from './task-enqueuer.service';
 import { IngestOrchestratorService } from './ingest-orchestrator.service';
 import { CleanupOrchestratorService } from './cleanup-orchestrator.service';
+import { IngestBackfillService } from './ingest-backfill.service';
 
 @Module({
   imports: [SharedModule, QueueModule],
@@ -11,6 +12,7 @@ import { CleanupOrchestratorService } from './cleanup-orchestrator.service';
     TaskEnqueuerService,
     IngestOrchestratorService,
     CleanupOrchestratorService,
+    IngestBackfillService,
   ],
 })
 export class TasksModule {}

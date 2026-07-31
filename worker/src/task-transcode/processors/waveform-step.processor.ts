@@ -9,6 +9,7 @@ import type {
   TaskTranscodeWaveformStep,
   TaskTranscodeWaveformStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import {
   FileType,
@@ -147,6 +148,7 @@ export class WaveformStepProcessor extends BaseStepProcessor<
           mediaRef: media.id,
           mimeType: WAVEFORM_MIME_TYPE,
           meta: {
+            ...ingestMeta(TranscodeStepType.WAVEFORM),
             mimeType: WAVEFORM_MIME_TYPE,
             waveformConfig: {
               width: rendered.width,

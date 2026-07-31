@@ -9,6 +9,7 @@ import type {
   TaskTranscodeThumbnailStep,
   TaskTranscodeThumbnailStepOutput,
 } from '@project/shared/jobs';
+import { ingestMeta, TranscodeStepType } from '@project/shared/jobs';
 import type { StepJobData } from '../../queue/types/job.types';
 import {
   FileType,
@@ -123,6 +124,7 @@ export class ThumbnailStepProcessor extends BaseStepProcessor<
         mediaRef: mediaData.id,
         mimeType: 'image/jpeg',
         meta: {
+          ...ingestMeta(TranscodeStepType.THUMBNAIL),
           mimeType: 'image/jpeg',
           // The written image, not the requested box: the executor fits the
           // request to the source display aspect, so one axis is usually

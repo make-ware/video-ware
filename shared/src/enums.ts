@@ -126,6 +126,21 @@ export enum TaskType {
   RENDER_TIMELINE = 'render_timeline',
   FULL_INGEST = 'full_ingest',
   CLEANUP = 'cleanup',
+  INGEST_BACKFILL = 'ingest_backfill',
+}
+
+/**
+ * What caused a `process_upload` task to be created. Observability only — the
+ * worker treats every origin identically — but it is what tells a weekly
+ * backfill sweep apart from a user hitting "regenerate".
+ */
+export enum TaskOrigin {
+  /** Fanned out by the ingest orchestrator when an upload lands. */
+  INGEST = 'ingest',
+  /** Requested by a person (webapp regenerate, `vw job transcode`). */
+  USER = 'user',
+  /** Queued by the weekly ingest backfill for a missing/outdated asset. */
+  BACKFILL = 'backfill',
 }
 
 // Lifecycle of an Artifacts row (a storage blob queued for deletion).

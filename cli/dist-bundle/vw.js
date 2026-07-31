@@ -60059,6 +60059,12 @@ var TaskStatus = /* @__PURE__ */ ((TaskStatus2) => {
   TaskStatus2["CANCELED"] = "canceled";
   return TaskStatus2;
 })(TaskStatus || {});
+var TaskOrigin = /* @__PURE__ */ ((TaskOrigin2) => {
+  TaskOrigin2["INGEST"] = "ingest";
+  TaskOrigin2["USER"] = "user";
+  TaskOrigin2["BACKFILL"] = "backfill";
+  return TaskOrigin2;
+})(TaskOrigin || {});
 var ProcessingProvider = /* @__PURE__ */ ((ProcessingProvider2) => {
   ProcessingProvider2["FFMPEG"] = "ffmpeg";
   ProcessingProvider2["GOOGLE_TRANSCODER"] = "google_transcoder";
@@ -60643,7 +60649,15 @@ var FileMetaSchema = external_exports.object({
   filmstripConfig: FilmstripConfigSchema.optional(),
   spriteConfig: SpriteConfigSchema.optional(),
   waveformConfig: WaveformConfigSchema.optional(),
-  mimeType: external_exports.string()
+  mimeType: external_exports.string(),
+  /**
+   * Version of the ingest spec that produced this asset (see
+   * INGEST_STEP_VERSIONS in jobs/transcode/ingest-spec.ts). Written by the
+   * transcode step processors; the weekly ingest backfill regenerates assets
+   * stamped older than the current version. Absent on files written before
+   * versioning existed — those read as INGEST_BASELINE_VERSION, not 0.
+   */
+  ingestVersion: external_exports.number().optional()
 }).extend(FileMediaFactsSchema.shape);
 var MediaMetadataSchema = ProbeOutputSchema;
 var MediaClipMetadataSchema = external_exports.object({
@@ -60679,6 +60693,9 @@ var TaskPayloadSchema = external_exports.union([
     uploadId: external_exports.string(),
     mediaId: external_exports.string(),
     provider: external_exports.string().optional(),
+    // What created the task (ingest fan-out / user / weekly backfill). Kept as
+    // a plain string so a payload written by a newer origin value still parses.
+    origin: external_exports.string().optional(),
     labels: LabelsDetectionConfigSchema.optional(),
     sprite: SpriteConfigSchema.optional(),
     filmstrip: FilmstripConfigSchema.optional(),
@@ -60758,6 +60775,17 @@ var TaskResultSchema = external_exports.union([
     artifactsFailed: external_exports.number(),
     localDirsPurged: external_exports.number(),
     tempDirsRemoved: external_exports.number()
+  }),
+  // IngestBackfillResult — counts emitted by the `ingest_backfill` task.
+  external_exports.object({
+    mediaScanned: external_exports.number(),
+    mediaNeedingWork: external_exports.number(),
+    tasksCreated: external_exports.number(),
+    stepCounts: external_exports.record(external_exports.string(), external_exports.number()),
+    skippedInFlight: external_exports.number(),
+    skippedFailing: external_exports.number(),
+    skippedUnresolvable: external_exports.number(),
+    deferred: external_exports.number()
   }),
   // Generic fallback for unknown task types
   external_exports.record(external_exports.string(), external_exports.unknown())
@@ -62030,8 +62058,8 @@ var TaskSchema = external_exports.object({
   payload: JSONField(TaskPayloadSchema),
   result: JSONField(TaskResultSchema).optional(),
   errorLog: TextField().optional(),
-  // Optional at the DB level (1781800001 migration): system tasks (the
-  // `cleanup` task) are created without these by the storageCleanup PB cron.
+  // Optional at the DB level (1781800001 migration): system tasks (`cleanup`,
+  // `ingest_backfill`) are created without these by their PB crons.
   // Code paths that only ever see user-facing tasks (the worker flow
   // builders) take `WorkspaceTask` instead, narrowed via `isWorkspaceTask`.
   WorkspaceRef: RelationField({ collection: "Workspaces" }).optional(),
@@ -62058,8 +62086,9 @@ var TaskInputSchema = external_exports.object({
     "derive_clips",
     "detect_labels",
     "render_timeline",
-    "cleanup"
-    /* CLEANUP */
+    "cleanup",
+    "ingest_backfill"
+    /* INGEST_BACKFILL */
   ]),
   status: external_exports.enum([
     "queued",
@@ -66597,6 +66626,150 @@ var TimelineRenderMutator = class extends BaseMutator {
     );
   }
 };
+var TranscodeStepType = /* @__PURE__ */ ((TranscodeStepType2) => {
+  TranscodeStepType2["PROBE"] = "transcode:probe";
+  TranscodeStepType2["THUMBNAIL"] = "transcode:thumbnail";
+  TranscodeStepType2["SPRITE"] = "transcode:sprite";
+  TranscodeStepType2["FILMSTRIP"] = "transcode:filmstrip";
+  TranscodeStepType2["TRANSCODE"] = "transcode:transcode";
+  TranscodeStepType2["AUDIO"] = "transcode:audio";
+  TranscodeStepType2["AUTOCROP"] = "transcode:autocrop";
+  TranscodeStepType2["WAVEFORM"] = "transcode:waveform";
+  TranscodeStepType2["FINALIZE"] = "transcode:finalize";
+  return TranscodeStepType2;
+})(TranscodeStepType || {});
+var INGEST_ASSET_STEPS = [
+  "transcode:thumbnail",
+  "transcode:sprite",
+  "transcode:filmstrip",
+  "transcode:waveform",
+  "transcode:transcode",
+  "transcode:audio"
+  /* AUDIO */
+];
+function buildIngestTranscodeConfig(mediaType) {
+  const isAudio = mediaType === "audio";
+  const isImage = mediaType === "image";
+  return {
+    sprite: isAudio ? void 0 : isImage ? {
+      fps: 1,
+      cols: 1,
+      rows: 1,
+      tileWidth: 320,
+      tileHeight: 180
+    } : {
+      fps: 1,
+      cols: 10,
+      rows: 10,
+      tileWidth: 320,
+      tileHeight: 180
+    },
+    thumbnail: isAudio ? void 0 : {
+      timestamp: "midpoint",
+      width: 640,
+      height: 360
+    },
+    filmstrip: isAudio || isImage ? void 0 : {
+      cols: 100,
+      rows: 1,
+      tileWidth: 320,
+      tileHeight: 180
+    },
+    // Waveforms are audio, so images are the only media without one.
+    // 1000px at 1px/s: one image per ~16.6 minutes, the scale at which a
+    // long file stays readable instead of collapsing into a solid bar.
+    waveform: isImage ? void 0 : {
+      width: 1e3,
+      height: 200,
+      pixelsPerSecond: 1,
+      color: "white",
+      mono: true
+    },
+    transcode: {
+      enabled: !isAudio && !isImage,
+      // Proxy is the web-playable preview; H.264 has universal browser
+      // support, whereas H.265/HEVC fails to decode in most browsers
+      // (NotSupportedError on play()).
+      codec: "h264",
+      resolution: "720p"
+    },
+    audio: {
+      enabled: !isImage,
+      bitrate: "128k"
+    },
+    // Detect burned-in letterbox/pillarbox bars and record the result on
+    // Media.cropSuggestion, applying it to Media.crop when it is a real
+    // border and no human has framed the media themselves. Video only:
+    // audio has no frame, and a still gives cropdetect a single sample it
+    // cannot distinguish from a dark composition. Defaults for the
+    // sampling and thresholds live with the step (see AutoCropConfig).
+    autocrop: {
+      enabled: !isAudio && !isImage
+    }
+  };
+}
+function ingestStepsFor(mediaType) {
+  const config2 = buildIngestTranscodeConfig(mediaType);
+  return INGEST_ASSET_STEPS.filter((step) => isStepRequested(config2, step));
+}
+function isStepRequested(config2, step) {
+  switch (step) {
+    case "transcode:thumbnail":
+      return !!config2.thumbnail;
+    case "transcode:sprite":
+      return !!config2.sprite;
+    case "transcode:filmstrip":
+      return !!config2.filmstrip;
+    case "transcode:waveform":
+      return !!config2.waveform;
+    case "transcode:transcode":
+      return !!config2.transcode?.enabled;
+    case "transcode:audio":
+      return !!config2.audio?.enabled;
+  }
+}
+function pickIngestTranscodeConfig(mediaType, steps) {
+  const full = buildIngestTranscodeConfig(mediaType);
+  const wanted = new Set(steps);
+  const picked = {};
+  if (wanted.has(
+    "transcode:thumbnail"
+    /* THUMBNAIL */
+  ) && full.thumbnail) {
+    picked.thumbnail = full.thumbnail;
+  }
+  if (wanted.has(
+    "transcode:sprite"
+    /* SPRITE */
+  ) && full.sprite) {
+    picked.sprite = full.sprite;
+  }
+  if (wanted.has(
+    "transcode:filmstrip"
+    /* FILMSTRIP */
+  ) && full.filmstrip) {
+    picked.filmstrip = full.filmstrip;
+  }
+  if (wanted.has(
+    "transcode:waveform"
+    /* WAVEFORM */
+  ) && full.waveform) {
+    picked.waveform = full.waveform;
+  }
+  if (wanted.has(
+    "transcode:transcode"
+    /* TRANSCODE */
+  ) && full.transcode?.enabled) {
+    picked.transcode = full.transcode;
+  }
+  if (wanted.has(
+    "transcode:audio"
+    /* AUDIO */
+  ) && full.audio?.enabled) {
+    picked.audio = full.audio;
+  }
+  return picked;
+}
 var LABEL_JOB_TYPES = [
   "object",
   "shot",
@@ -77010,9 +77183,18 @@ var TRANSCODE_ASSETS = [
   "thumbnail",
   "sprite",
   "filmstrip",
+  "waveform",
   "proxy",
   "audio"
 ];
+var ASSET_STEP = {
+  thumbnail: TranscodeStepType.THUMBNAIL,
+  sprite: TranscodeStepType.SPRITE,
+  filmstrip: TranscodeStepType.FILMSTRIP,
+  waveform: TranscodeStepType.WAVEFORM,
+  proxy: TranscodeStepType.TRANSCODE,
+  audio: TranscodeStepType.AUDIO
+};
 function parseTranscodeAssets(value) {
   const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
   if (parts.length === 0) {
@@ -77031,38 +77213,20 @@ function parseTranscodeAssets(value) {
   return [...new Set(parts)];
 }
 function defaultTranscodeAssets(mediaType) {
-  switch (mediaType) {
-    case MediaType.AUDIO:
-      return ["audio"];
-    case MediaType.IMAGE:
-      return ["thumbnail", "sprite"];
-    default:
-      return [...TRANSCODE_ASSETS];
-  }
+  const steps = new Set(ingestStepsFor(mediaType));
+  return TRANSCODE_ASSETS.filter((asset) => steps.has(ASSET_STEP[asset]));
 }
 function transcodePayload(media, uploadId, assets) {
-  const isImage = mediaTypeOf(media) === MediaType.IMAGE;
-  const payload = {
+  return {
     uploadId,
     mediaId: media.id,
-    provider: ProcessingProvider.FFMPEG
+    provider: ProcessingProvider.FFMPEG,
+    origin: TaskOrigin.USER,
+    ...pickIngestTranscodeConfig(
+      mediaTypeOf(media),
+      assets.map((asset) => ASSET_STEP[asset])
+    )
   };
-  if (assets.includes("thumbnail")) {
-    payload.thumbnail = { timestamp: "midpoint", width: 640, height: 360 };
-  }
-  if (assets.includes("sprite")) {
-    payload.sprite = isImage ? { fps: 1, cols: 1, rows: 1, tileWidth: 320, tileHeight: 180 } : { fps: 1, cols: 10, rows: 10, tileWidth: 320, tileHeight: 180 };
-  }
-  if (assets.includes("filmstrip")) {
-    payload.filmstrip = { cols: 100, rows: 1, tileWidth: 320, tileHeight: 180 };
-  }
-  if (assets.includes("proxy")) {
-    payload.transcode = { enabled: true, codec: "h264", resolution: "720p" };
-  }
-  if (assets.includes("audio")) {
-    payload.audio = { enabled: true, bitrate: "128k" };
-  }
-  return payload;
 }
 async function createTranscodeJobTask(pb, opts) {
   const userId = requireUserId(pb);

@@ -63,6 +63,11 @@ export type TranscodeFlowSteps = {
     type: 'audio';
     required: false;
   };
+  /** AUTOCROP step - optional, detects burned-in borders via cropdetect */
+  autocrop?: {
+    type: 'autocrop';
+    required: false;
+  };
 };
 
 /**
@@ -76,6 +81,7 @@ export const TRANSCODE_FLOW_STEPS = {
   FILMSTRIP: TranscodeStepType.FILMSTRIP,
   TRANSCODE: TranscodeStepType.TRANSCODE,
   AUDIO: TranscodeStepType.AUDIO,
+  AUTOCROP: TranscodeStepType.AUTOCROP,
 } as const;
 
 /**

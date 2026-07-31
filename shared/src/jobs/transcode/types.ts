@@ -5,12 +5,14 @@
 
 import type { ProcessingProvider } from '../../enums.js';
 import type {
+  AutoCropConfig,
   ProbeOutput,
   ThumbnailConfig,
   SpriteConfig,
   FilmstripConfig,
   TranscodeConfig,
 } from '../../types/task-contracts.js';
+import type { CropSuggestion } from '../../types/crop.js';
 
 /**
  * Transcode step type enum
@@ -23,6 +25,7 @@ export enum TranscodeStepType {
   FILMSTRIP = 'transcode:filmstrip',
   TRANSCODE = 'transcode:transcode',
   AUDIO = 'transcode:audio',
+  AUTOCROP = 'transcode:autocrop',
   FINALIZE = 'transcode:finalize',
 }
 
@@ -129,6 +132,22 @@ export interface TaskTranscodeAudioStep {
 }
 
 /**
+ * Input for the AUTOCROP step
+ * Detects burned-in borders (letterbox/pillarbox) with ffmpeg `cropdetect`
+ */
+export interface TaskTranscodeAutoCropStep {
+  type: 'autocrop';
+  /** Path to the media file */
+  filePath: string;
+  /** ID of the Upload record being processed */
+  uploadId: string;
+  /** ID of the Media record being processed (optional, will be resolved by processor if not provided) */
+  mediaId?: string;
+  /** Crop detection configuration */
+  config: AutoCropConfig;
+}
+
+/**
  * Union type of all transcode step inputs
  */
 export type TaskTranscodeInput =
@@ -137,7 +156,8 @@ export type TaskTranscodeInput =
   | TaskTranscodeSpriteStep
   | TaskTranscodeFilmstripStep
   | TaskTranscodeTranscodeStep
-  | TaskTranscodeAudioStep;
+  | TaskTranscodeAudioStep
+  | TaskTranscodeAutoCropStep;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStep instead */
@@ -216,6 +236,20 @@ export interface TaskTranscodeAudioStepOutput {
 }
 
 /**
+ * Output from the AUTOCROP step
+ */
+export interface TaskTranscodeAutoCropStepOutput {
+  /**
+   * The stored recommendation, or undefined when detection was skipped
+   * (non-video media) or produced no usable sample — in both cases
+   * `Media.cropSuggestion` is left untouched.
+   */
+  cropSuggestion?: CropSuggestion;
+  /** True when the recommendation was written to `Media.crop`. */
+  applied: boolean;
+}
+
+/**
  * Union type of all transcode step outputs
  */
 export type TaskTranscodeResult =
@@ -224,7 +258,8 @@ export type TaskTranscodeResult =
   | TaskTranscodeSpriteStepOutput
   | TaskTranscodeFilmstripStepOutput
   | TaskTranscodeTranscodeStepOutput
-  | TaskTranscodeAudioStepOutput;
+  | TaskTranscodeAudioStepOutput
+  | TaskTranscodeAutoCropStepOutput;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStepOutput instead */

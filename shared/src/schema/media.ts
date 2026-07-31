@@ -13,7 +13,11 @@ import {
 import { workspaceScopedPermissions } from '../utils/collection-permissions';
 import { z } from 'zod';
 import { MediaType } from '../enums';
-import { CropRectSchema, MediaMetadataSchema } from '../types';
+import {
+  CropRectSchema,
+  CropSuggestionSchema,
+  MediaMetadataSchema,
+} from '../types';
 import type { Directory } from './directory';
 import type { File } from './file';
 import type { Upload } from './upload';
@@ -40,6 +44,10 @@ export const MediaSchema = z
     // letterbox bars): 0–1 fractions of the DISPLAY frame (post-rotation).
     // Bounds are enforced here via CropRectSchema, never in the DB column.
     crop: JSONField(CropRectSchema).optional(),
+    // Last ffmpeg `cropdetect` recommendation from the ingest AUTOCROP step,
+    // written whether or not it was applied to `crop` — it is the audit trail
+    // that explains the crop (and records why there is none).
+    cropSuggestion: JSONField(CropSuggestionSchema).optional(),
     aspectRatio: NumberField(), // calculated aspect ratio (width/height)
     mediaData: JSONField(MediaMetadataSchema), // full probe output
     thumbnailFileRef: RelationField({ collection: 'Files' }).optional(),
@@ -72,6 +80,8 @@ export const MediaInputSchema = z.object({
   rotation: NumberField({ min: 0 }).optional(),
   // Default source crop, display-frame fractions (see MediaSchema.crop).
   crop: CropRectSchema.optional(),
+  // Autocrop detection record (see MediaSchema.cropSuggestion).
+  cropSuggestion: CropSuggestionSchema.optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: z.string().optional(),

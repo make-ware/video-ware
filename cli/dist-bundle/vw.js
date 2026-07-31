@@ -60536,6 +60536,24 @@ var CropRectSchema = external_exports.object({
   message: "crop extends past the bottom edge (top + height > 1)",
   path: ["height"]
 });
+var CropSuggestionSchema = external_exports.object({
+  rect: CropRectSchema,
+  pixels: external_exports.object({
+    x: external_exports.number(),
+    y: external_exports.number(),
+    width: external_exports.number(),
+    height: external_exports.number()
+  }),
+  displayWidth: external_exports.number(),
+  displayHeight: external_exports.number(),
+  samples: external_exports.number(),
+  attempted: external_exports.number(),
+  agreement: external_exports.number().min(0).max(1),
+  applied: external_exports.boolean(),
+  skipReason: external_exports.enum(["full-frame", "below-threshold", "unreliable", "manual-crop"]).optional(),
+  limit: external_exports.number(),
+  detectedAt: external_exports.string()
+});
 var RenderTimelineConfigSchema = external_exports.object({
   resolution: external_exports.string(),
   codec: external_exports.string(),
@@ -61885,6 +61903,10 @@ var MediaSchema = external_exports.object({
   // letterbox bars): 0–1 fractions of the DISPLAY frame (post-rotation).
   // Bounds are enforced here via CropRectSchema, never in the DB column.
   crop: JSONField(CropRectSchema).optional(),
+  // Last ffmpeg `cropdetect` recommendation from the ingest AUTOCROP step,
+  // written whether or not it was applied to `crop` — it is the audit trail
+  // that explains the crop (and records why there is none).
+  cropSuggestion: JSONField(CropSuggestionSchema).optional(),
   aspectRatio: NumberField(),
   // calculated aspect ratio (width/height)
   mediaData: JSONField(MediaMetadataSchema),
@@ -61921,6 +61943,8 @@ var MediaInputSchema = external_exports.object({
   rotation: NumberField({ min: 0 }).optional(),
   // Default source crop, display-frame fractions (see MediaSchema.crop).
   crop: CropRectSchema.optional(),
+  // Autocrop detection record (see MediaSchema.cropSuggestion).
+  cropSuggestion: CropSuggestionSchema.optional(),
   aspectRatio: NumberField({ min: 0 }).optional(),
   mediaData: JSONField(MediaMetadataSchema),
   thumbnailFileRef: external_exports.string().optional(),

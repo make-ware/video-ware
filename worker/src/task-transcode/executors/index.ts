@@ -34,6 +34,11 @@ export { FFmpegThumbnailExecutor } from './ffmpeg/thumbnail.executor';
 export { FFmpegSpriteExecutor } from './ffmpeg/sprite.executor';
 export { FFmpegTranscodeExecutor } from './ffmpeg/transcode.executor';
 export { FFmpegAudioExecutor } from './ffmpeg/audio.executor';
+export { FFmpegAutoCropExecutor } from './ffmpeg/autocrop.executor';
+export type {
+  AutoCropExecutorConfig,
+  AutoCropExecutorResult,
+} from './ffmpeg/autocrop.executor';
 
 // Google Cloud implementations
 export { GoogleTranscodeExecutor } from './google/transcode.executor';

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.1.0](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.4...video-ware-v1.1.0) (2026-07-31)
+
+
+### Features
+
+* add basic crop features ([0a6c64d](https://github.com/make-ware/video-ware/commit/0a6c64da30b078e156a7a716c79ff88aeb8586c1))
+* add video crop features ([bc760f4](https://github.com/make-ware/video-ware/commit/bc760f4830abf4287280577a2beb95f56aaedf8f))
+* **cli:** add `vw frame` to extract a still from the filmstrip ([2cefa02](https://github.com/make-ware/video-ware/commit/2cefa02bf8bb879b1d707e43d8262ac7d0753e86))
+* **cli:** download media preview files with `vw media download` ([ff762d5](https://github.com/make-ware/video-ware/commit/ff762d542c3eb0c6b37d831559793e0a3bdab96a))
+* **cli:** download media preview files with `vw media download` ([5807cb8](https://github.com/make-ware/video-ware/commit/5807cb863dd0bbffde9e9c23d6e7a22d90d67538))
+* **worker:** detect and apply autocrop during ingest transcode ([6b3071e](https://github.com/make-ware/video-ware/commit/6b3071e604a804e0517fa4ba745e271a27979a83))
+* **worker:** detect and apply autocrop during ingest transcode ([3e405f2](https://github.com/make-ware/video-ware/commit/3e405f22dafe3799488100680d9536e37129b81e))
+* **worker:** generate audio waveforms during ingest ([b4ac515](https://github.com/make-ware/video-ware/commit/b4ac515eb4945f0cd2d8c3d3bb3bc905836efa8a))
+* **worker:** generate audio waveforms during ingest ([6d3526f](https://github.com/make-ware/video-ware/commit/6d3526ffafa679f6dd1448683bc1b6341c989182))
+* **worker:** weekly backfill for missing/outdated ingest assets ([c278f12](https://github.com/make-ware/video-ware/commit/c278f1250d6d67e1eed585f272a782fea5e47a17))
+* **worker:** weekly backfill for missing/outdated ingest assets ([bd1bc5f](https://github.com/make-ware/video-ware/commit/bd1bc5fffcddf29d38e88f9ea5e57d84fefffc16))
+
+
+### Bug Fixes
+
+* add `vw frame` to extract a still from the filmstrip ([4433966](https://github.com/make-ware/video-ware/commit/4433966a9a89b3bf66ba951cb12361510d510909))
+* update encoded media metadata ([d5b5d16](https://github.com/make-ware/video-ware/commit/d5b5d1610ccc0983f7e4971064a285de2767f6a4))
+
 ## [1.0.4](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.3...video-ware-v1.0.4) (2026-07-30)
 
 

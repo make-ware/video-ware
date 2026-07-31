@@ -68,6 +68,11 @@ export type TranscodeFlowSteps = {
     type: 'autocrop';
     required: false;
   };
+  /** WAVEFORM step - optional, renders the audio track as waveform images */
+  waveform?: {
+    type: 'waveform';
+    required: false;
+  };
 };
 
 /**
@@ -82,6 +87,7 @@ export const TRANSCODE_FLOW_STEPS = {
   TRANSCODE: TranscodeStepType.TRANSCODE,
   AUDIO: TranscodeStepType.AUDIO,
   AUTOCROP: TranscodeStepType.AUTOCROP,
+  WAVEFORM: TranscodeStepType.WAVEFORM,
 } as const;
 
 /**

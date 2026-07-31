@@ -4,3 +4,4 @@ export { FFmpegSpriteExecutor } from './sprite.executor';
 export { FFmpegTranscodeExecutor } from './transcode.executor';
 export { FFmpegAudioExecutor } from './audio.executor';
 export { FFmpegAutoCropExecutor } from './autocrop.executor';
+export { FFmpegWaveformExecutor } from './waveform.executor';

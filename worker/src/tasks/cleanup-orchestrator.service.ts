@@ -11,14 +11,26 @@ import {
 import { PocketBaseService } from '../shared/services/pocketbase.service';
 import { StorageService } from '../shared/services/storage.service';
 
-// Single-relation Media fields that point at a derived File. filmstripFileRefs
-// (a multi-relation) is handled separately.
+// Single-relation Media fields that point at a derived File. Multi-relations
+// are handled separately, via MULTI_REF_FIELDS.
 const SINGLE_REF_FIELDS = [
   'proxyFileRef',
   'spriteFileRef',
   'thumbnailFileRef',
   'audioFileRef',
 ] as const;
+
+// Multi-relation Media fields that point at derived Files. A field missing
+// here reads as unreferenced, so the sweep would delete live assets — add
+// every new Media -> Files[] relation.
+const MULTI_REF_FIELDS = ['filmstripFileRefs', 'waveformFileRefs'] as const;
+
+/** The ids held by a Media's multi-relation file fields, flattened. */
+function multiRefFileIds(media: Media): string[] {
+  return MULTI_REF_FIELDS.flatMap(
+    (field) => (media[field] as unknown as string[] | undefined) ?? []
+  );
+}
 
 // Derived file types the unreferenced sweep may delete. ORIGINAL and
 // LABELS_JSON are deliberately excluded: originals are addressed via
@@ -30,6 +42,7 @@ const UNREFERENCED_SWEEP_TYPES = [
   FileType.THUMBNAIL,
   FileType.FILMSTRIP,
   FileType.AUDIO,
+  FileType.WAVEFORM,
   FileType.RENDER,
 ] as const;
 
@@ -171,9 +184,7 @@ export class CleanupOrchestratorService {
             const fileId = media[field as keyof Media] as string | undefined;
             linked += await this.linkFile(fileId, media.id);
           }
-          const strips =
-            (media.filmstripFileRefs as unknown as string[] | undefined) ?? [];
-          for (const fileId of strips) {
+          for (const fileId of multiRefFileIds(media)) {
             linked += await this.linkFile(fileId, media.id);
           }
         }
@@ -301,8 +312,8 @@ export class CleanupOrchestratorService {
   }
 
   /**
-   * Every File id a live record still points at: all Media single-relation
-   * fields + filmstripFileRefs, and TimelineRender.FileRef.
+   * Every File id a live record still points at: all Media single- and
+   * multi-relation file fields, and TimelineRender.FileRef.
    */
   private async collectReferencedFileIds(): Promise<Set<string>> {
     const referenced = new Set<string>();
@@ -320,9 +331,7 @@ export class CleanupOrchestratorService {
           const fileId = media[field as keyof Media] as string | undefined;
           if (fileId) referenced.add(fileId);
         }
-        const strips =
-          (media.filmstripFileRefs as unknown as string[] | undefined) ?? [];
-        for (const fileId of strips) {
+        for (const fileId of multiRefFileIds(media)) {
           if (fileId) referenced.add(fileId);
         }
       }

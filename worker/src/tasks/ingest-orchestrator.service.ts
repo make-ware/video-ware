@@ -184,6 +184,18 @@ export class IngestOrchestratorService {
                 tileWidth: 320,
                 tileHeight: 180,
               },
+        // Waveforms are audio, so images are the only media without one.
+        // 1000px at 1px/s: one image per ~16.6 minutes, the scale at which a
+        // long file stays readable instead of collapsing into a solid bar.
+        waveform: isImage
+          ? undefined
+          : {
+              width: 1000,
+              height: 200,
+              pixelsPerSecond: 1,
+              color: 'white',
+              mono: true,
+            },
         transcode: {
           enabled: !isAudio && !isImage,
           // Proxy is the web-playable preview; H.264 has universal browser

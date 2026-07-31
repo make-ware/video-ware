@@ -23,6 +23,7 @@ import {
 } from '../lib/media.js';
 import { registerMediaClipSegmentCommands } from './clip-segments.js';
 import { registerMediaClipTranscriptCommand } from './clip-transcript.js';
+import { registerMediaDownloadCommand } from './download.js';
 import { applyOptions, pickOptions, withJsonOption } from '../lib/options.js';
 import { runList, withListOptions } from '../lib/list/index.js';
 import {
@@ -247,6 +248,8 @@ export function registerMediaCommands(program: Command): void {
       }
     }
   );
+
+  registerMediaDownloadCommand(media);
 
   const clip = media
     .command('clip')

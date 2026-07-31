@@ -53,6 +53,9 @@ export const MediaSchema = z
     thumbnailFileRef: RelationField({ collection: 'Files' }).optional(),
     spriteFileRef: RelationField({ collection: 'Files' }).optional(),
     filmstripFileRefs: RelationsField({ collection: 'Files' }).optional(),
+    // Audio waveform PNGs, one per chunk, ordered by meta.waveformConfig
+    // .chunkIndex (never rely on relation order — see normalizeWaveformChunks).
+    waveformFileRefs: RelationsField({ collection: 'Files' }).optional(),
     proxyFileRef: RelationField({ collection: 'Files' }).optional(),
     audioFileRef: RelationField({ collection: 'Files' }).optional(),
     hasAudio: BoolField().optional().default(true),
@@ -87,6 +90,7 @@ export const MediaInputSchema = z.object({
   thumbnailFileRef: z.string().optional(),
   spriteFileRef: z.string().optional(),
   filmstripFileRef: z.string().optional(),
+  waveformFileRefs: z.array(z.string()).optional(),
   proxyFileRef: z.string().optional(),
   audioFileRef: z.string().optional(),
   hasAudio: z.boolean().optional(),
@@ -121,6 +125,7 @@ export interface MediaRelations {
   thumbnailFileRef?: File;
   spriteFileRef?: File;
   filmstripFileRefs?: File[];
+  waveformFileRefs?: File[];
   proxyFileRef?: File;
   audioFileRef?: File;
   DirectoryRef?: Directory;

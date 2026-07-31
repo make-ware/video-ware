@@ -11,6 +11,7 @@ import type {
   SpriteConfig,
   FilmstripConfig,
   TranscodeConfig,
+  WaveformConfig,
 } from '../../types/task-contracts.js';
 import type { CropSuggestion } from '../../types/crop.js';
 
@@ -26,6 +27,7 @@ export enum TranscodeStepType {
   TRANSCODE = 'transcode:transcode',
   AUDIO = 'transcode:audio',
   AUTOCROP = 'transcode:autocrop',
+  WAVEFORM = 'transcode:waveform',
   FINALIZE = 'transcode:finalize',
 }
 
@@ -148,6 +150,22 @@ export interface TaskTranscodeAutoCropStep {
 }
 
 /**
+ * Input for the WAVEFORM step
+ * Renders the audio track as one PNG per chunk of media
+ */
+export interface TaskTranscodeWaveformStep {
+  type: 'waveform';
+  /** Path to the media file */
+  filePath: string;
+  /** ID of the Upload record being processed */
+  uploadId: string;
+  /** ID of the Media record being processed (optional, will be resolved by processor if not provided) */
+  mediaId?: string;
+  /** Waveform generation configuration */
+  config: WaveformConfig;
+}
+
+/**
  * Union type of all transcode step inputs
  */
 export type TaskTranscodeInput =
@@ -157,7 +175,8 @@ export type TaskTranscodeInput =
   | TaskTranscodeFilmstripStep
   | TaskTranscodeTranscodeStep
   | TaskTranscodeAudioStep
-  | TaskTranscodeAutoCropStep;
+  | TaskTranscodeAutoCropStep
+  | TaskTranscodeWaveformStep;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStep instead */
@@ -250,6 +269,18 @@ export interface TaskTranscodeAutoCropStepOutput {
 }
 
 /**
+ * Output from the WAVEFORM step
+ */
+export interface TaskTranscodeWaveformStepOutput {
+  /** Path to the first generated waveform chunk (empty when none were made) */
+  waveformPath: string;
+  /** ID of the first chunk's File record (empty when none were made) */
+  waveformFileId: string;
+  /** IDs of every generated waveform File record, in chunk order */
+  allWaveformFileIds: string[];
+}
+
+/**
  * Union type of all transcode step outputs
  */
 export type TaskTranscodeResult =
@@ -259,7 +290,8 @@ export type TaskTranscodeResult =
   | TaskTranscodeFilmstripStepOutput
   | TaskTranscodeTranscodeStepOutput
   | TaskTranscodeAudioStepOutput
-  | TaskTranscodeAutoCropStepOutput;
+  | TaskTranscodeAutoCropStepOutput
+  | TaskTranscodeWaveformStepOutput;
 
 // Legacy type aliases for backward compatibility during migration
 /** @deprecated Use TaskTranscodeProbeStepOutput instead */

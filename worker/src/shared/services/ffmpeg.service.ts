@@ -505,6 +505,95 @@ export class FFmpegService implements OnApplicationShutdown {
   }
 
   /**
+   * Render an audio waveform image with `showwavespic`.
+   *
+   * Draws `[startTime, startTime + duration)` of the input's audio into a
+   * single `width x height` PNG (transparent background). Callers render one
+   * image per chunk rather than one per media — see planWaveformChunks in
+   * shared/src/utils/waveform.ts for why, and for how the window is chosen.
+   *
+   * `filter=peak` draws the sample extremes instead of an average: over a long
+   * window averaging collapses into a solid bar, which is exactly the regime
+   * chunking already puts us in. `-ss`/`-t` sit before `-i` so ffmpeg seeks the
+   * input rather than decoding and discarding everything up to the window.
+   */
+  async generateWaveform(
+    inputPath: string,
+    outputPath: string,
+    options: {
+      width: number;
+      height: number;
+      /** Seconds into the input to start drawing (default 0) */
+      startTime?: number;
+      /** Seconds of audio to draw; omit to draw to the end of the input */
+      duration?: number;
+      /** ffmpeg color name or #rrggbb (default: white) */
+      color?: string;
+      /** Downmix to a single curve instead of one per channel (default: true) */
+      mono?: boolean;
+    }
+  ): Promise<void> {
+    const {
+      width,
+      height,
+      startTime = 0,
+      duration,
+      color = 'white',
+      mono = true,
+    } = options;
+
+    try {
+      const outputDir = path.dirname(outputPath);
+      await fs.promises.mkdir(outputDir, { recursive: true });
+
+      // Stereo drawn as-is overlays two curves; `split_channels` stacks them
+      // instead, so the requested height still bounds the whole image.
+      const wave = mono
+        ? `aformat=channel_layouts=mono,showwavespic=s=${width}x${height}:colors=${color}:filter=peak`
+        : `showwavespic=s=${width}x${height}:colors=${color}:split_channels=1:filter=peak`;
+
+      const args = ['-y'];
+      if (startTime > 0) {
+        args.push('-ss', startTime.toString());
+      }
+      if (duration !== undefined && duration > 0) {
+        args.push('-t', duration.toString());
+      }
+      args.push(
+        '-i',
+        inputPath,
+        // Bind the graph to the audio stream explicitly: the input is usually a
+        // video file, and the only stream that reaches the output is this
+        // filter's image.
+        '-filter_complex',
+        `[0:a]${wave}[wave]`,
+        '-map',
+        '[wave]',
+        '-frames:v',
+        '1',
+        outputPath
+      );
+
+      this.logger.debug(`Generating waveform: ffmpeg ${args.join(' ')}`);
+
+      await this.executeWithCappedStderr('ffmpeg', args);
+
+      if (!fs.existsSync(outputPath)) {
+        throw new Error('Waveform file was not created');
+      }
+
+      this.logger.debug(
+        `Generated waveform: ${outputPath} (${width}x${height} from ${startTime}s)`
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to generate waveform: ${errorMessage}`);
+      throw new Error(`Waveform generation failed: ${errorMessage}`);
+    }
+  }
+
+  /**
    * Transcode video with specified options
    */
   async transcode(

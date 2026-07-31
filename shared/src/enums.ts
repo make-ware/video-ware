@@ -57,6 +57,10 @@ export enum FileType {
   LABELS_JSON = 'labels_json',
   RENDER = 'render',
   AUDIO = 'audio',
+  // One PNG per chunk of audio, drawn by ffmpeg's showwavespic. Chunked
+  // because a single image squashes a long file into an unreadable block —
+  // see shared/src/utils/waveform.ts for the geometry.
+  WAVEFORM = 'waveform',
 }
 
 export enum FileSource {

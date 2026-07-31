@@ -7,6 +7,7 @@ export * from './time.js';
 export * from './generate-tracks.js';
 export * from './composite-utils.js';
 export * from './filmstrip.js';
+export * from './waveform.js';
 export * from './segment-edits.js';
 export * from './captions.js';
 export * from './clip-transcript.js';

@@ -12,6 +12,7 @@ import {
   type TaskTranscodeTranscodeStep,
   type TaskTranscodeAudioStep,
   type TaskTranscodeAutoCropStep,
+  type TaskTranscodeWaveformStep,
 } from '@project/shared/jobs';
 import { type ProcessUploadPayload } from '@project/shared';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
@@ -23,6 +24,7 @@ import { FilmstripStepProcessor } from './filmstrip-step.processor';
 import { TranscodeStepProcessor } from './transcode-step.processor';
 import { AudioStepProcessor } from './audio-step.processor';
 import { AutoCropStepProcessor } from './autocrop-step.processor';
+import { WaveformStepProcessor } from './waveform-step.processor';
 import type {
   ParentJobData,
   StepJobData,
@@ -52,7 +54,8 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
     private readonly filmstripStepProcessor: FilmstripStepProcessor,
     private readonly transcodeStepProcessor: TranscodeStepProcessor,
     private readonly audioStepProcessor: AudioStepProcessor,
-    private readonly autoCropStepProcessor: AutoCropStepProcessor
+    private readonly autoCropStepProcessor: AutoCropStepProcessor,
+    private readonly waveformStepProcessor: WaveformStepProcessor
   ) {
     super();
     this.pocketbaseService = pocketbaseService;
@@ -196,6 +199,13 @@ export class TranscodeParentProcessor extends BaseFlowProcessor {
         case TranscodeStepType.AUTOCROP:
           output = await this.autoCropStepProcessor.process(
             input as TaskTranscodeAutoCropStep,
+            job
+          );
+          break;
+
+        case TranscodeStepType.WAVEFORM:
+          output = await this.waveformStepProcessor.process(
+            input as TaskTranscodeWaveformStep,
             job
           );
           break;

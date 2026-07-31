@@ -6,6 +6,7 @@ import {
   SpriteConfig,
   TimelineTrack,
   TimelineSegment,
+  WaveformConfig,
 } from './task-contracts';
 import { CropRectSchema } from './crop';
 import { StorageBackendType, TimelineOrientation } from '../enums';
@@ -34,6 +35,19 @@ const FilmstripConfigSchema = z.object({
   startTime: z.number().optional(),
   fps: z.number().optional(),
 }) satisfies z.ZodType<FilmstripConfig>;
+
+const WaveformConfigSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  pixelsPerSecond: z.number().optional(),
+  color: z.string().optional(),
+  mono: z.boolean().optional(),
+  // Per-chunk fields written onto stored File meta (see WaveformConfig).
+  // Kept here so they survive schema validation instead of being stripped.
+  chunkIndex: z.number().optional(),
+  startTime: z.number().optional(),
+  duration: z.number().optional(),
+}) satisfies z.ZodType<WaveformConfig>;
 
 const SpriteConfigSchema = z.object({
   fps: z.number(),
@@ -82,6 +96,7 @@ export const FileMetaSchema = z
     renderSettings: RenderTimelineConfigSchema.optional(),
     filmstripConfig: FilmstripConfigSchema.optional(),
     spriteConfig: SpriteConfigSchema.optional(),
+    waveformConfig: WaveformConfigSchema.optional(),
     mimeType: z.string(),
   })
   .extend(FileMediaFactsSchema.shape);
@@ -164,6 +179,7 @@ export const TaskPayloadSchema = z.union([
     labels: LabelsDetectionConfigSchema.optional(),
     sprite: SpriteConfigSchema.optional(),
     filmstrip: FilmstripConfigSchema.optional(),
+    waveform: WaveformConfigSchema.optional(),
     thumbnail: z
       .object({
         timestamp: z.union([z.number(), z.literal('midpoint')]),

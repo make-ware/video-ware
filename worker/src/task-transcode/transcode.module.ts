@@ -11,6 +11,7 @@ import {
   FFmpegTranscodeExecutor,
   FFmpegAudioExecutor,
   FFmpegAutoCropExecutor,
+  FFmpegWaveformExecutor,
   GoogleTranscodeExecutor,
 } from './executors';
 
@@ -24,6 +25,7 @@ import {
   TranscodeStepProcessor,
   AudioStepProcessor,
   AutoCropStepProcessor,
+  WaveformStepProcessor,
 } from './processors';
 
 @Module({
@@ -39,6 +41,7 @@ import {
     FFmpegTranscodeExecutor,
     FFmpegAudioExecutor,
     FFmpegAutoCropExecutor,
+    FFmpegWaveformExecutor,
     GoogleTranscodeExecutor,
 
     // Step processors
@@ -49,6 +52,7 @@ import {
     TranscodeStepProcessor,
     AudioStepProcessor,
     AutoCropStepProcessor,
+    WaveformStepProcessor,
     FilmstripStepProcessor,
   ],
   exports: [TranscodeService],

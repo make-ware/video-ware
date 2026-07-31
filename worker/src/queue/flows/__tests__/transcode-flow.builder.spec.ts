@@ -33,6 +33,11 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
         rows: 1,
         tileWidth: 320,
       },
+      waveform: {
+        width: 1000,
+        height: 200,
+        pixelsPerSecond: 1,
+      },
       transcode: {
         enabled: true,
         codec: 'h264',
@@ -268,5 +273,6 @@ describe('TranscodeFlowBuilder - Flow Definition Compliance', () => {
     expect(stepTypes.FILMSTRIP).toBeDefined();
     expect(stepTypes.TRANSCODE).toBeDefined();
     expect(stepTypes.AUDIO).toBeDefined();
+    expect(stepTypes.WAVEFORM).toBeDefined();
   });
 });

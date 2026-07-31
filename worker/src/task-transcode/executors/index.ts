@@ -39,6 +39,10 @@ export type {
   AutoCropExecutorConfig,
   AutoCropExecutorResult,
 } from './ffmpeg/autocrop.executor';
+export {
+  FFmpegWaveformExecutor,
+  type WaveformResult,
+} from './ffmpeg/waveform.executor';
 
 // Google Cloud implementations
 export { GoogleTranscodeExecutor } from './google/transcode.executor';

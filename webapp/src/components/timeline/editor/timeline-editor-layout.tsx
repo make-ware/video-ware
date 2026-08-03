@@ -58,6 +58,7 @@ import {
   clampTimelineHeight,
   DEFAULT_TIMELINE_HEIGHT,
   maxTimelineHeight,
+  measureTimelinePaneChrome,
   MIN_TIMELINE_HEIGHT,
   nextSplitPreset,
   resolveInitialTimelineHeight,
@@ -79,6 +80,22 @@ import { toast } from 'sonner';
 
 /** The pane the splitter resizes, for `aria-controls`. */
 const TIMELINE_PANE_ID = 'timeline-editor-timeline-pane';
+
+/**
+ * The live pane's non-lane cost, for the track-aware opening split. Reads the
+ * DOM rather than the React tree because the lane scroller is three components
+ * down and the answer is one subtraction — see `measureTimelinePaneChrome`.
+ * Null (estimate instead) if either element is missing.
+ */
+function measurePaneChrome(): number | null {
+  const pane = document.getElementById(TIMELINE_PANE_ID);
+  const scroller = pane?.querySelector<HTMLElement>('[data-lane-scroller]');
+  if (!pane || !scroller) return null;
+  return measureTimelinePaneChrome({
+    paneHeight: pane.offsetHeight,
+    laneViewportHeight: scroller.clientHeight,
+  });
+}
 
 /** Structure switches at lg, matching the `lg:` classes throughout. */
 const COMPACT_QUERY = '(max-width: 1023px)';
@@ -143,11 +160,16 @@ export function TimelineEditorLayout() {
   const columnSizeRef = useRef({ width: 0, height: 0 });
   const resolvedRef = useRef(false);
   const isPortrait = timeline?.orientation === TimelineOrientation.PORTRAIT;
+  const trackCount = tracks.length;
 
   // One ResizeObserver on the player+timeline column drives every height
   // decision. It covers window resize, orientationchange AND mobile browser
   // chrome showing/hiding — a one-shot read at mount left a stale, oversized
   // timeline behind after a rotation.
+  //
+  // `trackCount` is a dependency only so the one-shot resolution below reads a
+  // current count; `resolvedRef` still means adding a track later never moves a
+  // split the user is working in.
   useEffect(() => {
     const el = columnRef.current;
     if (!el) return;
@@ -169,6 +191,11 @@ export function TimelineEditorLayout() {
             columnWidth: rect.width,
             isPortrait,
             isCompact: window.matchMedia(COMPACT_QUERY).matches,
+            trackCount,
+            // The pane is already rendered (at the pre-resolution height), so
+            // its real chrome can be read off it rather than estimated. RO
+            // callbacks run after layout, so these are current values.
+            chromeHeight: measurePaneChrome(),
           })
         );
         return;
@@ -178,7 +205,7 @@ export function TimelineEditorLayout() {
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [isPortrait]);
+  }, [isPortrait, trackCount]);
 
   const persistTimelineHeight = useCallback((height: number) => {
     window.localStorage.setItem(TIMELINE_HEIGHT_KEY, String(height));

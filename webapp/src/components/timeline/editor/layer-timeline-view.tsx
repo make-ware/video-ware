@@ -1741,6 +1741,11 @@ export function LayerTimelineView() {
               column follows it (one-way — mirroring both ways loops). */}
           <div
             ref={containerRef}
+            // The opening split measures this element's clientHeight to learn
+            // how much of the pane reaches the lanes — see
+            // `measureTimelinePaneChrome`. Keep the attribute if this element
+            // moves; without it the fit falls back to an estimate.
+            data-lane-scroller=""
             // touch-action: manipulation keeps native pan + pinch but drops the
             // double-tap zoom that fought double-click-to-edit on a clip.
             className="relative flex-1 overflow-x-auto overflow-y-auto overscroll-contain touch-manipulation bg-grid-white/[0.02]"

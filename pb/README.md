@@ -43,6 +43,12 @@ Two conventions every handler follows:
 - **Best-effort, never block the write.** Wrap the body in `try/catch`, log on
   failure, and always call `e.next()` in a `finally`. A leaked blob or orphaned
   task is recoverable (the `cleanup` task); a wedged create/delete is not.
+  **Exception — a BEFORE hook that writes inside the operation's transaction
+  must not swallow.** PocketBase surfaces a failure of the operation itself
+  (a required relation it cannot unset, say) through that write, so
+  catch-and-continue answers `204` for a delete that never happened. See
+  `hook-media-delete.pb.js`, which lets its before-delete handler throw and
+  keeps the swallow only in the after-delete one.
 - **Idempotent.** Triggers skip if an active (`queued`/`running`) task already
   exists, so retries and double-fires don't duplicate work.
 

@@ -5,6 +5,7 @@ export * from './media-errors.js';
 export * from './retry.js';
 export * from './time.js';
 export * from './generate-tracks.js';
+export * from './render-content.js';
 export * from './composite-utils.js';
 export * from './filmstrip.js';
 export * from './waveform.js';

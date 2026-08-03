@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PocketBaseService } from '../../../shared/services/pocketbase.service';
 import { StorageService } from '../../../shared/services/storage.service';
 import type { IPrepareExecutor, ResolveClipsResult } from '../interfaces';
-import { StorageBackendType } from '@project/shared';
+import { StorageBackendType, summarizeRenderContent } from '@project/shared';
 import type { RenderTimelinePayload, Media } from '@project/shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -27,20 +27,32 @@ export class FFmpegResolveClipsExecutor implements IPrepareExecutor {
     this.logger.log(`Resolving media for timeline ${timelineId} render`);
 
     // Extract all unique media IDs from the tracks
-    const mediaIds = new Set<string>();
-    for (const track of tracks) {
-      for (const segment of track.segments) {
-        if (segment.assetId) {
-          mediaIds.add(segment.assetId);
-        }
+    const content = summarizeRenderContent(tracks);
+    const mediaIds = content.mediaIds;
+
+    // A media-free timeline is a legitimate render: captions/titles draw onto
+    // the compose executor's black base canvas, which needs no inputs at all
+    // (the graph is pure lavfi sources — color + anullsrc + drawtext). Only a
+    // payload where nothing would draw, or one with no duration, is a mistake
+    // worth failing the task over.
+    if (mediaIds.length === 0) {
+      if (!content.hasContent) {
+        throw new Error(
+          `Nothing to render for timeline ${timelineId}: no media and no ` +
+            `text content across ${tracks.length} track(s) ` +
+            `(duration ${content.duration}s)`
+        );
       }
+
+      this.logger.log(
+        `Timeline ${timelineId} renders without media: ` +
+          `${content.drawableTextSegments} text segment(s) over ` +
+          `${content.duration}s`
+      );
+      return { clipMediaMap: {} };
     }
 
-    if (mediaIds.size === 0) {
-      throw new Error(`No media found in tracks for timeline ${timelineId}`);
-    }
-
-    this.logger.debug(`Need to resolve ${mediaIds.size} unique media files`);
+    this.logger.debug(`Need to resolve ${mediaIds.length} unique media files`);
 
     const clipMediaMap: Record<string, { media: Media; filePath: string }> = {};
 

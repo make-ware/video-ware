@@ -15,7 +15,12 @@ export const LabelObjectSchema = z
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
-    LabelEntityRef: RelationField({ collection: 'LabelEntity' }), // Links to "Person"
+    // Links to "Person". Optional in the DB so a Media delete can always
+    // complete — the cascade unsets this ref while deleting the media's
+    // LabelEntity rows, and PocketBase cannot unset a required field. Writers
+    // still always set it; see LabelObjectInputSchema and
+    // pb_migrations/1785731000_relax_label_refs_for_media_delete.
+    LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
     LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
 
     // --- Identification ---

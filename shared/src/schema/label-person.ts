@@ -16,8 +16,14 @@ export const LabelPersonSchema = z
     // --- Relations ---
     WorkspaceRef: RelationField({ collection: 'Workspaces' }),
     MediaRef: RelationField({ collection: 'Media', cascadeDelete: true }),
-    LabelEntityRef: RelationField({ collection: 'LabelEntity' }),
-    LabelTrackRef: RelationField({ collection: 'LabelTrack' }),
+    // Both optional in the DB so a Media delete can always complete: the
+    // cascade deletes this media's LabelEntity and LabelTrack rows, and
+    // PocketBase UNSETS (never deletes) a non-cascade reference to them —
+    // which a required field rejects, wedging the whole delete. Writers still
+    // always set both; see LabelPersonInputSchema and
+    // pb_migrations/1785731000_relax_label_refs_for_media_delete.
+    LabelEntityRef: RelationField({ collection: 'LabelEntity' }).optional(),
+    LabelTrackRef: RelationField({ collection: 'LabelTrack' }).optional(),
 
     // --- Identification ---
     // The specific track ID returned by Google (e.g. "0", "1")

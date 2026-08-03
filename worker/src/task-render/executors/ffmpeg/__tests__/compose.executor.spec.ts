@@ -91,6 +91,78 @@ describe('FFmpegComposeExecutor drawtext escaping', () => {
     expect(filter).toContain('rate\\: 100% now');
     expect(filter).toContain('drawtext=expansion=none:text=');
   });
+
+  /**
+   * A media-free timeline renders from lavfi sources only. Locking the shape
+   * here keeps the zero-input path honest: ffmpeg is happy with a filtergraph
+   * that opens no demuxer, but only if nothing in the args expects one.
+   */
+  it('builds a zero-input graph for a caption-only timeline', async () => {
+    let capturedArgs: string[] = [];
+    const ffmpegService = {
+      executeWithProgress: vi.fn().mockImplementation((args: string[]) => {
+        capturedArgs = args;
+        return Promise.resolve();
+      }),
+      probe: vi.fn().mockResolvedValue({
+        streams: [
+          {
+            codec_type: 'video',
+            codec_name: 'h264',
+            width: 1920,
+            height: 1080,
+            r_frame_rate: '30/1',
+          },
+        ],
+        format: {
+          duration: '4',
+          bit_rate: '1000',
+          size: '1000',
+          format_name: 'mp4',
+        },
+      }),
+    };
+    const executor = new FFmpegComposeExecutor(ffmpegService as never);
+
+    await executor.execute(
+      [
+        {
+          id: 'captions',
+          type: 'text',
+          layer: 1,
+          segments: [
+            {
+              id: 'seg-captions',
+              type: 'text',
+              time: { start: 0, duration: 4 },
+              text: { content: 'Title card', fontSize: 96, role: 'title' },
+            },
+          ],
+        },
+      ],
+      {},
+      '/tmp/out.mp4',
+      {
+        codec: 'libx264',
+        format: 'mp4',
+        resolution: '1920x1080',
+        includeCaptions: true,
+      }
+    );
+
+    // No demuxers at all
+    expect(capturedArgs).not.toContain('-i');
+
+    const filter = capturedArgs[capturedArgs.indexOf('-filter_complex') + 1];
+    // Canvas spans the timeline, silent audio track, text drawn on top
+    expect(filter).toContain('color=c=black:s=1920x1080:r=30:d=4');
+    expect(filter).toContain('anullsrc=');
+    expect(filter).toContain("text='Title card'");
+
+    // Both output streams still mapped from filter labels
+    expect(capturedArgs).toContain('[outa]');
+    expect(capturedArgs).toContain('-c:v');
+  });
 });
 
 /**

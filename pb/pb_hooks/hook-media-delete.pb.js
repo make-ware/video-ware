@@ -27,9 +27,20 @@
 //      the Media — which fires hook-uploads-delete to reap the original blob —
 //      guarded so a shared Upload is kept while any other Media uses it.
 //
-// All handlers are best-effort and never throw past e.next(): a wedged Media
-// delete is unrecoverable, whereas a leaked blob / orphaned task is reclaimable
-// (the `cleanup` task, or a re-run). See docs/PB_TRIGGERS.md for hook discipline.
+// The AFTER-delete handler is best-effort and never throws past e.next(): the
+// delete is already durable by then, and a leaked blob / orphaned task is
+// reclaimable (the `cleanup` task, or a re-run). See docs/PB_TRIGGERS.md for
+// hook discipline.
+//
+// The BEFORE-delete handler deliberately does NOT swallow. It is the standing
+// exception to that rule, because it writes inside the delete's transaction:
+// PocketBase surfaces a failure of the delete ITSELF — e.g. a required relation
+// it cannot unset — through the first write this handler makes, so catching and
+// continuing turned a failed delete into `204 No Content` with the media still
+// in the database (verified against a copy of the dev DB: the clips came back
+// flagged, the Media row survived, and the only trace was one console line).
+// A silent no-op delete is worse than a loud one, and everything the handler
+// does before that write is already non-throwing.
 //
 // PocketBase note: each handler is serialized and executed in an isolated goja
 // runtime from the pool, so it CANNOT reference functions or constants from the
@@ -62,15 +73,26 @@ onRecordDelete((e) => {
       for (let i = 0; i < clips.length; i++) {
         const clip = clips[i];
         if (!clip) continue;
-        let meta = clip.get('meta');
-        if (typeof meta === 'string') {
+        // Read the json field as TEXT, never via get(): PocketBase hands a json
+        // field to goja as a types.JsonRaw ([]byte), so `get('meta')` yields a
+        // Go slice — typeof 'object', so it slips past an object check, and
+        // assigning to it throws "Can't set property 'mediaMissing' on Go
+        // slice". That silently broke this flag for every clip (an unset meta
+        // is an EMPTY JsonRaw, so it hit the common case, not an edge case).
+        // getString() goes through JsonRaw.String() and returns the raw JSON
+        // text, or '' when the column is null.
+        let meta = {};
+        const rawMeta = clip.getString('meta');
+        if (rawMeta) {
           try {
-            meta = JSON.parse(meta);
+            meta = JSON.parse(rawMeta);
           } catch (_) {
             meta = {};
           }
         }
-        if (!meta || typeof meta !== 'object') {
+        // A non-object body (array, number, null) can't carry the flag; the
+        // editor reads meta as an object, so replace rather than skip.
+        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
           meta = {};
         }
         meta.mediaMissing = true;
@@ -82,14 +104,12 @@ onRecordDelete((e) => {
     }
   }
 
-  try {
-    flagTimelineClipsMissing(e.app, e.record.id);
-  } catch (error) {
-    // UX bookkeeping only — never block the delete.
-    console.error('media-delete: failed to flag timeline clips:', error);
-  } finally {
-    e.next();
-  }
+  // No try/catch: see the file header. A throw here is a transaction-level
+  // failure of the delete, not a bookkeeping slip, and swallowing it reports a
+  // success that did not happen.
+  flagTimelineClipsMissing(e.app, e.record.id);
+
+  e.next();
 }, 'Media');
 
 // (2) + (3) AFTER delete: prune sourceId-keyed Tasks, then the orphaned Upload.

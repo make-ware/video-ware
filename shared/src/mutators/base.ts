@@ -465,14 +465,22 @@ export abstract class BaseMutator<
   }
 
   /**
-   * Perform the actual getById operation
+   * Perform the actual getById operation.
+   *
+   * Applies the `fields` projection like the list reads do. A single-record
+   * read is exactly where a projection matters most — one LabelTrack row can
+   * carry 10 MB of keyframes — so a mutator configured to skip a heavy column
+   * must skip it here too, or the option would silently mean "on lists only".
    */
   protected async entityGetById(
     id: string,
     expand?: string | string[]
   ): Promise<T> {
     const finalExpand = this.prepareExpand(expand);
-    const options: RecordOptions = finalExpand ? { expand: finalExpand } : {};
+    const options: RecordOptions = {};
+    if (finalExpand) options.expand = finalExpand;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
     return await this.getCollection().getOne(id, options);
   }
 

@@ -8,6 +8,7 @@ import { registerUploadCommands } from './commands/upload.js';
 import { registerMediaCommands } from './commands/media.js';
 import { registerDirectoryCommands } from './commands/directory.js';
 import { registerLabelCommands } from './commands/label.js';
+import { registerTrackCommands } from './commands/track.js';
 import { registerEntityCommands } from './commands/entity.js';
 import { registerCaptionCommands } from './commands/caption.js';
 import { registerTimelineCommands } from './commands/timeline.js';
@@ -66,6 +67,7 @@ export function buildProgram(): Command {
   registerMediaCommands(program);
   registerDirectoryCommands(program);
   registerLabelCommands(program);
+  registerTrackCommands(program);
   registerEntityCommands(program);
   registerCaptionCommands(program);
   registerTimelineCommands(program);

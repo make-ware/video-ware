@@ -8,6 +8,7 @@ import { ObjectTrackingExecutor } from '../executors/object-tracking.executor';
 import { ObjectTrackingNormalizer } from '../normalizers/object-tracking.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
 import { relinkEntityRef } from '../utils/entity-ref';
+import { healBoundingBox } from '../utils/track-bounding-box';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { ObjectTrackingStepInput } from '../types/step-inputs';
 import type { ObjectTrackingStepOutput } from '../types/step-outputs';
@@ -231,6 +232,11 @@ export class ObjectTrackingStepProcessor extends BaseStepProcessor<
               this.pocketBaseService.labelTrackMutator,
               existing,
               entityId
+            );
+            await healBoundingBox(
+              this.pocketBaseService.labelTrackMutator,
+              existing,
+              track.boundingBox
             );
             trackIdMap[track.trackId] = existing.id;
             continue;

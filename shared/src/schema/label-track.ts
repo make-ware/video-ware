@@ -58,15 +58,26 @@ export const LabelTrackSchema = z
     end: NumberField({ min: 0 }), // Seconds (from last keyframe)
     duration: NumberField({ min: 0 }),
 
-    // --- Spatial Summary (New Recommendation) ---
-    // Storing the "Union" Bounding Box (the area covering the entire path)
-    // allows you to spatially search (e.g., "Find movement in the top-right corner")
-    // without parsing the huge keyframes JSON.
-    // Format: { top, left, bottom, right }
+    // --- Spatial Summary ---
+    // The union of every keyframe's box — the area covering the entire path —
+    // so a spatial question ("find movement in the top-right corner") is an
+    // indexed row read instead of a parse of the 10MB keyframes JSON.
+    // Format: { left, top, right, bottom }, normalized 0-1 like the keyframes.
+    //
+    // Written by the four spatial normalizers via `unionBbox`, healed onto
+    // already-persisted rows by the step processors, and backfilled for older
+    // rows by 1785740000_labeltrack_boundingbox_backfill.js. Optional because
+    // speech and speaker tracks have no spatial data at all — an empty box on
+    // those is the correct state. Readers still derive the union from
+    // keyframes when it is empty, so a row that predates all three paths is
+    // correct, just not cheap.
     boundingBox: JSONField().optional(),
 
     // --- The Heavy Data ---
-    // Array: [{ "timeOffset": 0.1, "boundingBox": {...}, "confidence": 0.9 }]
+    // Array: [{ "t": 0.1, "bbox": { left, top, right, bottom }, "confidence": 0.9 }]
+    // — `t` is ABSOLUTE media seconds (the first entry's equals `start`) and
+    // every coordinate is a 0-1 fraction of the frame. Parse it through
+    // `normalizeKeyframes` rather than by hand.
     // `.optional()` is load-bearing and must stay: speech and speaker tracks
     // have no spatial keyframes and write `[]`, which PocketBase counts as
     // empty, so a required field rejects them. The live column has been

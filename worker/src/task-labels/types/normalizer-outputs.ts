@@ -4,7 +4,7 @@
  * Output types for all normalizers that define the database entities to be created.
  */
 
-import type { LabelType, ProcessingProvider } from '@project/shared';
+import type { Bbox, LabelType, ProcessingProvider } from '@project/shared';
 
 /**
  * LabelEntity data ready for database insertion
@@ -173,6 +173,14 @@ export interface LabelTrackData {
   version: number;
   trackData: Record<string, unknown>; // Aggregated properties
   keyframes: KeyframeData[]; // Array of keyframes
+  /**
+   * Union of every keyframe's box — the whole path's footprint, in the same
+   * normalized 0-1 space. Computed here so a reader can answer "did anything
+   * move in the top-right corner" from an indexed row instead of parsing a
+   * keyframes array that runs to megabytes. Absent for kinds with no spatial
+   * data (speech, speaker), where the column stays empty by design.
+   */
+  boundingBox?: Bbox;
   trackHash: string;
 }
 

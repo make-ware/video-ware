@@ -7,6 +7,7 @@ import { LabelEntityService } from '../services/label-entity.service';
 import { FaceDetectionExecutor } from '../executors/face-detection.executor';
 import { FaceDetectionNormalizer } from '../normalizers/face-detection.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { healBoundingBox } from '../utils/track-bounding-box';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { FaceDetectionStepInput } from '../types/step-inputs';
 import type { FaceDetectionStepOutput } from '../types/step-outputs';
@@ -278,6 +279,11 @@ export class FaceDetectionStepProcessor extends BaseStepProcessor<
           if (existing.items.length > 0) {
             // Track already exists, use existing ID
             const dbId = existing.items[0].id;
+            await healBoundingBox(
+              this.pocketBaseService.labelTrackMutator,
+              existing.items[0],
+              track.boundingBox
+            );
             trackIds.push(dbId);
             trackIdToDbIdMap.set(track.trackId, dbId);
             skippedCount++;

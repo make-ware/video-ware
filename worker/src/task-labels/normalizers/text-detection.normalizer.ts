@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { labelEntityKey, LabelType, ProcessingProvider } from '@project/shared';
+import {
+  labelEntityKey,
+  unionBbox,
+  LabelType,
+  ProcessingProvider,
+} from '@project/shared';
 import type {
   TextDetectionResponse,
   NormalizerInput,
@@ -146,6 +151,8 @@ export class TextDetectionNormalizer {
           segmentCount: run.segmentCount,
         },
         keyframes,
+        // The path's footprint, so spatial reads never open the keyframes blob.
+        boundingBox: unionBbox(keyframes) ?? undefined,
         trackHash,
         labelType: LabelType.TEXT,
         // LabelEntityRef will be set by step processor

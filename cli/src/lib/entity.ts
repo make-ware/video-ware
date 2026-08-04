@@ -7,6 +7,7 @@ import {
   LabelTrackMutator,
   LabelType,
   MediaTagMutator,
+  TRACK_SUMMARY_FIELDS,
   entityAttributionFilter,
   type Entity,
   type LabelEntity,
@@ -199,12 +200,21 @@ async function labelEntityByInstance(
   return row.id;
 }
 
+/**
+ * The two columns an attribution hop through a track needs. A tag/link path
+ * reads a track purely to follow its LabelEntityRef, so pulling the row's
+ * keyframes along would be pure waste — potentially megabytes per tagged label.
+ */
+const TRACK_LINK_FIELDS = ['id', 'LabelEntityRef'];
+
 /** Resolve a LabelTrack record id to the LabelEntity carrying its identity. */
 async function labelEntityOfTrack(
   pb: TypedPocketBase,
   trackId: string
 ): Promise<string> {
-  const track = await new LabelTrackMutator(pb).getById(trackId);
+  const track = await new LabelTrackMutator(pb, {
+    fields: TRACK_LINK_FIELDS,
+  }).getById(trackId);
   if (!track) {
     throw new Error(`No label track with id ${trackId}`);
   }
@@ -243,7 +253,9 @@ async function labelEntityForRow(
 
   const trackRef = record.LabelTrackRef;
   if (typeof trackRef === 'string' && trackRef) {
-    const track = await new LabelTrackMutator(pb).getById(trackRef);
+    const track = await new LabelTrackMutator(pb, {
+      fields: TRACK_LINK_FIELDS,
+    }).getById(trackRef);
     if (track?.LabelEntityRef) {
       await labelMutator(pb, type).update(labelId, {
         LabelEntityRef: track.LabelEntityRef,
@@ -491,13 +503,21 @@ export const entityAppearancesSpec: ListSpec<LabelTrack, EntityAppearance> = {
   hint: '`vw label clip <type> <labelId>` turns a label into a clip',
 };
 
-/** Fetch one page of an entity's appearances. */
+/**
+ * Fetch one page of an entity's appearances.
+ *
+ * Summary projection: this list prints six columns and never touches a box, so
+ * without it every row would drag along its `keyframes` array — capped at 10 MB
+ * each — to render a table.
+ */
 export function fetchEntityAppearancePage(
   pb: TypedPocketBase,
   entityId: string,
   query: { page: number; perPage: number; filter: string; sort: string }
 ): Promise<ListResult<LabelTrack>> {
-  return new LabelTrackMutator(pb).getList(
+  return new LabelTrackMutator(pb, {
+    fields: [...TRACK_SUMMARY_FIELDS],
+  }).getList(
     query.page,
     query.perPage,
     andFilters(entityAttributionFilter(entityId), query.filter),
@@ -576,13 +596,12 @@ export async function getEntityAppearances(
   if (opts.media) {
     clauses.push(pb.filter('MediaRef = {:media}', { media: opts.media }));
   }
-  const result = await new LabelTrackMutator(pb).getList(
-    1,
-    opts.limit ?? 100,
-    clauses.join(' && '),
-    'MediaRef,start',
-    ['MediaRef.UploadRef', 'LabelEntityRef']
-  );
+  const result = await new LabelTrackMutator(pb, {
+    fields: [...TRACK_SUMMARY_FIELDS],
+  }).getList(1, opts.limit ?? 100, clauses.join(' && '), 'MediaRef,start', [
+    'MediaRef.UploadRef',
+    'LabelEntityRef',
+  ]);
 
   const appearances = result.items.map((track) => {
     const t = track as EntityAppearance['track'];

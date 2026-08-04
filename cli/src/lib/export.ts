@@ -13,9 +13,14 @@ import {
   LabelType,
   MediaClipMutator,
   MediaMutator,
+  TRACK_KEYFRAME_FIELDS,
+  TRACK_SUMMARY_FIELDS,
   TimelineMutator,
   WorkspaceMutator,
+  normalizeKeyframes,
+  roundKeyframe,
   type Entity,
+  type LabelTrack,
   type Media,
   type Timeline,
   type TypedPocketBase,
@@ -41,6 +46,20 @@ import { fetchAll } from './list/paginate.js';
 
 const PER_PAGE = 200;
 
+/**
+ * A LabelTrack reader that never fetches `keyframes`.
+ *
+ * The snapshot describes what exists, not every frame of it: a track's
+ * per-frame geometry is capped at 10 MB per row, and a workspace holds hundreds
+ * of tracks per media. `--tracks` opts into the heavy read, one track at a time.
+ */
+function trackSummaryMutator(pb: TypedPocketBase): LabelTrackMutator {
+  return new LabelTrackMutator(pb, {
+    expand: [],
+    fields: [...TRACK_SUMMARY_FIELDS],
+  });
+}
+
 /** Marks a directory as a previous export, allowing an in-place refresh. */
 export const EXPORT_MANIFEST_FILE = 'manifest.json';
 
@@ -60,6 +79,13 @@ export interface ExportWorkspaceOptions {
   dir: string;
   /** Include per-media label data. Defaults to true. */
   labels?: boolean;
+  /**
+   * Also write each track's per-frame keyframes. Off by default: a track's
+   * geometry is capped at 10 MB and a media carries hundreds of tracks, so
+   * including them by default would balloon a snapshot meant to be read.
+   * The track *summaries* are always written either way.
+   */
+  tracks?: boolean;
   /** Write into a non-empty directory that is not a previous export. */
   force?: boolean;
 }
@@ -68,6 +94,7 @@ export interface ExportCounts {
   media: number;
   mediaClips: number;
   labels: number;
+  tracks: number;
   timelines: number;
   entities: number;
 }
@@ -77,6 +104,7 @@ export interface ExportManifest {
   exportedAt: string;
   workspace: { id: string; name: string };
   includesLabels: boolean;
+  includesKeyframes: boolean;
   counts: ExportCounts;
 }
 
@@ -97,8 +125,36 @@ export interface MediaIndexEntry {
   clipCount: number;
   /** Rows per label type; only types with at least one row appear. */
   labelCounts: Partial<Record<LabelType, number>>;
+  /** LabelTrack rows for this media, summarized under `tracks/index.json`. */
+  trackCount: number;
   /** Directory name; present only when the media is filed in one. */
   directory?: string;
+}
+
+/**
+ * One row of a media's `tracks/index.json` — a track without its keyframes.
+ *
+ * This is what makes the `LabelTrackRef` on every exported label file mean
+ * something offline: without it the snapshot carries a bare id pointing at
+ * nothing. `boundingBox` is the union of the track's frames, so an agent can
+ * answer "where on screen" from the index alone.
+ */
+export interface TrackIndexEntry {
+  id: string;
+  MediaRef: string;
+  /** The provider's id within the media ("4", "speaker_0"). */
+  trackId: string;
+  labelType?: LabelTrack['labelType'];
+  start: number;
+  end: number;
+  duration: number;
+  confidence: number;
+  /** Union box over every keyframe; absent for a track with no geometry. */
+  boundingBox?: LabelTrack['boundingBox'];
+  /** Provider aggregates: entity/frameCount/min-maxConfidence. */
+  trackData: LabelTrack['trackData'];
+  /** Present only when `--tracks` wrote a keyframes file for this track. */
+  keyframeFile?: string;
 }
 
 /**
@@ -158,6 +214,41 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** Decimals keyframe geometry is rounded to in a snapshot. */
+const KEYFRAME_PRECISION = 4;
+
+/**
+ * Write one track's per-frame boxes under `tracks/keyframes/<id>.json`, and
+ * return the snapshot-relative filename (or null when the track has none).
+ *
+ * Deliberately one track per call, with its own field-projected read: this is
+ * the only place the export touches the 10 MB column, so it holds a single
+ * track's frames at a time. Geometry is rounded to the precision the object and
+ * text normalizers already store at — face and person rows carry raw float64,
+ * which roughly doubles their size for fidelity nothing reads.
+ */
+async function writeTrackKeyframes(
+  pb: TypedPocketBase,
+  tracksDir: string,
+  trackId: string
+): Promise<string | null> {
+  const row = await new LabelTrackMutator(pb, {
+    expand: [],
+    fields: [...TRACK_KEYFRAME_FIELDS],
+  }).getById(trackId);
+  const keyframes = normalizeKeyframes(row?.keyframes).map((kf) =>
+    roundKeyframe(kf, KEYFRAME_PRECISION)
+  );
+  // Speech and speaker tracks store `keyframes: []` — no file rather than an
+  // empty one, so a missing file means "nothing spatial", not "not exported".
+  if (keyframes.length === 0) return null;
+
+  const dir = join(tracksDir, 'keyframes');
+  mkdirSync(dir, { recursive: true });
+  writeJson(join(dir, `${trackId}.json`), { id: trackId, keyframes });
+  return `keyframes/${trackId}.json`;
 }
 
 /** Wrap rows in the `{ items, totalItems }` shape all `--json` lists use. */
@@ -300,6 +391,31 @@ export async function exportWorkspace(
     report(`Fetched ${labelCount} labels across ${labelTypes.length} types`);
   }
 
+  // Tracks: summaries always (they are what an exported label's LabelTrackRef
+  // resolves against), keyframes only under --tracks. The summary read is
+  // field-projected, so this phase costs about what the label phase does even
+  // on a workspace whose tracks hold megabytes of geometry.
+  const tracksByMedia = new Map<string, LabelTrack[]>();
+  let trackCount = 0;
+  if (includeLabels) {
+    const tracks = await fetchAll((page) =>
+      trackSummaryMutator(pb).getList(
+        page,
+        PER_PAGE,
+        pb.filter('WorkspaceRef = {:ws}', { ws: opts.workspaceId }),
+        'MediaRef,start,id'
+      )
+    );
+    trackCount = tracks.length;
+    for (const [mediaId, rows] of groupBy(tracks, (t) => t.MediaRef)) {
+      tracksByMedia.set(mediaId, rows);
+    }
+    report(
+      `Fetched ${trackCount} tracks` +
+        (opts.tracks ? ' (keyframes follow, one track at a time)' : '')
+    );
+  }
+
   // media/<id>/ folders + index.
   const mediaDir = join(opts.dir, 'media');
   mkdirSync(mediaDir, { recursive: true });
@@ -346,6 +462,37 @@ export async function exportWorkspace(
       }
     }
 
+    // tracks/index.json: one summary row per LabelTrack, so a label file's
+    // LabelTrackRef resolves inside the snapshot. Under --tracks each track
+    // also gets tracks/keyframes/<id>.json with its per-frame boxes, fetched
+    // one at a time so peak memory is a single track rather than the media.
+    const mediaTracks = tracksByMedia.get(m.id) ?? [];
+    if (mediaTracks.length > 0) {
+      const tracksDir = join(dir, 'tracks');
+      mkdirSync(tracksDir, { recursive: true });
+      const trackIndex: TrackIndexEntry[] = [];
+      for (const track of mediaTracks) {
+        const entry: TrackIndexEntry = {
+          id: track.id,
+          MediaRef: track.MediaRef,
+          trackId: track.trackId,
+          labelType: track.labelType,
+          start: track.start,
+          end: track.end,
+          duration: track.duration,
+          confidence: track.confidence,
+          boundingBox: track.boundingBox,
+          trackData: track.trackData,
+        };
+        if (opts.tracks) {
+          const written = await writeTrackKeyframes(pb, tracksDir, track.id);
+          if (written) entry.keyframeFile = written;
+        }
+        trackIndex.push(entry);
+      }
+      writeJson(join(tracksDir, 'index.json'), listDoc(trackIndex));
+    }
+
     mediaIndex.push({
       id: m.id,
       name: mediaLabel(m),
@@ -357,6 +504,7 @@ export async function exportWorkspace(
       height: m.height,
       clipCount: mediaClips.length,
       labelCounts,
+      trackCount: mediaTracks.length,
       ...(m.DirectoryRef
         ? { directory: m.expand?.DirectoryRef?.name ?? m.DirectoryRef }
         : {}),
@@ -452,7 +600,7 @@ export async function exportWorkspace(
     linkedClusters.map((c) => [c.id, c.EntityRef ?? ''])
   );
   const linkedTracks = await fetchAll((page) =>
-    new LabelTrackMutator(pb, { expand: [] }).getList(
+    trackSummaryMutator(pb).getList(
       page,
       PER_PAGE,
       pb.filter('WorkspaceRef = {:ws} && LabelEntityRef.EntityRef != ""', {
@@ -503,10 +651,12 @@ export async function exportWorkspace(
     exportedAt: new Date().toISOString(),
     workspace: { id: workspace.id, name: workspace.name },
     includesLabels: includeLabels,
+    includesKeyframes: includeLabels && Boolean(opts.tracks),
     counts: {
       media: media.length,
       mediaClips: clips.length,
       labels: labelCount,
+      tracks: trackCount,
       timelines: timelines.length,
       entities: entities.length,
     },
@@ -540,13 +690,17 @@ function buildInstructions(params: {
   const labelsLine = manifest.includesLabels
     ? `${counts.labels} labels`
     : 'labels skipped (--no-labels)';
+  const tracksLine = manifest.includesLabels
+    ? `, ${counts.tracks} tracks` +
+      (manifest.includesKeyframes ? ' with keyframes' : '')
+    : '';
 
   return `# Workspace export: ${workspace.name}
 
 Read-only snapshot of the video-ware workspace **${workspace.name}**
 (\`${workspace.id}\`), exported ${manifest.exportedAt} by
 \`vw workspace export\`. Contents: ${counts.media} media,
-${counts.mediaClips} media clips, ${labelsLine},
+${counts.mediaClips} media clips, ${labelsLine}${tracksLine},
 ${counts.timelines} timelines, ${counts.entities} entities.
 
 **These files are a snapshot, not the live workspace.** Editing them changes
@@ -562,8 +716,8 @@ manifest.json           what was exported, when, and how much
 workspace.json          the Workspace record
 media/
   index.json            one row per media: name, type, duration, clipCount,
-                        labelCounts, directory (only when the media is filed
-                        in one) — scan this first
+                        labelCounts, trackCount, directory (only when the
+                        media is filed in one) — scan this first
   <mediaId>/
     media.json          the Media record (its "name" is the original
                         filename)
@@ -572,6 +726,13 @@ media/
     labels/<type>/<labelId>.json
                         one label per file, foldered by type (a type
                         folder is absent when it has no labels)
+    tracks/index.json   one row per LabelTrack: what a label's
+                        "LabelTrackRef" points at — span, confidence, and
+                        the union bounding box over its frames
+    tracks/keyframes/<trackId>.json
+                        per-frame boxes, only when the export was run with
+                        --tracks (absent otherwise, and for tracks with no
+                        spatial data)
 timelines/
   index.json            one row per timeline: name, duration, trackCount,
                         clipCount
@@ -613,6 +774,18 @@ N }\`. All times are seconds.
   \`attributedEntity: { id, name, kind }\` — e.g. a \`speaker\` label
   with \`"attributedEntity": { "name": "Erik", ... }\` is Erik speaking.
   Search them for moments worth turning into clips.
+- **Tracks** — WHERE a label is on screen, frame by frame
+  (\`media/<id>/tracks/index.json\`). A label says a face is visible from
+  2.25s to 5.60s; its \`LabelTrackRef\` points at the track that says the
+  box was at \`left 0.58, top 0.49\` at 2.25s and had drifted by 5.60s.
+  Boxes are **0–1 fractions of the frame** (\`left/top/right/bottom\`) and
+  keyframe \`t\` values are **absolute media seconds**. \`boundingBox\` on
+  each row is the union over every frame — enough to answer "is this in the
+  top-right?" without opening the frames. Speech and speaker tracks have no
+  boxes; they exist for their timing. Read them live with
+  \`vw track at -m <mediaId> --at <seconds>\` (what is on screen right now),
+  \`vw track show <trackId>\` (one track's drift), or
+  \`vw track export\` (every frame, to a file).
 - **Entities** — real-world identities (\`entities/index.json\`) that label
   data is attributed to ("speaker_0 in this media is Erik"). A label never
   stores its entity directly; it resolves through its \`LabelEntityRef\` —
@@ -675,6 +848,12 @@ vw entity create "Erik" -w ${workspace.id}
 vw label tag speaker LABEL_ID "Erik"        # tags this instance in this media
 vw label search --entity "Erik" -w ${workspace.id} -t speaker,face --json
 vw entity labels "Erik" -w ${workspace.id} -m ${mediaId}
+
+# 1c. Ask where things are in the frame, not just when
+vw track at -m ${mediaId} --at 14.2          # every box on screen at 14.2s
+vw track list -m ${mediaId} -t face          # face tracks, spans + union boxes
+vw track show TRACK_ID                       # one track's drift, sampled
+vw track export -m ${mediaId} -o boxes.csv   # every frame, to a file
 
 # 2. Create a timeline and organize tracks (layer 0 = bottom)
 vw timeline create "Episode 4" -w ${workspace.id} --tracks "Music,AV,B-Roll"

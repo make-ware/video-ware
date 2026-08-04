@@ -184,6 +184,7 @@ describe('exportWorkspace', () => {
       media: 2,
       mediaClips: 1,
       labels: 3,
+      tracks: 1,
       timelines: 1,
       entities: 1,
     });
@@ -203,12 +204,14 @@ describe('exportWorkspace', () => {
       label: 'Beach',
       clipCount: 1,
       labelCounts: { speech: 2, speaker: 1 },
+      trackCount: 1,
     });
     expect(mediaIndex.items[1]).toMatchObject({
       id: 'm2',
       name: 'm2',
       clipCount: 0,
       labelCounts: {},
+      trackCount: 0,
     });
 
     // m1 gets its record plus one file per clip and per label; m2 only its
@@ -274,6 +277,147 @@ describe('exportWorkspace', () => {
     expect(instructions).toContain('-m m1');
     expect(instructions).toContain('-t t1');
     expect(instructions).toContain('vw label tag');
+    expect(instructions).toContain('vw track at');
+  });
+
+  // A label file carries a bare `LabelTrackRef`; without the track index there
+  // is nothing in the snapshot for it to point at.
+  it('always writes track summaries, and never their keyframes by default', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+    collections.LabelTrack.getList = vi.fn(async () =>
+      listResult([
+        {
+          ...taggedTrack1,
+          labelType: 'speaker',
+          confidence: 0.8,
+          boundingBox: { left: 0.1, top: 0.2, right: 0.3, bottom: 0.4 },
+          trackData: { entity: 'Speaker 1', frameCount: 12 },
+        },
+      ])
+    );
+    const getOne = vi.fn(async () => ({ id: 'lt1', keyframes: [] }));
+    collections.LabelTrack.getOne = getOne;
+    const pb = fakePb(collections);
+
+    const result = await exportWorkspace(pb, { workspaceId: 'ws1', dir });
+
+    expect(result.counts.tracks).toBe(1);
+    expect(result.includesKeyframes).toBe(false);
+    const trackIndex = readJson(dir, 'media', 'm1', 'tracks', 'index.json');
+    expect(trackIndex.totalItems).toBe(1);
+    expect(trackIndex.items[0]).toEqual({
+      id: 'lt1',
+      MediaRef: 'm1',
+      trackId: 'speaker_0',
+      labelType: 'speaker',
+      start: 0,
+      end: 2,
+      duration: 2,
+      confidence: 0.8,
+      boundingBox: { left: 0.1, top: 0.2, right: 0.3, bottom: 0.4 },
+      trackData: { entity: 'Speaker 1', frameCount: 12 },
+    });
+    // No keyframe read happened at all, and no keyframes folder exists.
+    expect(getOne).not.toHaveBeenCalled();
+    expect(existsSync(join(dir, 'media', 'm1', 'tracks', 'keyframes'))).toBe(
+      false
+    );
+    // A media with no tracks gets no tracks folder.
+    expect(existsSync(join(dir, 'media', 'm2', 'tracks'))).toBe(false);
+  });
+
+  it('reads tracks without their keyframes column', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+    const pb = fakePb(collections);
+
+    await exportWorkspace(pb, { workspaceId: 'ws1', dir });
+
+    // Both LabelTrack list reads (per-media summaries and the entity-link
+    // join) must carry the projection — a track row is capped at 10MB.
+    const calls = (collections.LabelTrack.getList as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [, , options] of calls) {
+      expect(options.fields).toContain('boundingBox');
+      expect(options.fields).not.toContain('keyframes');
+    }
+  });
+
+  it('--tracks writes per-frame keyframes, one track read at a time', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+    const getOne = vi.fn(
+      async (_id: string, _options: { fields?: string }) => ({
+        id: 'lt1',
+        keyframes: [
+          {
+            t: 0,
+            bbox: {
+              left: 0.10004,
+              top: 0.2,
+              right: 0.30006,
+              bottom: 0.4,
+            },
+            confidence: 0.812345,
+          },
+          { t: 0.125, bbox: { left: 0.2, top: 0.2, right: 0.4, bottom: 0.4 } },
+        ],
+      })
+    );
+    collections.LabelTrack.getOne = getOne;
+    const pb = fakePb(collections);
+
+    const result = await exportWorkspace(pb, {
+      workspaceId: 'ws1',
+      dir,
+      tracks: true,
+    });
+
+    expect(result.includesKeyframes).toBe(true);
+    // One getOne per track — never a bulk read of the heavy column.
+    expect(getOne).toHaveBeenCalledTimes(1);
+    expect(getOne.mock.calls[0][1].fields).toBe('id,keyframes');
+
+    const trackIndex = readJson(dir, 'media', 'm1', 'tracks', 'index.json');
+    expect(trackIndex.items[0].keyframeFile).toBe('keyframes/lt1.json');
+
+    const frames = readJson(
+      dir,
+      'media',
+      'm1',
+      'tracks',
+      'keyframes',
+      'lt1.json'
+    );
+    expect(frames.id).toBe('lt1');
+    // Geometry is rounded to the precision the normalizers already store at.
+    expect(frames.keyframes[0]).toEqual({
+      t: 0,
+      bbox: { left: 0.1, top: 0.2, right: 0.3001, bottom: 0.4 },
+      confidence: 0.8123,
+    });
+    expect(frames.keyframes).toHaveLength(2);
+  });
+
+  // Speech and speaker tracks store `keyframes: []` by design.
+  it('--tracks writes no file for a track with no spatial keyframes', async () => {
+    const dir = join(tempDir(), 'export');
+    const collections = makeCollections();
+    collections.LabelTrack.getOne = vi.fn(async () => ({
+      id: 'lt1',
+      keyframes: [],
+    }));
+    const pb = fakePb(collections);
+
+    await exportWorkspace(pb, { workspaceId: 'ws1', dir, tracks: true });
+
+    const trackIndex = readJson(dir, 'media', 'm1', 'tracks', 'index.json');
+    expect(trackIndex.items[0].keyframeFile).toBeUndefined();
+    expect(
+      existsSync(join(dir, 'media', 'm1', 'tracks', 'keyframes', 'lt1.json'))
+    ).toBe(false);
   });
 
   it('strips mutator-injected expand down to the whitelist', async () => {

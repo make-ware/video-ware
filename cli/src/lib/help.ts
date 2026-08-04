@@ -173,6 +173,32 @@ How they work:
   of that instance within its media; repeat per media to cover a workspace.
   For "this media features X" with no detection involved, use vw media tag.`;
 
+/**
+ * `vw track` overview — what frame-level tracking data is, and which command
+ * costs what. Kept out of the group `.description()` like the other epilogues.
+ */
+export const TRACK_HELP = `
+What a track is:
+  A label says a face is on screen from 2.25s to 5.60s. Its LabelTrack says
+  WHERE, frame by frame — a bounding box every ~0.125s. Boxes are 0-1 fractions
+  of the frame (left/top/right/bottom) and times are absolute media seconds.
+  Speech and speaker tracks have no boxes at all; they exist for their timing.
+
+Which command to reach for:
+  vw track list -m <mediaId>              what is tracked, spans and union boxes
+  vw track show <trackId>                 one track: drift, plus sampled frames
+  vw track at -m <mediaId> --at 14.2      what is on screen at one moment
+  vw track export -m <mediaId> -o t.csv   every frame, written to a file
+
+  The first three never read more than they print. Only \`export\` reads the
+  per-frame data in bulk, and it writes to a file rather than the terminal,
+  estimates the size before fetching anything, and refuses a request past
+  --max-frames. Thin a dense track with --every 1 (one box per second) or
+  --max-frames-per-track before widening the budget.
+
+  Pair a box with a picture: \`vw frame -m <mediaId> --at <t>\` writes the still
+  those coordinates describe.`;
+
 /** `timeline doctor` findings taxonomy and exit-code contract. */
 export const DOCTOR_HELP = `
 Checks (reported most severe first):

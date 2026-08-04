@@ -7,6 +7,7 @@ import { LabelEntityService } from '../services/label-entity.service';
 import { TextDetectionExecutor } from '../executors/text-detection.executor';
 import { TextDetectionNormalizer } from '../normalizers/text-detection.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { healBoundingBox } from '../utils/track-bounding-box';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { TextDetectionStepInput } from '../types/step-inputs';
 import type { TextDetectionStepOutput } from '../types/step-outputs';
@@ -233,6 +234,11 @@ export class TextDetectionStepProcessor extends BaseStepProcessor<
             );
 
           if (existing) {
+            await healBoundingBox(
+              this.pocketBaseService.labelTrackMutator,
+              existing,
+              track.boundingBox
+            );
             trackIdMap[track.trackId] = existing.id;
             continue;
           }

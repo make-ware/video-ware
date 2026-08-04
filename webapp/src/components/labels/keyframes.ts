@@ -1,94 +1,22 @@
 import {
   tileFrameTime,
   tileIndexFor,
-  type LabelTrack,
+  type Bbox,
   type TileGeometry,
 } from '@project/shared';
 
-/** Normalized bounding box, all coords 0–1 fractions of the frame. */
-export interface Bbox {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
-export interface Keyframe {
-  /** Seconds — absolute media time in storage, track-relative once normalized. */
-  t: number;
-  bbox: Bbox;
-  confidence?: number;
-}
-
 /**
- * A track's keyframes as a clean, sorted, track-relative list: malformed
- * entries dropped, absolute times converted to offsets from trackStart.
+ * The keyframe math itself lives in `@project/shared` — the CLI's `vw track`
+ * reads it and the worker normalizers compute a track's union box from the same
+ * arithmetic, so one copy beats three. Re-exported here so the label
+ * components' import sites stay put.
  */
-export function normalizeKeyframes(
-  raw: LabelTrack['keyframes'],
-  trackStart: number
-): Keyframe[] {
-  const list = Array.isArray(raw) ? (raw as unknown as Keyframe[]) : [];
-  return list
-    .filter(
-      (kf) =>
-        kf &&
-        typeof kf.t === 'number' &&
-        kf.bbox &&
-        typeof kf.bbox.left === 'number' &&
-        typeof kf.bbox.top === 'number' &&
-        typeof kf.bbox.right === 'number' &&
-        typeof kf.bbox.bottom === 'number'
-    )
-    .map((kf) => ({ ...kf, t: kf.t - trackStart }))
-    .sort((a, b) => a.t - b.t);
-}
-
-/**
- * Bounding box at a track-relative time, linearly interpolated between the
- * surrounding keyframes. Outside the keyframe range the nearest keyframe's
- * box is held so the overlay never blinks out mid-track; a degenerate
- * interpolation result falls back to the previous keyframe.
- */
-export function interpolateBbox(
-  sorted: Keyframe[],
-  relativeTime: number
-): Bbox | null {
-  if (sorted.length === 0) return null;
-
-  let prevIdx = -1;
-  for (let i = 0; i < sorted.length; i++) {
-    if (sorted[i].t <= relativeTime) prevIdx = i;
-    else break;
-  }
-  if (prevIdx === -1) return sorted[0].bbox;
-
-  const prev = sorted[prevIdx];
-  const next = sorted[prevIdx + 1];
-  if (!next) return prev.bbox;
-
-  const dt = next.t - prev.t;
-  if (dt <= 0 || !isFinite(dt)) return prev.bbox;
-
-  const f = Math.max(0, Math.min(1, (relativeTime - prev.t) / dt));
-  const box = {
-    left: prev.bbox.left + (next.bbox.left - prev.bbox.left) * f,
-    top: prev.bbox.top + (next.bbox.top - prev.bbox.top) * f,
-    right: prev.bbox.right + (next.bbox.right - prev.bbox.right) * f,
-    bottom: prev.bbox.bottom + (next.bbox.bottom - prev.bbox.bottom) * f,
-  };
-  if (
-    !isFinite(box.left) ||
-    !isFinite(box.top) ||
-    !isFinite(box.right) ||
-    !isFinite(box.bottom) ||
-    box.right <= box.left ||
-    box.bottom <= box.top
-  ) {
-    return prev.bbox;
-  }
-  return box;
-}
+export {
+  interpolateBbox,
+  normalizeKeyframes,
+  type Bbox,
+  type Keyframe,
+} from '@project/shared';
 
 /** Sub-rectangle of a frame, all values 0–1 fractions of the frame. */
 export interface CropRegion {

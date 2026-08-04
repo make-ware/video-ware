@@ -73,6 +73,43 @@ describe('ObjectTrackingNormalizer', () => {
     expect(first?.duration).toBeGreaterThanOrEqual(0.5); // MIN_CLIP_DURATION
   });
 
+  // The union box is what makes a spatial query an indexed row read instead of
+  // a parse of the (up to 10MB) keyframes array.
+  it('stamps each track with the union of its keyframe boxes', async () => {
+    const drifting: ObjectTrackingResponse = {
+      objects: [
+        {
+          entity: 'dog',
+          trackId: '0',
+          confidence: 0.9,
+          frames: [
+            {
+              timeOffset: 0,
+              boundingBox: { left: 0.4, top: 0.5, right: 0.6, bottom: 0.7 },
+              confidence: 0.9,
+            },
+            {
+              timeOffset: 1,
+              boundingBox: { left: 0.1, top: 0.6, right: 0.5, bottom: 0.9 },
+              confidence: 0.9,
+            },
+          ],
+        },
+      ],
+    };
+
+    const output = await normalizer.normalize(
+      createMockInput(drifting, 'object-tracking')
+    );
+
+    expect(output.labelTracks[0].boundingBox).toEqual({
+      left: 0.1,
+      top: 0.5,
+      right: 0.6,
+      bottom: 0.9,
+    });
+  });
+
   it('gives every object in a response its own instance key', async () => {
     const response: ObjectTrackingResponse = {
       // Same name, same provider trackId — three different things.

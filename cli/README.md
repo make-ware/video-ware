@@ -92,6 +92,11 @@ vw label clip <type> <id>      # create a media clip from a label
 vw label tag <type> <id> <entity>  # attribute one detected instance to an entity
 vw label untag <type> <id>     # clear that attribution
 
+vw track list -m <mediaId>     # tracked objects/faces/text: spans + union boxes (no keyframes read)
+vw track show <trackId>        # one track: drift, union box, sampled keyframes
+vw track at -m <mediaId> --at <s>  # what is on screen at one moment, with boxes
+vw track export -m <mediaId>   # every keyframe, written to a file (CSV by default)
+
 vw entity create <name>        # name a real-world person/product/place/thing (-k kind)
 vw entity list [query]         # list or fuzzy-search entities (-k filters by kind)
 vw entity show <name|id>       # one entity: its appearances + the media tagged with it
@@ -837,6 +842,76 @@ The field is simply absent when a label hasn't been attributed.
 MediaClip (type mapped from the label type) **and** writes a `MediaClipLabels`
 join row, so the clip back-references its source label even after the clip is
 edited. `vw label show <type> <labelId> --clips` walks that edge in reverse.
+
+## Frame-level tracking (`vw track`)
+
+A label tells you a face is on screen from 2.25s to 5.60s. Its **track** tells
+you _where_ — a bounding box roughly every 0.125s (8 fps), for the whole span.
+That is what `vw track` reads.
+
+| in storage    | meaning                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `t`           | **absolute media seconds** (the first keyframe's `t` = `start`)  |
+| `left/top/right/bottom` | **0–1 fractions of the frame**, not pixels             |
+| `boundingBox` | union of every keyframe's box — the whole path's footprint       |
+| `confidence`  | 0–1, per frame                                                   |
+
+Six label kinds carry tracks (`object`, `face`, `person`, `text`, plus
+`speech`/`speaker`); `shot` and `segment` never do. **Speech and speaker tracks
+store no boxes at all** — they exist for their timing, so an empty keyframe list
+there is correct, not missing data.
+
+### Cheap by default, a file for bulk
+
+A single track's geometry is capped at **10 MB**, and one media routinely
+carries hundreds of tracks. So the commands split by cost:
+
+```bash
+vw track list -m MEDIA_ID                  # spans + union boxes; reads no keyframes
+vw track list -m MEDIA_ID -t face --min-confidence 0.6
+vw track list -m MEDIA_ID --region 0.5,0,1,0.5   # union box in the top-right quadrant
+vw track show TRACK_ID                     # one track: drift + ~12 sampled frames
+vw track at -m MEDIA_ID --at 14.2          # every box on screen at that instant
+vw track export -m MEDIA_ID -o boxes.csv   # every frame, to a file
+```
+
+`list`, `show`, and `at` never read more than they print — `list` runs entirely
+off a field projection that omits `keyframes`, and reports frame counts from
+`trackData.frameCount`. Only `export` reads per-frame data in bulk.
+
+### `vw track export`
+
+Scope is mandatory (`-m`, `--entity`, or `--track`) — a workspace is never
+dumped by accident. The export then:
+
+1. pages the matching tracks **without** their keyframes and estimates the
+   output from the stored frame counts;
+2. **refuses before fetching anything** if that estimate exceeds `--max-frames`
+   (default 500,000), naming every way to narrow;
+3. fetches keyframes one track at a time, so peak memory is a single track;
+4. writes to a **file** — `--stdout` is the explicit opt-in for piping, and the
+   only way frames reach a terminal.
+
+```bash
+vw track export -m MEDIA_ID -o boxes.csv --json   # manifest to stdout
+vw track export -m MEDIA_ID --every 1 -o s.csv    # one box per second
+vw track export -m MEDIA_ID --fps 2 -o half.csv   # …expressed as a rate
+vw track export --entity "Jane Doe" --max-frames-per-track 50 -o jane.csv
+vw track export -m MEDIA_ID --pixels --format ndjson | jq -s 'length'
+```
+
+| flag                     | effect                                                        |
+| ------------------------ | ------------------------------------------------------------- |
+| `--format csv\|ndjson\|json` | default `csv`, one row per keyframe with a header          |
+| `--every <s>` / `--fps <n>` | thin a dense track (mutually exclusive)                    |
+| `--max-frames-per-track` | cap per track, sampled evenly across its span                  |
+| `--precision <digits>`   | default 4 — face/person rows store raw float64, ~2× the bytes  |
+| `--pixels`               | whole pixels of the display frame; CSV headers become `left_px`… |
+| `--relative`             | `t` as an offset from each track's start, not media time        |
+
+Pair any box with a picture: `vw frame -m MEDIA_ID --at 14.2 -o frame.jpg`
+writes the still those coordinates describe. `vw track show` and `vw track at`
+both print the exact `vw frame` command for what they just reported.
 
 ## Lists: filtering, sorting, pagination
 

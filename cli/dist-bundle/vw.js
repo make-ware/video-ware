@@ -21095,7 +21095,7 @@ var require_client_h1 = __commonJS({
            * @param {number} len
            * @returns {number}
            */
-          wasm_on_url: (p, at, len) => {
+          wasm_on_url: (p, at2, len) => {
             return 0;
           },
           /**
@@ -21104,9 +21104,9 @@ var require_client_h1 = __commonJS({
            * @param {number} len
            * @returns {number}
            */
-          wasm_on_status: (p, at, len) => {
+          wasm_on_status: (p, at2, len) => {
             assert2(currentParser.ptr === p);
-            const start = at - currentBufferPtr + currentBufferRef.byteOffset;
+            const start = at2 - currentBufferPtr + currentBufferRef.byteOffset;
             return currentParser.onStatus(new FastBuffer(currentBufferRef.buffer, start, len));
           },
           /**
@@ -21123,9 +21123,9 @@ var require_client_h1 = __commonJS({
            * @param {number} len
            * @returns {number}
            */
-          wasm_on_header_field: (p, at, len) => {
+          wasm_on_header_field: (p, at2, len) => {
             assert2(currentParser.ptr === p);
-            const start = at - currentBufferPtr + currentBufferRef.byteOffset;
+            const start = at2 - currentBufferPtr + currentBufferRef.byteOffset;
             return currentParser.onHeaderField(new FastBuffer(currentBufferRef.buffer, start, len));
           },
           /**
@@ -21134,9 +21134,9 @@ var require_client_h1 = __commonJS({
            * @param {number} len
            * @returns {number}
            */
-          wasm_on_header_value: (p, at, len) => {
+          wasm_on_header_value: (p, at2, len) => {
             assert2(currentParser.ptr === p);
-            const start = at - currentBufferPtr + currentBufferRef.byteOffset;
+            const start = at2 - currentBufferPtr + currentBufferRef.byteOffset;
             return currentParser.onHeaderValue(new FastBuffer(currentBufferRef.buffer, start, len));
           },
           /**
@@ -21156,9 +21156,9 @@ var require_client_h1 = __commonJS({
            * @param {number} len
            * @returns {number}
            */
-          wasm_on_body: (p, at, len) => {
+          wasm_on_body: (p, at2, len) => {
             assert2(currentParser.ptr === p);
-            const start = at - currentBufferPtr + currentBufferRef.byteOffset;
+            const start = at2 - currentBufferPtr + currentBufferRef.byteOffset;
             return currentParser.onBody(new FastBuffer(currentBufferRef.buffer, start, len));
           },
           /**
@@ -61051,7 +61051,12 @@ var LabelFaceSchema = external_exports.object({
   // --- Relations ---
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media", cascadeDelete: true }),
-  LabelEntityRef: RelationField({ collection: "LabelEntity" }),
+  // Optional in the DB so a Media delete can always complete: the cascade
+  // deletes this media's LabelEntity rows and PocketBase UNSETS (never
+  // deletes) a non-cascade reference to them — which a required field
+  // rejects, wedging the whole delete. Writers still always set it; see
+  // LabelFaceInputSchema and pb_migrations/1785731000_relax_label_refs_for_media_delete.
+  LabelEntityRef: RelationField({ collection: "LabelEntity" }).optional(),
   LabelTrackRef: RelationField({ collection: "LabelTrack" }).optional(),
   // --- Identification ---
   faceId: TextField().optional(),
@@ -61153,8 +61158,12 @@ var LabelObjectSchema = external_exports.object({
   // --- Relations ---
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media", cascadeDelete: true }),
-  LabelEntityRef: RelationField({ collection: "LabelEntity" }),
-  // Links to "Person"
+  // Links to "Person". Optional in the DB so a Media delete can always
+  // complete — the cascade unsets this ref while deleting the media's
+  // LabelEntity rows, and PocketBase cannot unset a required field. Writers
+  // still always set it; see LabelObjectInputSchema and
+  // pb_migrations/1785731000_relax_label_refs_for_media_delete.
+  LabelEntityRef: RelationField({ collection: "LabelEntity" }).optional(),
   LabelTrackRef: RelationField({ collection: "LabelTrack" }).optional(),
   // --- Identification ---
   entity: TextField(),
@@ -61216,8 +61225,14 @@ var LabelPersonSchema = external_exports.object({
   // --- Relations ---
   WorkspaceRef: RelationField({ collection: "Workspaces" }),
   MediaRef: RelationField({ collection: "Media", cascadeDelete: true }),
-  LabelEntityRef: RelationField({ collection: "LabelEntity" }),
-  LabelTrackRef: RelationField({ collection: "LabelTrack" }),
+  // Both optional in the DB so a Media delete can always complete: the
+  // cascade deletes this media's LabelEntity and LabelTrack rows, and
+  // PocketBase UNSETS (never deletes) a non-cascade reference to them —
+  // which a required field rejects, wedging the whole delete. Writers still
+  // always set both; see LabelPersonInputSchema and
+  // pb_migrations/1785731000_relax_label_refs_for_media_delete.
+  LabelEntityRef: RelationField({ collection: "LabelEntity" }).optional(),
+  LabelTrackRef: RelationField({ collection: "LabelTrack" }).optional(),
   // --- Identification ---
   // The specific track ID returned by Google (e.g. "0", "1")
   personId: TextField(),
@@ -61603,14 +61618,25 @@ var LabelTrackSchema = external_exports.object({
   end: NumberField({ min: 0 }),
   // Seconds (from last keyframe)
   duration: NumberField({ min: 0 }),
-  // --- Spatial Summary (New Recommendation) ---
-  // Storing the "Union" Bounding Box (the area covering the entire path)
-  // allows you to spatially search (e.g., "Find movement in the top-right corner")
-  // without parsing the huge keyframes JSON.
-  // Format: { top, left, bottom, right }
+  // --- Spatial Summary ---
+  // The union of every keyframe's box — the area covering the entire path —
+  // so a spatial question ("find movement in the top-right corner") is an
+  // indexed row read instead of a parse of the 10MB keyframes JSON.
+  // Format: { left, top, right, bottom }, normalized 0-1 like the keyframes.
+  //
+  // Written by the four spatial normalizers via `unionBbox`, healed onto
+  // already-persisted rows by the step processors, and backfilled for older
+  // rows by 1785740000_labeltrack_boundingbox_backfill.js. Optional because
+  // speech and speaker tracks have no spatial data at all — an empty box on
+  // those is the correct state. Readers still derive the union from
+  // keyframes when it is empty, so a row that predates all three paths is
+  // correct, just not cheap.
   boundingBox: JSONField().optional(),
   // --- The Heavy Data ---
-  // Array: [{ "timeOffset": 0.1, "boundingBox": {...}, "confidence": 0.9 }]
+  // Array: [{ "t": 0.1, "bbox": { left, top, right, bottom }, "confidence": 0.9 }]
+  // — `t` is ABSOLUTE media seconds (the first entry's equals `start`) and
+  // every coordinate is a 0-1 fraction of the frame. Parse it through
+  // `normalizeKeyframes` rather than by hand.
   // `.optional()` is load-bearing and must stay: speech and speaker tracks
   // have no spatial keyframes and write `[]`, which PocketBase counts as
   // empty, so a required field rejects them. The live column has been
@@ -63216,11 +63242,19 @@ var BaseMutator = class {
     return await this.getCollection().update(id, data, options);
   }
   /**
-   * Perform the actual getById operation
+   * Perform the actual getById operation.
+   *
+   * Applies the `fields` projection like the list reads do. A single-record
+   * read is exactly where a projection matters most — one LabelTrack row can
+   * carry 10 MB of keyframes — so a mutator configured to skip a heavy column
+   * must skip it here too, or the option would silently mean "on lists only".
    */
   async entityGetById(id, expand) {
     const finalExpand = this.prepareExpand(expand);
-    const options = finalExpand ? { expand: finalExpand } : {};
+    const options = {};
+    if (finalExpand) options.expand = finalExpand;
+    const finalFields = this.prepareFields();
+    if (finalFields) options.fields = finalFields;
     return await this.getCollection().getOne(id, options);
   }
   /**
@@ -64212,8 +64246,8 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
       clipsWithoutTrack.push(clip);
     }
   }
-  for (const trackEntity of timelineTracks) {
-    const trackClips = clipsByTrack.get(trackEntity.id ?? "") || [];
+  for (const trackEntity2 of timelineTracks) {
+    const trackClips = clipsByTrack.get(trackEntity2.id ?? "") || [];
     trackClips.sort((a, b) => {
       if (typeof a.timelineStart === "number" && typeof b.timelineStart === "number") {
         return a.timelineStart - b.timelineStart;
@@ -64224,7 +64258,7 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
     let currentTimelineTime = 0;
     for (const clip of trackClips) {
       let startTime = typeof clip.timelineStart === "number" ? clip.timelineStart : currentTimelineTime;
-      if (trackEntity.layer === 0 && startTime < currentTimelineTime) {
+      if (trackEntity2.layer === 0 && startTime < currentTimelineTime) {
         startTime = currentTimelineTime;
       }
       if (clip.SourceTimelineRef) {
@@ -64232,10 +64266,10 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
           clip,
           startTime,
           {
-            opacity: trackEntity.opacity,
-            isMuted: trackEntity.isMuted,
-            volume: trackEntity.volume,
-            layer: trackEntity.layer
+            opacity: trackEntity2.opacity,
+            isMuted: trackEntity2.isMuted,
+            volume: trackEntity2.volume,
+            layer: trackEntity2.layer
           },
           options,
           depth,
@@ -64249,9 +64283,9 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
         clip,
         startTime,
         {
-          opacity: trackEntity.opacity,
-          isMuted: trackEntity.isMuted,
-          volume: trackEntity.volume
+          opacity: trackEntity2.opacity,
+          isMuted: trackEntity2.isMuted,
+          volume: trackEntity2.volume
         },
         options
       );
@@ -64259,10 +64293,10 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
       currentTimelineTime = startTime + result.totalDuration;
     }
     tracks.push({
-      id: trackEntity.id ?? `track-${trackEntity.layer}`,
+      id: trackEntity2.id ?? `track-${trackEntity2.layer}`,
       type: "video",
       // Main track type
-      layer: trackEntity.layer,
+      layer: trackEntity2.layer,
       segments
     });
   }
@@ -64293,14 +64327,14 @@ function generateTracksInternal(timelineClips, timelineTracks = [], options, dep
     }
   }
   const audioTracks = [];
-  for (const trackEntity of timelineTracks) {
-    if (trackEntity.isMuted) continue;
-    const vidTrack = tracks.find((t2) => t2.id === trackEntity.id);
+  for (const trackEntity2 of timelineTracks) {
+    if (trackEntity2.isMuted) continue;
+    const vidTrack = tracks.find((t2) => t2.id === trackEntity2.id);
     if (!vidTrack) continue;
     audioTracks.push({
-      id: `${trackEntity.id}-audio`,
+      id: `${trackEntity2.id}-audio`,
       type: "audio",
-      layer: trackEntity.layer,
+      layer: trackEntity2.layer,
       segments: buildAudioTrackSegments(vidTrack.segments)
     });
   }
@@ -65150,6 +65184,162 @@ function speakerTranscriptLabel(speakerId, entityName) {
   const name = entityName?.trim();
   return name && name !== pretty ? `${pretty} (${name})` : pretty;
 }
+function normalizeRotation(rotation) {
+  if (typeof rotation !== "number" || !isFinite(rotation)) return 0;
+  return (Math.round(rotation) % 360 + 360) % 360;
+}
+function rotationSwapsAxes(rotation) {
+  const normalized = normalizeRotation(rotation);
+  return normalized === 90 || normalized === 270;
+}
+function positive(value) {
+  return typeof value === "number" && isFinite(value) && value > 0 ? value : 0;
+}
+function mediaDisplayDimensions(source) {
+  const probe = source?.mediaData ?? void 0;
+  const probedWidth = positive(probe?.displayWidth);
+  const probedHeight = positive(probe?.displayHeight);
+  if (probedWidth && probedHeight) {
+    return {
+      width: probedWidth,
+      height: probedHeight,
+      aspect: probedWidth / probedHeight
+    };
+  }
+  const codedWidth = positive(source?.width) || positive(probe?.width);
+  const codedHeight = positive(source?.height) || positive(probe?.height);
+  if (!codedWidth || !codedHeight) return { width: 0, height: 0, aspect: 0 };
+  const rotation = source?.rotation ?? probe?.rotation ?? probe?.video?.rotation ?? 0;
+  const width = rotationSwapsAxes(rotation) ? codedHeight : codedWidth;
+  const height2 = rotationSwapsAxes(rotation) ? codedWidth : codedHeight;
+  return { width, height: height2, aspect: width / height2 };
+}
+function finite(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+function isKeyframe(value) {
+  if (!value || typeof value !== "object") return false;
+  const kf = value;
+  return finite(kf.t) && !!kf.bbox && typeof kf.bbox === "object" && finite(kf.bbox.left) && finite(kf.bbox.top) && finite(kf.bbox.right) && finite(kf.bbox.bottom);
+}
+function normalizeKeyframes(raw, trackStart = 0) {
+  const list = Array.isArray(raw) ? raw : [];
+  return list.filter(isKeyframe).map((kf) => ({ ...kf, t: kf.t - trackStart })).sort((a, b) => a.t - b.t);
+}
+function interpolateBbox(sorted, time3) {
+  if (sorted.length === 0) return null;
+  let prevIdx = -1;
+  for (let i2 = 0; i2 < sorted.length; i2++) {
+    if (sorted[i2].t <= time3) prevIdx = i2;
+    else break;
+  }
+  if (prevIdx === -1) return sorted[0].bbox;
+  const prev = sorted[prevIdx];
+  const next = sorted[prevIdx + 1];
+  if (!next) return prev.bbox;
+  const dt = next.t - prev.t;
+  if (dt <= 0 || !Number.isFinite(dt)) return prev.bbox;
+  const f = Math.max(0, Math.min(1, (time3 - prev.t) / dt));
+  const box = {
+    left: prev.bbox.left + (next.bbox.left - prev.bbox.left) * f,
+    top: prev.bbox.top + (next.bbox.top - prev.bbox.top) * f,
+    right: prev.bbox.right + (next.bbox.right - prev.bbox.right) * f,
+    bottom: prev.bbox.bottom + (next.bbox.bottom - prev.bbox.bottom) * f
+  };
+  if (!Number.isFinite(box.left) || !Number.isFinite(box.top) || !Number.isFinite(box.right) || !Number.isFinite(box.bottom) || box.right <= box.left || box.bottom <= box.top) {
+    return prev.bbox;
+  }
+  return box;
+}
+function unionBbox(keyframes) {
+  let box = null;
+  for (const kf of keyframes) {
+    if (!isKeyframe(kf)) continue;
+    box = box ? {
+      left: Math.min(box.left, kf.bbox.left),
+      top: Math.min(box.top, kf.bbox.top),
+      right: Math.max(box.right, kf.bbox.right),
+      bottom: Math.max(box.bottom, kf.bbox.bottom)
+    } : { ...kf.bbox };
+  }
+  return box;
+}
+function sampleKeyframes(keyframes, maxSamples) {
+  if (maxSamples < 1) return [];
+  if (keyframes.length <= maxSamples) return [...keyframes];
+  if (maxSamples === 1) return [keyframes[0]];
+  const last = keyframes.length - 1;
+  const step = last / (maxSamples - 1);
+  const picked = [];
+  let previous = -1;
+  for (let i2 = 0; i2 < maxSamples; i2++) {
+    const index = Math.min(last, Math.round(i2 * step));
+    if (index === previous) continue;
+    previous = index;
+    picked.push(keyframes[index]);
+  }
+  return picked;
+}
+function decimateKeyframes(keyframes, everySeconds) {
+  if (!(everySeconds > 0) || keyframes.length <= 2) return [...keyframes];
+  const kept = [];
+  let lastT = -Infinity;
+  for (const kf of keyframes) {
+    if (kf.t - lastT >= everySeconds) {
+      kept.push(kf);
+      lastT = kf.t;
+    }
+  }
+  const final = keyframes[keyframes.length - 1];
+  if (kept[kept.length - 1] !== final) kept.push(final);
+  return kept;
+}
+function round(value, digits) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+function roundKeyframe(kf, digits) {
+  if (!Number.isInteger(digits) || digits < 0) return kf;
+  return {
+    ...kf,
+    bbox: {
+      left: round(kf.bbox.left, digits),
+      top: round(kf.bbox.top, digits),
+      right: round(kf.bbox.right, digits),
+      bottom: round(kf.bbox.bottom, digits)
+    },
+    ...finite(kf.confidence) ? { confidence: round(kf.confidence, digits) } : {}
+  };
+}
+function bboxToPixels(bbox, frameWidth, frameHeight) {
+  if (!(frameWidth > 0) || !(frameHeight > 0)) return null;
+  const left = Math.round(bbox.left * frameWidth);
+  const top = Math.round(bbox.top * frameHeight);
+  const right = Math.round(bbox.right * frameWidth);
+  const bottom = Math.round(bbox.bottom * frameHeight);
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top
+  };
+}
+function bboxArea(bbox) {
+  const width = Math.max(0, bbox.right - bbox.left);
+  const height2 = Math.max(0, bbox.bottom - bbox.top);
+  return width * height2;
+}
+function bboxCenter(bbox) {
+  return {
+    x: (bbox.left + bbox.right) / 2,
+    y: (bbox.top + bbox.bottom) / 2
+  };
+}
+function bboxIntersects(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
 var WorkspaceMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
@@ -65641,6 +65831,30 @@ var EntityMutator = class extends BaseMutator {
     return this.getList(page, perPage, filter, ENTITY_LIST_SORT);
   }
 };
+var TRACK_SUMMARY_FIELDS = [
+  "id",
+  "collectionId",
+  "collectionName",
+  "created",
+  "updated",
+  "WorkspaceRef",
+  "MediaRef",
+  "LabelEntityRef",
+  "trackId",
+  "trackHash",
+  "labelType",
+  "start",
+  "end",
+  "duration",
+  "boundingBox",
+  "confidence",
+  "trackData",
+  "expand.MediaRef.*",
+  "expand.MediaRef.expand.UploadRef.*",
+  "expand.LabelEntityRef.*",
+  "expand.LabelEntityRef.expand.EntityRef.*"
+];
+var TRACK_KEYFRAME_FIELDS = ["id", "keyframes"];
 var LabelTrackMutator = class extends BaseMutator {
   constructor(pb, options) {
     super(pb, options);
@@ -67117,25 +67331,25 @@ function timelineEditListOf(clip) {
   }
   return { segments: [{ start: clip.start, end: clip.end }], source: "trim" };
 }
-var round = (v) => roundToMs(v);
+var round2 = (v) => roundToMs(v);
 function sourceWindowOf(clip) {
   return {
-    start: round(clip.start),
-    end: round(clip.end),
-    span: round(clip.end - clip.start)
+    start: round2(clip.start),
+    end: round2(clip.end),
+    span: round2(clip.end - clip.start)
   };
 }
 function timelineClipTimes(clip, placement) {
   const times = {
     source: sourceWindowOf(clip),
-    effective: { duration: round(getClipTimelineDuration(clip)) },
+    effective: { duration: round2(getClipTimelineDuration(clip)) },
     composite: false
   };
   if (placement) {
     times.timeline = {
-      start: round(placement.timelineStart),
-      end: round(placement.timelineEnd),
-      duration: round(placement.timelineEnd - placement.timelineStart)
+      start: round2(placement.timelineStart),
+      end: round2(placement.timelineEnd),
+      duration: round2(placement.timelineEnd - placement.timelineStart)
     };
   }
   if (!clip.CaptionRef && !clip.SourceTimelineRef) {
@@ -67153,7 +67367,7 @@ function mediaClipTimes(clip) {
   return {
     source: sourceWindowOf(clip),
     effective: {
-      duration: round(
+      duration: round2(
         calculateEffectiveDuration(clip.start, clip.end, segments)
       )
     },
@@ -67491,6 +67705,27 @@ How they work:
   A link is written on the label's LabelEntity, so it covers every detection
   of that instance within its media; repeat per media to cover a workspace.
   For "this media features X" with no detection involved, use vw media tag.`;
+var TRACK_HELP = `
+What a track is:
+  A label says a face is on screen from 2.25s to 5.60s. Its LabelTrack says
+  WHERE, frame by frame \u2014 a bounding box every ~0.125s. Boxes are 0-1 fractions
+  of the frame (left/top/right/bottom) and times are absolute media seconds.
+  Speech and speaker tracks have no boxes at all; they exist for their timing.
+
+Which command to reach for:
+  vw track list -m <mediaId>              what is tracked, spans and union boxes
+  vw track show <trackId>                 one track: drift, plus sampled frames
+  vw track at -m <mediaId> --at 14.2      what is on screen at one moment
+  vw track export -m <mediaId> -o t.csv   every frame, written to a file
+
+  The first three never read more than they print. Only \`export\` reads the
+  per-frame data in bulk, and it writes to a file rather than the terminal,
+  estimates the size before fetching anything, and refuses a request past
+  --max-frames. Thin a dense track with --every 1 (one box per second) or
+  --max-frames-per-track before widening the budget.
+
+  Pair a box with a picture: \`vw frame -m <mediaId> --at <t>\` writes the still
+  those coordinates describe.`;
 var DOCTOR_HELP = `
 Checks (reported most severe first):
   error    track-overlap (same-track overlaps are invalid),
@@ -70077,6 +70312,12 @@ async function clipLabelDetail(pb, clip, opts = {}) {
 
 // src/lib/export.ts
 var PER_PAGE = 200;
+function trackSummaryMutator(pb) {
+  return new LabelTrackMutator(pb, {
+    expand: [],
+    fields: [...TRACK_SUMMARY_FIELDS]
+  });
+}
 var EXPORT_MANIFEST_FILE = "manifest.json";
 var OWNED_ENTRIES = [
   "INSTRUCTIONS.md",
@@ -70102,6 +70343,21 @@ function groupBy(items, key) {
 function writeJson(path2, value) {
   writeFileSync3(path2, `${JSON.stringify(value, null, 2)}
 `);
+}
+var KEYFRAME_PRECISION = 4;
+async function writeTrackKeyframes(pb, tracksDir, trackId) {
+  const row = await new LabelTrackMutator(pb, {
+    expand: [],
+    fields: [...TRACK_KEYFRAME_FIELDS]
+  }).getById(trackId);
+  const keyframes = normalizeKeyframes(row?.keyframes).map(
+    (kf) => roundKeyframe(kf, KEYFRAME_PRECISION)
+  );
+  if (keyframes.length === 0) return null;
+  const dir = join2(tracksDir, "keyframes");
+  mkdirSync2(dir, { recursive: true });
+  writeJson(join2(dir, `${trackId}.json`), { id: trackId, keyframes });
+  return `keyframes/${trackId}.json`;
 }
 function listDoc(items) {
   return { items, totalItems: items.length };
@@ -70200,6 +70456,25 @@ async function exportWorkspace(pb, opts, report = () => {
     }
     report(`Fetched ${labelCount} labels across ${labelTypes.length} types`);
   }
+  const tracksByMedia = /* @__PURE__ */ new Map();
+  let trackCount = 0;
+  if (includeLabels) {
+    const tracks = await fetchAll(
+      (page) => trackSummaryMutator(pb).getList(
+        page,
+        PER_PAGE,
+        pb.filter("WorkspaceRef = {:ws}", { ws: opts.workspaceId }),
+        "MediaRef,start,id"
+      )
+    );
+    trackCount = tracks.length;
+    for (const [mediaId, rows] of groupBy(tracks, (t2) => t2.MediaRef)) {
+      tracksByMedia.set(mediaId, rows);
+    }
+    report(
+      `Fetched ${trackCount} tracks` + (opts.tracks ? " (keyframes follow, one track at a time)" : "")
+    );
+  }
   const mediaDir = join2(opts.dir, "media");
   mkdirSync2(mediaDir, { recursive: true });
   const mediaIndex = [];
@@ -70235,6 +70510,32 @@ async function exportWorkspace(pb, opts, report = () => {
         }
       }
     }
+    const mediaTracks = tracksByMedia.get(m.id) ?? [];
+    if (mediaTracks.length > 0) {
+      const tracksDir = join2(dir, "tracks");
+      mkdirSync2(tracksDir, { recursive: true });
+      const trackIndex = [];
+      for (const track of mediaTracks) {
+        const entry = {
+          id: track.id,
+          MediaRef: track.MediaRef,
+          trackId: track.trackId,
+          labelType: track.labelType,
+          start: track.start,
+          end: track.end,
+          duration: track.duration,
+          confidence: track.confidence,
+          boundingBox: track.boundingBox,
+          trackData: track.trackData
+        };
+        if (opts.tracks) {
+          const written = await writeTrackKeyframes(pb, tracksDir, track.id);
+          if (written) entry.keyframeFile = written;
+        }
+        trackIndex.push(entry);
+      }
+      writeJson(join2(tracksDir, "index.json"), listDoc(trackIndex));
+    }
     mediaIndex.push({
       id: m.id,
       name: mediaLabel(m),
@@ -70246,6 +70547,7 @@ async function exportWorkspace(pb, opts, report = () => {
       height: m.height,
       clipCount: mediaClips.length,
       labelCounts,
+      trackCount: mediaTracks.length,
       ...m.DirectoryRef ? { directory: m.expand?.DirectoryRef?.name ?? m.DirectoryRef } : {}
     });
   }
@@ -70319,7 +70621,7 @@ async function exportWorkspace(pb, opts, report = () => {
     linkedClusters.map((c) => [c.id, c.EntityRef ?? ""])
   );
   const linkedTracks = await fetchAll(
-    (page) => new LabelTrackMutator(pb, { expand: [] }).getList(
+    (page) => trackSummaryMutator(pb).getList(
       page,
       PER_PAGE,
       pb.filter('WorkspaceRef = {:ws} && LabelEntityRef.EntityRef != ""', {
@@ -70363,10 +70665,12 @@ async function exportWorkspace(pb, opts, report = () => {
     exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
     workspace: { id: workspace.id, name: workspace.name },
     includesLabels: includeLabels,
+    includesKeyframes: includeLabels && Boolean(opts.tracks),
     counts: {
       media: media.length,
       mediaClips: clips.length,
       labels: labelCount,
+      tracks: trackCount,
       timelines: timelines.length,
       entities: entities.length
     }
@@ -70389,12 +70693,13 @@ function buildInstructions(params) {
   const mediaId = params.exampleMediaId ?? "MEDIA_ID";
   const timelineId = params.exampleTimelineId ?? "TIMELINE_ID";
   const labelsLine = manifest.includesLabels ? `${counts.labels} labels` : "labels skipped (--no-labels)";
+  const tracksLine = manifest.includesLabels ? `, ${counts.tracks} tracks` + (manifest.includesKeyframes ? " with keyframes" : "") : "";
   return `# Workspace export: ${workspace.name}
 
 Read-only snapshot of the video-ware workspace **${workspace.name}**
 (\`${workspace.id}\`), exported ${manifest.exportedAt} by
 \`vw workspace export\`. Contents: ${counts.media} media,
-${counts.mediaClips} media clips, ${labelsLine},
+${counts.mediaClips} media clips, ${labelsLine}${tracksLine},
 ${counts.timelines} timelines, ${counts.entities} entities.
 
 **These files are a snapshot, not the live workspace.** Editing them changes
@@ -70410,8 +70715,8 @@ manifest.json           what was exported, when, and how much
 workspace.json          the Workspace record
 media/
   index.json            one row per media: name, type, duration, clipCount,
-                        labelCounts, directory (only when the media is filed
-                        in one) \u2014 scan this first
+                        labelCounts, trackCount, directory (only when the
+                        media is filed in one) \u2014 scan this first
   <mediaId>/
     media.json          the Media record (its "name" is the original
                         filename)
@@ -70420,6 +70725,13 @@ media/
     labels/<type>/<labelId>.json
                         one label per file, foldered by type (a type
                         folder is absent when it has no labels)
+    tracks/index.json   one row per LabelTrack: what a label's
+                        "LabelTrackRef" points at \u2014 span, confidence, and
+                        the union bounding box over its frames
+    tracks/keyframes/<trackId>.json
+                        per-frame boxes, only when the export was run with
+                        --tracks (absent otherwise, and for tracks with no
+                        spatial data)
 timelines/
   index.json            one row per timeline: name, duration, trackCount,
                         clipCount
@@ -70461,6 +70773,18 @@ N }\`. All times are seconds.
   \`attributedEntity: { id, name, kind }\` \u2014 e.g. a \`speaker\` label
   with \`"attributedEntity": { "name": "Erik", ... }\` is Erik speaking.
   Search them for moments worth turning into clips.
+- **Tracks** \u2014 WHERE a label is on screen, frame by frame
+  (\`media/<id>/tracks/index.json\`). A label says a face is visible from
+  2.25s to 5.60s; its \`LabelTrackRef\` points at the track that says the
+  box was at \`left 0.58, top 0.49\` at 2.25s and had drifted by 5.60s.
+  Boxes are **0\u20131 fractions of the frame** (\`left/top/right/bottom\`) and
+  keyframe \`t\` values are **absolute media seconds**. \`boundingBox\` on
+  each row is the union over every frame \u2014 enough to answer "is this in the
+  top-right?" without opening the frames. Speech and speaker tracks have no
+  boxes; they exist for their timing. Read them live with
+  \`vw track at -m <mediaId> --at <seconds>\` (what is on screen right now),
+  \`vw track show <trackId>\` (one track's drift), or
+  \`vw track export\` (every frame, to a file).
 - **Entities** \u2014 real-world identities (\`entities/index.json\`) that label
   data is attributed to ("speaker_0 in this media is Erik"). A label never
   stores its entity directly; it resolves through its \`LabelEntityRef\` \u2014
@@ -70523,6 +70847,12 @@ vw entity create "Erik" -w ${workspace.id}
 vw label tag speaker LABEL_ID "Erik"        # tags this instance in this media
 vw label search --entity "Erik" -w ${workspace.id} -t speaker,face --json
 vw entity labels "Erik" -w ${workspace.id} -m ${mediaId}
+
+# 1c. Ask where things are in the frame, not just when
+vw track at -m ${mediaId} --at 14.2          # every box on screen at 14.2s
+vw track list -m ${mediaId} -t face          # face tracks, spans + union boxes
+vw track show TRACK_ID                       # one track's drift, sampled
+vw track export -m ${mediaId} -o boxes.csv   # every frame, to a file
 
 # 2. Create a timeline and organize tracks (layer 0 = bottom)
 vw timeline create "Episode 4" -w ${workspace.id} --tracks "Music,AV,B-Roll"
@@ -70628,6 +70958,9 @@ function registerWorkspaceCommands(program2) {
     ws.command("export [dir]").description(
       "Export the workspace (media, clips, labels, timelines) as a directory of JSON files for AI agents (default dir: ./vw-export)"
     ).option("--no-labels", "skip per-media label data").option(
+      "--tracks",
+      "also write per-frame tracking keyframes (track summaries are always written; the frames can be large)"
+    ).option(
       "--force",
       "write into a non-empty directory that is not a previous export"
     )
@@ -70641,6 +70974,7 @@ function registerWorkspaceCommands(program2) {
           workspaceId,
           dir: dir ?? "vw-export",
           labels: opts.labels,
+          tracks: opts.tracks,
           force: opts.force
         },
         opts.json ? void 0 : info
@@ -70651,7 +70985,7 @@ function registerWorkspaceCommands(program2) {
       }
       const { counts } = result;
       success(
-        `Exported workspace "${result.workspace.name}" to ${result.dir} (${counts.media} media, ${counts.mediaClips} clips, ${counts.labels} labels, ${counts.timelines} timelines)`
+        `Exported workspace "${result.workspace.name}" to ${result.dir} (${counts.media} media, ${counts.mediaClips} clips, ${counts.labels} labels, ${counts.tracks} tracks, ${counts.timelines} timelines)`
       );
       info(`Agents should start at ${join3(result.dir, "INSTRUCTIONS.md")}`);
     } catch (err) {
@@ -71542,8 +71876,11 @@ async function labelEntityByInstance(pb, mediaId, instanceId, labelType) {
   }
   return row.id;
 }
+var TRACK_LINK_FIELDS = ["id", "LabelEntityRef"];
 async function labelEntityOfTrack(pb, trackId) {
-  const track = await new LabelTrackMutator(pb).getById(trackId);
+  const track = await new LabelTrackMutator(pb, {
+    fields: TRACK_LINK_FIELDS
+  }).getById(trackId);
   if (!track) {
     throw new Error(`No label track with id ${trackId}`);
   }
@@ -71559,7 +71896,9 @@ async function labelEntityForRow(pb, type, labelId, record2) {
   if (typeof own === "string" && own) return own;
   const trackRef = record2.LabelTrackRef;
   if (typeof trackRef === "string" && trackRef) {
-    const track = await new LabelTrackMutator(pb).getById(trackRef);
+    const track = await new LabelTrackMutator(pb, {
+      fields: TRACK_LINK_FIELDS
+    }).getById(trackRef);
     if (track?.LabelEntityRef) {
       await labelMutator(pb, type).update(labelId, {
         LabelEntityRef: track.LabelEntityRef
@@ -71692,7 +72031,9 @@ var entityAppearancesSpec = {
   hint: "`vw label clip <type> <labelId>` turns a label into a clip"
 };
 function fetchEntityAppearancePage(pb, entityId, query) {
-  return new LabelTrackMutator(pb).getList(
+  return new LabelTrackMutator(pb, {
+    fields: [...TRACK_SUMMARY_FIELDS]
+  }).getList(
     query.page,
     query.perPage,
     andFilters(entityAttributionFilter(entityId), query.filter),
@@ -71739,13 +72080,12 @@ async function getEntityAppearances(pb, entityId, opts = {}) {
   if (opts.media) {
     clauses.push(pb.filter("MediaRef = {:media}", { media: opts.media }));
   }
-  const result = await new LabelTrackMutator(pb).getList(
-    1,
-    opts.limit ?? 100,
-    clauses.join(" && "),
-    "MediaRef,start",
-    ["MediaRef.UploadRef", "LabelEntityRef"]
-  );
+  const result = await new LabelTrackMutator(pb, {
+    fields: [...TRACK_SUMMARY_FIELDS]
+  }).getList(1, opts.limit ?? 100, clauses.join(" && "), "MediaRef,start", [
+    "MediaRef.UploadRef",
+    "LabelEntityRef"
+  ]);
   const appearances = result.items.map((track) => {
     const t2 = track;
     const labelType = t2.expand?.LabelEntityRef?.labelType;
@@ -74383,6 +74723,961 @@ function registerLabelCommands(program2) {
   );
 }
 
+// src/commands/track.ts
+import { createWriteStream as createWriteStream2 } from "fs";
+import { once } from "events";
+
+// src/lib/track.ts
+var TRACK_EXPANDS = ["MediaRef.UploadRef", "LabelEntityRef.EntityRef"];
+var TRACK_PAGE_SIZE = 200;
+var DEFAULT_SHOW_FRAMES = 12;
+var MAX_SHOW_FRAMES = 200;
+var DEFAULT_AT_LIMIT = 20;
+var DEFAULT_MAX_FRAMES = 5e5;
+var DEFAULT_PRECISION = 4;
+function parseTrackType(value) {
+  const types = LABEL_TRACK_TYPE_VALUES;
+  if (!types.includes(value)) {
+    throw new InvalidArgumentError(
+      `Invalid track type "${value}". Valid types: ${types.join(", ")}`
+    );
+  }
+  return value;
+}
+function parsePositiveInt(value) {
+  const n2 = Number(value);
+  if (!Number.isInteger(n2) || n2 < 1) {
+    throw new InvalidArgumentError("expected a positive integer");
+  }
+  return n2;
+}
+function parseNonNegativeInt(value) {
+  const n2 = Number(value);
+  if (!Number.isInteger(n2) || n2 < 0) {
+    throw new InvalidArgumentError("expected a non-negative integer");
+  }
+  return n2;
+}
+function parseFps(value) {
+  const n2 = Number(value);
+  if (!Number.isFinite(n2) || n2 <= 0) {
+    throw new InvalidArgumentError("expected a positive number of frames/sec");
+  }
+  return n2;
+}
+function parseRegion(value) {
+  const parts = value.split(",").map((part) => Number(part.trim()));
+  if (parts.length !== 4 || parts.some((n2) => !Number.isFinite(n2))) {
+    throw new InvalidArgumentError(
+      "expected left,top,right,bottom as 0-1 fractions (e.g. 0.5,0,1,0.5)"
+    );
+  }
+  const [left, top, right, bottom] = parts;
+  if (right <= left || bottom <= top) {
+    throw new InvalidArgumentError(
+      "expected left < right and top < bottom (e.g. 0.5,0,1,0.5)"
+    );
+  }
+  return { left, top, right, bottom };
+}
+function summaryTracks(pb) {
+  return new LabelTrackMutator(pb, { fields: [...TRACK_SUMMARY_FIELDS] });
+}
+async function fetchKeyframes(pb, trackId) {
+  const row = await new LabelTrackMutator(pb, {
+    fields: [...TRACK_KEYFRAME_FIELDS]
+  }).getById(trackId);
+  return normalizeKeyframes(row?.keyframes);
+}
+async function requireTrack(pb, trackId) {
+  const track = await summaryTracks(pb).getById(
+    trackId,
+    TRACK_EXPANDS
+  );
+  if (!track) {
+    throw new Error(
+      `Track not found: ${trackId} (a LabelTrack record id \u2014 \`vw track list -m <mediaId>\` lists them)`
+    );
+  }
+  return track;
+}
+function trackUnionBox(track, keyframes = []) {
+  const stored = track.boundingBox;
+  if (stored && typeof stored === "object" && typeof stored.left === "number" && typeof stored.top === "number" && typeof stored.right === "number" && typeof stored.bottom === "number") {
+    return {
+      left: stored.left,
+      top: stored.top,
+      right: stored.right,
+      bottom: stored.bottom
+    };
+  }
+  return unionBbox(keyframes);
+}
+function trackFrameCount(track) {
+  const data = track.trackData;
+  const count = data?.frameCount;
+  return typeof count === "number" && Number.isFinite(count) ? count : null;
+}
+function trackSubject(track) {
+  const data = track.trackData;
+  const entity = data?.entity;
+  if (typeof entity === "string" && entity) return entity;
+  const speakerId = data?.speakerId;
+  if (typeof speakerId === "string" && speakerId) return speakerId;
+  return track.expand?.LabelEntityRef?.canonicalName ?? "";
+}
+function trackEntity(track) {
+  return track.expand?.LabelEntityRef?.expand?.EntityRef ?? null;
+}
+function trackMediaName(track) {
+  const media = track.expand?.MediaRef;
+  return media ? mediaLabel(media) : track.MediaRef;
+}
+function trackFrameSize(track) {
+  const media = track.expand?.MediaRef;
+  if (!media) return { width: 0, height: 0 };
+  const { width, height: height2 } = mediaDisplayDimensions(media);
+  return { width, height: height2 };
+}
+var TRACK_SORTS = [
+  ...LABEL_RANGE_SORTS,
+  {
+    value: "confidence",
+    description: "most confident first",
+    pbSort: "-confidence,MediaRef,start,id"
+  }
+];
+var trackScopeFilters = {
+  media: listFilter({
+    flags: "-m, --media <id>",
+    description: "tracks belonging to one media",
+    clause: (id) => ({ expr: "MediaRef = {:m}", params: { m: id } })
+  }),
+  entity: listFilter({
+    flags: "--entity <nameOrId>",
+    description: "only tracks attributed to this real-world entity",
+    // Resolved by the command (a name needs a lookup) and ANDed in by the
+    // fetcher, like `entity appearances` — the spec declares the flag so
+    // --help, the requirement check, and the footer all see it.
+    clause: () => null
+  }),
+  track: listFilter({
+    flags: "--track <trackId>",
+    description: "the provider's track id within a media (e.g. 4, speaker_0)",
+    clause: (id) => ({ expr: "trackId = {:t}", params: { t: id } })
+  }),
+  type: listFilter({
+    flags: "-t, --type <labelType>",
+    description: `only this track kind (${LABEL_TRACK_TYPE_VALUES.join(", ")})`,
+    parse: parseTrackType,
+    clause: (type) => ({ expr: "labelType = {:lt}", params: { lt: type } })
+  }),
+  from: listFilter({
+    flags: "--from <seconds>",
+    description: "only tracks overlapping at/after this media time",
+    parse: (raw) => Number(raw),
+    clause: (start) => ({ expr: "end > {:wStart}", params: { wStart: start } })
+  }),
+  to: listFilter({
+    flags: "--to <seconds>",
+    description: "only tracks overlapping before this media time",
+    parse: (raw) => Number(raw),
+    clause: (end) => ({ expr: "start < {:wEnd}", params: { wEnd: end } })
+  }),
+  minConfidence: listFilter({
+    flags: "--min-confidence <n>",
+    description: "minimum track confidence (0..1)",
+    parse: (raw) => Number(raw),
+    clause: (min) => ({ expr: "confidence >= {:mc}", params: { mc: min } })
+  }),
+  minDuration: listFilter({
+    flags: "--min-duration <seconds>",
+    description: "drop tracks shorter than this (single-frame noise)",
+    parse: (raw) => Number(raw),
+    clause: (min) => ({ expr: "duration >= {:md}", params: { md: min } })
+  })
+};
+var trackListSpec = {
+  command: "track list",
+  sorts: TRACK_SORTS,
+  requireOneOf: ["media", "entity", "track"],
+  filters: {
+    ...trackScopeFilters,
+    region: listFilter({
+      flags: "--region <l,t,r,b>",
+      description: "only tracks whose union box overlaps this region of the frame (0-1 fractions, e.g. 0.5,0,1,0.5 for the top-right quadrant)",
+      parse: parseRegion,
+      // Not a server clause: `boundingBox` is JSON, so overlap is a predicate
+      // over parsed values. Applied as a ListRefinement by the command.
+      clause: () => null
+    })
+  },
+  columns: [
+    { header: "ID", value: (t2) => t2.id },
+    { header: "TYPE", value: (t2) => t2.labelType || "?" },
+    { header: "TRACK", value: (t2) => t2.trackId },
+    { header: "SUBJECT", value: (t2) => truncate(trackSubject(t2), 24) },
+    { header: "ENTITY", value: (t2) => trackEntity(t2)?.name ?? "" },
+    { header: "START", value: (t2) => `${t2.start.toFixed(2)}s` },
+    { header: "END", value: (t2) => `${t2.end.toFixed(2)}s` },
+    { header: "DUR", value: (t2) => formatDuration(t2.duration) },
+    { header: "CONF", value: (t2) => t2.confidence.toFixed(2) },
+    {
+      header: "FRAMES",
+      value: (t2) => {
+        const count = trackFrameCount(t2);
+        return count === null ? "" : String(count);
+      }
+    }
+  ],
+  hint: "`vw track show <id>` for one track, `vw track at -m <mediaId> --at <s>` for what is on screen, `vw track export` for every frame"
+};
+function andFilters2(scope, filter) {
+  if (!scope) return filter;
+  return filter ? `(${scope}) && (${filter})` : scope;
+}
+function fetchTrackPage(pb, query, entityId) {
+  return summaryTracks(pb).getList(
+    query.page,
+    query.perPage,
+    andFilters2(entityId ? entityAttributionFilter(entityId) : "", query.filter),
+    query.sort,
+    TRACK_EXPANDS
+  );
+}
+function filterByRegion(tracks, region) {
+  return tracks.filter((track) => {
+    const box = trackUnionBox(track);
+    return box ? bboxIntersects(box, region) : false;
+  });
+}
+function trackMotion(keyframes) {
+  if (keyframes.length < 2) return null;
+  const first = keyframes[0];
+  const last = keyframes[keyframes.length - 1];
+  const from = bboxCenter(first.bbox);
+  const to = bboxCenter(last.bbox);
+  const startArea = bboxArea(first.bbox);
+  const areaChange = startArea > 0 ? bboxArea(last.bbox) / startArea - 1 : 0;
+  const parts = [];
+  if (Math.abs(to.x - from.x) > 0.02) {
+    parts.push(to.x > from.x ? "drifts right" : "drifts left");
+  }
+  if (Math.abs(to.y - from.y) > 0.02) {
+    parts.push(to.y > from.y ? "drifts down" : "drifts up");
+  }
+  if (Math.abs(areaChange) > 0.1) {
+    parts.push(areaChange > 0 ? "grows" : "shrinks");
+  }
+  return {
+    from,
+    to,
+    areaChange,
+    description: parts.length > 0 ? parts.join(", ") : "holds position"
+  };
+}
+async function getTrackDigest(pb, trackId, opts = {}) {
+  const requested = opts.frames ?? DEFAULT_SHOW_FRAMES;
+  if (requested > MAX_SHOW_FRAMES) {
+    throw new Error(
+      `--frames ${requested} exceeds the ${MAX_SHOW_FRAMES}-frame ceiling for a terminal digest. \`vw track export --track <trackId> -o frames.csv\` writes every frame to a file instead.`
+    );
+  }
+  const track = await requireTrack(pb, trackId);
+  const keyframes = await fetchKeyframes(pb, trackId);
+  const union2 = trackUnionBox(track, keyframes);
+  const frame = trackFrameSize(track);
+  const span = track.end - track.start;
+  return {
+    track,
+    mediaName: trackMediaName(track),
+    subject: trackSubject(track),
+    entity: trackEntity(track),
+    union: union2,
+    unionPixels: union2 ? bboxToPixels(union2, frame.width, frame.height) : null,
+    frame,
+    frameCount: keyframes.length,
+    frameRate: span > 0 && keyframes.length > 1 ? keyframes.length / span : null,
+    motion: trackMotion(keyframes),
+    samples: sampleKeyframes(keyframes, requested)
+  };
+}
+async function getTracksAt(pb, opts) {
+  if (!opts.mediaId && !opts.trackRecordId) {
+    throw new Error("track at needs -m <mediaId> or --track <labelTrackId>.");
+  }
+  const limit = opts.limit ?? DEFAULT_AT_LIMIT;
+  const clauses = [pb.filter("start <= {:t} && end >= {:t}", { t: opts.at })];
+  if (opts.mediaId) {
+    clauses.push(pb.filter("MediaRef = {:m}", { m: opts.mediaId }));
+  }
+  if (opts.trackRecordId) {
+    clauses.push(pb.filter("id = {:id}", { id: opts.trackRecordId }));
+  }
+  if (opts.type) {
+    clauses.push(pb.filter("labelType = {:lt}", { lt: opts.type }));
+  }
+  if (opts.minConfidence !== void 0) {
+    clauses.push(pb.filter("confidence >= {:mc}", { mc: opts.minConfidence }));
+  }
+  const live = await summaryTracks(pb).getList(
+    1,
+    limit,
+    clauses.join(" && "),
+    "-confidence,id",
+    TRACK_EXPANDS
+  );
+  const media = live.items[0]?.expand?.MediaRef;
+  const frame = media ? mediaDisplayDimensions(media) : { width: 0, height: 0, aspect: 0 };
+  const hits = [];
+  let withoutGeometry = 0;
+  for (const track of live.items) {
+    const keyframes = await fetchKeyframes(pb, track.id);
+    const bbox = interpolateBbox(keyframes, opts.at);
+    if (!bbox) {
+      withoutGeometry++;
+      continue;
+    }
+    hits.push({
+      track,
+      subject: trackSubject(track),
+      entity: trackEntity(track),
+      bbox,
+      pixels: bboxToPixels(bbox, frame.width, frame.height),
+      frameCount: keyframes.length
+    });
+  }
+  const mediaId = opts.mediaId ?? live.items[0]?.MediaRef ?? "";
+  return {
+    mediaId,
+    mediaName: media ? mediaLabel(media) : mediaId,
+    at: opts.at,
+    frame: { width: frame.width, height: frame.height },
+    hits,
+    totalLive: live.totalItems,
+    withoutGeometry
+  };
+}
+var TRACK_EXPORT_FORMATS = [
+  "csv",
+  "ndjson",
+  "json"
+];
+function parseExportFormat(value) {
+  if (!TRACK_EXPORT_FORMATS.includes(value)) {
+    throw new InvalidArgumentError(
+      `Invalid format "${value}". Valid formats: ${TRACK_EXPORT_FORMATS.join(", ")}`
+    );
+  }
+  return value;
+}
+var TRACK_EXPORT_DEFAULTS = {
+  format: "csv",
+  every: 0,
+  precision: DEFAULT_PRECISION,
+  pixels: false,
+  relative: false,
+  maxFrames: DEFAULT_MAX_FRAMES
+};
+function estimateExportFrames(tracks, opts) {
+  let total = 0;
+  for (const track of tracks) {
+    const stored = trackFrameCount(track) ?? 0;
+    if (stored === 0) continue;
+    let frames = stored;
+    if (opts.every > 0) {
+      frames = Math.min(frames, Math.floor(track.duration / opts.every) + 2);
+    }
+    if (opts.maxFramesPerTrack !== void 0) {
+      frames = Math.min(frames, opts.maxFramesPerTrack);
+    }
+    total += frames;
+  }
+  return total;
+}
+function prepareFrames(keyframes, track, opts) {
+  let frames = decimateKeyframes(keyframes, opts.every);
+  if (opts.maxFramesPerTrack !== void 0) {
+    frames = sampleKeyframes(frames, opts.maxFramesPerTrack);
+  }
+  if (opts.relative) {
+    frames = frames.map((kf) => ({ ...kf, t: kf.t - track.start }));
+  }
+  return frames.map((kf) => roundKeyframe(kf, opts.precision));
+}
+function csvHeader(opts) {
+  const geometry = opts.pixels ? ["left_px", "top_px", "right_px", "bottom_px"] : ["left", "top", "right", "bottom"];
+  return [
+    "track",
+    "trackId",
+    "media",
+    "type",
+    "subject",
+    "entity",
+    "t",
+    ...geometry,
+    "confidence"
+  ].join(",");
+}
+function csvField(value) {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+function exportRow(track, kf, opts, frame) {
+  const pixels = opts.pixels ? bboxToPixels(kf.bbox, frame.width, frame.height) : null;
+  if (opts.pixels && !pixels) return null;
+  const box = pixels ?? kf.bbox;
+  return {
+    track: track.id,
+    trackId: track.trackId,
+    media: track.MediaRef,
+    type: track.labelType || "",
+    subject: trackSubject(track),
+    entity: trackEntity(track)?.name ?? "",
+    t: kf.t,
+    left: box.left,
+    top: box.top,
+    right: box.right,
+    bottom: box.bottom,
+    confidence: typeof kf.confidence === "number" ? kf.confidence : ""
+  };
+}
+function csvLine(row) {
+  return [
+    row.track,
+    row.trackId,
+    row.media,
+    row.type,
+    row.subject,
+    row.entity,
+    row.t,
+    row.left,
+    row.top,
+    row.right,
+    row.bottom,
+    row.confidence
+  ].map(csvField).join(",");
+}
+async function fetchExportTracks(pb, filter, sort = "MediaRef,start,id") {
+  const mutator = summaryTracks(pb);
+  const items = [];
+  let page = 1;
+  for (; ; ) {
+    const result = await mutator.getList(
+      page,
+      TRACK_PAGE_SIZE,
+      filter,
+      sort,
+      TRACK_EXPANDS
+    );
+    items.push(...result.items);
+    if (page >= result.totalPages || result.items.length === 0) break;
+    page++;
+  }
+  return items;
+}
+function budgetExceededMessage(estimated, opts) {
+  const narrowings = [
+    "--every <seconds> (one frame per interval)",
+    "--max-frames-per-track <n>",
+    "-t <type> to a single track kind",
+    "--from/--to to a time window",
+    "--min-confidence / --min-duration to drop noise"
+  ];
+  return `This export would write about ${estimated.toLocaleString()} keyframes, past the ${opts.maxFrames.toLocaleString()}-frame budget. Nothing was fetched. Narrow it with one of:
+  ${narrowings.join("\n  ")}
+or raise the ceiling with --max-frames.`;
+}
+async function frameSizes(pb, tracks) {
+  const sizes = /* @__PURE__ */ new Map();
+  const missing = /* @__PURE__ */ new Set();
+  for (const track of tracks) {
+    if (sizes.has(track.MediaRef)) continue;
+    const media = track.expand?.MediaRef;
+    if (media) {
+      const { width, height: height2 } = mediaDisplayDimensions(media);
+      sizes.set(track.MediaRef, { width, height: height2 });
+    } else {
+      missing.add(track.MediaRef);
+    }
+  }
+  const mutator = new MediaMutator(pb, { expand: [] });
+  for (const id of missing) {
+    const media = await mutator.getById(id);
+    const { width, height: height2 } = mediaDisplayDimensions(media ?? void 0);
+    sizes.set(id, { width, height: height2 });
+  }
+  return sizes;
+}
+
+// src/commands/track.ts
+function at(seconds) {
+  return `${seconds.toFixed(2)}s`;
+}
+function boxText(box) {
+  return `l ${box.left.toFixed(3)}  t ${box.top.toFixed(3)}  r ${box.right.toFixed(3)}  b ${box.bottom.toFixed(3)}`;
+}
+function digestLines(digest) {
+  const { track, frame } = digest;
+  const subject = digest.subject ? ` "${digest.subject}"` : "";
+  const lines = [
+    `track ${track.id} \u2014 ${track.labelType || "untyped"}${subject} (track ${track.trackId}) in media ${track.MediaRef} "${digest.mediaName}"`,
+    `range   ${at(track.start)}\u2013${at(track.end)} (${formatDuration(track.duration)})   confidence ${track.confidence.toFixed(2)}   frames ${digest.frameCount}` + (digest.frameRate ? ` (~${digest.frameRate.toFixed(1)}/s)` : "")
+  ];
+  if (digest.union) {
+    const pixels = digest.unionPixels ? `   \u2192  ${digest.unionPixels.left},${digest.unionPixels.top} \u2013 ${digest.unionPixels.right},${digest.unionPixels.bottom} px of ${frame.width}x${frame.height}` : "";
+    lines.push(`union   ${boxText(digest.union)}${pixels}`);
+  } else {
+    lines.push("union   (no spatial keyframes \u2014 this track kind has none)");
+  }
+  if (digest.motion) {
+    const { from, to, areaChange, description } = digest.motion;
+    const area = Math.abs(areaChange) > 0.01 ? `, size ${areaChange > 0 ? "+" : "\u2212"}${Math.abs(areaChange * 100).toFixed(0)}%` : "";
+    lines.push(
+      `motion  centre ${(from.x * 100).toFixed(0)}%,${(from.y * 100).toFixed(0)}% \u2192 ${(to.x * 100).toFixed(0)}%,${(to.y * 100).toFixed(0)}%   (${description}${area})`
+    );
+  }
+  if (digest.entity) {
+    lines.push(
+      `entity  ${digest.entity.name} (${digest.entity.kind}, ${digest.entity.id})`
+    );
+  }
+  return lines;
+}
+function printSamples(digest) {
+  if (digest.samples.length === 0) return;
+  info("");
+  table(digest.samples, [
+    { header: "T", value: (kf) => kf.t.toFixed(3) },
+    { header: "LEFT", value: (kf) => kf.bbox.left.toFixed(3) },
+    { header: "TOP", value: (kf) => kf.bbox.top.toFixed(3) },
+    { header: "RIGHT", value: (kf) => kf.bbox.right.toFixed(3) },
+    { header: "BOTTOM", value: (kf) => kf.bbox.bottom.toFixed(3) },
+    {
+      header: "CONF",
+      value: (kf) => typeof kf.confidence === "number" ? kf.confidence.toFixed(2) : ""
+    }
+  ]);
+  if (digest.samples.length < digest.frameCount) {
+    info(
+      `(${digest.samples.length} of ${digest.frameCount} frames \u2014 --frames N for more, or \`vw track export --track ${digest.track.id}\` for all)`
+    );
+  }
+  const first = digest.samples[0];
+  info(
+    `see it: vw frame -m ${digest.track.MediaRef} --at ${first.t.toFixed(2)} -o frame.jpg`
+  );
+}
+function printTracksAt(result) {
+  info(
+    `${result.hits.length} track(s) on screen at ${at(result.at)} in ${result.mediaName} (${result.frame.width}x${result.frame.height})`
+  );
+  table(result.hits, [
+    { header: "ID", value: (h) => h.track.id },
+    { header: "TYPE", value: (h) => h.track.labelType || "?" },
+    { header: "TRACK", value: (h) => h.track.trackId },
+    { header: "SUBJECT", value: (h) => truncate(h.subject, 24) },
+    { header: "ENTITY", value: (h) => h.entity?.name ?? "" },
+    { header: "LEFT", value: (h) => h.bbox.left.toFixed(3) },
+    { header: "TOP", value: (h) => h.bbox.top.toFixed(3) },
+    { header: "RIGHT", value: (h) => h.bbox.right.toFixed(3) },
+    { header: "BOTTOM", value: (h) => h.bbox.bottom.toFixed(3) },
+    {
+      header: "PIXELS",
+      value: (h) => h.pixels ? `${h.pixels.width}x${h.pixels.height}` : ""
+    },
+    { header: "CONF", value: (h) => h.track.confidence.toFixed(2) }
+  ]);
+  if (result.withoutGeometry > 0) {
+    info(
+      `(${result.withoutGeometry} live track(s) hidden \u2014 speech/speaker tracks store no spatial keyframes)`
+    );
+  }
+  if (result.totalLive > result.hits.length + result.withoutGeometry) {
+    info(
+      `(showing ${result.hits.length} of ${result.totalLive} live tracks \u2014 raise -n, or narrow with -t/--min-confidence)`
+    );
+  }
+  info(`see it: vw frame -m ${result.mediaId} --at ${result.at} -o frame.jpg`);
+}
+function openSink(opts) {
+  if (opts.stdout) {
+    return {
+      write: async (chunk) => {
+        if (!process.stdout.write(chunk)) await once(process.stdout, "drain");
+      },
+      close: async () => void 0,
+      path: null
+    };
+  }
+  const path2 = resolveOutPath(
+    opts.out,
+    opts.defaultName,
+    process.cwd(),
+    isExistingDirectory
+  );
+  assertWritableOutPath(path2, opts.force);
+  const stream = createWriteStream2(path2);
+  return {
+    write: async (chunk) => {
+      if (!stream.write(chunk)) await once(stream, "drain");
+    },
+    close: async () => {
+      stream.end();
+      await once(stream, "close");
+    },
+    path: path2
+  };
+}
+function exportProgress() {
+  if (!process.stderr.isTTY) return () => void 0;
+  let lastAt = 0;
+  return (done, total) => {
+    const now = Date.now();
+    if (done < total && now - lastAt < 250) return;
+    lastAt = now;
+    process.stderr.write(`\r  track ${done} / ${total}    `);
+  };
+}
+function clearProgress2() {
+  if (process.stderr.isTTY) process.stderr.write("\r\x1B[K");
+}
+function registerTrackCommands(program2) {
+  const track = program2.command("track").description(
+    "Read frame-level tracking data (bounding boxes over time) for objects, faces, people, and on-screen text"
+  ).addHelpText("after", TRACK_HELP);
+  withListOptions(
+    track.command("list").alias("ls").description(
+      "List a media's (or an entity's) tracks \u2014 identity, span, and union box, without reading a single keyframe"
+    ),
+    trackListSpec
+  ).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb);
+      const entityId = opts.entity ? (await resolveEntity(pb, workspaceId, opts.entity)).id : void 0;
+      const region = opts.region;
+      await runList({
+        spec: trackListSpec,
+        opts,
+        ctx: { pb, workspaceId },
+        fetchPage: (query) => fetchTrackPage(pb, query, entityId),
+        // `boundingBox` is a JSON column, so "overlaps this region" cannot be a
+        // server clause. Declaring it here makes the runner walk every page so
+        // the count in the footer describes what actually matched.
+        refine: region && {
+          filter: (tracks) => filterByRegion(tracks, region),
+          extras: (hidden) => ({ region, hiddenOutsideRegion: hidden }),
+          note: (hidden) => `(region filtered: ${hidden} track(s) whose union box misses the region hidden)`
+        }
+      });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  const show = track.command("show <trackId>").description(
+    "Summarize one track: span, union box, drift, and an evenly spread sample of its keyframes"
+  ).option(
+    "--frames <n>",
+    `keyframes to sample into the table (default: ${DEFAULT_SHOW_FRAMES})`,
+    parsePositiveInt
+  );
+  withJsonOption(show).action(async (trackId, opts) => {
+    try {
+      const pb = await requireClient();
+      const digest = await getTrackDigest(pb, trackId, { frames: opts.frames });
+      if (opts.json) {
+        printRecord(
+          {
+            ...digest.track,
+            subject: digest.subject,
+            mediaName: digest.mediaName,
+            ...digest.entity ? { attributedEntity: digest.entity } : {},
+            union: digest.union,
+            unionPixels: digest.unionPixels,
+            frame: digest.frame,
+            frameCount: digest.frameCount,
+            frameRate: digest.frameRate,
+            motion: digest.motion,
+            sampledKeyframes: digest.samples
+          },
+          [],
+          true
+        );
+        return;
+      }
+      for (const line of digestLines(digest)) info(line);
+      printSamples(digest);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  const atCmd = track.command("at").description(
+    "What is on screen at one media time: every live track with its box interpolated between the surrounding keyframes"
+  ).option("-m, --media <id>", "the media to inspect").option("--track <labelTrackId>", "restrict to one track record").option("--at <seconds>", "media time to inspect", parseSeconds, 0).option(
+    "-t, --type <labelType>",
+    `only this track kind (${LABEL_TRACK_TYPE_VALUES.join(", ")})`,
+    parseTrackType
+  ).option(
+    "--min-confidence <n>",
+    "minimum track confidence (0..1)",
+    parseUnitInterval
+  ).option(
+    "-n, --limit <count>",
+    `tracks to report (default: ${DEFAULT_AT_LIMIT})`,
+    parsePositiveInt
+  );
+  withJsonOption(atCmd).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      if (!opts.media && !opts.track) {
+        throw new Error(
+          "track at needs -m <mediaId> (every live track) or --track <labelTrackId> (one)."
+        );
+      }
+      const result = await getTracksAt(pb, {
+        mediaId: opts.media,
+        trackRecordId: opts.track,
+        at: opts.at,
+        type: opts.type,
+        minConfidence: opts.minConfidence,
+        limit: opts.limit
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      printTracksAt(result);
+    } catch (err) {
+      handleError(err);
+    }
+  });
+  const exportCmd = track.command("export").description(
+    "Write every keyframe of the matching tracks to a file (CSV by default) \u2014 the bulk read, budgeted and never aimed at the terminal"
+  ).option("-m, --media <id>", "tracks belonging to one media").option(
+    "--entity <nameOrId>",
+    "tracks attributed to this real-world entity"
+  ).option("--track <labelTrackId>", "one track record").option(
+    "-t, --type <labelType>",
+    `only this track kind (${LABEL_TRACK_TYPE_VALUES.join(", ")})`,
+    parseTrackType
+  ).option(
+    "--from <seconds>",
+    "tracks overlapping at/after this time",
+    parseSeconds
+  ).option(
+    "--to <seconds>",
+    "tracks overlapping before this time",
+    parseSeconds
+  ).option(
+    "--min-confidence <n>",
+    "minimum track confidence (0..1)",
+    parseUnitInterval
+  ).option(
+    "--min-duration <seconds>",
+    "drop tracks shorter than this",
+    parseSeconds
+  ).option(
+    "--format <format>",
+    `output format (${TRACK_EXPORT_FORMATS.join(", ")}; default: csv)`,
+    parseExportFormat
+  ).option(
+    "--every <seconds>",
+    "keep at most one frame per interval (thins an 8fps track)",
+    parseSeconds
+  ).option(
+    "--fps <n>",
+    "keep at most this many frames per second (--every, expressed as a rate)",
+    parseFps
+  ).option(
+    "--max-frames-per-track <n>",
+    "cap frames per track, sampled evenly across its span",
+    parsePositiveInt
+  ).option(
+    "--precision <digits>",
+    `decimals for box/confidence values (default: ${DEFAULT_PRECISION})`,
+    parseNonNegativeInt
+  ).option(
+    "--pixels",
+    "emit whole pixels of the display frame, not 0-1 fractions"
+  ).option("--relative", "emit t as an offset from each track's start").option(
+    "--max-frames <n>",
+    `refuse an export estimated above this many frames (default: ${DEFAULT_MAX_FRAMES})`,
+    parsePositiveInt
+  ).option(
+    "-o, --out <path>",
+    "output file, or a directory to write the default name into (default: tracks-<scope>.<ext> in the current directory)"
+  ).option("--stdout", "stream to stdout instead of writing a file").option("--force", "overwrite the output file if it already exists");
+  withJsonOption(exportCmd).action(async (opts) => {
+    try {
+      const pb = await requireClient();
+      const workspaceId = await resolveWorkspaceId(pb);
+      if (!opts.media && !opts.entity && !opts.track) {
+        throw new Error(
+          "track export needs a scope: -m <mediaId>, --entity <nameOrId>, or --track <labelTrackId>. A whole workspace is never dumped by accident."
+        );
+      }
+      if (opts.every !== void 0 && opts.fps !== void 0) {
+        throw new Error(
+          "Pass --every or --fps, not both \u2014 they set the same thing."
+        );
+      }
+      const exportOptions = {
+        ...TRACK_EXPORT_DEFAULTS,
+        format: opts.format ?? TRACK_EXPORT_DEFAULTS.format,
+        every: opts.fps !== void 0 ? 1 / opts.fps : opts.every ?? 0,
+        maxFramesPerTrack: opts.maxFramesPerTrack,
+        precision: opts.precision ?? DEFAULT_PRECISION,
+        pixels: Boolean(opts.pixels),
+        relative: Boolean(opts.relative),
+        maxFrames: opts.maxFrames ?? DEFAULT_MAX_FRAMES
+      };
+      const clauses = [pb.filter("WorkspaceRef = {:ws}", { ws: workspaceId })];
+      if (opts.media)
+        clauses.push(pb.filter("MediaRef = {:m}", { m: opts.media }));
+      if (opts.track) clauses.push(pb.filter("id = {:id}", { id: opts.track }));
+      if (opts.type)
+        clauses.push(pb.filter("labelType = {:lt}", { lt: opts.type }));
+      if (opts.from !== void 0) {
+        clauses.push(pb.filter("end > {:wStart}", { wStart: opts.from }));
+      }
+      if (opts.to !== void 0) {
+        clauses.push(pb.filter("start < {:wEnd}", { wEnd: opts.to }));
+      }
+      if (opts.minConfidence !== void 0) {
+        clauses.push(
+          pb.filter("confidence >= {:mc}", { mc: opts.minConfidence })
+        );
+      }
+      if (opts.minDuration !== void 0) {
+        clauses.push(pb.filter("duration >= {:md}", { md: opts.minDuration }));
+      }
+      const entityId = opts.entity ? (await resolveEntity(pb, workspaceId, opts.entity)).id : void 0;
+      const filter = andFilters2(
+        entityId ? entityAttributionFilter(entityId) : "",
+        clauses.join(" && ")
+      );
+      const tracks = await fetchExportTracks(pb, filter);
+      if (tracks.length === 0) {
+        throw new Error(
+          "No tracks match that scope. `vw track list` with the same flags shows what is there."
+        );
+      }
+      const estimated = estimateExportFrames(tracks, exportOptions);
+      if (estimated > exportOptions.maxFrames) {
+        throw new Error(budgetExceededMessage(estimated, exportOptions));
+      }
+      const scope = opts.media ?? opts.track ?? entityId ?? "workspace";
+      const extension = exportOptions.format === "json" ? "json" : exportOptions.format;
+      const sink = openSink({
+        stdout: opts.stdout,
+        out: opts.out,
+        defaultName: `tracks-${scope}.${extension}`,
+        force: opts.force
+      });
+      const sizes = exportOptions.pixels ? await frameSizes(pb, tracks) : /* @__PURE__ */ new Map();
+      const report = exportProgress();
+      let frameCount = 0;
+      let tracksWithoutGeometry = 0;
+      let jsonFirst = true;
+      try {
+        if (exportOptions.format === "csv") {
+          await sink.write(`${csvHeader(exportOptions)}
+`);
+        } else if (exportOptions.format === "json") {
+          await sink.write('{"tracks":[');
+        }
+        for (const [index, trackRow] of tracks.entries()) {
+          report(index + 1, tracks.length);
+          const keyframes = await fetchKeyframes(pb, trackRow.id);
+          if (keyframes.length === 0) {
+            tracksWithoutGeometry++;
+            continue;
+          }
+          const frames = prepareFrames(keyframes, trackRow, exportOptions);
+          const size = sizes.get(trackRow.MediaRef) ?? { width: 0, height: 0 };
+          if (exportOptions.format === "json") {
+            const rows = frames.map((kf) => exportRow(trackRow, kf, exportOptions, size)).filter((row) => row !== null);
+            if (rows.length === 0) continue;
+            frameCount += rows.length;
+            await sink.write(
+              `${jsonFirst ? "" : ","}${JSON.stringify({
+                id: trackRow.id,
+                trackId: trackRow.trackId,
+                MediaRef: trackRow.MediaRef,
+                labelType: trackRow.labelType,
+                start: trackRow.start,
+                end: trackRow.end,
+                confidence: trackRow.confidence,
+                keyframes: rows
+              })}`
+            );
+            jsonFirst = false;
+            continue;
+          }
+          let chunk = "";
+          for (const kf of frames) {
+            const row = exportRow(trackRow, kf, exportOptions, size);
+            if (!row) continue;
+            frameCount++;
+            chunk += exportOptions.format === "csv" ? `${csvLine(row)}
+` : `${JSON.stringify(row)}
+`;
+          }
+          if (chunk) await sink.write(chunk);
+        }
+        if (exportOptions.format === "json") await sink.write("]}\n");
+      } finally {
+        await sink.close();
+        clearProgress2();
+      }
+      const manifest = {
+        format: exportOptions.format,
+        units: exportOptions.pixels ? "pixels" : "normalized",
+        timebase: exportOptions.relative ? "track" : "media",
+        precision: exportOptions.precision,
+        every: exportOptions.every,
+        maxFramesPerTrack: exportOptions.maxFramesPerTrack,
+        trackCount: tracks.length,
+        frameCount,
+        tracksWithoutGeometry,
+        storedFrameCount: estimateExportFrames(tracks, { every: 0 })
+      };
+      if (opts.json) {
+        const document2 = JSON.stringify(
+          { ...manifest, ...sink.path ? { path: sink.path } : {} },
+          null,
+          2
+        );
+        if (sink.path) console.log(document2);
+        else process.stderr.write(`${document2}
+`);
+        return;
+      }
+      if (!sink.path) return;
+      success(
+        `Wrote ${frameCount.toLocaleString()} keyframe(s) from ${tracks.length} track(s) to ${sink.path}`
+      );
+      const units = exportOptions.pixels ? `pixels of the display frame` : "0-1 fractions of the frame";
+      info(
+        `  ${exportOptions.format}, ${units}, t in ${exportOptions.relative ? "seconds from each track start" : "absolute media seconds"}`
+      );
+      if (exportOptions.every > 0) {
+        info(
+          `  thinned to one frame per ${exportOptions.every.toFixed(3)}s (${manifest.storedFrameCount.toLocaleString()} stored)`
+        );
+      }
+      if (tracksWithoutGeometry > 0) {
+        warn(
+          `${tracksWithoutGeometry} track(s) had no spatial keyframes and were skipped (speech/speaker tracks store none)`
+        );
+      }
+    } catch (err) {
+      handleError(err);
+    }
+  });
+}
+
 // src/commands/entity.ts
 var appearanceColumns = [
   { header: "MEDIA", value: (a) => a.mediaName },
@@ -76868,13 +78163,13 @@ function assertSingleFrameSource(opts) {
 function playedDuration(segments) {
   return segments.reduce((sum, s2) => sum + Math.max(0, s2.end - s2.start), 0);
 }
-async function resolveFrameSource(pb, opts, at) {
+async function resolveFrameSource(pb, opts, at2) {
   assertSingleFrameSource(opts);
   if (opts.media) {
     const media = await requireMedia(pb, opts.media);
-    if (at > media.duration) {
+    if (at2 > media.duration) {
       throw new Error(
-        `--at ${at.toFixed(2)}s is past the end of media ${media.id} (duration ${media.duration.toFixed(2)}s).`
+        `--at ${at2.toFixed(2)}s is past the end of media ${media.id} (duration ${media.duration.toFixed(2)}s).`
       );
     }
     return {
@@ -76883,15 +78178,15 @@ async function resolveFrameSource(pb, opts, at) {
       media,
       atDomain: "media",
       maxAt: media.duration,
-      sourceTime: at
+      sourceTime: at2
     };
   }
   const sourceId = opts.clip;
   const editList = await clipEditListFilter(pb, { clip: sourceId });
   const maxAt = playedDuration(editList.segments);
-  if (at > maxAt) {
+  if (at2 > maxAt) {
     throw new Error(
-      `--at ${at.toFixed(2)}s is past the end of clip ${sourceId} (it plays ${maxAt.toFixed(2)}s; --at is seconds from the clip's first played frame, not a source-media time).`
+      `--at ${at2.toFixed(2)}s is past the end of clip ${sourceId} (it plays ${maxAt.toFixed(2)}s; --at is seconds from the clip's first played frame, not a source-media time).`
     );
   }
   return {
@@ -76900,7 +78195,7 @@ async function resolveFrameSource(pb, opts, at) {
     media: await requireMedia(pb, editList.mediaId),
     atDomain: "offset",
     maxAt,
-    sourceTime: sourceTimeAtCompositeOffset(editList.segments, at)
+    sourceTime: sourceTimeAtCompositeOffset(editList.segments, at2)
   };
 }
 async function loadFilmstripFiles(pb, media) {
@@ -77315,7 +78610,7 @@ function registerJobCommands(program2) {
 // src/program.ts
 function resolveVersion() {
   if (true) {
-    return "1.0.4";
+    return "1.1.0";
   }
   try {
     const root = join5(dirname3(fileURLToPath(import.meta.url)), "..", "..");
@@ -77338,6 +78633,7 @@ function buildProgram() {
   registerMediaCommands(program2);
   registerDirectoryCommands(program2);
   registerLabelCommands(program2);
+  registerTrackCommands(program2);
   registerEntityCommands(program2);
   registerCaptionCommands(program2);
   registerTimelineCommands(program2);

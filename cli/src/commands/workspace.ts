@@ -118,6 +118,11 @@ export function registerWorkspaceCommands(program: Command): void {
       )
       .option('--no-labels', 'skip per-media label data')
       .option(
+        '--tracks',
+        'also write per-frame tracking keyframes (track summaries are ' +
+          'always written; the frames can be large)'
+      )
+      .option(
         '--force',
         'write into a non-empty directory that is not a previous export'
       )
@@ -131,6 +136,7 @@ export function registerWorkspaceCommands(program: Command): void {
           workspaceId,
           dir: dir ?? 'vw-export',
           labels: opts.labels,
+          tracks: opts.tracks,
           force: opts.force,
         },
         opts.json ? undefined : info
@@ -143,7 +149,8 @@ export function registerWorkspaceCommands(program: Command): void {
       success(
         `Exported workspace "${result.workspace.name}" to ${result.dir} ` +
           `(${counts.media} media, ${counts.mediaClips} clips, ` +
-          `${counts.labels} labels, ${counts.timelines} timelines)`
+          `${counts.labels} labels, ${counts.tracks} tracks, ` +
+          `${counts.timelines} timelines)`
       );
       info(`Agents should start at ${join(result.dir, 'INSTRUCTIONS.md')}`);
     } catch (err) {

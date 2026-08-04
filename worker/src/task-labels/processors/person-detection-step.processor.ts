@@ -7,6 +7,7 @@ import { LabelEntityService } from '../services/label-entity.service';
 import { PersonDetectionExecutor } from '../executors/person-detection.executor';
 import { PersonDetectionNormalizer } from '../normalizers/person-detection.normalizer';
 import { PocketBaseService } from '../../shared/services/pocketbase.service';
+import { healBoundingBox } from '../utils/track-bounding-box';
 import type { StepJobData } from '../../queue/types/job.types';
 import type { PersonDetectionStepInput } from '../types/step-inputs';
 import type { PersonDetectionStepOutput } from '../types/step-outputs';
@@ -220,6 +221,11 @@ export class PersonDetectionStepProcessor extends BaseStepProcessor<
             );
 
           if (existing) {
+            await healBoundingBox(
+              this.pocketBaseService.labelTrackMutator,
+              existing,
+              track.boundingBox
+            );
             trackIdsMap[track.trackId] = existing.id;
             continue;
           }

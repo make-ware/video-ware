@@ -15,7 +15,12 @@ export { MediaMutator } from './media';
 export { MediaTagMutator } from './media-tag';
 export { MediaEntitiesMutator } from './media-entities';
 export { CaptionMutator } from './caption';
-export { LabelTrackMutator } from './label-track';
+export {
+  LabelTrackMutator,
+  TRACK_KEYFRAME_FIELDS,
+  TRACK_SUMMARY_FIELDS,
+  TRACK_SUMMARY_OMITTED_FIELDS,
+} from './label-track';
 export { MediaClipMutator, type ActualizableLabel } from './media-clip';
 export {
   MediaClipLabelMutator,

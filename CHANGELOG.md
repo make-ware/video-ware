@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.1](https://github.com/make-ware/video-ware/compare/video-ware-v1.1.0...video-ware-v1.1.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* failing media delete ([d25da77](https://github.com/make-ware/video-ware/commit/d25da77fe4c844fdd09748568a8154aeadcdba75))
+* improve keyframe in woker and cli ([07d2d38](https://github.com/make-ware/video-ware/commit/07d2d38ee217ea663470eccb8185f3e461333344))
+* timeline layout improvement ([be5dd90](https://github.com/make-ware/video-ware/commit/be5dd90870034e3e5842ef5467499b77553a0000))
+
 ## [1.1.0](https://github.com/make-ware/video-ware/compare/video-ware-v1.0.4...video-ware-v1.1.0) (2026-07-31)
 
 

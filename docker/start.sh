@@ -14,6 +14,15 @@ export PB_PUBLIC_DIR="${PB_PUBLIC_DIR:-/app/webapp/.next}"
 
 # POCKETBASE_URL is for server-side code and worker (bypasses nginx, connects directly)
 export POCKETBASE_URL="${POCKETBASE_URL:-http://localhost:8090}"
+
+# PUBLIC_POCKETBASE_URL is the BROWSER-facing PocketBase origin, read by the
+# Next server per request and injected into the page. Leave it empty for the
+# default same-origin monolith (nginx proxies /api/ and /_/); set it only for a
+# split deployment where PocketBase lives on its own hostname. Exported even
+# when empty because supervisord fails on an unset %(ENV_...)s reference.
+# NOTE: NEXT_PUBLIC_POCKETBASE_URL is deliberately NOT honoured here — it is
+# baked in at build time and has been inert at runtime for years.
+export PUBLIC_POCKETBASE_URL="${PUBLIC_POCKETBASE_URL:-}"
 export POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
 export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
 

@@ -230,6 +230,12 @@ import PocketBase from 'pocketbase';
 export const pb = new PocketBase(process.env.NEXT_PUBLIC_POCKETBASE_URL || 'http://localhost:8090');
 ```
 
+> In the webapp, always use the `@/lib/pocketbase-client` singleton rather than
+> constructing a client. It resolves the URL in tiers: the runtime
+> `PUBLIC_POCKETBASE_URL` (server-injected, changeable without a rebuild) wins
+> over the build-time `NEXT_PUBLIC_POCKETBASE_URL`. See
+> [`webapp/README.md`](../webapp/README.md) for the full contract.
+
 #### Example Usage
 
 ```typescript
@@ -375,7 +381,12 @@ Create `.env.local` in the webapp directory:
 
 ```bash
 # webapp/.env.local
+# Build-time default, inlined into the client bundle by `next build`
 NEXT_PUBLIC_POCKETBASE_URL=http://localhost:8090
+# Optional runtime override, read per request by the Next server. Leave unset
+# for same-origin deployments; set it to point an already-built app at a
+# PocketBase on a different hostname without rebuilding.
+PUBLIC_POCKETBASE_URL=
 ```
 
 For worker configuration, create `.env` in the worker directory:
@@ -471,7 +482,8 @@ For detailed GCVI processor configuration and cost optimization, see the **[GCVI
    ```
 
 3. Deploy to Vercel/Netlify or use Docker
-4. Update `NEXT_PUBLIC_POCKETBASE_URL` to production URL
+4. Update `NEXT_PUBLIC_POCKETBASE_URL` to the production URL at build time, or
+   set `PUBLIC_POCKETBASE_URL` at runtime to retarget an existing build
 
 ### Worker
 

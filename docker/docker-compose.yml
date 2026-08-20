@@ -96,8 +96,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Public URL for the browser to access PocketBase
-      - NEXT_PUBLIC_POCKETBASE_URL=${NEXT_PUBLIC_POCKETBASE_URL:-http://localhost:8090}
+      # Public URL for the browser to access PocketBase. Runtime-only var:
+      # NEXT_PUBLIC_POCKETBASE_URL is baked into the published image at build
+      # time and cannot be changed here, which is why this stack needs
+      # PUBLIC_POCKETBASE_URL to reach PocketBase on its own port.
+      - PUBLIC_POCKETBASE_URL=${PUBLIC_POCKETBASE_URL:-http://localhost:8090}
       # Internal URL for SSR to access PocketBase
       - POCKETBASE_URL=http://pocketbase:8090
       # MUST match the worker's storage config: the webapp's upload API routes

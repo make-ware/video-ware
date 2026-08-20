@@ -17,7 +17,20 @@ export const envSchema = z.object({
   // ===========================================
   // Next.js Configuration
   // ===========================================
+  /**
+   * Build-time browser-facing PocketBase URL. Next inlines `NEXT_PUBLIC_*`
+   * into the client bundle during `next build`, so setting this at runtime
+   * has no effect on the browser — it is the legacy fallback only.
+   */
   NEXT_PUBLIC_POCKETBASE_URL: z.string().default('http://localhost:8090'),
+  /**
+   * Runtime browser-facing PocketBase URL. Read per request by the Next
+   * server and injected into the page, so it retargets an already-built image
+   * without a rebuild. Deliberately unprefixed so Next never inlines it, and
+   * `.optional()` rather than `.default()` — an unset value must stay unset so
+   * the build-time fallback above still wins.
+   */
+  PUBLIC_POCKETBASE_URL: z.string().optional(),
 
   // ===========================================
   // Redis Configuration

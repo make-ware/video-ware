@@ -10,6 +10,10 @@ import { PageMenuProvider } from '@/contexts/page-menu-context';
 import { NavigationBar } from '@/components/layout/navigation-bar';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme-provider';
+import {
+  resolvePublicPocketbaseUrl,
+  runtimeConfigScript,
+} from '@/lib/runtime-config';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -27,13 +31,40 @@ export const metadata: Metadata = {
     'Create, edit, and manage your videos with our powerful web-based video editor',
 };
 
+// The runtime config below is read from `process.env` per request. Without
+// this the layout is prerendered at build time and the emitted script would
+// carry the *build*-time value, which is the bug we are fixing. Cost is
+// negligible: every page in the app is already 'use client' and auth-gated,
+// so the prerendered shells this gives up carry no page-specific content.
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const pocketbaseUrl = resolvePublicPocketbaseUrl(process.env);
+
   return (
     <html lang="en" suppressHydrationWarning>
+      {/* Inline classic script setting the runtime config during HTML parse.
+          React hoists Next's own bundle <script async> tags ABOVE anything the
+          layout emits, so this is NOT the first child of <head> and cannot be
+          made so from App Router — an async chunk could in principle execute
+          first and construct the PocketBase singleton with the stale URL.
+          `PocketBaseProvider` closes that window by reconciling `pb.baseURL`
+          before any consumer renders; see syncBaseUrl in lib/pocketbase-client.
+          Emitted only when configured, so deployments that set nothing ship
+          byte-identical HTML to before. */}
+      {pocketbaseUrl && (
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: runtimeConfigScript({ pocketbaseUrl }),
+            }}
+          />
+        </head>
+      )}
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

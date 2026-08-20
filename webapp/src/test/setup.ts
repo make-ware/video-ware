@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import { expect } from 'vitest';
@@ -35,6 +35,14 @@ beforeAll(() => {
 
 // Mock environment variables
 process.env.NEXT_PUBLIC_POCKETBASE_URL = 'http://localhost:8090';
+
+// The server-injected runtime config (see src/lib/runtime-config.ts) lives on
+// globalThis, which vitest does NOT reset between tests. Clear it so a suite
+// that sets it can never change how a later suite resolves the PocketBase URL.
+beforeEach(() => {
+  delete (globalThis as { __VW_RUNTIME_CONFIG__?: unknown })
+    .__VW_RUNTIME_CONFIG__;
+});
 
 // Mock Next.js router
 vi.mock('next/navigation', () => ({

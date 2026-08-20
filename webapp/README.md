@@ -220,13 +220,34 @@ import PocketBase from 'pocketbase';
 import type { TypedPocketBase } from './types';
 
 const pb = new PocketBase(
-  process.env.NEXT_PUBLIC_POCKETBASE_URL || 'http://localhost:8090'
+  // Runtime override first (server-injected), then the build-time default
+  readRuntimeConfig()?.pocketbaseUrl ||
+    process.env.NEXT_PUBLIC_POCKETBASE_URL ||
+    'http://localhost:8090'
 ) as TypedPocketBase;
 
 export default pb;
 ```
 
 Always use this singleton instance - never create new PocketBase instances.
+
+The URL is resolved in tiers (see `lib/pocketbase-client.ts` and
+`lib/runtime-config.ts`):
+
+1. `PUBLIC_POCKETBASE_URL` — the **runtime** value. Read from `process.env` by
+   the root layout on every request and emitted as an inline `<script>` that
+   sets `globalThis.__VW_RUNTIME_CONFIG__` before any bundle chunk runs, so a
+   built image can be retargeted at a different PocketBase origin with only a
+   restart. `instrumentation.ts` sets the same global server-side so SSR
+   resolves identically.
+2. `NEXT_PUBLIC_POCKETBASE_URL` — the **build-time** default, inlined by
+   `next build`. A runtime value here is *not* honoured: it has been inert for
+   years and operators have copied the placeholder into runtime env knowing
+   that, so honouring it now would break working same-origin deployments.
+3. The schema default from `@project/shared/env`.
+
+Relative values (e.g. `/`) resolve against `window.location.origin`, which is
+what makes the same-origin reverse-proxy deployment work.
 
 ## Development Best Practices
 
@@ -295,10 +316,16 @@ const createTodo = (data: any) => {
 Create `.env.local` in the webapp directory:
 
 ```bash
+# Build-time default, inlined into the client bundle by `next build`
 NEXT_PUBLIC_POCKETBASE_URL=http://localhost:8090
+# Runtime override, read per request by the Next server (optional; leave unset
+# for same-origin deployments)
+PUBLIC_POCKETBASE_URL=
 ```
 
-Use `NEXT_PUBLIC_` prefix for client-side environment variables.
+Use the `NEXT_PUBLIC_` prefix for values that may be inlined into the client
+bundle at build time. Anything an operator must be able to retune **without a
+rebuild** must NOT carry that prefix — see the PocketBase URL tiers above.
 
 ## Available Scripts
 
@@ -447,7 +474,9 @@ export function PostList() {
 1. Connect your repository to Vercel
 2. Set the root directory to `webapp/`
 3. Set environment variables:
-   - `NEXT_PUBLIC_POCKETBASE_URL` - Your PocketBase instance URL
+   - `NEXT_PUBLIC_POCKETBASE_URL` - Your PocketBase instance URL (build-time)
+   - `PUBLIC_POCKETBASE_URL` - Optional runtime override; use this to change the
+     browser-facing URL without rebuilding
 4. Deploy
 
 ### Other Platforms
@@ -459,7 +488,7 @@ yarn workspace webapp build
 # Deploy the webapp/.next directory
 ```
 
-Make sure to set the correct `NEXT_PUBLIC_POCKETBASE_URL` environment variable for your production PocketBase instance.
+Make sure to set the correct `NEXT_PUBLIC_POCKETBASE_URL` environment variable at **build time** for your production PocketBase instance, or set `PUBLIC_POCKETBASE_URL` at **runtime** to point an already-built deployment at it without rebuilding.
 
 ## Troubleshooting
 
@@ -483,7 +512,7 @@ If imports fail:
 
 If authentication doesn't persist:
 
-1. Check that `NEXT_PUBLIC_POCKETBASE_URL` is set correctly
+1. Check that `NEXT_PUBLIC_POCKETBASE_URL` (build time) or `PUBLIC_POCKETBASE_URL` (runtime) is set correctly
 2. Verify PocketBase is running and accessible
 3. Check browser console for CORS errors
 4. Ensure cookies are enabled in the browser

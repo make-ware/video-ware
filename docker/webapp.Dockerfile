@@ -48,9 +48,18 @@ FROM base AS builder
 WORKDIR /app
 
 # Build argument for NEXT_PUBLIC_POCKETBASE_URL
-# This is embedded into the Next.js build at build time
-# - Production/Staging: "/" (routes through nginx)
+#
+# WARNING: NEXT_PUBLIC_* variables are inlined into the client bundle by
+# `next build`. Setting this at container runtime has NO EFFECT on the browser
+# — it only changes the value baked in by a rebuild. It is the build-time
+# default, nothing more:
+# - Production/Staging: "/" (routes through nginx, same origin)
 # - Development: "http://localhost:8090" (direct connection)
+#
+# To point an ALREADY-BUILT image at a different PocketBase origin (e.g. a
+# split deployment where PocketBase lives on its own hostname), set the
+# runtime variable PUBLIC_POCKETBASE_URL instead. The Next server reads it per
+# request and injects it into the page, so no rebuild is needed.
 ARG NEXT_PUBLIC_POCKETBASE_URL="/"
 
 # Install Yarn v4

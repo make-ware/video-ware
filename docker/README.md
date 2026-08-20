@@ -217,12 +217,29 @@ Required when `STORAGE_TYPE=s3`. Note the **`STORAGE_S3_`** prefix — the worke
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NEXT_PUBLIC_POCKETBASE_URL` | `http://localhost:8090` | Public URL for PocketBase (used by browser) |
+| `PUBLIC_POCKETBASE_URL` | _(unset)_ | **Runtime** public URL for PocketBase (used by the browser). Leave unset for same-origin deployments; set it when PocketBase lives on a separate hostname. |
+| `NEXT_PUBLIC_POCKETBASE_URL` | `http://localhost:8090` | **Build-time only** default for the above. Baked into the browser bundle by `docker build`; setting it at runtime does nothing for the browser. |
 
 > [!IMPORTANT]
-> **`NEXT_PUBLIC_*` is build-time only.** Next.js inlines any `NEXT_PUBLIC_`-prefixed variable into the browser bundle at `docker build` time (see the `ARG`/`ENV NEXT_PUBLIC_POCKETBASE_URL` step in the `builder` stage of the Dockerfile). Setting `NEXT_PUBLIC_POCKETBASE_URL` at **runtime** (via `-e`, `envFrom`, `config.env`, etc.) does **not** change what the browser uses — only the SSR/server-side reads and the worker pick up the runtime value. To change the client value, pass it as `--build-arg NEXT_PUBLIC_POCKETBASE_URL=...` when building the image.
+> **`NEXT_PUBLIC_*` is build-time only — use `PUBLIC_POCKETBASE_URL` at runtime.** Next.js inlines any `NEXT_PUBLIC_`-prefixed variable into the browser bundle at `docker build` time (see the `ARG`/`ENV NEXT_PUBLIC_POCKETBASE_URL` step in the `builder` stage of the Dockerfile). Setting `NEXT_PUBLIC_POCKETBASE_URL` at **runtime** (via `-e`, `envFrom`, `config.env`, etc.) does **not** change what the browser uses — only the SSR/server-side reads and the worker pick up the runtime value.
 >
-> This is currently harmless for the default same-origin gateway deployment: the image bakes `"/"`, and the gateway proxies `/api` + `/_/` to PocketBase on the same origin, so the relative URL resolves correctly regardless of the runtime value. It only becomes a problem if you serve PocketBase from a **separate hostname**, in which case you must rebuild the image with the correct build-arg.
+> To point an **already-built image** at a different PocketBase origin, set **`PUBLIC_POCKETBASE_URL`** instead. It is deliberately *not* `NEXT_PUBLIC_`-prefixed, so Next never inlines it: the Next server reads it per request and injects it into the page, and the browser picks it up before any bundle chunk runs. A restart is enough — no rebuild, no `--build-arg`.
+>
+> `NEXT_PUBLIC_POCKETBASE_URL` is **not** honoured as a runtime fallback, by design. Both `.env.example` and `docker-compose.yml` have shipped an inert `http://localhost:8090` for years and operators have long copied it into runtime env knowing it did nothing; honouring it now would silently break every working same-origin deployment. Opting in to a runtime override is explicit.
+>
+> Leaving `PUBLIC_POCKETBASE_URL` unset preserves today's behaviour exactly: the default same-origin gateway deployment bakes `"/"`, and the gateway proxies `/api` + `/_/` to PocketBase on the same origin, so the relative URL resolves against the page origin and works regardless.
+>
+> **Split-origin prerequisites.** Pointing the browser at a separate PocketBase hostname is a deployment change as well as a config one: PocketBase must allow the webapp's origin via CORS, and the browser needs direct access to `/api/realtime` on that host for the SSE stream that drives upload/processing progress.
+
+```bash
+# Retarget a running image at a PocketBase on its own hostname — no rebuild
+docker run -d \
+  --name video-ware \
+  -p 8888:80 \
+  -e PUBLIC_POCKETBASE_URL=https://pb.example.com \
+  -v ./data:/data \
+  ghcr.io/make-ware/video-ware:latest
+```
 
 ### Example: Monolithic Container with Full Configuration
 

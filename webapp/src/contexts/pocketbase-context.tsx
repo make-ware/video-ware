@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useMemo } from 'react';
 import type { TypedPocketBase } from '@project/shared/types';
-import pb from '@/lib/pocketbase-client';
+import pb, { syncBaseUrl } from '@/lib/pocketbase-client';
 
 interface PocketBaseContextType {
   pb: TypedPocketBase;
@@ -17,7 +17,14 @@ export function PocketBaseProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const value = useMemo(() => ({ pb }), []);
+  const value = useMemo(() => {
+    // Ordering insurance: reconcile the singleton against the server-injected
+    // runtime config before any descendant renders or fires an effect. This
+    // provider sits above every consumer, and the call is a no-op when
+    // `PUBLIC_POCKETBASE_URL` is unset.
+    syncBaseUrl();
+    return { pb };
+  }, []);
   return (
     <PocketBaseContext.Provider value={value}>
       {children}

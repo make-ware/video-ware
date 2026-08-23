@@ -211,6 +211,8 @@ COPY --chown=root:root docker/supervisord.conf /etc/supervisor/conf.d/supervisor
 COPY --chown=root:root docker/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=nextjs:nodejs docker/start.sh /app/start.sh
 COPY --chown=root:root docker/graceful-shutdown.sh /app/docker/graceful-shutdown.sh
+# Sourced by start.sh, never executed - deliberately not chmod +x below.
+COPY --chown=root:root docker/pb-superuser.sh /app/docker/pb-superuser.sh
 
 RUN chmod +x /app/start.sh && \
     chmod +x /app/docker/graceful-shutdown.sh && \

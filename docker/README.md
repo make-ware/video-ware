@@ -161,15 +161,37 @@ Each release produces multiple tags for version pinning:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POCKETBASE_ADMIN_EMAIL` | `admin@example.com` | Admin email for PocketBase superuser |
-| `POCKETBASE_ADMIN_PASSWORD` | `your-secure-password` | Admin password (must be changed for auto-setup) |
+| `POCKETBASE_ADMIN_EMAIL` | generated on first start if unset | Admin email for the PocketBase superuser |
+| `POCKETBASE_ADMIN_PASSWORD` | generated on first start if unset | Admin password for the PocketBase superuser |
+
+Leave both unset and the container generates `admin@video-ware.local` plus a
+random 32-character password on first start, saves the pair to
+`/data/pb_data/.pb_superuser.env` (mode 0600) and reuses it on every restart.
+Read it back with:
+
+```bash
+docker exec <container> cat /data/pb_data/.pb_superuser.env
+```
+
+Set **both** to take over the account yourself; setting only one is a fatal
+configuration error. The placeholder pair `admin@example.com` /
+`your-secure-password` is treated as "not supplied" - its password is published
+in this repository, so a credential is generated instead. Delete
+`.pb_superuser.env` to have a new pair generated.
 
 #### Docker Compose
 
 | Variable | Description |
 |----------|-------------|
-| `POCKETBASE_ADMIN_EMAIL` | Admin email for PocketBase superuser |
-| `POCKETBASE_ADMIN_PASSWORD` | Admin password (must be set) |
+| `POCKETBASE_ADMIN_EMAIL` | Admin email for the PocketBase superuser |
+| `POCKETBASE_ADMIN_PASSWORD` | Admin password for the PocketBase superuser |
+
+**Set both in the host `.env` for the compose stack.** Unlike the monolith,
+PocketBase and the worker are separate containers: a credential generated inside
+the PocketBase container is written to its `/data/pb_data/.pb_superuser.env`,
+which the worker cannot read. With neither variable set, PocketBase and the
+webapp come up and the worker crash-loops on `POCKETBASE_ADMIN_EMAIL is
+required`.
 
 ### Optional Environment Variables
 

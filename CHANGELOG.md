@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/make-ware/video-ware/compare/video-ware-v1.1.1...video-ware-v1.2.0) (2026-08-24)
+
+
+### Features
+
+* **setup:** auto-generate PocketBase superuser on clean-slate first run ([#133](https://github.com/make-ware/video-ware/issues/133)) ([97a1f76](https://github.com/make-ware/video-ware/commit/97a1f764b828b3da729e5da737377695d99169e7))
+
+
+### Bug Fixes
+
+* **webapp:** support runtime configuration of the public PocketBase URL ([#131](https://github.com/make-ware/video-ware/issues/131)) ([2314853](https://github.com/make-ware/video-ware/commit/2314853ccbd00fb9db44d8a4d9a4e0dd569fbf31))
+
 ## [1.1.1](https://github.com/make-ware/video-ware/compare/video-ware-v1.1.0...video-ware-v1.1.1) (2026-08-04)
 
 

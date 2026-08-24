@@ -28,7 +28,10 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # Seed/update the superuser on startup so the worker can authenticate
-      # without manual admin creation.
+      # without manual admin creation. Set BOTH in the host .env: the worker is
+      # a separate container and cannot read a credential generated inside this
+      # one (see docker/README.md). Not `${VAR:?}` - that would break
+      # `docker compose pull`.
       - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL}
       - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD}
     healthcheck:

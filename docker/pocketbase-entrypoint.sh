@@ -20,8 +20,12 @@ PB_MIGRATIONS_DIR="${PB_MIGRATIONS_DIR:-/app/pb/pb_migrations}"
 PB_HOOKS_DIR="${PB_HOOKS_DIR:-/app/pb/pb_hooks}"
 PB_HTTP="${PB_HTTP:-0.0.0.0:8090}"
 
-POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
-POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
+# No defaults for POCKETBASE_ADMIN_EMAIL/PASSWORD on purpose: the superuser step
+# below has to be able to tell "the operator supplied credentials" from "nobody
+# did", and a default would make every deployment look configured - with a
+# password published in this repository.
+PB_LOG_SERVICE=pocketbase
+PB_APP_USER=nextjs:nodejs
 
 mkdir -p "$PB_DATA_DIR"
 
@@ -41,23 +45,21 @@ mkdir -p "$PB_DATA_DIR"
 # See docker/README.md ("Data directory & permissions").
 # =============================================================================
 
-# Create or update the superuser. `superuser upsert` writes directly to the
-# database file and works whether or not `serve` is running. A failure here is
-# logged but NOT fatal: PocketBase should still come up so the issue can be
+# Ensure a superuser exists (create-or-update, generating one when none was
+# supplied). Shared with the monolith (docker/start.sh) and sourced rather than
+# executed, so both images resolve credentials the same way. A failure inside is
+# logged but not fatal: PocketBase should still come up so the issue can be
 # diagnosed, and the worker retries auth with backoff.
-if [ -n "$POCKETBASE_ADMIN_EMAIL" ] && [ -n "$POCKETBASE_ADMIN_PASSWORD" ]; then
-    if [ "$POCKETBASE_ADMIN_PASSWORD" = "your-secure-password" ]; then
-        echo "⚠️  POCKETBASE_ADMIN_PASSWORD is the insecure default — set a strong password (e.g. via a k8s Secret) for production." >&2
-    fi
-    echo "Ensuring PocketBase superuser exists: $POCKETBASE_ADMIN_EMAIL"
-    if "$PB_BIN" superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR"; then
-        echo "✅ PocketBase superuser ready"
-    else
-        echo "⚠️  superuser upsert failed — the worker may not be able to authenticate until this is resolved." >&2
-    fi
-else
-    echo "⚠️  POCKETBASE_ADMIN_EMAIL/POCKETBASE_ADMIN_PASSWORD not set — skipping superuser upsert. The worker will not be able to authenticate." >&2
-fi
+#
+# Its root-only chown/chmod branches are no-ops here - this image already runs
+# as uid 1001, per the ownership model above - which is exactly what is wanted.
+#
+# A generated credential lives only in this container. The worker container gets
+# its credentials from the compose environment, so a compose stack must set both
+# POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD on the host; see
+# docker/README.md.
+# shellcheck source=./pb-superuser.sh
+. /app/docker/pb-superuser.sh
 
 # Replace the shell with PocketBase so signals (SIGTERM) propagate correctly.
 exec "$PB_BIN" serve \

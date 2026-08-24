@@ -23,8 +23,12 @@ export POCKETBASE_URL="${POCKETBASE_URL:-http://localhost:8090}"
 # NOTE: NEXT_PUBLIC_POCKETBASE_URL is deliberately NOT honoured here — it is
 # baked in at build time and has been inert at runtime for years.
 export PUBLIC_POCKETBASE_URL="${PUBLIC_POCKETBASE_URL:-}"
-export POCKETBASE_ADMIN_EMAIL="${POCKETBASE_ADMIN_EMAIL:-admin@example.com}"
-export POCKETBASE_ADMIN_PASSWORD="${POCKETBASE_ADMIN_PASSWORD:-your-secure-password}"
+# No defaults for POCKETBASE_ADMIN_EMAIL/PASSWORD on purpose: Step 5 has to be
+# able to tell "the operator supplied credentials" from "nobody did", and a
+# default would make every deployment look configured - which is exactly how
+# this container used to come up with a superuser whose password is published in
+# this repository. Both are exported by docker/pb-superuser.sh once resolved,
+# which is what supervisord's %(ENV_POCKETBASE_ADMIN_*)s references expand to.
 
 # Container Data Configuration
 # WORKER_DATA_DIR is the base directory for worker processing and local file access
@@ -136,23 +140,19 @@ fi
 
 # =============================================================================
 # Step 5: Create PocketBase superuser (Requirements 4.1)
+#
+# Shared with the split PocketBase image (docker/pocketbase-entrypoint.sh).
+# Sourced rather than executed so it runs under this script's `set -e`, and so
+# both images resolve credentials the same way. It exports the resolved pair
+# for supervisord and the worker.
 # =============================================================================
-if [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ]; then
-  echo ""
-  echo "Creating PocketBase superuser..."
-fi
-
-[ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Email: $POCKETBASE_ADMIN_EMAIL"
-[ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  Creating superuser account..."
-
-# Run superuser upsert command
-# This works even if PocketBase isn't running - it modifies the database directly
-if /app/pb/pocketbase superuser upsert "$POCKETBASE_ADMIN_EMAIL" "$POCKETBASE_ADMIN_PASSWORD" --dir="$PB_DATA_DIR" 2>/dev/null; then
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ✅ Superuser created successfully"
-else
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ⚠️  Could not create superuser (this is normal if it already exists)"
-    [ "${LOG_LEVEL}" = "debug" ] || [ "${LOG_LEVEL}" = "verbose" ] && echo "  ℹ️  Superuser will be created on first PocketBase startup if needed"
-fi
+PB_BIN=/app/pb/pocketbase
+PB_HOOKS_DIR=/app/pb/pb_hooks
+PB_MIGRATIONS_DIR=/app/pb/pb_migrations
+PB_APP_USER=nextjs:nodejs
+PB_LOG_SERVICE=startup
+# shellcheck source=./pb-superuser.sh
+. /app/docker/pb-superuser.sh
 
 # =============================================================================
 # Step 5b: Normalize /data ownership (MUST run AFTER the superuser upsert)
@@ -178,6 +178,10 @@ for _data_dir in "$PB_DATA_DIR" "$WORKER_DATA_DIR" "$REDIS_DATA_DIR" "$TMPDIR"; 
     # avoids marking data files executable the way a blanket chmod 755 would.
     chmod -R u+rwX "$_data_dir" 2>/dev/null || true
 done
+# The chown -R above just handed .pb_superuser.env to nextjs. Its mode survives
+# (u+rwX widens nothing on an 0600 file), but the generated password should stay
+# root-only, so re-assert both. Defined by docker/pb-superuser.sh, sourced above.
+protect_superuser_env
 
 # =============================================================================
 # Step 6: Setup signal handlers for graceful shutdown (Requirements 13.4)

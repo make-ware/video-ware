@@ -160,6 +160,8 @@ RUN mkdir -p /data/pb_data /data/storage && \
 # database (8)" failure that root-created DB files cause for an unprivileged
 # process. No su-exec / runtime chown needed.
 COPY --chown=nextjs:nodejs docker/pocketbase-entrypoint.sh /app/pocketbase-entrypoint.sh
+# Sourced by the entrypoint, never executed - deliberately not chmod +x.
+COPY --chown=nextjs:nodejs docker/pb-superuser.sh /app/docker/pb-superuser.sh
 RUN chmod +x /app/pocketbase-entrypoint.sh
 
 # Run unprivileged. Requires /data writable by uid 1001 (named volume = automatic).
